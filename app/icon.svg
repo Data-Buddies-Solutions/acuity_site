@@ -1,20 +1,20 @@
-<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<svg width="64" height="64" viewBox="-32 -32 64 64" xmlns="http://www.w3.org/2000/svg">
   <!-- Orange background -->
-  <rect width="64" height="64" fill="#cc6633" rx="12"/>
+  <rect x="-32" y="-32" width="64" height="64" fill="#cc6633" rx="12"/>
 
-  <!-- Calculate hexagon circle positions -->
+  <!-- Hexagon circle positions (radius of 22 from center) -->
   <!-- Top circle -->
-  <circle cx="32" cy="13" r="4" fill="white"/>
-  <!-- Top-right circle -->
-  <circle cx="45.4" cy="21" r="4" fill="white"/>
-  <!-- Bottom-right circle -->
-  <circle cx="45.4" cy="43" r="4" fill="white"/>
+  <circle cx="0" cy="-22" r="5" fill="white"/>
+  <!-- Top-right circle (60 degrees) -->
+  <circle cx="19.05" cy="-11" r="5" fill="white"/>
+  <!-- Bottom-right circle (120 degrees) -->
+  <circle cx="19.05" cy="11" r="5" fill="white"/>
   <!-- Bottom circle -->
-  <circle cx="32" cy="51" r="4" fill="white"/>
-  <!-- Bottom-left circle -->
-  <circle cx="18.6" cy="43" r="4" fill="white"/>
-  <!-- Top-left circle -->
-  <circle cx="18.6" cy="21" r="4" fill="white"/>
+  <circle cx="0" cy="22" r="5" fill="white"/>
+  <!-- Bottom-left circle (240 degrees) -->
+  <circle cx="-19.05" cy="11" r="5" fill="white"/>
+  <!-- Top-left circle (300 degrees) -->
+  <circle cx="-19.05" cy="-11" r="5" fill="white"/>
   <!-- Center circle -->
-  <circle cx="32" cy="32" r="4" fill="white"/>
+  <circle cx="0" cy="0" r="5" fill="white"/>
 </svg>
