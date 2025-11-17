@@ -63,7 +63,7 @@ export const metadata: Metadata = {
     "AI automation consultancy",
   ],
   icons: {
-    icon: "/favicon-old.png",
+    icon: "/icon.svg",
   },
   authors: [{ name: "Data Buddies Solutions" }],
   creator: "Data Buddies Solutions",
@@ -129,7 +129,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="min-h-screen bg-background text-foreground antialiased">
         <Header />
-        <main className="flex flex-col">{children}</main>
+        <main className="flex flex-col pt-24">{children}</main>
         <Footer />
         <Script
           id="structured-data-organization"
