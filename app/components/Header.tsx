@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -9,6 +9,7 @@ import { Menu, X } from "lucide-react";
 import { buttonVariants, Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 import BookCallButton from "./BookCallButton";
+import HexagonLogo from "./HexagonLogo";
 
 const navLinks = [
   { href: "/#problems", label: "Why Teams Call Us" },
@@ -20,29 +21,35 @@ const navLinks = [
 
 export default function Header() {
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 20);
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur">
-      <div className="mx-auto flex max-w-screen-xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+    <header className={cn(
+      "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
+      isScrolled ? "px-32 pt-2 md:px-48 lg:px-64" : "px-4 pt-6"
+    )}>
+      <div className={cn(
+        "mx-auto flex max-w-screen-xl items-center justify-between rounded-full border border-border/40 bg-background/70 backdrop-blur-md shadow-sm transition-all duration-300",
+        isScrolled ? "px-4 py-1.5" : "px-8 py-3"
+      )}>
         <Link href="/" className="flex items-center" aria-label="Data Buddies Solutions home">
-          <Image
-            src="/logono.png"
-            alt="Data Buddies Solutions logo"
-            width={112}
-            height={112}
-            className="h-24 w-24 origin-left scale-110 object-contain"
-            priority
-          />
+          <HexagonLogo />
         </Link>
-        <nav className="hidden items-center gap-4 md:flex">
+        <nav className="hidden items-center gap-8 md:flex">
           {navLinks.map(({ href, label }) => (
             <Link
               key={href}
               href={href}
-              className={cn(
-                buttonVariants({ variant: "ghost", size: "sm" }),
-                "rounded-full px-5 text-sm font-medium text-foreground/80 transition-colors hover:text-foreground"
-              )}
+              className="text-sm font-normal text-foreground/70 transition-colors hover:text-foreground"
             >
               {label}
             </Link>
@@ -52,7 +59,7 @@ export default function Header() {
           <BookCallButton
             size="sm"
             iconVariant="none"
-            className="hidden md:inline-flex"
+            className="hidden md:inline-flex rounded-full"
           >
             Book a Strategy Call
           </BookCallButton>

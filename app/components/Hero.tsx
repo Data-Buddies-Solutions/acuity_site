@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { Button } from "./ui/button";
 import BookCallButton from "./BookCallButton";
+import HexagonAnimation from "./HexagonAnimation";
 
 export default function Hero() {
   return (
@@ -18,23 +19,17 @@ export default function Hero() {
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <BookCallButton iconVariant="arrow-up-right" />
-            <Button asChild variant="secondary" size="lg">
+            <BookCallButton iconVariant="none" className="rounded-full" />
+            <Button asChild variant="secondary" size="lg" className="rounded-full">
               <Link href="#process">See how it works</Link>
             </Button>
           </div>
         </div>
-        <div className="relative">
-          <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-accent/10 via-transparent to-transparent blur-3xl" />
-          <Image
-            src="/hero-isometric-removebg-preview.png"
-            width={680}
-            height={680}
-            alt="Dashboard showing AI automation insights for a small business"
-            priority
-            className="relative rounded-3xl object-cover opacity-95 mix-blend-multiply"
-            sizes="(max-width: 768px) 100vw, 50vw"
-          />
+        <div className="relative flex items-center justify-center">
+          <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-accent via-accent/90 to-accent/70" />
+          <div className="relative z-10">
+            <HexagonAnimation />
+          </div>
         </div>
       </div>
     </section>
