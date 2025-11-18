@@ -61,18 +61,17 @@ export default function FAQPage() {
   };
 
   return (
-    <section className="section bg-muted/40">
-      <div className="mx-auto max-w-screen-xl space-y-10 px-4 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-2xl space-y-4 text-center">
-          <Badge variant="outline" className="w-fit uppercase">
+    <section className="py-16 md:py-24">
+      <div className="mx-auto max-w-screen-xl space-y-12 px-4">
+        <div className="mx-auto max-w-3xl space-y-4 text-center">
+          <Badge variant="outline" className="text-sm font-medium uppercase">
             FAQ
           </Badge>
-          <h1 className="text-3xl font-semibold md:text-4xl">
-            Answers to the questions small business owners struggle with most.
+          <h1 className="text-3xl font-semibold md:text-4xl lg:text-5xl">
+            Answers to the questions small business owners struggle with most
           </h1>
-          <p className="text-base text-foreground/70 md:text-lg">
-            Need something specific? Schedule a call and we'll review your workflows,
-            data, and goals together and recommend the right next step.
+          <p className="text-lg text-foreground/75 md:text-xl">
+            Need something specific? Schedule a call and we'll review your workflows, data, and goals together and recommend the right next step
           </p>
         </div>
         <Accordion
@@ -84,9 +83,9 @@ export default function FAQPage() {
             <AccordionItem
               key={question}
               value={`item-${index + 1}`}
-              className="overflow-hidden rounded-2xl border border-border/60 bg-white/95 shadow-sm transition hover:border-accent/40 hover:shadow-md last:border-b"
+              className="overflow-hidden rounded-2xl border border-border/40 transition hover:border-accent/40 last:border-b"
             >
-              <AccordionTrigger className="px-6 py-4 text-left text-lg font-semibold text-foreground hover:text-accent">
+              <AccordionTrigger className="px-6 py-5 text-left text-lg font-semibold text-foreground hover:text-accent hover:no-underline">
                 {question}
               </AccordionTrigger>
               <AccordionContent className="px-6 pb-6 text-base leading-relaxed text-foreground/75">

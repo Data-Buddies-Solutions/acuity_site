@@ -26,32 +26,30 @@ const challenges = [
 
 export default function Problems() {
   return (
-    <section className="section bg-muted/40" id="problems">
-      <div className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-8">
-        <div className="mx-auto mb-12 max-w-2xl space-y-3 text-center">
+    <section className="py-16 md:py-24" id="problems">
+      <div className="mx-auto max-w-screen-xl px-4">
+        <div className="mx-auto mb-16 max-w-3xl space-y-4 text-center">
           <Badge variant="outline" className="text-sm font-medium uppercase">
             Why teams call us
           </Badge>
-          <h2 className="text-3xl font-semibold md:text-4xl">
-            The hidden costs of running without automation.
+          <h2 className="text-3xl font-semibold md:text-4xl lg:text-5xl">
+            The hidden costs of running without automation
           </h2>
-          <p className="text-base text-foreground/70 md:text-lg">
-            We audit your workflows and build AI automations that eliminate friction and boost revenue.
+          <p className="text-lg text-foreground/75 md:text-xl">
+            We audit your workflows and build AI automations that eliminate friction and boost revenue
           </p>
         </div>
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-3 md:gap-12">
           {challenges.map(({ icon: Icon, title, description }) => (
-            <Card key={title} className="h-full bg-white">
-              <CardHeader className="space-y-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10">
-                  <Icon className="h-6 w-6 text-accent" aria-hidden />
-                </div>
-                <CardTitle className="text-xl">{title}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-foreground/70">
+            <div key={title} className="flex flex-col items-center text-center space-y-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent via-accent/90 to-accent/70">
+                <Icon className="h-8 w-8 text-white" aria-hidden />
+              </div>
+              <h3 className="text-xl font-semibold">{title}</h3>
+              <p className="text-base text-foreground/75">
                 {description}
-              </CardContent>
-            </Card>
+              </p>
+            </div>
           ))}
         </div>
       </div>

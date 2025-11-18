@@ -65,116 +65,95 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <section className="section bg-muted/40">
+    <section className="py-16 md:py-24">
       <BreadcrumbSchema
         items={[
           { name: "Home", url: "/" },
           { name: "About Us", url: "/about" },
         ]}
       />
-      <div className="mx-auto max-w-screen-xl space-y-16 px-4 sm:px-6 lg:px-8">
-        <div className="space-y-8">
-          <div className="space-y-3 text-center">
-            <Badge variant="outline" className="w-fit uppercase">
+      <div className="mx-auto max-w-screen-xl space-y-16 px-4">
+        <div className="space-y-16">
+          <div className="mx-auto max-w-3xl space-y-4 text-center">
+            <Badge variant="outline" className="text-sm font-medium uppercase">
               About Us
             </Badge>
-            <h1 className="text-3xl font-semibold md:text-4xl">Fortune 500 experience meets cutting-edge AI</h1>
-            <p className="text-base text-foreground/70 md:text-lg">
-              Enterprise-grade automation built specifically for small businesses, without the enterprise complexity.
+            <h1 className="text-3xl font-semibold md:text-4xl lg:text-5xl">Fortune 500 experience meets cutting-edge AI</h1>
+            <p className="text-lg text-foreground/75 md:text-xl">
+              Enterprise-grade automation built specifically for small businesses, without the enterprise complexity
             </p>
           </div>
-          <div className="grid gap-6 md:grid-cols-3">
-            <Card className="border border-border/60 bg-white/95 text-center shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold text-foreground">Proven at Scale</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-relaxed text-foreground/70">
-                  We built systems at Fortune 500 tech companies before leaving to focus on the frontier of AI automation.
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="border border-border/60 bg-white/95 text-center shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold text-foreground">Full-Stack AI Expertise</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-relaxed text-foreground/70">
-                  From models and hardware to software, applications, and the investment landscape, we understand the entire AI ecosystem.
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="border border-border/60 bg-white/95 text-center shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold text-foreground">Business + Engineering DNA</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-relaxed text-foreground/70">
-                  With degrees spanning business and engineering, we combine business thinking with deep technical expertise to convert challenges into wins.
-                </p>
-              </CardContent>
-            </Card>
+          <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-3 md:gap-12">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <h3 className="text-xl font-semibold">Proven at Scale</h3>
+              <p className="text-base text-foreground/75">
+                We built systems at Fortune 500 tech companies before leaving to focus on the frontier of AI automation
+              </p>
+            </div>
+            <div className="flex flex-col items-center text-center space-y-4">
+              <h3 className="text-xl font-semibold">Full-Stack AI Expertise</h3>
+              <p className="text-base text-foreground/75">
+                From models and hardware to software, applications, and the investment landscape, we understand the entire AI ecosystem
+              </p>
+            </div>
+            <div className="flex flex-col items-center text-center space-y-4">
+              <h3 className="text-xl font-semibold">Business + Engineering DNA</h3>
+              <p className="text-base text-foreground/75">
+                With degrees spanning business and engineering, we combine business thinking with deep technical expertise to convert challenges into wins
+              </p>
+            </div>
           </div>
         </div>
 
-        <div className="space-y-8 rounded-3xl border border-border/60 bg-white/95 p-10 shadow-sm">
-          <div className="space-y-3 text-center md:text-left">
-            <h2 className="text-2xl font-semibold">Meet the team</h2>
-            <p className="text-base text-foreground/75">
-              Data Buddies helps lean teams boost revenue, clear bottlenecks, and win back time with AI that feels simple, useful, and human.
+        <div className="space-y-12">
+          <div className="mx-auto max-w-3xl space-y-3 text-center">
+            <h2 className="text-3xl font-semibold md:text-4xl">Meet the team</h2>
+            <p className="text-lg text-foreground/75">
+              Data Buddies helps lean teams boost revenue, clear bottlenecks, and win back time with AI that feels simple, useful, and human
             </p>
           </div>
-          <div className="grid gap-10 md:grid-cols-2">
+          <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-2">
             {team.map(({ name, role, initials, bio, twitter }) => (
-              <Card key={name} className="border border-border/60 bg-neutral-50/90 shadow-sm">
-                <CardContent className="flex flex-col gap-6 py-8 sm:flex-row sm:items-center sm:gap-8">
-                  <div className="flex items-center justify-center sm:justify-start">
-                    <div className="flex h-32 w-32 items-center justify-center rounded-full border border-dashed border-border/70 bg-white text-lg font-semibold text-foreground/60">
-                      {initials}
-                    </div>
+              <div key={name} className="flex flex-col items-center text-center space-y-6">
+                <div className="flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-br from-accent via-accent/90 to-accent/70 text-2xl font-semibold text-white">
+                  {initials}
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-2xl font-semibold text-foreground">{name}</h3>
+                    <p className="text-sm font-medium uppercase tracking-wide text-foreground/60">{role}</p>
+                    {twitter && (
+                      <a
+                        href={`https://x.com/${twitter}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center gap-1 text-sm text-accent hover:text-accent-hover transition-colors"
+                      >
+                        <XLogo className="h-3 w-3" />
+                        @{twitter}
+                      </a>
+                    )}
                   </div>
-                  <div className="space-y-3 text-center sm:text-left">
-                    <div>
-                      <h3 className="text-xl font-semibold text-foreground">{name}</h3>
-                      <p className="text-sm font-medium uppercase tracking-wide text-foreground/60">{role}</p>
-                      {twitter && (
-                        <a
-                          href={`https://x.com/${twitter}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 inline-flex items-center gap-1 text-sm text-foreground/70 hover:text-foreground hover:underline"
-                        >
-                          <XLogo className="h-3 w-3" />
-                          @{twitter}
-                        </a>
-                      )}
-                    </div>
-                    <p className="text-base leading-relaxed text-foreground/75">{bio}</p>
-                  </div>
-                </CardContent>
-              </Card>
+                  <p className="text-base leading-relaxed text-foreground/75">{bio}</p>
+                </div>
+              </div>
             ))}
           </div>
         </div>
 
-        <div className="space-y-8">
-          <div className="space-y-3 text-center md:text-left">
-            <h2 className="text-2xl font-semibold">Our philosophy</h2>
-            <p className="text-base text-foreground/75">
-              These principles keep every automation grounded in business impact and human adoption even as tools change
-              and your priorities evolve.
+        <div className="space-y-12">
+          <div className="mx-auto max-w-3xl space-y-3 text-center">
+            <h2 className="text-3xl font-semibold md:text-4xl">Our philosophy</h2>
+            <p className="text-lg text-foreground/75">
+              These principles keep every automation grounded in business impact and human adoption even as tools change and your priorities evolve
             </p>
           </div>
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-3 md:gap-12">
             {philosophy.map(({ title, description }) => (
-              <Card key={title} className="border border-border/60 bg-white/95 text-left shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-lg font-semibold text-foreground">{title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm leading-relaxed text-foreground/70">{description}</p>
-                </CardContent>
-              </Card>
+              <div key={title} className="flex flex-col items-center text-center space-y-4">
+                <h3 className="text-xl font-semibold">{title}</h3>
+                <p className="text-base text-foreground/75">{description}</p>
+              </div>
             ))}
           </div>
         </div>

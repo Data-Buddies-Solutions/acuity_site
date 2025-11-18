@@ -30,34 +30,30 @@ const steps = [
 
 export default function Process() {
   return (
-    <section className="section bg-white" id="process">
-      <div className="mx-auto max-w-screen-xl space-y-16 px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-4 md:max-w-xl">
-            <Badge variant="outline" className="w-fit">
-              Delivery framework
-            </Badge>
-            <h2 className="text-3xl font-semibold md:text-4xl">
-              Discovery to deployment in four steps.
-            </h2>
-            <p className="text-base text-foreground/70 md:text-lg">
-              A clear process that gets AI automations working fast.
-            </p>
-          </div>
+    <section className="py-16 md:py-24" id="process">
+      <div className="mx-auto max-w-screen-xl px-4">
+        <div className="mx-auto mb-16 max-w-3xl space-y-4 text-center">
+          <Badge variant="outline" className="text-sm font-medium uppercase">
+            Delivery framework
+          </Badge>
+          <h2 className="text-3xl font-semibold md:text-4xl lg:text-5xl">
+            Discovery to deployment in four steps
+          </h2>
+          <p className="text-lg text-foreground/75 md:text-xl">
+            A clear process that gets AI automations working fast
+          </p>
         </div>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-2 md:gap-12">
           {steps.map(({ step, title, description }) => (
-            <Card key={title} className="h-full bg-muted/20">
-              <CardHeader className="flex flex-row items-start gap-4">
-                <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-accent text-lg font-semibold text-white shadow-sm">
-                  {step}
-                </span>
-                <div>
-                  <CardTitle className="text-xl">{title}</CardTitle>
-                  <p className="mt-1 text-sm text-foreground/70">{description}</p>
-                </div>
-              </CardHeader>
-            </Card>
+            <div key={title} className="flex flex-col items-center text-center space-y-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent via-accent/90 to-accent/70">
+                <span className="text-2xl font-semibold text-white">{step}</span>
+              </div>
+              <h3 className="text-xl font-semibold">{title}</h3>
+              <p className="text-base text-foreground/75">
+                {description}
+              </p>
+            </div>
           ))}
         </div>
       </div>

@@ -23,19 +23,18 @@ function LinkedinIcon(props: SVGProps<SVGSVGElement>) {
 
 export default function Footer() {
   return (
-    <footer className="border-t border-border bg-background/80">
+    <footer className="border-t border-border/40">
       <div className="mx-auto flex max-w-screen-xl flex-col gap-8 px-4 py-12 sm:px-6 lg:flex-row lg:items-start lg:justify-between lg:px-8">
-        <div className="max-w-xl space-y-4">
-          <h3 className="text-lg font-semibold text-foreground">Data Buddies Solutions</h3>
-          <p className="text-sm leading-relaxed text-foreground/70">
-            Your always-on business buddy that clears repetitive work and keeps operations humming.
-            We blend automation engineering and AI expertise so you can focus on growth.
+        <div className="max-w-xl space-y-3">
+          <h3 className="text-xl font-semibold text-foreground">Data Buddies Solutions</h3>
+          <p className="text-base leading-relaxed text-foreground/75">
+            Your always-on business buddy that clears repetitive work and keeps operations humming. We blend automation engineering and AI expertise so you can focus on growth
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-sm text-foreground/70">
+        <div className="flex flex-col gap-4 text-sm text-foreground/75">
           <div>
             <p className="font-semibold text-foreground">Contact</p>
-            <Link href="mailto:databuddiessolutions@gmail.com" className="mt-1 inline-flex items-center gap-2 text-accent">
+            <Link href="mailto:databuddiessolutions@gmail.com" className="mt-1 inline-flex items-center gap-2 text-accent hover:text-accent-hover transition-colors">
               databuddiessolutions@gmail.com
             </Link>
             <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">
@@ -45,7 +44,7 @@ export default function Footer() {
           <div className="flex items-center gap-3">
             <Link
               href="https://www.linkedin.com/company/data-buddies-solutions"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+              className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Data Buddies Solutions on LinkedIn"
@@ -56,20 +55,20 @@ export default function Footer() {
           </div>
         </div>
       </div>
-      <div className="border-t border-border/60">
+      <div className="border-t border-border/40">
         <div className="mx-auto flex max-w-screen-xl flex-col items-center justify-between gap-3 px-4 py-6 text-xs text-foreground/50 sm:flex-row sm:px-6 lg:px-8">
           <p>© {new Date().getFullYear()} Data Buddies Solutions. All rights reserved.</p>
           <div className="flex items-center gap-4">
-            <Link href="#top" className="hover:text-accent">
+            <Link href="#top" className="hover:text-accent transition-colors">
               Back to top
             </Link>
-            <Link href="/blog" className="hover:text-accent">
+            <Link href="/blog" className="hover:text-accent transition-colors">
               Blog
             </Link>
-            <Link href="/privacy-policy" className="hover:text-accent">
+            <Link href="/privacy-policy" className="hover:text-accent transition-colors">
               Privacy Policy
             </Link>
-            <Link href="/terms-of-service" className="hover:text-accent">
+            <Link href="/terms-of-service" className="hover:text-accent transition-colors">
               Terms of Service
             </Link>
           </div>

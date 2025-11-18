@@ -61,7 +61,7 @@ export default function Header() {
             iconVariant="none"
             className="hidden md:inline-flex rounded-full"
           >
-            Book a Strategy Call
+            Book a strategy call
           </BookCallButton>
           <Button
             variant="ghost"
@@ -78,35 +78,32 @@ export default function Header() {
       {isMobileNavOpen ? (
         <div className="md:hidden">
           <div
-            className="fixed inset-0 z-40 bg-white"
+            className="fixed inset-0 z-40 bg-background/95 backdrop-blur-md"
             onClick={() => setMobileNavOpen(false)}
           >
             <div
-              className="mx-auto flex min-h-full w-full max-w-screen-sm flex-col gap-6 bg-white px-6 py-8"
+              className="mx-auto flex min-h-full w-full max-w-screen-sm flex-col items-center justify-center gap-8 px-6 py-8"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex justify-end">
+              <div className="absolute top-6 right-6">
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(false)}
                   className={cn(
                     buttonVariants({ variant: "ghost", size: "icon" }),
-                    "h-10 w-10 rounded-full border border-border bg-white text-foreground shadow-sm"
+                    "h-10 w-10 rounded-full border border-border bg-background text-foreground shadow-sm"
                   )}
                   aria-label="Close navigation"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <nav className="space-y-3">
+              <nav className="flex flex-col items-center space-y-6 w-full">
                 {navLinks.map(({ href, label }) => (
                   <Link
                     key={href}
                     href={href}
-                    className={cn(
-                      buttonVariants({ variant: "ghost", size: "lg" }),
-                      "w-full justify-start rounded-2xl bg-neutral-50 px-5 text-base font-semibold text-foreground shadow-sm transition hover:bg-white"
-                    )}
+                    className="text-2xl font-normal text-foreground/80 transition-colors hover:text-foreground"
                     onClick={() => setMobileNavOpen(false)}
                   >
                     {label}
@@ -115,9 +112,9 @@ export default function Header() {
                 <BookCallButton
                   size="lg"
                   iconVariant="none"
-                  className="w-full rounded-2xl text-base"
+                  className="rounded-full text-base mt-4"
                 >
-                  Book a Strategy Call
+                  Book a strategy call
                 </BookCallButton>
               </nav>
             </div>
