@@ -13,7 +13,7 @@ const organizationSchema = {
   url: SITE_CONFIG.baseUrl,
   logo: `${SITE_CONFIG.baseUrl}/logono.png`,
   description:
-    "Data Buddies Solutions builds AI automation for small and midsize businesses, delivering workflow orchestration, intelligent agents, and analytics.",
+    "Your Business Buddy That Never Sleeps. We clear repetitive tasks with AI automation so you can focus on work that grows profit.",
   email: SITE_CONFIG.email,
   sameAs: [SITE_CONFIG.social.linkedin],
   serviceType: [
@@ -48,7 +48,7 @@ export const metadata: Metadata = {
     template: `%s | ${SITE_CONFIG.name}`,
   },
   description:
-    "Data Buddies Solutions designs, builds, and maintains AI automations for small businesses. Launch AI agents for lead follow-up, customer success, analytics, and back-office workflows within weeks.",
+    "Your Business Buddy That Never Sleeps. Data Buddies clear repetitive tasks so you can focus on the work that grows profit. AI automation that turns bottlenecks into breakthroughs.",
   keywords: [
     "Data Buddies",
     "Data Buddies Solutions",
@@ -81,7 +81,7 @@ export const metadata: Metadata = {
     url: `${SITE_CONFIG.baseUrl}/`,
     title: "AI Automation for Small Businesses | Data Buddies Solutions",
     description:
-      "Partner with Data Buddies Solutions to deploy AI agents, automate workflows, and launch analytics copilots tailored to your business.",
+      "Your Business Buddy That Never Sleeps. We clear repetitive tasks with AI automation so you can focus on work that grows profit.",
     siteName: "Data Buddies Solutions",
     images: [
       {
@@ -101,7 +101,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "AI Automation for Small Businesses",
     description:
-      "Workflow automation and AI agents that help small businesses scale without adding headcount.",
+      "Your Business Buddy That Never Sleeps. AI automation that clears repetitive tasks so you can focus on work that grows profit.",
     images: ["/hero-isometric-removebg-preview.png"],
   },
   robots: {

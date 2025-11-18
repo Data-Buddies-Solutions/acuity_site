@@ -1,12 +1,25 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
 
 export default function HexagonAnimation() {
   const [showRobot, setShowRobot] = useState(false);
   const [isInView, setIsInView] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const prefersReducedMotion = useReducedMotion();
+
+  // Detect if device is likely mobile/low-power
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768 || 'ontouchstart' in window);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -64,12 +77,13 @@ export default function HexagonAnimation() {
         height="300"
         viewBox="-175 -175 350 350"
         className="w-full h-full max-w-[300px]"
+        style={{ willChange: showRobot ? 'auto' : 'transform' }}
       >
-        {/* Rotating outer group */}
+        {/* Rotating outer group - only rotate once on mobile for performance */}
         <motion.g
-          animate={{
+          animate={!isMobile && !showRobot ? {
             rotate: 360,
-          }}
+          } : {}}
           transition={{
             duration: 2,
             ease: "linear",
@@ -100,14 +114,14 @@ export default function HexagonAnimation() {
                 transition={
                   showRobot
                     ? {
-                        duration: 0.8,
+                        duration: isMobile ? 0.6 : 0.8,
                         delay: i * 0.05,
                         ease: "easeInOut",
                       }
                     : {
-                        duration: 0.5,
+                        duration: isMobile ? 0.4 : 0.5,
                         delay: i * 0.1,
-                        ease: "backOut",
+                        ease: isMobile ? "easeOut" : "backOut",
                       }
                 }
               />
@@ -129,11 +143,11 @@ export default function HexagonAnimation() {
           }
           transition={
             showRobot
-              ? { duration: 0.6, ease: "easeIn" }
+              ? { duration: isMobile ? 0.4 : 0.6, ease: "easeIn" }
               : {
-                  duration: 0.6,
+                  duration: isMobile ? 0.4 : 0.6,
                   delay: 0.6,
-                  ease: "backOut",
+                  ease: isMobile ? "easeOut" : "backOut",
                 }
           }
         />
@@ -150,7 +164,10 @@ export default function HexagonAnimation() {
               fill="white"
               initial={{ y: 300, opacity: 0 }}
               animate={{ y: -10, opacity: 1 }}
-              transition={{ delay: 0.4, type: "spring", stiffness: 120, damping: 15 }}
+              transition={isMobile
+                ? { delay: 0.4, duration: 0.5, ease: "easeOut" }
+                : { delay: 0.4, type: "spring", stiffness: 120, damping: 15 }
+              }
             />
 
             {/* Head - flies in from top */}
@@ -163,7 +180,10 @@ export default function HexagonAnimation() {
               fill="white"
               initial={{ y: -300, opacity: 0 }}
               animate={{ y: -80, opacity: 1 }}
-              transition={{ delay: 0.5, type: "spring", stiffness: 120, damping: 15 }}
+              transition={isMobile
+                ? { delay: 0.5, duration: 0.5, ease: "easeOut" }
+                : { delay: 0.5, type: "spring", stiffness: 120, damping: 15 }
+              }
             />
 
             {/* Visor/Eye panel */}
@@ -301,7 +321,10 @@ export default function HexagonAnimation() {
               fill="white"
               initial={{ y: 300, opacity: 0 }}
               animate={{ y: 90, opacity: 1 }}
-              transition={{ delay: 0.7, type: "spring", stiffness: 120, damping: 15 }}
+              transition={isMobile
+                ? { delay: 0.7, duration: 0.5, ease: "easeOut" }
+                : { delay: 0.7, type: "spring", stiffness: 120, damping: 15 }
+              }
             />
             <motion.rect
               x="10"
@@ -312,7 +335,10 @@ export default function HexagonAnimation() {
               fill="white"
               initial={{ y: 300, opacity: 0 }}
               animate={{ y: 90, opacity: 1 }}
-              transition={{ delay: 0.7, type: "spring", stiffness: 120, damping: 15 }}
+              transition={isMobile
+                ? { delay: 0.7, duration: 0.5, ease: "easeOut" }
+                : { delay: 0.7, type: "spring", stiffness: 120, damping: 15 }
+              }
             />
 
             {/* Feet */}

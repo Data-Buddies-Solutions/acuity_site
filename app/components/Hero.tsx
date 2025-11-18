@@ -27,9 +27,9 @@ export default function Hero() {
             </p>
           </div>
 
-          <div className="flex flex-row gap-4 items-center justify-center pt-2">
-            <BookCallButton iconVariant="none" className="rounded-xl h-11 px-6 text-base font-semibold md:h-12 md:px-8" />
-            <Button asChild variant="secondary" className="rounded-xl h-11 px-6 text-base font-semibold md:h-12 md:px-8">
+          <div className="flex flex-row gap-3 md:gap-4 items-center justify-center pt-2 w-full px-4 sm:px-0">
+            <BookCallButton iconVariant="none" className="rounded-xl h-11 px-4 text-sm md:px-8 md:text-base font-semibold md:h-12" />
+            <Button asChild variant="secondary" className="rounded-xl h-11 px-4 text-sm md:px-8 md:text-base font-semibold md:h-12">
               <Link href="#process">See how it works</Link>
             </Button>
           </div>

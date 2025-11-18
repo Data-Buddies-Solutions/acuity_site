@@ -28,9 +28,9 @@ export default function CTA() {
               We'll map quick wins, review your data, and build a clear roadmap. You'll get a prioritized plan and ROI model within one week
             </p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
-            <BookCallButton iconVariant="none" className="rounded-xl h-12 px-8 text-base font-semibold" />
-            <Button asChild variant="secondary" className="rounded-xl h-12 px-8 text-base font-semibold">
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-center w-full px-4 sm:px-0">
+            <BookCallButton iconVariant="none" className="rounded-xl h-12 px-8 text-base font-semibold w-full sm:w-auto" />
+            <Button asChild variant="secondary" className="rounded-xl h-12 px-8 text-base font-semibold w-full sm:w-auto">
               <Link href={`mailto:${SITE_CONFIG.email}`}>Email our team</Link>
             </Button>
           </div>
