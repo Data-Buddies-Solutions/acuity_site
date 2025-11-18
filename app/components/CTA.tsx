@@ -7,29 +7,33 @@ import BookCallButton from "./BookCallButton";
 
 export default function CTA() {
   return (
-    <section className="py-16 md:py-24">
-      <div className="mx-auto max-w-screen-xl px-4">
-        <div className="mx-auto max-w-3xl space-y-8 text-center">
-          <div className="space-y-4">
-            <Badge variant="outline" className="text-sm font-medium uppercase">
+    <section className="relative py-20 md:py-32 overflow-hidden">
+      {/* Geometric pattern background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-accent/10 via-accent/5 to-background">
+        <div className="absolute inset-0 opacity-30" style={{
+          backgroundImage: `radial-gradient(circle at 2px 2px, rgba(204, 102, 51, 0.15) 1px, transparent 0)`,
+          backgroundSize: '48px 48px'
+        }} />
+      </div>
+      <div className="relative mx-auto max-w-7xl px-6 md:px-10">
+        <div className="mx-auto max-w-4xl space-y-10 text-center">
+          <div className="space-y-6">
+            <Badge variant="outline" className="backdrop-blur-sm bg-background/80 border-border text-sm font-medium uppercase tracking-tight">
               Ready to automate?
             </Badge>
-            <h2 className="text-3xl font-semibold md:text-4xl lg:text-5xl">
+            <h2 className="text-4xl font-bold tracking-tighter md:text-5xl lg:text-6xl">
               Start your AI automation roadmap with a tailored blueprint
             </h2>
-            <p className="text-lg text-foreground/75 md:text-xl">
+            <p className="text-xl text-muted-foreground md:text-2xl max-w-3xl mx-auto">
               We'll map quick wins, review your data, and build a clear roadmap. You'll get a prioritized plan and ROI model within one week
             </p>
           </div>
-          <div className="flex flex-row gap-3 items-center justify-center">
-            <BookCallButton iconVariant="none" className="rounded-full h-9 px-4 text-sm sm:h-11 sm:px-6 sm:text-base" />
-            <Button asChild variant="secondary" className="rounded-full h-9 px-4 text-sm sm:h-11 sm:px-6 sm:text-base">
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
+            <BookCallButton iconVariant="none" className="rounded-xl h-12 px-8 text-base font-semibold" />
+            <Button asChild variant="secondary" className="rounded-xl h-12 px-8 text-base font-semibold">
               <Link href={`mailto:${SITE_CONFIG.email}`}>Email our team</Link>
             </Button>
           </div>
-          <p className="text-sm text-foreground/60">
-            Prefer async? We'll record a walkthrough with personalized automation ideas after reviewing your intake form
-          </p>
         </div>
       </div>
     </section>

@@ -1,19 +1,51 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export default function HexagonAnimation() {
   const [showRobot, setShowRobot] = useState(false);
+  const [isInView, setIsInView] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // After 2 seconds, morph into robot (smoother transition)
-    const timer = setTimeout(() => {
-      setShowRobot(true);
-    }, 2000);
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          // Reset animation when entering viewport
+          setShowRobot(false);
+          setIsInView(true);
+        } else {
+          // Component left viewport
+          setIsInView(false);
+        }
+      },
+      {
+        threshold: 0.3, // Trigger when 30% of component is visible
+      }
+    );
 
-    return () => clearTimeout(timer);
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => {
+      if (containerRef.current) {
+        observer.unobserve(containerRef.current);
+      }
+    };
   }, []);
+
+  useEffect(() => {
+    if (isInView) {
+      // After 2 seconds, morph into robot (smoother transition)
+      const timer = setTimeout(() => {
+        setShowRobot(true);
+      }, 2000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isInView]);
 
   // Calculate positions for 6 circles in a hexagon pattern
   const hexagonCircles = Array.from({ length: 6 }, (_, i) => {
@@ -26,7 +58,7 @@ export default function HexagonAnimation() {
   });
 
   return (
-    <div className="flex items-center justify-center w-full h-full min-h-[375px] relative">
+    <div ref={containerRef} className="flex items-center justify-center w-full h-full min-h-[375px] relative">
       <svg
         width="300"
         height="300"
