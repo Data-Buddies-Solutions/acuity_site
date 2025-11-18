@@ -26,12 +26,12 @@ export default function HexagonAnimation() {
   });
 
   return (
-    <div className="flex items-center justify-center w-full h-full min-h-[500px] relative">
+    <div className="flex items-center justify-center w-full h-full min-h-[375px] relative">
       <svg
-        width="400"
-        height="400"
-        viewBox="-150 -150 300 300"
-        className="w-full h-full"
+        width="300"
+        height="300"
+        viewBox="-175 -175 350 350"
+        className="w-full h-full max-w-[300px]"
       >
         {/* Rotating outer group */}
         <motion.g
