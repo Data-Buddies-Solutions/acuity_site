@@ -28,7 +28,7 @@ export default function Footer() {
         <div className="max-w-xl space-y-3">
           <h3 className="text-xl font-semibold text-foreground">Data Buddies Solutions</h3>
           <p className="text-base leading-relaxed text-foreground/75">
-            Your always-on business buddy that clears repetitive work and keeps operations humming. We blend automation engineering and AI expertise so you can focus on growth
+            Your Data Buddies automate repetitive work and streamline operations so your team can focus on growth
           </p>
         </div>
         <div className="flex flex-col gap-4 text-sm text-foreground/75">

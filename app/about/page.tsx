@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Image from "next/image";
+import { Zap, Target, Users } from "lucide-react";
 
 import { Badge } from "@/app/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
@@ -24,6 +26,7 @@ const team = [
     name: "Kyle Shechtman",
     role: "CEO",
     initials: "KS",
+    image: "/kyle-shechtman.png",
     bio: "Hi, I'm Kyle, the CEO of Data Buddies. I love talking with business owners, learning what slows them down, and building better ways to get things done. I track new technology closely and enjoy turning big ideas into something real alongside the team. For me, work should feel less complicated and more meaningful, whether that means sharper systems, smarter tools, or a fresh perspective. When I'm away from the laptop, you'll find me outside hiking, playing sports, exploring new places, and staying curious about what's next.",
     twitter: "_kyleshechtman",
   },
@@ -31,6 +34,7 @@ const team = [
     name: "Chase Fagen",
     role: "CTO",
     initials: "CF",
+    image: "/chase-fagen.png",
     bio: "I'm a lifelong learner and adventurer, fascinated by how ideas move from circuits and code to things that actually make a difference in people's lives. I love all sports and competition, from snowboarding to soccer to padel, I have tried it all. I see movement in sport the same way I see it in business: it's about flow, timing, and adaptability. That same competitive spirit drives me to find better ways for small businesses to win, because when their tools move with them instead of against them, that's a victory we share.",
     twitter: "chasef07",
   },
@@ -38,19 +42,22 @@ const team = [
 
 const philosophy = [
   {
-    title: "Ship, learn, iterate",
+    icon: Zap,
+    title: "Demo, learn, build",
     description:
-      "We launch quickly, listen closely, and polish the experience so wins keep stacking up.",
+      "Quick demos, fast feedback, continuous improvement. Building your perfect product.",
   },
   {
+    icon: Target,
     title: "Build for business impact",
     description:
-      "We only build when the outcome is clear: more revenue, fewer hours, or smoother scale, so every automation pulls its weight.",
+      "We build what matters: solutions that boost revenue, save hours, or enable growth.",
   },
   {
-    title: "Keep it effortless",
+    icon: Users,
+    title: "Simple by design",
     description:
-      "We involve the people doing the work so every automation stays simple, seamless, and clearly on your side.",
+      "We design with your team in mind, so nothing feels complicated.",
   },
 ];
 
@@ -65,63 +72,50 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <section className="py-16 md:py-24">
+    <>
       <BreadcrumbSchema
         items={[
           { name: "Home", url: "/" },
           { name: "About Us", url: "/about" },
         ]}
       />
-      <div className="mx-auto max-w-screen-xl space-y-16 px-4">
-        <div className="space-y-16">
-          <div className="mx-auto max-w-3xl space-y-4 text-center">
-            <Badge variant="outline" className="text-sm font-medium uppercase">
+
+      {/* About Us */}
+      <section className="border-b pt-12 md:pt-16 pb-20 md:pb-32">
+        <div className="mx-auto max-w-7xl px-6 md:px-10">
+          <div className="mx-auto mb-12 md:mb-16 max-w-3xl space-y-6 text-center">
+            <Badge variant="outline" className="backdrop-blur-sm bg-background/60 border-border text-sm font-medium uppercase tracking-tight">
               About Us
             </Badge>
-            <h1 className="text-3xl font-semibold md:text-4xl lg:text-5xl">Fortune 500 experience meets cutting-edge AI</h1>
-            <p className="text-lg text-foreground/75 md:text-xl">
-              Enterprise-grade automation built specifically for small businesses, without the enterprise complexity
+            <h1 className="text-4xl font-bold tracking-tighter md:text-5xl lg:text-6xl">
+              Meet The Data Buddies
+            </h1>
+            <p className="text-xl text-muted-foreground md:text-2xl">
+              We help teams automate work so they can focus on growth
             </p>
           </div>
-          <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-3 md:gap-12">
-            <div className="flex flex-col items-center text-center space-y-4">
-              <h3 className="text-xl font-semibold">Proven at Scale</h3>
-              <p className="text-base text-foreground/75">
-                We built systems at Fortune 500 tech companies before leaving to focus on the frontier of AI automation
-              </p>
-            </div>
-            <div className="flex flex-col items-center text-center space-y-4">
-              <h3 className="text-xl font-semibold">Full-Stack AI Expertise</h3>
-              <p className="text-base text-foreground/75">
-                From models and hardware to software, applications, and the investment landscape, we understand the entire AI ecosystem
-              </p>
-            </div>
-            <div className="flex flex-col items-center text-center space-y-4">
-              <h3 className="text-xl font-semibold">Business + Engineering DNA</h3>
-              <p className="text-base text-foreground/75">
-                With degrees spanning business and engineering, we combine business thinking with deep technical expertise to convert challenges into wins
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-12">
-          <div className="mx-auto max-w-3xl space-y-3 text-center">
-            <h2 className="text-3xl font-semibold md:text-4xl">Meet the team</h2>
-            <p className="text-lg text-foreground/75">
-              Data Buddies helps lean teams boost revenue, clear bottlenecks, and win back time with AI that feels simple, useful, and human
-            </p>
-          </div>
-          <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-2">
-            {team.map(({ name, role, initials, bio, twitter }) => (
+          <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-2 lg:gap-16">
+            {team.map(({ name, role, initials, image, bio, twitter }) => (
               <div key={name} className="flex flex-col items-center text-center space-y-6">
-                <div className="flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-br from-accent via-accent/90 to-accent/70 text-2xl font-semibold text-white">
-                  {initials}
-                </div>
+                {image ? (
+                  <div className="relative h-48 w-48 rounded-full overflow-hidden shadow-lg">
+                    <Image
+                      src={image}
+                      alt={name}
+                      fill
+                      className="object-cover"
+                      sizes="192px"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-48 w-48 items-center justify-center rounded-full bg-gradient-to-br from-accent via-accent/90 to-accent/70 text-4xl font-semibold text-white shadow-lg">
+                    {initials}
+                  </div>
+                )}
                 <div className="space-y-3">
                   <div>
-                    <h3 className="text-2xl font-semibold text-foreground">{name}</h3>
-                    <p className="text-sm font-medium uppercase tracking-wide text-foreground/60">{role}</p>
+                    <h3 className="text-2xl font-bold tracking-tight">{name}</h3>
+                    <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">{role}</p>
                     {twitter && (
                       <a
                         href={`https://x.com/${twitter}`}
@@ -134,30 +128,38 @@ export default function AboutPage() {
                       </a>
                     )}
                   </div>
-                  <p className="text-base leading-relaxed text-foreground/75">{bio}</p>
+                  <p className="text-base leading-relaxed text-muted-foreground">{bio}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
+      </section>
 
-        <div className="space-y-12">
-          <div className="mx-auto max-w-3xl space-y-3 text-center">
-            <h2 className="text-3xl font-semibold md:text-4xl">Our philosophy</h2>
-            <p className="text-lg text-foreground/75">
-              These principles keep every automation grounded in business impact and human adoption even as tools change and your priorities evolve
+      {/* Our Philosophy */}
+      <section className="py-20 md:py-32 bg-accent/5">
+        <div className="mx-auto max-w-7xl px-6 md:px-10">
+          <div className="mx-auto mb-16 md:mb-20 max-w-3xl space-y-6 text-center">
+            <h2 className="text-4xl font-bold tracking-tighter md:text-5xl lg:text-6xl">
+              Our Philosophy
+            </h2>
+            <p className="text-xl text-muted-foreground md:text-2xl">
+              The principles that guide every project
             </p>
           </div>
-          <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-3 md:gap-12">
-            {philosophy.map(({ title, description }) => (
+          <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-3 lg:gap-16">
+            {philosophy.map(({ icon: Icon, title, description }) => (
               <div key={title} className="flex flex-col items-center text-center space-y-4">
-                <h3 className="text-xl font-semibold">{title}</h3>
-                <p className="text-base text-foreground/75">{description}</p>
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-accent via-accent/90 to-accent/70 shadow-lg">
+                  <Icon className="h-8 w-8 text-white" aria-hidden />
+                </div>
+                <h3 className="text-xl font-bold tracking-tight">{title}</h3>
+                <p className="text-base text-muted-foreground leading-relaxed">{description}</p>
               </div>
             ))}
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }
