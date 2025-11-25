@@ -1,9 +1,14 @@
 import { Metadata } from "next";
+import { SITE_CONFIG } from "@/lib/config";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
   description:
     "Read the Terms of Service for Data Buddies Solutions. Understand the terms and conditions for using our AI automation and workflow automation services.",
+  alternates: {
+    canonical: `${SITE_CONFIG.baseUrl}/terms-of-service`,
+  },
   openGraph: {
     title: "Terms of Service | Data Buddies Solutions",
     description:
@@ -13,7 +18,14 @@ export const metadata: Metadata = {
 
 export default function TermsOfServicePage() {
   return (
-    <section className="mx-auto max-w-3xl space-y-6 px-4 py-16 sm:px-6 lg:px-8">
+    <>
+      <BreadcrumbSchema
+        items={[
+          { name: "Home", url: "/" },
+          { name: "Terms of Service", url: "/terms-of-service" },
+        ]}
+      />
+      <section className="mx-auto max-w-3xl space-y-6 px-4 py-16 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-semibold text-foreground">Terms of Service</h1>
       <p className="text-sm text-foreground/70">Last updated: October 2025</p>
       <p className="text-base leading-relaxed text-foreground/80">
@@ -63,13 +75,14 @@ export default function TermsOfServicePage() {
           <h2 className="text-xl font-semibold text-foreground">Contact</h2>
           <p>
             For questions about these Terms, contact Emet Global LLC d/b/a Data Buddies Solutions at{" "}
-            <a href="mailto:databuddiessolutions@gmail.com" className="text-accent hover:underline">
-              databuddiessolutions@gmail.com
+            <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
+              team@databuddiessolutions.com
             </a>
             .
           </p>
         </div>
       </div>
     </section>
+    </>
   );
 }

@@ -12,16 +12,28 @@ import {
   CardTitle,
 } from "@/app/components/ui/card";
 import { posts } from "./posts";
+import { SITE_CONFIG } from "@/lib/config";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 export const metadata: Metadata = {
   title: "Automation Insights & Playbooks",
   description:
     "Deep dives, frameworks, and checklists for building AI automations that help small businesses scale.",
+  alternates: {
+    canonical: `${SITE_CONFIG.baseUrl}/blog`,
+  },
 };
 
 export default function BlogPage() {
   return (
-    <div className="py-16 md:py-24">
+    <>
+      <BreadcrumbSchema
+        items={[
+          { name: "Home", url: "/" },
+          { name: "Blog", url: "/blog" },
+        ]}
+      />
+      <div className="py-16 md:py-24">
       <div className="mx-auto max-w-screen-xl space-y-12 px-4">
         <div className="mx-auto max-w-3xl space-y-4 text-center">
           <Badge variant="outline" className="text-sm font-medium uppercase">
@@ -80,12 +92,13 @@ export default function BlogPage() {
         </div>
         <p className="text-center text-sm text-foreground/60">
           Looking for something specific? Email{" "}
-          <Link href="mailto:databuddiessolutions@gmail.com" className="text-accent hover:text-accent-hover transition-colors">
-            databuddiessolutions@gmail.com
+          <Link href="mailto:team@databuddiessolutions.com" className="text-accent hover:text-accent-hover transition-colors">
+            team@databuddiessolutions.com
           </Link>{" "}
           with your topic request
         </p>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

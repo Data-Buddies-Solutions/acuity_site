@@ -120,7 +120,7 @@ const structuredData = {
   "url": "https://databuddiessolutions.com",
   "logo": "https://databuddiessolutions.com/favicon.svg",
   "telephone": "", // Add if available
-  "email": "databuddiessolutions@gmail.com",
+  "email": "team@databuddiessolutions.com",
   "address": {
     "@type": "PostalAddress",
     // Add if applicable

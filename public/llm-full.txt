@@ -164,7 +164,7 @@ AI handles appointment scheduling, email triage, data entry, report generation, 
 AI analyzes business data, surfaces insights, answers questions in natural language, generates reports, identifies opportunities.
 
 ## Contact & Booking
-- **Email**: databuddiessolutions@gmail.com
+- **Email**: team@databuddiessolutions.com
 - **Strategy Call**: https://cal.com/data-buddies-solutions/30min
 - **Website**: https://databuddiessolutions.com
 - **LinkedIn**: https://www.linkedin.com/company/data-buddies-solutions

@@ -34,8 +34,8 @@ export default function Footer() {
         <div className="flex flex-col gap-4 text-sm text-foreground/75">
           <div>
             <p className="font-semibold text-foreground">Contact</p>
-            <Link href="mailto:databuddiessolutions@gmail.com" className="mt-1 inline-flex items-center gap-2 text-accent hover:text-accent-hover transition-colors">
-              databuddiessolutions@gmail.com
+            <Link href="mailto:team@databuddiessolutions.com" className="mt-1 inline-flex items-center gap-2 text-accent hover:text-accent-hover transition-colors">
+              team@databuddiessolutions.com
             </Link>
             <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">
               Response time &lt; 24 hours

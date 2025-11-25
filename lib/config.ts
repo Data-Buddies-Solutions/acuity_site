@@ -1,7 +1,7 @@
 export const SITE_CONFIG = {
   name: "Data Buddies Solutions",
   baseUrl: "https://databuddiessolutions.com",
-  email: "databuddiessolutions@gmail.com",
+  email: "team@databuddiessolutions.com",
   calendarLink: "https://cal.com/data-buddies-solutions/30min",
   description:
     "AI automation for small businesses. We build custom AI agents and workflow automations that boost revenue, eliminate bottlenecks, and scale operations.",

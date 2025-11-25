@@ -85,15 +85,11 @@ export const metadata: Metadata = {
     siteName: "Data Buddies Solutions",
     images: [
       {
-        // TODO: Create a dedicated 1200x630 OpenGraph image for better social media sharing
-        // Current image is 668x374, consider creating a proper OG image with:
-        // - Data Buddies Solutions branding
-        // - Clear value proposition text
-        // - Professional design matching brand colors (#cc6633)
-        url: "/hero-isometric-removebg-preview.png",
-        width: 668,
-        height: 374,
+        url: `${SITE_CONFIG.baseUrl}/api/og?title=Your Business Buddy That Never Sleeps&subtitle=AI Automation for Small Businesses`,
+        width: 1200,
+        height: 630,
         alt: "Data Buddies Solutions - AI automation for small businesses",
+        type: "image/png",
       },
     ],
   },
@@ -102,7 +98,7 @@ export const metadata: Metadata = {
     title: "AI Automation for Small Businesses",
     description:
       "Your Business Buddy That Never Sleeps. AI automation that clears repetitive tasks so you can focus on work that grows profit.",
-    images: ["/hero-isometric-removebg-preview.png"],
+    images: [`${SITE_CONFIG.baseUrl}/api/og?title=Your Business Buddy That Never Sleeps&subtitle=AI Automation for Small Businesses`],
   },
   robots: {
     index: true,
@@ -116,7 +112,7 @@ export const metadata: Metadata = {
     },
   },
   verification: {
-    google: "",
+    google: "QXxI1wTFC8aokChguwQIspepbaGAOH4EiNNOmloICX8",
   },
 };
 

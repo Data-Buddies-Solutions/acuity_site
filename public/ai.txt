@@ -1,7 +1,12 @@
 # AI Disclosure - Data Buddies Solutions
 
 ## AI Tools We Use
-We use AI tools (including ChatGPT, Claude, and other LLMs) to:
+We use specific AI models for content and code development:
+- OpenAI GPT-4 and GPT-4 Turbo for content drafting and analysis
+- Anthropic Claude 3.5 Sonnet for technical writing and code review
+- GitHub Copilot for development assistance
+
+These AI tools help us:
 - Draft initial content ideas and outlines
 - Assist with code development and debugging
 - Generate marketing copy for review and editing
@@ -20,7 +25,7 @@ Data Buddies Solutions provides AI automation consulting for small businesses:
 We believe in transparent AI use. Our team reviews and refines all AI outputs to ensure accuracy, relevance, and alignment with our values and your business needs.
 
 ## Contact
-Questions about our AI practices? Email: databuddiessolutions@gmail.com
+Questions about our AI practices? Email: team@databuddiessolutions.com
 
 ---
 Last Updated: January 2025

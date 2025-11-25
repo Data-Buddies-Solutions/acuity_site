@@ -1,9 +1,14 @@
 import { Metadata } from "next";
+import { SITE_CONFIG } from "@/lib/config";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
     "Learn how Data Buddies Solutions collects, uses, and protects your personal information. Our commitment to data privacy and security for our AI automation services.",
+  alternates: {
+    canonical: `${SITE_CONFIG.baseUrl}/privacy-policy`,
+  },
   openGraph: {
     title: "Privacy Policy | Data Buddies Solutions",
     description:
@@ -13,7 +18,14 @@ export const metadata: Metadata = {
 
 export default function PrivacyPolicyPage() {
   return (
-    <section className="mx-auto max-w-3xl space-y-6 px-4 py-16 sm:px-6 lg:px-8">
+    <>
+      <BreadcrumbSchema
+        items={[
+          { name: "Home", url: "/" },
+          { name: "Privacy Policy", url: "/privacy-policy" },
+        ]}
+      />
+      <section className="mx-auto max-w-3xl space-y-6 px-4 py-16 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-semibold text-foreground">Privacy Policy</h1>
       <p className="text-sm text-foreground/70">Last updated: October 2025</p>
       <p className="text-base leading-relaxed text-foreground/80">
@@ -53,8 +65,8 @@ export default function PrivacyPolicyPage() {
           <h2 className="text-xl font-semibold text-foreground">Your Choices</h2>
           <p>
             You can request access, updates, or deletion of your personal information by contacting us at{" "}
-            <a href="mailto:databuddiessolutions@gmail.com" className="text-accent hover:underline">
-              databuddiessolutions@gmail.com
+            <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
+              team@databuddiessolutions.com
             </a>
             . You may also opt out of marketing communications by following the unsubscribe instructions included in
             those messages.
@@ -65,13 +77,14 @@ export default function PrivacyPolicyPage() {
           <p>
             If you have questions about this Privacy Policy or our data practices, please contact Emet Global LLC
             d/b/a Data Buddies Solutions at{" "}
-            <a href="mailto:databuddiessolutions@gmail.com" className="text-accent hover:underline">
-              databuddiessolutions@gmail.com
+            <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
+              team@databuddiessolutions.com
             </a>
             .
           </p>
         </div>
       </div>
     </section>
+    </>
   );
 }
