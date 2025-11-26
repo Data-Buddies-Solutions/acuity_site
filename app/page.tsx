@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Hero from "./components/Hero";
-import Problems from "./components/Problems";
-import Process from "./components/Process";
+import WhoWeAre from "./components/WhoWeAre";
+import HowAgentsWork from "./components/HowAgentsWork";
 import CTA from "./components/CTA";
 
 export const metadata: Metadata = {
-  title: "AI Automation for Small Businesses",
-  description: "Your Business Buddy That Never Sleeps. Data Buddies clear repetitive tasks so you can focus on the work that grows profit.",
+  title: "AI Automation for Small Businesses | Data Buddies",
+  description: "Stop doing repetitive work. We build custom AI assistants that handle your busywork—from customer emails to data entry to scheduling—so you can focus on growing your business.",
   alternates: {
     canonical: "/",
   },
@@ -16,8 +16,8 @@ export default function Home() {
   return (
     <>
       <Hero />
-      <Problems />
-      <Process />
+      <HowAgentsWork />
+      <WhoWeAre />
       <CTA />
     </>
   );

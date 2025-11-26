@@ -6,37 +6,37 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 const challenges = [
   {
     icon: AlarmClock,
-    title: "Time wasted on repetitive tasks",
+    title: "You're stuck doing the same tasks over and over",
     description:
-      "Your team spends hours on manual work that could be automated.",
-  },
-  {
-    icon: BarChart3,
-    title: "Data you can't access or use",
-    description:
-      "Critical insights are trapped in spreadsheets and disconnected tools.",
+      "Answering the same customer questions. Copying data between systems. Tasks that take hours but don't grow your business.",
   },
   {
     icon: ClipboardList,
-    title: "Processes that don't scale",
+    title: "Important work falls through the cracks",
     description:
-      "What worked at 10 customers breaks at 100.",
+      "Following up with leads, processing orders on time, keeping customer records updated. It's hard to stay on top of everything.",
+  },
+  {
+    icon: BarChart3,
+    title: "You're working harder, not smarter",
+    description:
+      "Your to-do list keeps growing, but you can't afford to hire more help. You need leverage, not just more hours in the day.",
   },
 ];
 
 export default function Problems() {
   return (
-    <section className="border-b py-20 md:py-32 bg-accent/5" id="problems">
+    <section className="border-b py-20 md:py-32 bg-muted/50" id="problems">
       <div className="mx-auto max-w-7xl px-6 md:px-10">
         <div className="mx-auto mb-16 md:mb-20 max-w-3xl space-y-6 text-center">
           <Badge variant="outline" className="backdrop-blur-sm bg-background/60 border-border text-sm font-medium uppercase tracking-tight">
-            Why teams call us
+            Sound familiar?
           </Badge>
           <h2 className="text-4xl font-bold tracking-tighter md:text-5xl lg:text-6xl">
-            Running Into These Walls?
+            Does This Sound Like<br />Your <span className="text-accent">Day-to-Day</span>?
           </h2>
           <p className="text-xl text-muted-foreground md:text-2xl">
-            We turn bottlenecks into breakthroughs with AI automation
+            You're not alone. These are the exact problems we help small businesses solve with AI
           </p>
         </div>
         <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-3 lg:gap-16">

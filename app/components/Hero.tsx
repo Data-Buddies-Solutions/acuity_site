@@ -1,38 +1,54 @@
-import Image from "next/image";
-import Link from "next/link";
+"use client";
 
-import { Button } from "./ui/button";
 import BookCallButton from "./BookCallButton";
-import HexagonAnimation from "./HexagonAnimation";
+import AnimatedLogo from "./AnimatedLogo";
 import { Badge } from "./ui/badge";
+import { motion } from "framer-motion";
 
 export default function Hero() {
   return (
-    <section className="relative border-b min-h-screen flex items-start justify-center pt-12 md:pt-16 pb-20" id="top">
+    <section className="relative border-b min-h-screen flex items-center justify-center py-20" id="top">
       <div className="mx-auto max-w-7xl px-6 md:px-10">
-        <div className="flex flex-col items-center space-y-6 md:space-y-8">
-          <div className="relative flex items-center justify-center w-full max-w-sm h-[220px] md:max-w-md md:h-[260px]">
-            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-accent via-accent/90 to-accent/70 blur-3xl opacity-30" />
-            <div className="relative z-10">
-              <HexagonAnimation />
-            </div>
-          </div>
+        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+          {/* Left side - Text content */}
+          <motion.div
+            className="space-y-6 md:space-y-8 max-w-2xl mx-auto lg:mx-0"
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
+          >
+            <Badge variant="outline" className="backdrop-blur-sm bg-background/60 border-border text-sm font-medium uppercase tracking-tight">
+              AI Automation for Small Businesses
+            </Badge>
 
-          <div className="space-y-4 md:space-y-5 text-center max-w-4xl">
-            <h1 className="text-4xl font-bold leading-tight tracking-tighter md:text-5xl lg:text-6xl">
-              Your <span className="text-accent">Business Buddy</span> That Never Sleeps
+            <h1 className="text-4xl font-bold leading-tight tracking-tighter md:text-5xl lg:text-6xl xl:text-7xl">
+              Stop Doing Repetitive Work.<br />
+              <span className="text-accent">Let AI Do It</span>
             </h1>
-            <p className="text-lg text-muted-foreground md:text-xl lg:text-2xl max-w-3xl mx-auto">
-              Data Buddies clear repetitive tasks so you can focus on the work that grows profit
-            </p>
-          </div>
 
-          <div className="flex flex-row gap-3 md:gap-4 items-center justify-center pt-2 w-full px-4 sm:px-0">
-            <BookCallButton iconVariant="none" className="rounded-xl h-11 px-4 text-sm md:px-8 md:text-base font-semibold md:h-12" />
-            <Button asChild variant="secondary" className="rounded-xl h-11 px-4 text-sm md:px-8 md:text-base font-semibold md:h-12">
-              <Link href="#process">See how it works</Link>
-            </Button>
-          </div>
+            <p className="text-lg md:text-xl text-muted-foreground leading-relaxed">
+              We build custom AI assistants that handle your busywork, from customer emails to data entry, so you can focus on growing your business
+            </p>
+
+            <div className="flex flex-col items-start pt-4">
+              <BookCallButton iconVariant="none" className="rounded-xl h-12 px-8 text-base font-semibold" />
+            </div>
+          </motion.div>
+
+          {/* Right side - Animation */}
+          <motion.div
+            className="relative flex items-center justify-center w-full h-[300px] md:h-[400px] lg:h-[500px]"
+            initial={{ opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut", delay: 0.2 }}
+          >
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-96 h-96 rounded-full bg-gradient-to-br from-accent/30 via-accent/20 to-accent/10 blur-3xl" />
+            </div>
+            <div className="relative z-10 w-full h-full flex items-center justify-center">
+              <AnimatedLogo />
+            </div>
+          </motion.div>
         </div>
       </div>
     </section>

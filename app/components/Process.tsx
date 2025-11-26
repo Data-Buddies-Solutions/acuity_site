@@ -6,43 +6,43 @@ import { motion } from "framer-motion";
 const steps = [
   {
     step: "1",
-    title: "Understand & plan",
+    title: "We Listen",
     description:
-      "We identify bottlenecks and map AI opportunities specific to your business.",
+      "Tell us what's eating up your time. We'll ask questions, understand your workflow, and spot what can be automated.",
   },
   {
     step: "2",
-    title: "Build & test",
+    title: "We Build",
     description:
-      "We rapidly prototype solutions and iterate based on your feedback.",
+      "We create your custom AI assistant and test it with real tasks from your business. You see it working before we go live.",
   },
   {
     step: "3",
-    title: "Launch & coach",
+    title: "We Launch",
     description:
-      "We deploy the solution and train your team for seamless adoption.",
+      "We set everything up and show you (in plain English) how it all works. No technical manual required.",
   },
   {
     step: "4",
-    title: "Tune & grow",
+    title: "We Support",
     description:
-      "We monitor performance and scale with new automations as you grow.",
+      "We stick around to make sure it's working smoothly and add more automations as your business grows.",
   },
 ];
 
 export default function Process() {
   return (
-    <section className="border-b py-20 md:py-32" id="process">
+    <section className="py-20 md:py-32" id="process">
       <div className="mx-auto max-w-7xl px-6 md:px-10">
         <div className="mx-auto mb-16 md:mb-20 max-w-3xl space-y-6 text-center">
           <Badge variant="outline" className="backdrop-blur-sm bg-background/60 border-border text-sm font-medium uppercase tracking-tight">
-            How it works
+            Our process
           </Badge>
           <h2 className="text-4xl font-bold tracking-tighter md:text-5xl lg:text-6xl">
-            The Process
+            How We Work <span className="text-accent">With You</span>
           </h2>
           <p className="text-xl text-muted-foreground md:text-2xl">
-            From discovery to deployment in four simple steps
+            Simple, straightforward, and built around your schedule
           </p>
         </div>
 
