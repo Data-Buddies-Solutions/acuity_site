@@ -24,12 +24,6 @@ const useCases = [
     description: "Answer calls and book appointments automatically",
     image: "/New appotiment.png",
   },
-  {
-    id: "reports-analytics",
-    title: "Reports & Analytics",
-    description: "Get insights without digging through data",
-    image: "/ChatGPT Image Nov 28, 2025, 09_52_37 AM.png",
-  },
 ];
 
 export default function HowAgentsWork() {
