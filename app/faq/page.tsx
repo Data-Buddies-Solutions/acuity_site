@@ -70,9 +70,6 @@ export default function FAQPage() {
           <h1 className="text-4xl font-bold tracking-tighter md:text-5xl lg:text-6xl">
             Commonly Asked Questions
           </h1>
-          <p className="text-xl text-muted-foreground md:text-2xl">
-            Need something specific? Schedule a call and we'll review your workflows, data, and goals together and recommend the right next step
-          </p>
         </div>
         <Accordion
           type="single"
@@ -83,12 +80,12 @@ export default function FAQPage() {
             <AccordionItem
               key={question}
               value={`item-${index + 1}`}
-              className="overflow-hidden rounded-2xl border border-border/60 bg-white/95 shadow-sm transition hover:border-accent/40 hover:shadow-md last:border-b"
+              className="overflow-hidden rounded-2xl border border-border/60 bg-background shadow-sm transition hover:border-accent/40 hover:shadow-md last:border-b"
             >
               <AccordionTrigger className="px-6 py-4 text-left text-lg font-semibold text-foreground hover:text-accent">
                 {question}
               </AccordionTrigger>
-              <AccordionContent className="px-6 pb-6 text-base leading-relaxed text-foreground/75">
+              <AccordionContent className="px-6 pb-6 text-base leading-relaxed text-muted-foreground">
                 {answer}
               </AccordionContent>
             </AccordionItem>

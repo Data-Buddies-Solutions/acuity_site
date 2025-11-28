@@ -1,3 +1,0 @@
-module.exports=[93695,(a,b,c)=>{b.exports=a.x("next/dist/shared/lib/no-fallback-error.external.js",()=>require("next/dist/shared/lib/no-fallback-error.external.js"))},55469,a=>{a.n(a.i(40141))},19964,a=>{a.n(a.i(59499))},24592,a=>{a.n(a.i(44517))},18680,a=>{a.n(a.i(98395))},90217,a=>{a.n(a.i(10606))},2192,a=>{"use strict";var b=a.i(90191);function c({items:a}){let c={"@context":"https://schema.org","@type":"BreadcrumbList",itemListElement:a.map((a,b)=>({"@type":"ListItem",position:b+1,name:a.name,item:`https://databuddiessolutions.com${a.url}`}))};return(0,b.jsx)("script",{type:"application/ld+json",dangerouslySetInnerHTML:{__html:JSON.stringify(c)}})}a.s(["default",()=>c])}];
-
-//# sourceMappingURL=%5Broot-of-the-server%5D__222959dd._.js.map

@@ -1,3 +1,0 @@
-module.exports=[22619,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(28815);a.n(d("[project]/agent-house-landing-page/node_modules/next/dist/client/components/builtin/global-error.js <module evaluation>"))},62915,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(28815);a.n(d("[project]/agent-house-landing-page/node_modules/next/dist/client/components/builtin/global-error.js"))},10606,a=>{"use strict";a.i(22619);var b=a.i(62915);a.n(b)}];
-
-//# sourceMappingURL=6ce71_next_dist_client_components_builtin_global-error_3529a2a8.js.map

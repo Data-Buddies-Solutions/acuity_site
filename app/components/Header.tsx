@@ -13,7 +13,7 @@ import HexagonLogo from "./HexagonLogo";
 
 const navLinks = [
   { href: "/#problems", label: "Why Teams Call Us" },
-  { href: "/#process", label: "How It Works" },
+  { href: "/#how-agents-work", label: "How It Works" },
   { href: "/about", label: "About Us" },
   { href: "/blog", label: "Blog" },
   { href: "/faq", label: "FAQ" },
