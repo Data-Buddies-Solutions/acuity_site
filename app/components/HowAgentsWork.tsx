@@ -7,27 +7,27 @@ import { useState } from "react";
 
 const useCases = [
   {
-    id: "email-management",
-    title: "Email Management",
-    description: "Sort, respond, and follow up on emails",
-    image: "/Email-management.png",
+    id: "appointment-scheduling",
+    title: "Appointment Scheduling",
+    description: "Answer calls and book appointments automatically",
+    image: "/Customer with transcript.png",
+  },
+  {
+    id: "reports-analytics",
+    title: "Reports & Analytics",
+    description: "Get insights without digging through data",
+    image: "/Reports & Anyltics.png",
   },
   {
     id: "customer-support",
     title: "Customer Support",
     description: "Answer common questions instantly, 24/7",
-    image: "/Customer support.png",
-  },
-  {
-    id: "appointment-scheduling",
-    title: "Appointment Scheduling",
-    description: "Answer calls and book appointments automatically",
-    image: "/New appotiment.png",
+    image: "/customersupport with icon .png",
   },
 ];
 
 export default function HowAgentsWork() {
-  const [activeTab, setActiveTab] = useState("email-management");
+  const [activeTab, setActiveTab] = useState("appointment-scheduling");
   const activeUseCase = useCases.find(uc => uc.id === activeTab) || useCases[0];
 
   return (
