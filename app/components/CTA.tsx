@@ -15,7 +15,7 @@ export default function CTA() {
   };
 
   return (
-    <section className="relative py-20 md:py-32">
+    <section className="relative py-20 md:py-32 bg-muted/15">
       <div className="mx-auto max-w-7xl px-6 md:px-10">
         <div className="rounded-3xl border border-border/50 bg-muted/30 p-8 md:p-12">
           <form onSubmit={handleSubmit}>

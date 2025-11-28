@@ -23,7 +23,7 @@ function LinkedinIcon(props: SVGProps<SVGSVGElement>) {
 
 export default function Footer() {
   return (
-    <footer className="border-t border-border/40">
+    <footer className="border-t border-border/40 bg-background">
       <div className="mx-auto flex max-w-screen-xl flex-col gap-8 px-4 py-12 sm:px-6 lg:flex-row lg:items-start lg:justify-between lg:px-8">
         <div className="max-w-xl space-y-3">
           <h3 className="text-xl font-semibold text-foreground">Data Buddies Solutions</h3>

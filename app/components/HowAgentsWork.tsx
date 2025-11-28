@@ -31,7 +31,7 @@ export default function HowAgentsWork() {
   const activeUseCase = useCases.find(uc => uc.id === activeTab) || useCases[0];
 
   return (
-    <section className="relative py-16 md:py-20 overflow-hidden bg-gradient-to-b from-background via-muted/30 to-background" id="how-agents-work">
+    <section className="relative py-16 md:py-20 overflow-hidden bg-muted/30" id="how-agents-work">
       <div className="mx-auto max-w-7xl px-6 md:px-10">
         {/* Title */}
         <h2 className="text-3xl font-bold tracking-tighter md:text-4xl lg:text-5xl mb-24 text-center">

@@ -5,9 +5,7 @@ import Image from "next/image";
 
 export default function WhoWeAre() {
   return (
-    <section className="relative py-20 md:py-24 overflow-hidden" id="who-we-are">
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/30 to-background pointer-events-none" />
+    <section className="relative py-20 md:py-24 overflow-hidden bg-muted/15" id="who-we-are">
 
       <div className="relative mx-auto max-w-7xl px-6 md:px-10">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">

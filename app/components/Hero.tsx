@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 
 export default function Hero() {
   return (
-    <section className="relative border-b min-h-screen flex items-center justify-center py-20" id="top">
+    <section className="relative min-h-screen flex items-center justify-center py-20 bg-background" id="top">
       <div className="mx-auto max-w-7xl px-6 md:px-10">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           {/* Left side - Text content */}
