@@ -11,17 +11,16 @@ const organizationSchema = {
   "@type": "ProfessionalService",
   name: SITE_CONFIG.name,
   url: SITE_CONFIG.baseUrl,
-  logo: `${SITE_CONFIG.baseUrl}/logono.png`,
-  description:
-    "Your Business Buddy That Never Sleeps. We clear repetitive tasks with AI automation so you can focus on work that grows profit.",
+  logo: `${SITE_CONFIG.baseUrl}/logo.png`,
+  description: SITE_CONFIG.description,
   email: SITE_CONFIG.email,
   sameAs: [SITE_CONFIG.social.linkedin],
   serviceType: [
-    "AI automation consulting",
-    "Workflow automation",
+    "AI consulting for eyecare practices",
     "AI agent development",
-    "Customer success automation",
-    "Data analytics automation",
+    "Practice management automation",
+    "Healthcare workflow automation",
+    "HIPAA-compliant AI solutions",
   ],
   areaServed: {
     "@type": "Country",
@@ -29,38 +28,37 @@ const organizationSchema = {
   },
   offers: {
     "@type": "Service",
-    name: "AI automation blueprint",
+    name: "AI Agent Implementation",
     description:
-      "Assessment, roadmap, and implementation plan for AI automation initiatives tailored to small business workflows.",
+      "Custom AI agents for eyecare practice administration including scheduling, referral coordination, and pre-authorization.",
     priceRange: "$$",
     url: SITE_CONFIG.baseUrl,
   },
   founder: {
     "@type": "Person",
-    name: "Data Buddies Team",
+    name: "Data Buddies Solutions Team",
   },
 };
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_CONFIG.baseUrl),
   title: {
-    default: SITE_CONFIG.name,
+    default: `${SITE_CONFIG.name} | AI Agents for Eyecare Practices`,
     template: `%s | ${SITE_CONFIG.name}`,
   },
-  description:
-    "Your Business Buddy That Never Sleeps. Data Buddies clear repetitive tasks so you can focus on the work that grows profit. AI automation that turns bottlenecks into breakthroughs.",
+  description: SITE_CONFIG.description,
   keywords: [
-    "Data Buddies",
     "Data Buddies Solutions",
-    "AI automation for small business",
-    "business process automation services",
-    "AI agent development",
-    "workflow automation",
-    "AI customer success copilot",
-    "affordable AI automation",
-    "hire AI automation consultant",
-    "small business AI consultant",
-    "AI automation consultancy",
+    "AI agents for eyecare",
+    "optometry practice automation",
+    "ophthalmology AI solutions",
+    "medical practice AI",
+    "healthcare automation",
+    "AI scheduling for medical practices",
+    "referral coordination AI",
+    "pre-authorization automation",
+    "HIPAA compliant AI",
+    "eyecare practice management",
   ],
   icons: {
     icon: "/icon.svg",
@@ -68,7 +66,7 @@ export const metadata: Metadata = {
   authors: [{ name: "Data Buddies Solutions" }],
   creator: "Data Buddies Solutions",
   publisher: "Data Buddies Solutions",
-  category: "Automation Services",
+  category: "Healthcare Technology",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/`,
     languages: {
@@ -79,26 +77,24 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: `${SITE_CONFIG.baseUrl}/`,
-    title: "AI Automation for Small Businesses | Data Buddies Solutions",
-    description:
-      "Your Business Buddy That Never Sleeps. We clear repetitive tasks with AI automation so you can focus on work that grows profit.",
+    title: "AI Agents Built for Eyecare Practices | Data Buddies Solutions",
+    description: SITE_CONFIG.description,
     siteName: "Data Buddies Solutions",
     images: [
       {
-        url: `${SITE_CONFIG.baseUrl}/api/og?title=Your Business Buddy That Never Sleeps&subtitle=AI Automation for Small Businesses`,
+        url: `${SITE_CONFIG.baseUrl}/api/og?title=AI Agents for Eyecare Practices&subtitle=Focus on patient care. We handle the rest.`,
         width: 1200,
         height: 630,
-        alt: "Data Buddies Solutions - AI automation for small businesses",
+        alt: "Data Buddies Solutions - AI agents built for eyecare practices",
         type: "image/png",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "AI Automation for Small Businesses",
-    description:
-      "Your Business Buddy That Never Sleeps. AI automation that clears repetitive tasks so you can focus on work that grows profit.",
-    images: [`${SITE_CONFIG.baseUrl}/api/og?title=Your Business Buddy That Never Sleeps&subtitle=AI Automation for Small Businesses`],
+    title: "AI Agents Built for Eyecare Practices",
+    description: SITE_CONFIG.description,
+    images: [`${SITE_CONFIG.baseUrl}/api/og?title=AI Agents for Eyecare Practices&subtitle=Focus on patient care. We handle the rest.`],
   },
   robots: {
     index: true,

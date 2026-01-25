@@ -1,75 +1,90 @@
 import Link from "next/link";
-import type { SVGProps } from "react";
+import Image from "next/image";
+import Logo from "./VisionOpsLogo";
+import { SITE_CONFIG } from "@/lib/config";
 
-function LinkedinIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...props}
-    >
-      <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z" />
-      <rect x="2" y="9" width="4" height="12" />
-      <circle cx="4" cy="4" r="2" />
-    </svg>
-  );
-}
+const footerLinks = [
+  { href: "/#what-we-build", label: "What We Build" },
+  { href: "/#process", label: "How It Works" },
+  { href: "/#about", label: "About" },
+  { href: "/faq", label: "FAQ" },
+];
 
 export default function Footer() {
   return (
-    <footer className="border-t border-border/40 bg-background">
-      <div className="mx-auto flex max-w-screen-xl flex-col gap-8 px-4 py-12 sm:px-6 lg:flex-row lg:items-start lg:justify-between lg:px-8">
-        <div className="max-w-xl space-y-3">
-          <h3 className="text-xl font-semibold text-foreground">Data Buddies Solutions</h3>
-          <p className="text-base leading-relaxed text-foreground/75">
-            Your Data Buddies automate repetitive work and streamline operations so your team can focus on growth
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-sm text-foreground/75">
-          <div>
-            <p className="font-semibold text-foreground">Contact</p>
-            <Link href="mailto:team@databuddiessolutions.com" className="mt-1 inline-flex items-center gap-2 text-accent hover:text-accent-hover transition-colors">
-              team@databuddiessolutions.com
-            </Link>
-            <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">
-              Response time &lt; 24 hours
+    <footer className="border-t border-border bg-background">
+      <div className="mx-auto max-w-6xl px-6 py-12">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
+          {/* Logo and description */}
+          <div className="max-w-sm">
+            <Logo className="mb-4" />
+            <p className="text-sm text-muted-foreground mb-4">
+              AI agents built for eyecare practices. We handle admin work so you can focus on patients.
             </p>
+            <Image
+              src="/hipaa-badge.webp"
+              alt="HIPAA Compliance"
+              width={120}
+              height={48}
+              className="opacity-70"
+            />
           </div>
-          <div className="flex items-center gap-3">
-            <Link
-              href="https://www.linkedin.com/company/data-buddies-solutions"
-              className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Data Buddies Solutions on LinkedIn"
-            >
-              <LinkedinIcon className="h-4 w-4" />
-              LinkedIn
-            </Link>
+
+          {/* Links */}
+          <div className="flex flex-wrap gap-8">
+            <div>
+              <p className="font-medium text-sm mb-3">Navigation</p>
+              <div className="space-y-2">
+                {footerLinks.map(({ href, label }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="font-medium text-sm mb-3">Contact</p>
+              <div className="space-y-2">
+                <Link
+                  href={`mailto:${SITE_CONFIG.email}`}
+                  className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {SITE_CONFIG.email}
+                </Link>
+                <Link
+                  href={SITE_CONFIG.social.linkedin}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  LinkedIn
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="border-t border-border/40">
-        <div className="mx-auto flex max-w-screen-xl flex-col items-center justify-between gap-3 px-4 py-6 text-xs text-foreground/50 sm:flex-row sm:px-6 lg:px-8">
-          <p>© {new Date().getFullYear()} Data Buddies Solutions. All rights reserved.</p>
-          <div className="flex items-center gap-4">
-            <Link href="#top" className="hover:text-accent transition-colors">
-              Back to top
+
+        {/* Bottom bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-12 pt-8 border-t border-border">
+          <p className="text-sm text-muted-foreground">
+            © {new Date().getFullYear()} Data Buddies Solutions. All rights reserved.
+          </p>
+          <div className="flex items-center gap-6">
+            <Link
+              href="/privacy-policy"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Privacy
             </Link>
-            <Link href="/blog" className="hover:text-accent transition-colors">
-              Blog
-            </Link>
-            <Link href="/privacy-policy" className="hover:text-accent transition-colors">
-              Privacy Policy
-            </Link>
-            <Link href="/terms-of-service" className="hover:text-accent transition-colors">
-              Terms of Service
+            <Link
+              href="/terms-of-service"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Terms
             </Link>
           </div>
         </div>

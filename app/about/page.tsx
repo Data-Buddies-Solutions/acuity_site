@@ -1,21 +1,11 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { Zap, Target, Users } from "lucide-react";
-
-import { Badge } from "@/app/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
-import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
+import { Eye, Target, Users } from "lucide-react";
 import { SITE_CONFIG } from "@/lib/config";
 
-// X (formerly Twitter) logo SVG component
 function XLogo({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className={className}
-      fill="currentColor"
-    >
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
       <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
     </svg>
   );
@@ -27,7 +17,7 @@ const team = [
     role: "CEO",
     initials: "KS",
     image: "/kyle-shechtman.png",
-    bio: "Hi, I'm Kyle, the CEO of Data Buddies. I love talking with business owners, learning what slows them down, and building better ways to get things done. I track new technology closely and enjoy turning big ideas into something real alongside the team. For me, work should feel less complicated and more meaningful, whether that means sharper systems, smarter tools, or a fresh perspective. When I'm away from the laptop, you'll find me outside hiking, playing sports, exploring new places, and staying curious about what's next.",
+    bio: "I work closely with eyecare practice owners to understand their operational challenges and design AI solutions that fit how their teams work.",
     twitter: "_kyleshechtman",
   },
   {
@@ -35,36 +25,32 @@ const team = [
     role: "CTO",
     initials: "CF",
     image: "/chase-fagen.png",
-    bio: "I'm a lifelong learner and adventurer, fascinated by how ideas move from circuits and code to things that actually make a difference in people's lives. I love all sports and competition, from snowboarding to soccer to padel, I have tried it all. I see movement in sport the same way I see it in business: it's about flow, timing, and adaptability. That same competitive spirit drives me to find better ways for small businesses to win, because when their tools move with them instead of against them, that's a victory we share.",
+    bio: "I lead our technical development, ensuring our AI agents integrate smoothly with EHR systems, phone platforms, and practice management software.",
     twitter: "chasef07",
   },
 ];
 
-const philosophy = [
+const values = [
   {
-    icon: Zap,
-    title: "Demo, learn, build",
-    description:
-      "Quick demos, fast feedback, continuous improvement. Building your perfect product.",
+    icon: Eye,
+    title: "Eyecare focused",
+    description: "We specialize exclusively in optometry and ophthalmology practices.",
   },
   {
     icon: Target,
-    title: "Build for business impact",
-    description:
-      "We build what matters: solutions that boost revenue, save hours, or enable growth.",
+    title: "Custom solutions",
+    description: "Every practice is different. We build agents tailored to your specific workflows.",
   },
   {
     icon: Users,
-    title: "Simple by design",
-    description:
-      "We design with your team in mind, so nothing feels complicated.",
+    title: "Hands-on partnership",
+    description: "You work directly with our engineers. No handoffs or support tickets.",
   },
 ];
 
 export const metadata: Metadata = {
   title: "About Us",
-  description:
-    "Meet Data Buddies Solutions, the AI automation team behind workflow blueprints, agent orchestration, and continuous optimization for growing businesses.",
+  description: "Meet the Data Buddies Solutions team—AI consultants specializing in custom agent development for eyecare practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/about`,
   },
@@ -73,69 +59,75 @@ export const metadata: Metadata = {
 export default function AboutPage() {
   return (
     <>
-      <BreadcrumbSchema
-        items={[
-          { name: "Home", url: "/" },
-          { name: "About Us", url: "/about" },
-        ]}
-      />
+      {/* Hero */}
+      <section className="py-20 md:py-28 bg-background">
+        <div className="mx-auto max-w-4xl px-6 text-center">
+          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-6">
+            About Data Buddies Solutions
+          </h1>
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            We're an AI consulting firm helping eyecare practices adopt AI through custom-built agents.
+          </p>
+        </div>
+      </section>
 
-      {/* About Us */}
-      <section className="border-b pt-12 md:pt-16 pb-20 md:pb-32">
-        <div className="mx-auto max-w-7xl px-6 md:px-10">
-          <div className="mx-auto mb-12 md:mb-16 max-w-3xl space-y-6 text-center">
-            <Badge variant="outline" className="backdrop-blur-sm bg-background/60 border-border text-sm font-medium uppercase tracking-tight">
-              About Us
-            </Badge>
-            <h1 className="text-4xl font-bold tracking-tighter md:text-5xl lg:text-6xl">
-              Meet The Data Buddies
-            </h1>
-            <p className="text-xl text-muted-foreground md:text-2xl">
-              We help teams automate work so they can focus on growth
-            </p>
-          </div>
-          <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-2 lg:gap-16">
+      {/* Team */}
+      <section className="py-20 md:py-28 bg-muted">
+        <div className="mx-auto max-w-6xl px-6">
+          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-12 text-center">
+            Meet the team
+          </h2>
+          <div className="grid md:grid-cols-2 gap-12 max-w-4xl mx-auto">
             {team.map(({ name, role, initials, image, bio, twitter }) => (
-              <div key={name} className="flex flex-col items-center text-center space-y-6">
+              <div key={name} className="text-center">
                 {image ? (
-                  <div className="relative h-48 w-48 rounded-full overflow-hidden shadow-lg">
-                    <Image
-                      src={image}
-                      alt={name}
-                      fill
-                      className="object-cover"
-                      sizes="192px"
-                    />
+                  <div className="relative h-32 w-32 rounded-full overflow-hidden mx-auto mb-6 border border-border">
+                    <Image src={image} alt={name} fill className="object-cover" sizes="128px" />
                   </div>
                 ) : (
-                  <div className="flex h-48 w-48 items-center justify-center rounded-full bg-gradient-to-br from-accent via-accent/90 to-accent/70 text-4xl font-semibold text-white shadow-lg">
+                  <div className="h-32 w-32 rounded-full bg-muted flex items-center justify-center mx-auto mb-6 text-2xl font-semibold">
                     {initials}
                   </div>
                 )}
-                <div className="space-y-3">
-                  <div>
-                    <h3 className="text-2xl font-bold tracking-tight">{name}</h3>
-                    <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">{role}</p>
-                    {twitter && (
-                      <a
-                        href={`https://x.com/${twitter}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-1 inline-flex items-center gap-1 text-sm text-accent hover:text-accent-hover transition-colors"
-                      >
-                        <XLogo className="h-3 w-3" />
-                        @{twitter}
-                      </a>
-                    )}
-                  </div>
-                  <p className="text-base leading-relaxed text-muted-foreground">{bio}</p>
-                </div>
+                <h3 className="text-lg font-semibold">{name}</h3>
+                <p className="text-sm text-muted-foreground mb-2">{role}</p>
+                {twitter && (
+                  <a
+                    href={`https://x.com/${twitter}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+                  >
+                    <XLogo className="h-3 w-3" />
+                    @{twitter}
+                  </a>
+                )}
+                <p className="text-sm text-muted-foreground">{bio}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
+      {/* Values */}
+      <section className="py-20 md:py-28 bg-background">
+        <div className="mx-auto max-w-6xl px-6">
+          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-12 text-center">
+            How we work
+          </h2>
+          <div className="grid md:grid-cols-3 gap-8">
+            {values.map(({ icon: Icon, title, description }) => (
+              <div key={title} className="text-center">
+                <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center mx-auto mb-4">
+                  <Icon className="w-6 h-6 text-foreground" />
+                </div>
+                <h3 className="font-semibold mb-2">{title}</h3>
+                <p className="text-sm text-muted-foreground">{description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
     </>
   );
 }

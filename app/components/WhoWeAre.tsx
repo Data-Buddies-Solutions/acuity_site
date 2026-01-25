@@ -1,52 +1,57 @@
 "use client";
 
-import { motion } from "framer-motion";
-import Image from "next/image";
+import { Shield, Stethoscope, Users } from "lucide-react";
+
+const features = [
+  {
+    icon: Stethoscope,
+    title: "Healthcare focused",
+    description: "We specialize in medical practices, from eyecare to primary care and beyond.",
+  },
+  {
+    icon: Shield,
+    title: "HIPAA compliant",
+    description: "All solutions meet strict healthcare privacy and security requirements.",
+  },
+  {
+    icon: Users,
+    title: "Hands-on team",
+    description: "Work directly with the engineers and consultants who build your agents.",
+  },
+];
 
 export default function WhoWeAre() {
   return (
-    <section className="relative py-20 md:py-24 overflow-hidden bg-muted/15" id="who-we-are">
-
-      <div className="relative mx-auto max-w-7xl px-6 md:px-10">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-          {/* Left side - Text content */}
-          <motion.div
-            className="space-y-6"
-            initial={{ opacity: 0, x: -30 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: false, amount: 0.3 }}
-            transition={{ duration: 0.7, ease: "easeOut" }}
-          >
-            <h2 className="text-3xl font-bold tracking-tighter md:text-4xl lg:text-5xl">
-              Works With Your Existing Tools
+    <section className="py-20 md:py-28 bg-background" id="about">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="grid lg:grid-cols-2 gap-16 items-center">
+          {/* Left - Content */}
+          <div>
+            <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-6">
+              About Data Buddies Solutions
             </h2>
-            <p className="text-base text-muted-foreground md:text-lg leading-relaxed">
-              Connect to any system you already use
+            <p className="text-lg text-muted-foreground mb-6 leading-relaxed">
+              We're an AI consulting firm that helps medical practices adopt AI through custom-built agents. We combine deep AI expertise with a focused understanding of practice operations.
             </p>
-          </motion.div>
+            <p className="text-muted-foreground leading-relaxed">
+              Every practice is different. We work closely with you to understand your workflows, identify the right opportunities for AI, and build agents that fit how your team already works.
+            </p>
+          </div>
 
-          {/* Right side - Image with floating effect */}
-          <motion.div
-            className="relative"
-            initial={{ opacity: 0, x: 30 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: false, amount: 0.2 }}
-            transition={{ duration: 0.7, ease: "easeOut", delay: 0.2 }}
-          >
-            {/* Subtle glow effect behind image */}
-            <div className="absolute inset-0 bg-gradient-to-br from-accent/20 via-accent/10 to-transparent blur-3xl -z-10 scale-110" />
-
-            <div className="relative overflow-hidden rounded-2xl shadow-2xl ring-1 ring-border/50">
-              <Image
-                src="/ChatGPT Image Nov 28, 2025, 08_35_47 AM.png"
-                alt="Connect to any data source - CRM, EMR, Google Workspace, Database"
-                width={1200}
-                height={900}
-                className="w-full h-auto"
-                priority
-              />
-            </div>
-          </motion.div>
+          {/* Right - Features */}
+          <div className="space-y-6">
+            {features.map((feature) => (
+              <div key={feature.title} className="flex gap-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                  <feature.icon className="w-5 h-5 text-foreground" />
+                </div>
+                <div>
+                  <h3 className="font-semibold mb-1">{feature.title}</h3>
+                  <p className="text-sm text-muted-foreground">{feature.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

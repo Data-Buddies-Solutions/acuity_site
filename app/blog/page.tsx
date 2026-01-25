@@ -36,15 +36,9 @@ export default function BlogPage() {
       <div className="py-16 md:py-24">
       <div className="mx-auto max-w-screen-xl space-y-12 px-4">
         <div className="mx-auto max-w-3xl space-y-4 text-center">
-          <Badge variant="outline" className="text-sm font-medium uppercase">
-            Automation insights
-          </Badge>
           <h1 className="text-3xl font-semibold md:text-4xl lg:text-5xl">
             Playbooks for launching AI automations that move the needle
           </h1>
-          <p className="text-lg text-foreground/75 md:text-xl">
-            Every article is built from real implementation experience, covering tooling, governance, prompts, and adoption strategies
-          </p>
         </div>
         <div className="mx-auto grid max-w-6xl gap-8 md:grid-cols-2 lg:grid-cols-3">
           {posts.map(({ slug, title, description, readingTime, date, tags }) => (
