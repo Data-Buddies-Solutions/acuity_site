@@ -39,11 +39,7 @@ export default function Integrations() {
                   src={partner.logo}
                   alt={partner.name}
                   fill
-                  className={`object-contain transition-all duration-300 ${
-                    partner.noGrayscale
-                      ? "opacity-80 hover:opacity-100"
-                      : "grayscale opacity-60 hover:grayscale-0 hover:opacity-100"
-                  }`}
+                  className="object-contain transition-all duration-300 grayscale opacity-60 hover:grayscale-0 hover:opacity-100"
                 />
               </div>
             </div>
