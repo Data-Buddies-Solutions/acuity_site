@@ -30,11 +30,8 @@ export default function WhoWeAre() {
             <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-6">
               About Data Buddies Solutions
             </h2>
-            <p className="text-lg text-muted-foreground mb-6 leading-relaxed">
+            <p className="text-lg text-muted-foreground leading-relaxed">
               We're an AI consulting firm that helps medical practices adopt AI through custom-built agents. We combine deep AI expertise with a focused understanding of practice operations.
-            </p>
-            <p className="text-muted-foreground leading-relaxed">
-              Every practice is different. We work closely with you to understand your workflows, identify the right opportunities for AI, and build agents that fit how your team already works.
             </p>
           </div>
 

@@ -37,15 +37,15 @@ export default function Hero() {
   }, []);
 
   return (
-    <section className="relative pt-20 md:pt-24 lg:pt-28 pb-14 md:pb-20 bg-background" id="top">
+    <section className="relative pt-16 md:pt-24 lg:pt-28 pb-8 md:pb-20 bg-background" id="top">
       {/* Centered Content */}
-      <div className="mx-auto max-w-4xl px-6 text-center">
+      <div className="mx-auto max-w-4xl px-4 md:px-6 text-center">
         {/* Headline with rotating word - Stack AI style: medium weight, tight letter spacing */}
-        <h1 className="text-5xl md:text-6xl lg:text-7xl font-medium tracking-[-0.03em] leading-[1.1] mb-5">
-          AI agents that handle
+        <h1 className="text-[2.5rem] md:text-6xl lg:text-7xl font-medium tracking-[-0.03em] leading-[1.1] mb-4 md:mb-5">
+          <span className="whitespace-nowrap">AI agents that handle</span>
           <br />
           <span
-            className={`inline-block text-accent mt-2 transition-all duration-200 ${
+            className={`inline-block text-accent mt-1 md:mt-2 transition-all duration-200 ${
               isAnimating
                 ? "opacity-0 translate-y-2"
                 : "opacity-100 translate-y-0"
@@ -56,9 +56,7 @@ export default function Hero() {
         </h1>
 
         {/* Subheadline - Stack AI style: smaller, reduced opacity */}
-        <p className="text-base md:text-lg text-foreground/70 mb-10 leading-relaxed max-w-xl mx-auto">
-          Automate admin work with AI agents that handle front office tasks.
-          <br />
+        <p className="text-sm md:text-lg text-foreground/70 mb-8 md:mb-10 leading-relaxed max-w-xl mx-auto text-center">
           Loved by optometrists, ophthalmologists, and medical teams.
         </p>
 
@@ -77,21 +75,21 @@ export default function Hero() {
       </div>
 
       {/* Logo Marquee - Stack AI style: minimal label */}
-      <div className="mt-20 md:mt-24 overflow-hidden">
-        <div className="mx-auto max-w-6xl px-6 mb-6">
-          <p className="text-center text-sm text-foreground/50 uppercase tracking-wide">Trusted by</p>
+      <div className="mt-10 md:mt-24 overflow-hidden">
+        <div className="mx-auto max-w-6xl px-4 md:px-6 mb-4 md:mb-6">
+          <p className="text-center text-xs md:text-sm text-foreground/50 uppercase tracking-wide">Trusted by</p>
         </div>
         <div className="relative">
-          <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-background to-transparent z-10" />
-          <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-background to-transparent z-10" />
+          <div className="absolute left-0 top-0 bottom-0 w-16 md:w-32 bg-gradient-to-r from-background to-transparent z-10" />
+          <div className="absolute right-0 top-0 bottom-0 w-16 md:w-32 bg-gradient-to-l from-background to-transparent z-10" />
 
-          <div className="flex items-center gap-20 animate-scroll">
+          <div className="flex items-center gap-8 md:gap-20 animate-scroll">
             {duplicatedPartners.map((partner, index) => (
               <div
                 key={`${partner.name}-${index}`}
                 className="flex-shrink-0 flex items-center justify-center"
               >
-                <div className={`${partner.width} ${partner.height} relative flex items-center justify-center`}>
+                <div className="w-28 h-10 md:w-44 md:h-14 relative flex items-center justify-center">
                   <Image
                     src={partner.logo}
                     alt={partner.name}
@@ -115,7 +113,12 @@ export default function Hero() {
           }
         }
         .animate-scroll {
-          animation: scroll 30s linear infinite;
+          animation: scroll 20s linear infinite;
+        }
+        @media (min-width: 768px) {
+          .animate-scroll {
+            animation: scroll 30s linear infinite;
+          }
         }
         .animate-scroll:hover {
           animation-play-state: paused;
