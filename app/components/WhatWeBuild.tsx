@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Phone, Calendar, MessageSquare, Check, FileText, ScanSearch, Database, Send, ShieldCheck, ClipboardList, Upload, BadgeCheck } from "lucide-react";
 
 // Scheduling steps
@@ -27,15 +27,16 @@ const preAuthSteps = [
   { icon: BadgeCheck, label: "Approved" },
 ];
 
-function SchedulingAnimation() {
+function SchedulingAnimation({ isVisible }: { isVisible: boolean }) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
+    if (!isVisible) return;
     const timer = setInterval(() => {
       setStep((prev) => (prev + 1) % 4);
     }, 6000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isVisible]);
 
   return (
     <div className="relative w-full overflow-hidden">
@@ -176,15 +177,16 @@ function SchedulingAnimation() {
   );
 }
 
-function ReferralAnimation() {
+function ReferralAnimation({ isVisible }: { isVisible: boolean }) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
+    if (!isVisible) return;
     const timer = setInterval(() => {
       setStep((prev) => (prev + 1) % 4);
     }, 6000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isVisible]);
 
   return (
     <div className="relative w-full overflow-hidden">
@@ -349,15 +351,16 @@ function ReferralAnimation() {
   );
 }
 
-function PreAuthAnimation() {
+function PreAuthAnimation({ isVisible }: { isVisible: boolean }) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
+    if (!isVisible) return;
     const timer = setInterval(() => {
       setStep((prev) => (prev + 1) % 4);
     }, 6000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isVisible]);
 
   return (
     <div className="relative w-full overflow-hidden">
@@ -563,11 +566,30 @@ const solutions = [
 
 export default function WhatWeBuild() {
   const [activeTab, setActiveTab] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
   const activeSolution = solutions[activeTab];
   const ActiveComponent = activeSolution.component;
 
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+        }
+      },
+      { threshold: 0.3 }
+    );
+
+    if (sectionRef.current) {
+      observer.observe(sectionRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <section className="py-16 md:py-24 bg-white" id="what-we-build">
+    <section ref={sectionRef} className="py-16 md:py-24 bg-white" id="what-we-build">
       <div className="mx-auto max-w-4xl px-4 md:px-6">
         {/* Section header */}
         <div className="text-center mb-10 md:mb-14">
@@ -611,7 +633,7 @@ export default function WhatWeBuild() {
 
         {/* Animation container - elevated card */}
         <div className="bg-white rounded-2xl md:rounded-[2rem] p-4 md:p-10 shadow-2xl shadow-neutral-900/10 border border-neutral-100 mb-8 md:mb-10">
-          <ActiveComponent key={activeTab} />
+          <ActiveComponent key={activeTab} isVisible={isVisible} />
         </div>
 
         {/* Stats */}
