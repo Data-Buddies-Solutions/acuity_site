@@ -40,11 +40,12 @@ export default function Header() {
           href="https://www.aoece.com/events/webinar-optometrists-artificial-intelligence-march-18-2026"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 text-sm text-white transition-colors group"
+          className="inline-flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-white transition-colors group whitespace-nowrap"
         >
-          <span className="bg-white/10 text-white text-xs font-medium px-2 py-0.5 rounded-full">March 18</span>
-          <span>Speaking on AI in Eye Care at AOECE Webinar</span>
-          <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
+          <span className="bg-white/10 text-white text-[10px] md:text-xs font-medium px-1.5 md:px-2 py-0.5 rounded-full">March 18</span>
+          <span className="hidden md:inline">Speaking on AI in Eye Care at AOECE Webinar</span>
+          <span className="md:hidden">Speaking on AI in Eye Care at AOECE</span>
+          <ArrowRight className="h-3 w-3 md:h-3.5 md:w-3.5 group-hover:translate-x-0.5 transition-transform" />
         </a>
       </div>
 
