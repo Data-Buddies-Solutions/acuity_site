@@ -62,7 +62,7 @@ export default function Hero() {
           <BookCallButton size="default" className="text-base px-8 py-3 rounded-full hover:opacity-80 transition-opacity" iconVariant="none">
             Book a Demo
           </BookCallButton>
-          <Button variant="outline" size="default" className="text-base px-8 py-3 rounded-full border-[1.5px] border-black bg-white text-stone-900 shadow-sm hover:opacity-80 transition-opacity" asChild>
+          <Button variant="secondary" size="default" className="text-base px-8 py-3 rounded-full border-[1.5px] border-black bg-white text-stone-900 shadow-sm hover:opacity-80 transition-opacity" asChild>
             <Link href="#how-it-works">
               Learn More
             </Link>
