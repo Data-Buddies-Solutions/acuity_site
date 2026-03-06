@@ -5,14 +5,14 @@ import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 export const metadata: Metadata = {
   title: "Terms of Service",
   description:
-    "Read the Terms of Service for Data Buddies Solutions. Understand the terms and conditions for using our AI automation and workflow automation services.",
+    "Read the Terms of Service for Acuity Health. Understand the terms and conditions for using our AI automation and workflow automation services.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/terms-of-service`,
   },
   openGraph: {
-    title: "Terms of Service | Data Buddies Solutions",
+    title: "Terms of Service | Acuity Health",
     description:
-      "Terms and conditions for using Data Buddies Solutions AI automation services.",
+      "Terms and conditions for using Acuity Health AI automation services.",
   },
 };
 
@@ -30,7 +30,7 @@ export default function TermsOfServicePage() {
       <p className="text-sm text-foreground/70">Last updated: October 2025</p>
       <p className="text-base leading-relaxed text-foreground/80">
         These Terms of Service (&quot;Terms&quot;) describe the agreement between you and Emet Global LLC doing
-        business as Data Buddies Solutions (&quot;Data Buddies Solutions,&quot; &quot;we,&quot; &quot;us,&quot; or
+        business as Acuity Health (&quot;Acuity Health,&quot; &quot;we,&quot; &quot;us,&quot; or
         &quot;our&quot;) regarding your use of our website and services. By accessing or using our website, you agree
         to be bound by these Terms.
       </p>
@@ -45,7 +45,7 @@ export default function TermsOfServicePage() {
         <div>
           <h2 className="text-xl font-semibold text-foreground">Intellectual Property</h2>
           <p>
-            All content, trademarks, and materials on this site are owned by Emet Global LLC d/b/a Data Buddies
+            All content, trademarks, and materials on this site are owned by Emet Global LLC d/b/a Acuity Health
             Solutions or our licensors and are protected by applicable intellectual property laws. You may not copy,
             reproduce, or distribute our content without prior written consent.
           </p>
@@ -60,7 +60,7 @@ export default function TermsOfServicePage() {
         <div>
           <h2 className="text-xl font-semibold text-foreground">Limitation of Liability</h2>
           <p>
-            To the fullest extent permitted by law, Data Buddies Solutions is not liable for any indirect, incidental,
+            To the fullest extent permitted by law, Acuity Health is not liable for any indirect, incidental,
             or consequential damages arising from your use of our website or services.
           </p>
         </div>
@@ -74,7 +74,7 @@ export default function TermsOfServicePage() {
         <div>
           <h2 className="text-xl font-semibold text-foreground">Contact</h2>
           <p>
-            For questions about these Terms, contact Emet Global LLC d/b/a Data Buddies Solutions at{" "}
+            For questions about these Terms, contact Emet Global LLC d/b/a Acuity Health at{" "}
             <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
               team@databuddiessolutions.com
             </a>

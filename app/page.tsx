@@ -6,8 +6,8 @@ import WhoWeAre from "./components/WhoWeAre";
 import CTA from "./components/CTA";
 
 export const metadata: Metadata = {
-  title: "AI Agents for Eyecare Practices | Data Buddies Solutions",
-  description: "We design, build, and implement custom AI agents that handle your eyecare practice's administrative workflows—so your team can focus on patient care.",
+  title: "AI Phone System for Medical Teams | Acuity Health",
+  description: "The AI phone system that handles scheduling, appointment reminders, and patient education, so your staff can get back to the human stuff.",
   alternates: {
     canonical: "/",
   },

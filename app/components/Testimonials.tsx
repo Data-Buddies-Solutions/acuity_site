@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 
 const testimonials = [
   {
-    quote: "Data Buddies automated our referral process and gave hours back to our staff every week. We're capturing more patients with less manual work.",
+    quote: "Acuity Health handles our phones now and gave hours back to our staff every week. We're booking more patients with less manual work.",
     author: "Dr. Shechtman",
     role: "North Miami Beach Eye Center",
   },
@@ -14,7 +14,7 @@ const testimonials = [
     role: "Jazzy Eyes Optical",
   },
   {
-    quote: "I was spending 4+ hours a day on manual admin work. Data Buddies gave me my life back. I can finally focus on what matters.",
+    quote: "I was spending 4+ hours a day on manual admin work. Acuity Health gave me my life back. I can finally focus on what matters.",
     author: "Jason Buchwald",
     role: "OnlineDoctorNote",
   },

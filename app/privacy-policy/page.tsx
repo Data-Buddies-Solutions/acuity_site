@@ -5,14 +5,14 @@ import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "Learn how Data Buddies Solutions collects, uses, and protects your personal information. Our commitment to data privacy and security for our AI automation services.",
+    "Learn how Acuity Health collects, uses, and protects your personal information. Our commitment to data privacy and security for our AI automation services.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/privacy-policy`,
   },
   openGraph: {
-    title: "Privacy Policy | Data Buddies Solutions",
+    title: "Privacy Policy | Acuity Health",
     description:
-      "Learn how Data Buddies Solutions handles your personal information and protects your privacy.",
+      "Learn how Acuity Health handles your personal information and protects your privacy.",
   },
 };
 
@@ -29,7 +29,7 @@ export default function PrivacyPolicyPage() {
       <h1 className="text-3xl font-semibold text-foreground">Privacy Policy</h1>
       <p className="text-sm text-foreground/70">Last updated: October 2025</p>
       <p className="text-base leading-relaxed text-foreground/80">
-        Emet Global LLC doing business as Data Buddies Solutions (&quot;Data Buddies Solutions,&quot; &quot;we,&quot;
+        Emet Global LLC doing business as Acuity Health (&quot;Acuity Health,&quot; &quot;we,&quot;
         &quot;us,&quot; or &quot;our&quot;) respects your privacy. This Privacy Policy explains the types of information we
         collect from visitors to our website and clients of our services, how we use that information, and the
         choices you have regarding your data.
@@ -76,7 +76,7 @@ export default function PrivacyPolicyPage() {
           <h2 className="text-xl font-semibold text-foreground">Contact</h2>
           <p>
             If you have questions about this Privacy Policy or our data practices, please contact Emet Global LLC
-            d/b/a Data Buddies Solutions at{" "}
+            d/b/a Acuity Health at{" "}
             <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
               team@databuddiessolutions.com
             </a>

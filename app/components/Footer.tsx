@@ -4,8 +4,7 @@ import Logo from "./VisionOpsLogo";
 import { SITE_CONFIG } from "@/lib/config";
 
 const footerLinks = [
-  { href: "/#what-we-build", label: "What We Build" },
-  { href: "/#process", label: "How It Works" },
+  { href: "/#how-it-works", label: "How It Works" },
   { href: "/#about", label: "About" },
   { href: "/faq", label: "FAQ" },
 ];
@@ -19,7 +18,7 @@ export default function Footer() {
           <div className="max-w-sm">
             <Logo className="mb-4" />
             <p className="text-sm text-muted-foreground mb-4">
-              AI agents built for eyecare practices. We handle admin work so you can focus on patients.
+              The AI phone system for medical teams. We handle the calls so your staff can focus on patients.
             </p>
             <Image
               src="/hipaa-badge.webp"
@@ -71,7 +70,7 @@ export default function Footer() {
         {/* Bottom bar */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-12 pt-8 border-t border-border">
           <p className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Data Buddies Solutions. All rights reserved.
+            © {new Date().getFullYear()} Acuity Health. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <Link

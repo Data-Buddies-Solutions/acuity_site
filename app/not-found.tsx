@@ -6,7 +6,7 @@ import { SITE_CONFIG } from "@/lib/config";
 
 export const metadata = {
   title: "Page Not Found",
-  description: "The page you're looking for doesn't exist. Explore Data Buddies Solutions AI automation services.",
+  description: "The page you're looking for doesn't exist. Explore Acuity Health AI phone system services.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/404`,
   },

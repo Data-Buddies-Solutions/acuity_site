@@ -1,10 +1,10 @@
 export const SITE_CONFIG = {
-  name: "Data Buddies Solutions",
+  name: "Acuity Health",
   baseUrl: "https://visionops.ai",
   email: "team@databuddiessolutions.com",
   calendarLink: "https://cal.com/data-buddies-solutions/30min",
   description:
-    "AI agents built for eyecare practices. We design, build, and implement custom AI agents that handle your practice's administrative workflows—so your team can focus on patient care.",
+    "The AI phone system for medical teams. We handle scheduling, appointment reminders, and patient education so your staff can get back to the human stuff, caring for patients.",
   twitter: {
     kyle: "_kyleshechtman",
     chase: "chasef07",

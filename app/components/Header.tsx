@@ -9,10 +9,10 @@ import BookCallButton from "./BookCallButton";
 import Logo from "./VisionOpsLogo";
 
 const navLinks = [
-  { href: "/#what-we-build", label: "What We Build" },
+  { href: "/#how-it-works", label: "How It Works" },
   { href: "/#about", label: "About" },
-  { href: "/blog", label: "Blog" },
   { href: "/faq", label: "FAQ" },
+  { href: "/blog", label: "Blog" },
 ];
 
 export default function Header() {
@@ -37,14 +37,14 @@ export default function Header() {
         )}
       >
         <a
-          href="https://www.aoece.com/events/webinar-optometrists-artificial-intelligence-march-18-2026"
+          href="https://www.visionexpo.com/en-us/experiences/schedule-of-events/schedule-of-event-details.4767.260869.the-patient-is-already-using-ai-the-question-is-whether-your-practice-is.html"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-white transition-colors group whitespace-nowrap"
         >
-          <span className="bg-white/10 text-white text-[10px] md:text-xs font-medium px-1.5 md:px-2 py-0.5 rounded-full">March 18</span>
-          <span className="hidden md:inline">Speaking on AI in Eye Care at AOECE Webinar</span>
-          <span className="md:hidden">Speaking on AI in Eye Care at AOECE</span>
+          <span className="bg-white/10 text-white text-[10px] md:text-xs font-medium px-1.5 md:px-2 py-0.5 rounded-full">March 12</span>
+          <span className="hidden md:inline">Speaking at Vision Expo — Connect with us</span>
+          <span className="md:hidden">Speaking at Vision Expo</span>
           <ArrowRight className="h-3 w-3 md:h-3.5 md:w-3.5 group-hover:translate-x-0.5 transition-transform" />
         </a>
       </div>
@@ -62,8 +62,9 @@ export default function Header() {
         )}
       >
         {/* Logo */}
-        <Link href="/" className="flex items-center shrink-0" aria-label="VisionOps home">
+        <Link href="/" className="flex items-center gap-2 shrink-0" aria-label="Acuity Health home">
           <Logo />
+          <span className="text-sm font-semibold text-stone-900 tracking-tight">Acuity Health</span>
         </Link>
 
         {/* Desktop nav - centered with even spacing */}

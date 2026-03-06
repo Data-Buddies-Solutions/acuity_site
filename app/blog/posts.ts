@@ -96,7 +96,7 @@ export const posts: BlogPost[] = [
           "The future of business software isn't smarter bots or better prompts. It's orchestration layers that transform disparate AI capabilities into coherent, adaptive systems.",
           "Stop thinking in terms of \"automating X task\" and start thinking in terms of \"enabling agency around Y goal.\" Build in layers. Combine orchestration paradigms. Think in graphs, not lines. Give your systems memory. Architect for reasoning, not just reaction.",
           "That's the difference between a collection of tools and a living system. And living systems win.",
-          "Ready to architect AI orchestration for your practice? <a href='/' class='text-accent hover:underline'>Data Buddies Solutions</a> specializes in building intelligent agent systems that think, adapt, and scale.",
+          "Ready to architect AI orchestration for your practice? <a href='/' class='text-accent hover:underline'>Acuity Health</a> specializes in building intelligent agent systems that think, adapt, and scale.",
         ],
       },
     ],
@@ -153,7 +153,7 @@ export const posts: BlogPost[] = [
         paragraphs: [
           "The future of software isn't about replacing programmers or democratizing code through vibe coding. It's about evolution. The best builders of tomorrow won't be those who memorize syntax or those who prompt blindly. They'll be the ones who can architect through conversation, who can teach an AI their vision while learning from its process.",
           "They'll be context engineers. Vibe coding gave us wings but not the discipline to fly straight. Context engineering provides both the power and the flight plan. The revolution isn't coming. It's here, but it looks nothing like what they promised.",
-          "Ready to build AI systems the right way? <a href='/' class='text-accent hover:underline'>Data Buddies Solutions</a> can help you architect AI automations that actually make it to production.",
+          "Ready to build AI systems the right way? <a href='/' class='text-accent hover:underline'>Acuity Health</a> can help you architect AI automations that actually make it to production.",
         ],
       },
     ],
@@ -186,7 +186,7 @@ export const posts: BlogPost[] = [
       {
         heading: "What parallel business looks like",
         paragraphs: [
-          "Take an eyecare practice. In the linear world, a patient calls to book, a receptionist confirms, reminders go out later. If ten people call, nine wait. In the parallel world, an AI handles every call at once, books appointments, processes payments, and updates records in real time. The team spends less time managing and more time caring. The practice hums like a hive, every part aware of the whole. Learn more about building AI automations at <a href='/' class='text-accent hover:underline'>Data Buddies Solutions</a>.",
+          "Take an eyecare practice. In the linear world, a patient calls to book, a receptionist confirms, reminders go out later. If ten people call, nine wait. In the parallel world, an AI handles every call at once, books appointments, processes payments, and updates records in real time. The team spends less time managing and more time caring. The practice hums like a hive, every part aware of the whole. Learn more about building AI automations at <a href='/' class='text-accent hover:underline'>Acuity Health</a>.",
         ],
       },
       {

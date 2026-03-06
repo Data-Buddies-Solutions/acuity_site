@@ -2,9 +2,9 @@ import { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Data Buddies Solutions',
-    short_name: 'Data Buddies',
-    description: 'AI automation consultancy for small businesses. Launch AI agents for lead follow-up, customer success, and workflow automation.',
+    name: 'Acuity Health',
+    short_name: 'Acuity Health',
+    description: 'The AI phone system for medical teams. Handles scheduling, appointment reminders, and patient education.',
     start_url: '/',
     display: 'standalone',
     background_color: '#faf9f5',

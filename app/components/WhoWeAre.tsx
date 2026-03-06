@@ -4,19 +4,19 @@ import { Shield, Stethoscope, Users } from "lucide-react";
 
 const features = [
   {
-    icon: Stethoscope,
-    title: "Healthcare focused",
-    description: "We specialize in medical practices, from eyecare to primary care and beyond.",
-  },
-  {
     icon: Shield,
     title: "HIPAA compliant",
-    description: "All solutions meet strict healthcare privacy and security requirements.",
+    description: "We hold partnership agreements with AI providers ensuring patient data is never used for model training. For practices that need it, we build custom AI models for on-premise deployment.",
+  },
+  {
+    icon: Stethoscope,
+    title: "Built for medical teams",
+    description: "We only work with healthcare practices. Every system we build is designed around how medical offices actually operate, from insurance rules to EMR workflows.",
   },
   {
     icon: Users,
-    title: "Hands-on team",
-    description: "Work directly with the engineers and consultants who build your agents.",
+    title: "White-glove setup",
+    description: "We handle everything from configuration to go-live. Your team gets a fully working system without needing any technical expertise.",
   },
 ];
 
@@ -28,7 +28,7 @@ export default function WhoWeAre() {
           {/* Left - Content */}
           <div>
             <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-6">
-              About Data Buddies Solutions
+              About Acuity Health
             </h2>
             <p className="text-lg text-muted-foreground leading-relaxed">
               We're an AI consulting firm that helps medical practices adopt AI through custom-built agents. We combine deep AI expertise with a focused understanding of practice operations.

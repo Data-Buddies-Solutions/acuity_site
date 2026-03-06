@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { Eye, Target, Users } from "lucide-react";
+import { Stethoscope, Target, Users } from "lucide-react";
 import { SITE_CONFIG } from "@/lib/config";
 
 function XLogo({ className }: { className?: string }) {
@@ -17,7 +17,7 @@ const team = [
     role: "CEO",
     initials: "KS",
     image: "/kyle-shechtman.png",
-    bio: "I work closely with eyecare practice owners to understand their operational challenges and design AI solutions that fit how their teams work.",
+    bio: "I work closely with medical practice owners to understand their operational challenges and design AI solutions that fit how their teams work.",
     twitter: "_kyleshechtman",
   },
   {
@@ -25,32 +25,32 @@ const team = [
     role: "CTO",
     initials: "CF",
     image: "/chase-fagen.png",
-    bio: "I lead our technical development, ensuring our AI agents integrate smoothly with EHR systems, phone platforms, and practice management software.",
+    bio: "I lead our technical development, ensuring our AI phone system integrates smoothly with EMRs, phone platforms, and practice management software.",
     twitter: "chasef07",
   },
 ];
 
 const values = [
   {
-    icon: Eye,
-    title: "Eyecare focused",
-    description: "We specialize exclusively in optometry and ophthalmology practices.",
+    icon: Stethoscope,
+    title: "Built for medical teams",
+    description: "We only work with healthcare practices. Every system is designed around how medical offices actually operate.",
   },
   {
     icon: Target,
-    title: "Custom solutions",
-    description: "Every practice is different. We build agents tailored to your specific workflows.",
+    title: "Custom to your practice",
+    description: "Every practice is different. We configure the phone system around your insurance rules, EMR, and workflows.",
   },
   {
     icon: Users,
-    title: "Hands-on partnership",
-    description: "You work directly with our engineers. No handoffs or support tickets.",
+    title: "White-glove setup",
+    description: "We handle everything from configuration to go-live. No technical expertise needed on your end.",
   },
 ];
 
 export const metadata: Metadata = {
   title: "About Us",
-  description: "Meet the Data Buddies Solutions team—AI consultants specializing in custom agent development for eyecare practices.",
+  description: "Meet the Acuity Health team—AI consultants specializing in custom agent development for medical practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/about`,
   },
@@ -63,10 +63,10 @@ export default function AboutPage() {
       <section className="py-20 md:py-28 bg-background">
         <div className="mx-auto max-w-4xl px-6 text-center">
           <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-6">
-            About Data Buddies Solutions
+            About Acuity Health
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            We're an AI consulting firm helping eyecare practices adopt AI through custom-built agents.
+            We build AI phone systems that help medical teams spend less time on the phone and more time with patients.
           </p>
         </div>
       </section>

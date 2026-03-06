@@ -9,11 +9,11 @@ export async function GET(request: Request) {
     // Get title from search params, or use default
     const title = searchParams.has('title')
       ? searchParams.get('title')?.slice(0, 100)
-      : 'Your Business Buddy That Never Sleeps';
+      : 'AI Phone System for Medical Teams';
 
     const subtitle = searchParams.has('subtitle')
       ? searchParams.get('subtitle')?.slice(0, 100)
-      : 'AI Automation for Small Businesses';
+      : 'Scheduling, reminders, and patient education. Handled.';
 
     return new ImageResponse(
       (
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
                   fontSize: '28px',
                 }}
               >
-                DB
+                AH
               </div>
               <div
                 style={{
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
                   letterSpacing: '-0.5px',
                 }}
               >
-                Data Buddies Solutions
+                Acuity Health
               </div>
             </div>
 
@@ -133,7 +133,7 @@ export async function GET(request: Request) {
               letterSpacing: '1px',
             }}
           >
-            AI AUTOMATION
+            AI PHONE SYSTEM
           </div>
 
           {/* Domain */}
@@ -147,7 +147,7 @@ export async function GET(request: Request) {
               fontWeight: 500,
             }}
           >
-            databuddiessolutions.com
+            acuityhealth.io
           </div>
         </div>
       ),

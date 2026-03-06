@@ -18,7 +18,7 @@ import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 export const metadata: Metadata = {
   title: "Automation Insights & Playbooks",
   description:
-    "Deep dives, frameworks, and checklists for building AI automations that help small businesses scale.",
+    "Insights and playbooks on AI phone systems, healthcare automation, and how medical teams are using AI to work smarter.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/blog`,
   },
@@ -86,8 +86,8 @@ export default function BlogPage() {
         </div>
         <p className="text-center text-sm text-foreground/60">
           Looking for something specific? Email{" "}
-          <Link href="mailto:team@databuddiessolutions.com" className="text-accent hover:text-accent-hover transition-colors">
-            team@databuddiessolutions.com
+          <Link href={`mailto:${SITE_CONFIG.email}`} className="text-accent hover:text-accent-hover transition-colors">
+            {SITE_CONFIG.email}
           </Link>{" "}
           with your topic request
         </p>

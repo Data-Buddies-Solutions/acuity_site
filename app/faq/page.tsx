@@ -4,46 +4,46 @@ import { SITE_CONFIG } from "@/lib/config";
 
 const faqs = [
   {
-    question: "What types of medical practices do you work with?",
-    answer: "We work with medical practices of all types—from eyecare and primary care to specialty clinics. Our deep focus on healthcare means we understand the specific workflows, compliance requirements, and operational challenges you face.",
+    question: "What does the AI phone system actually do?",
+    answer: "It answers your practice's phone calls, talks to patients in natural conversation, books appointments directly into your EMR, and handles things like appointment reminders and patient education calls. It works 24/7 and can handle 20+ calls at the same time.",
   },
   {
-    question: "How quickly can we launch an AI agent?",
-    answer: "Most agents launch in 4–8 weeks. We prioritize quick wins that deliver measurable ROI within the first month—like reducing missed calls or automating referral intake.",
+    question: "Will patients know they're talking to an AI?",
+    answer: "The voice is natural and conversational, but we believe in transparency. Patients are informed they're speaking with an AI assistant. Most patients prefer it to being put on hold or sent to voicemail.",
   },
   {
-    question: "Do we need technical expertise on our team?",
-    answer: "None. We translate your practice goals into AI use cases, handle all the technical work, and train your team on how to use the new systems. You just need to help us understand your current workflows.",
+    question: "Does it work with our EMR?",
+    answer: "Yes. We integrate directly with major systems like AdvancedMD, EyeMD EMR, Compulink, and others. Appointments are booked straight into your existing system with no double entry.",
   },
   {
-    question: "Are your AI agents HIPAA compliant?",
-    answer: "Yes. HIPAA compliance is built into everything we do—from the infrastructure we use to how we handle patient data. All solutions meet strict healthcare privacy and security requirements.",
+    question: "Is patient data safe?",
+    answer: "Absolutely. We're fully HIPAA compliant. We hold partnership agreements with AI providers ensuring patient data is never used for model training. For practices that need it, we also offer custom on-premise deployments.",
   },
   {
-    question: "Do you build custom agents or use off-the-shelf tools?",
-    answer: "Both. We combine best-in-class AI platforms with custom orchestration and guardrails so each agent is tuned to your specific workflows, branding, and compliance requirements.",
+    question: "What languages does it support?",
+    answer: "Over 70 languages. The system detects what language a patient is speaking and responds fluently, so your practice can serve every patient without a language barrier.",
   },
   {
-    question: "Can you integrate with our EHR and practice management systems?",
-    answer: "Yes. We integrate with major systems like AdvancedMD, EyeMD EMR, Compulink, and others. If your system has an API, we can connect to it. We also work with fax, phone systems, and scheduling platforms.",
+    question: "How long does setup take?",
+    answer: "Most practices are live within 4–8 weeks. We handle everything from configuration to your insurance rules, EMR integration, and go-live. No technical expertise needed on your end.",
+  },
+  {
+    question: "What happens if the AI can't handle a call?",
+    answer: "It seamlessly transfers the call to your staff with full context of the conversation. You're always in control, and your team can step in at any point.",
   },
   {
     question: "How is pricing structured?",
-    answer: "Most clients start with a project-based engagement for the initial build, then move to a monthly subscription for ongoing improvements and support. We'll provide a detailed quote after our discovery call.",
+    answer: "We offer a monthly subscription that covers the phone system, integrations, and ongoing support. We'll provide a detailed quote after a demo call so you can see exactly what you're getting.",
   },
   {
-    question: "Can we start with just one agent?",
-    answer: "Absolutely. Many practices start with a single agent—like phone scheduling or referral processing—to see results before expanding to other workflows.",
-  },
-  {
-    question: "What happens if something goes wrong?",
-    answer: "All our agents have built-in escalation paths. If an agent encounters something it can't handle, it seamlessly hands off to your team with full context. You're always in control.",
+    question: "Can we try it before committing?",
+    answer: "Yes. Book a demo and we'll run a live call for your practice so you can hear exactly how it sounds and see how it books into your system.",
   },
 ];
 
 export const metadata: Metadata = {
-  title: "FAQ | AI Agents for Eyecare",
-  description: "Answers to common questions about Data Buddies Solutions AI agents for optometry and ophthalmology practices.",
+  title: "FAQ | AI Phone System for Medical Teams",
+  description: "Answers to common questions about Acuity Health AI phone system for medical practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/faq`,
   },

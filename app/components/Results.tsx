@@ -10,8 +10,8 @@ const stats = [
     label: "Fewer no-shows",
   },
   {
-    value: "3x",
-    label: "Faster pre-auths",
+    value: "70+",
+    label: "Languages supported",
   },
   {
     value: "24/7",
@@ -29,7 +29,7 @@ export default function Results() {
             What practices see
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Typical results from practices working with Data Buddies Solutions
+            Typical results from practices working with Acuity Health
           </p>
         </div>
 
