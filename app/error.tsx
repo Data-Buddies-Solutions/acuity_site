@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import Link from 'next/link';
 import { Button } from '@/app/components/ui/button';
 import { Badge } from '@/app/components/ui/badge';
 import { AlertCircle } from 'lucide-react';
@@ -39,7 +40,7 @@ export default function Error({
             Try Again
           </Button>
           <Button asChild variant="secondary" size="lg" className="rounded-xl">
-            <a href="/">Go Home</a>
+            <Link href="/">Go Home</Link>
           </Button>
         </div>
 

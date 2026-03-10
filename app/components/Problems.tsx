@@ -36,7 +36,7 @@ export default function Problems() {
             Does This Sound Like<br />Your <span className="text-accent">Day-to-Day</span>?
           </h2>
           <p className="text-xl text-muted-foreground md:text-2xl">
-            You're not alone. These are the exact problems we help small businesses solve with AI
+            You&apos;re not alone. These are the exact problems we help small businesses solve with AI
           </p>
         </div>
         <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-3 lg:gap-16">
