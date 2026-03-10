@@ -39,7 +39,7 @@ export default function Testimonials() {
   const current = testimonials[currentIndex];
 
   return (
-    <section className="py-20 md:py-28 bg-muted/50" id="testimonials">
+    <section className="py-20 md:py-28 bg-white" id="testimonials">
       <div className="mx-auto max-w-4xl px-6">
         {/* Section header */}
         <div className="text-center mb-12">
