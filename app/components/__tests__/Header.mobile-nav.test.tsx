@@ -1,17 +1,18 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { mock, describe, it, expect, beforeEach } from "bun:test";
+import "@testing-library/jest-dom/bun";
 
 import Header from "../Header";
 
-vi.mock("next/image", () => ({
+mock.module("next/image", () => ({
   default: ({ priority: _priority, ...props }: any) => {
     // eslint-disable-next-line @next/next/no-img-element
     return <img {...props} />;
   },
 }));
 
-vi.mock("next/link", () => ({
+mock.module("next/link", () => ({
   __esModule: true,
   default: ({ href, children, ...rest }: any) => (
     <a href={href} {...rest}>
@@ -22,7 +23,6 @@ vi.mock("next/link", () => ({
 
 describe("Header mobile navigation overlay", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
   });
 
   it("renders opaque backgrounds when the hamburger menu is opened", () => {
