@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Menu, X, ArrowRight } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 import BookCallButton from "./BookCallButton";
@@ -10,7 +10,7 @@ import Logo from "./VisionOpsLogo";
 
 const navLinks = [
   { href: "/#how-it-works", label: "How It Works" },
-  { href: "/#about", label: "About" },
+  { href: "/#results", label: "Results" },
   { href: "/faq", label: "FAQ" },
   { href: "/blog", label: "Blog" },
 ];
@@ -29,30 +29,10 @@ export default function Header() {
 
   return (
     <>
-      {/* Announcement Banner */}
-      <div
-        className={cn(
-          "fixed top-0 left-0 right-0 z-50 bg-stone-950 text-center py-2.5 px-4 transition-all duration-300",
-          isScrolled ? "opacity-0 -translate-y-full pointer-events-none" : "opacity-100 translate-y-0"
-        )}
-      >
-        <a
-          href="https://www.visionexpo.com/en-us/experiences/schedule-of-events/schedule-of-event-details.4767.260869.the-patient-is-already-using-ai-the-question-is-whether-your-practice-is.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-white transition-colors group whitespace-nowrap"
-        >
-          <span className="bg-white/10 text-white text-[10px] md:text-xs font-medium px-1.5 md:px-2 py-0.5 rounded-full">March 12</span>
-          <span className="hidden md:inline">Speaking at Vision Expo — Connect with us</span>
-          <span className="md:hidden">Speaking at Vision Expo</span>
-          <ArrowRight className="h-3 w-3 md:h-3.5 md:w-3.5 group-hover:translate-x-0.5 transition-transform" />
-        </a>
-      </div>
-
       <header
         className={cn(
           "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
-          isScrolled ? "px-8 md:px-32 lg:px-48 pt-2 mt-0" : "px-4 pt-6 mt-10"
+          isScrolled ? "px-8 md:px-32 lg:px-48 pt-2" : "px-4 pt-6"
         )}
       >
       <div

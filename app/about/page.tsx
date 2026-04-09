@@ -33,13 +33,13 @@ const team = [
 const values = [
   {
     icon: Stethoscope,
-    title: "Built for medical teams",
-    description: "We only work with healthcare practices. Every system is designed around how medical offices actually operate.",
+    title: "Built for eye care",
+    description: "We only work with ophthalmology and optometry practices. Every system is designed around how eye care offices actually operate.",
   },
   {
     icon: Target,
     title: "Custom to your practice",
-    description: "Every practice is different. We configure the phone system around your insurance rules, EMR, and workflows.",
+    description: "Every practice is different. We configure the phone system around your insurance rules, EMR, and appointment types.",
   },
   {
     icon: Users,
@@ -50,7 +50,7 @@ const values = [
 
 export const metadata: Metadata = {
   title: "About Us",
-  description: "Meet the Acuity Health team—AI consultants specializing in custom agent development for medical practices.",
+  description: "Meet the Acuity Health team. AI consultants specializing in custom agent development for medical practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/about`,
   },
@@ -66,7 +66,7 @@ export default function AboutPage() {
             About Acuity Health
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            We build AI phone systems that help medical teams spend less time on the phone and more time with patients.
+            We build AI phone systems for ophthalmology and optometry practices. Your staff spends less time on the phone and more time with patients.
           </p>
         </div>
       </section>

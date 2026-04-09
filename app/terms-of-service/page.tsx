@@ -75,8 +75,8 @@ export default function TermsOfServicePage() {
           <h2 className="text-xl font-semibold text-foreground">Contact</h2>
           <p>
             For questions about these Terms, contact Emet Global LLC d/b/a Acuity Health at{" "}
-            <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
-              team@databuddiessolutions.com
+            <a href="mailto:kyle@acuityhealth.io" className="text-accent hover:underline">
+              kyle@acuityhealth.io
             </a>
             .
           </p>

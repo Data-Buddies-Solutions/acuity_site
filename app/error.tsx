@@ -46,7 +46,7 @@ export default function Error({
         <div className="pt-8">
           <p className="text-sm text-muted-foreground">
             Need help?{' '}
-            <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
+            <a href="mailto:kyle@acuityhealth.io" className="text-accent hover:underline">
               Contact support
             </a>
           </p>

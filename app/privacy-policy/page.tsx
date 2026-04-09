@@ -65,8 +65,8 @@ export default function PrivacyPolicyPage() {
           <h2 className="text-xl font-semibold text-foreground">Your Choices</h2>
           <p>
             You can request access, updates, or deletion of your personal information by contacting us at{" "}
-            <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
-              team@databuddiessolutions.com
+            <a href="mailto:kyle@acuityhealth.io" className="text-accent hover:underline">
+              kyle@acuityhealth.io
             </a>
             . You may also opt out of marketing communications by following the unsubscribe instructions included in
             those messages.
@@ -77,8 +77,8 @@ export default function PrivacyPolicyPage() {
           <p>
             If you have questions about this Privacy Policy or our data practices, please contact Emet Global LLC
             d/b/a Acuity Health at{" "}
-            <a href="mailto:team@databuddiessolutions.com" className="text-accent hover:underline">
-              team@databuddiessolutions.com
+            <a href="mailto:kyle@acuityhealth.io" className="text-accent hover:underline">
+              kyle@acuityhealth.io
             </a>
             .
           </p>
