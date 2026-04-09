@@ -4,16 +4,24 @@ import { SITE_CONFIG } from "@/lib/config";
 
 const faqs = [
   {
-    question: "What does the AI phone system actually do?",
-    answer: "It answers your practice's phone calls, talks to patients in natural conversation, books appointments directly into your EMR, and handles things like appointment reminders and patient education calls. It works 24/7 and can handle 20+ calls at the same time.",
+    question: "What does the AI actually do when a patient calls?",
+    answer: "It answers the phone, has a natural conversation with the patient, and handles their request. Scheduling an appointment, confirming an existing one, checking insurance, or answering common questions about your practice. If the call needs your staff, it transfers with full context so the patient never has to repeat themselves.",
   },
   {
     question: "Will patients know they're talking to an AI?",
-    answer: "The voice is natural and conversational, but we believe in transparency. Patients are informed they're speaking with an AI assistant. Most patients prefer it to being put on hold or sent to voicemail.",
+    answer: "The voice is natural and conversational, but we believe in transparency. Patients are informed they're speaking with an AI assistant. In practice, most patients prefer it to being put on hold or sent to voicemail. We've seen that patients actually like getting helped immediately.",
   },
   {
-    question: "Does it work with our EMR?",
-    answer: "Yes. We integrate directly with major systems like AdvancedMD, EyeMD EMR, Compulink, and others. Appointments are booked straight into your existing system with no double entry.",
+    question: "Which EMRs do you integrate with?",
+    answer: "We're fully integrated with AdvancedMD today. Appointments book directly into your system with no double entry. Athena and Compulink integrations are in progress. If you use a different EMR, let us know. We're expanding quickly.",
+  },
+  {
+    question: "How many calls can it handle at once?",
+    answer: "30+ simultaneous calls. Every patient gets answered instantly. No hold time, no busy signals, no voicemail. This includes after hours, weekends, and holidays.",
+  },
+  {
+    question: "What percentage of calls does the AI actually handle?",
+    answer: "In our current deployments, 65% of calls are handled end-to-end by the AI with no staff involvement. The remaining calls are transferred to your team with full context. The AI never leaves a patient stranded.",
   },
   {
     question: "Is patient data safe?",
@@ -21,29 +29,29 @@ const faqs = [
   },
   {
     question: "What languages does it support?",
-    answer: "Over 70 languages. The system detects what language a patient is speaking and responds fluently, so your practice can serve every patient without a language barrier.",
+    answer: "Over 70 languages. The system detects what language a patient is speaking and responds fluently. No interpreter line needed.",
   },
   {
     question: "How long does setup take?",
-    answer: "Most practices are live within 4–8 weeks. We handle everything from configuration to your insurance rules, EMR integration, and go-live. No technical expertise needed on your end.",
+    answer: "Most practices are live within 4–8 weeks. We handle everything. Your insurance rules, scheduling logic, appointment types, and EMR integration. No technical expertise needed on your end. It's a white-glove process.",
   },
   {
-    question: "What happens if the AI can't handle a call?",
-    answer: "It seamlessly transfers the call to your staff with full context of the conversation. You're always in control, and your team can step in at any point.",
+    question: "Is this built specifically for eye care?",
+    answer: "Yes. We only work with ophthalmology and optometry practices. The AI understands your appointment types, insurance requirements, and how eye care front desks actually operate. It's not a generic healthcare AI.",
   },
   {
     question: "How is pricing structured?",
-    answer: "We offer a monthly subscription that covers the phone system, integrations, and ongoing support. We'll provide a detailed quote after a demo call so you can see exactly what you're getting.",
+    answer: "Monthly subscription that covers the phone system, EMR integration, and ongoing support. We'll provide a detailed quote after a demo call so you can see exactly what you're getting.",
   },
   {
     question: "Can we try it before committing?",
-    answer: "Yes. Book a demo and we'll run a live call for your practice so you can hear exactly how it sounds and see how it books into your system.",
+    answer: "Yes. Book a demo and we'll run a live call using your practice's rules. Your appointment types, your insurance requirements, your scheduling logic. You'll hear exactly how it sounds and see how it books into your system.",
   },
 ];
 
 export const metadata: Metadata = {
-  title: "FAQ | AI Phone System for Medical Teams",
-  description: "Answers to common questions about Acuity Health AI phone system for medical practices.",
+  title: "FAQ | AI Phone Receptionist for Eye Care",
+  description: "Common questions about the Acuity Health AI phone receptionist for ophthalmology and optometry practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/faq`,
   },
@@ -68,7 +76,7 @@ export default function FAQPage() {
             Frequently asked questions
           </h1>
           <p className="text-lg text-muted-foreground">
-            Everything you need to know about working with us. Have a specific question?{" "}
+            Everything you need to know about Acuity Health. Have a specific question?{" "}
             <a
               href={SITE_CONFIG.calendarLink}
               target="_blank"
