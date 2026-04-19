@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import BookCallButton from "./BookCallButton";
+import Link from "next/link";
+import { Button } from "./ui/button";
 
 export default function Results() {
   const [callsPerDay, setCallsPerDay] = useState(50);
@@ -18,9 +20,9 @@ export default function Results() {
   return (
     <section className="py-20 md:py-28 bg-muted" id="results">
       <div className="mx-auto max-w-4xl px-4 md:px-6">
-        <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">ROI Calculator</p>
+        <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">Impact calculator</p>
         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-8 md:mb-10">
-          See Acuity in Action
+          Estimate what better patient access can unlock
         </h2>
 
         {/* Slider */}
@@ -50,7 +52,7 @@ export default function Results() {
             <p className="text-4xl md:text-5xl font-bold text-accent tracking-tight tabular-nums leading-none">
               ${revenuePerMonth.toLocaleString()}
             </p>
-            <p className="text-sm font-medium text-neutral-900 mt-3">Revenue recovered per month</p>
+            <p className="text-sm font-medium text-neutral-900 mt-3">Monthly revenue protected</p>
             <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
               {missedCalls} missed calls/day &times; 20% booking rate &times; $250 avg visit
             </p>
@@ -60,7 +62,7 @@ export default function Results() {
             <p className="text-4xl md:text-5xl font-bold text-accent tracking-tight tabular-nums leading-none">
               {hoursSaved}hrs
             </p>
-            <p className="text-sm font-medium text-neutral-900 mt-3">Staff time saved per month</p>
+            <p className="text-sm font-medium text-neutral-900 mt-3">Monthly staff capacity returned</p>
             <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
               65% of calls handled by AI &times; 3 min avg call
             </p>
@@ -70,21 +72,30 @@ export default function Results() {
             <p className="text-4xl md:text-5xl font-bold text-accent tracking-tight leading-none">
               91%
             </p>
-            <p className="text-sm font-medium text-neutral-900 mt-3">Patient satisfaction (CSAT)</p>
+            <p className="text-sm font-medium text-neutral-900 mt-3">Projected patient satisfaction</p>
             <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
               Up from ~75% industry avg with hold times and voicemail
             </p>
           </div>
         </div>
 
-        {/* CTA */}
-        <BookCallButton
-          size="default"
-          className="text-sm px-6 py-2.5 rounded-full hover:opacity-90 transition-opacity"
-          iconVariant="arrow-right"
-        >
-          Get results like these
-        </BookCallButton>
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+          <BookCallButton
+            size="default"
+            className="text-sm px-6 py-2.5 rounded-full hover:opacity-90 transition-opacity"
+            iconVariant="arrow-right"
+          >
+            See what this looks like for your practice
+          </BookCallButton>
+          <Button
+            variant="ghost"
+            size="default"
+            className="text-sm px-2 text-muted-foreground hover:text-foreground"
+            asChild
+          >
+            <Link href="/results">View the results page</Link>
+          </Button>
+        </div>
       </div>
     </section>
   );

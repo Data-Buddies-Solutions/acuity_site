@@ -6,8 +6,9 @@ import Results from "./components/Results";
 import CTA from "./components/CTA";
 
 export const metadata: Metadata = {
-  title: "AI Phone Receptionist for Eye Care Practices | Acuity Health",
-  description: "The AI phone receptionist built for ophthalmology and optometry. Handles scheduling, insurance checks, and appointment confirmations. Everything syncs to your EMR.",
+  title: "Patient Access and Engagement for Eye Care Practices | Acuity Health",
+  description:
+    "Acuity Health helps ophthalmology and optometry practices answer every patient call, reduce front-desk overload, and keep patient communication moving.",
   alternates: {
     canonical: "/",
   },

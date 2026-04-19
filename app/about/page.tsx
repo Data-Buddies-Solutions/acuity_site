@@ -50,7 +50,7 @@ const values = [
 
 export const metadata: Metadata = {
   title: "About Us",
-  description: "Meet the Acuity Health team. AI consultants specializing in custom agent development for medical practices.",
+  description: "Meet the Acuity Health team building patient access and engagement systems for ophthalmology and optometry practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/about`,
   },
@@ -66,7 +66,7 @@ export default function AboutPage() {
             About Acuity Health
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            We build AI phone systems for ophthalmology and optometry practices. Your staff spends less time on the phone and more time with patients.
+            We build patient access and engagement systems for ophthalmology and optometry practices so teams spend less time on repetitive phone work and more time with patients.
           </p>
         </div>
       </section>

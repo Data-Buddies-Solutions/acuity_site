@@ -30,13 +30,13 @@ export default function Hero() {
             </div>
 
             <h1 className="text-[1.75rem] md:text-5xl lg:text-[3.5rem] font-semibold tracking-[-0.04em] leading-[1.08] mb-4 md:mb-5 text-center lg:text-left">
-              Your Patients Call.
+              Patient access and engagement
               <br />
-              <span className="text-accent">Our AI Answers.</span>
+              <span className="text-accent">for eye care practices.</span>
             </h1>
 
             <p className="text-sm md:text-lg text-muted-foreground max-w-lg leading-relaxed mb-6 md:mb-8 text-center lg:text-left mx-auto lg:mx-0">
-              The AI phone receptionist that handles scheduling, insurance checks, and appointment confirmations. Everything syncs to your EMR. No hold time. No missed calls. 24/7.
+              Answer every patient call, reduce front-desk overload, and keep scheduling, confirmations, and follow-up moving. Built for ophthalmology and optometry workflows, synced to your EMR, and available 24/7.
             </p>
 
             {/* Mobile: Hero image between subtitle and buttons */}
@@ -62,8 +62,17 @@ export default function Hero() {
                 className="text-sm md:text-base px-6 md:px-7 py-3 rounded-full border border-neutral-300 bg-white text-neutral-800 shadow-sm hover:bg-neutral-50 transition-colors w-full sm:w-auto"
                 asChild
               >
-                <Link href="#how-it-works">See How It Works</Link>
+                <Link href="/platform">Explore the Platform</Link>
               </Button>
+            </div>
+
+            <div className="mt-4 text-center lg:text-left">
+              <Link
+                href="/results"
+                className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              >
+                See results and proof
+              </Link>
             </div>
 
             {/* Trust signals — hidden on mobile */}
@@ -77,7 +86,7 @@ export default function Hero() {
               />
               <div className="w-px h-6 bg-neutral-200" />
               <p className="text-xs text-muted-foreground">
-                HIPAA compliant &middot; EMR integrations &middot; 70+ languages
+                HIPAA compliant &middot; EMR-integrated &middot; 70+ languages
               </p>
             </div>
           </div>
@@ -98,7 +107,7 @@ export default function Hero() {
         <div className="py-6 md:py-8 overflow-hidden border-t border-neutral-100">
           <div className="mx-auto max-w-6xl px-4 md:px-6 mb-4 md:mb-6">
             <p className="text-center text-xs text-muted-foreground/60 uppercase tracking-widest font-medium">
-              Trusted by eye care practices
+              Trusted by eye care practices and technology partners
             </p>
           </div>
           <div className="relative">

@@ -6,7 +6,7 @@ import { SITE_CONFIG } from "@/lib/config";
 
 export const metadata = {
   title: "Page Not Found",
-  description: "The page you're looking for doesn't exist. Explore Acuity Health AI phone system services.",
+  description: "The page you're looking for doesn't exist. Explore Acuity Health's patient access and engagement services for eye care practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/404`,
   },
@@ -40,9 +40,9 @@ export default function NotFound() {
             </Link>
           </Button>
           <Button asChild variant="secondary" size="lg" className="rounded-xl">
-            <Link href="/blog">
+            <Link href="/insights">
               <Search className="mr-2 h-4 w-4" />
-              Browse Blog
+              Browse Insights
             </Link>
           </Button>
         </div>
@@ -58,8 +58,8 @@ export default function NotFound() {
               FAQ
             </Link>
             <span className="text-muted-foreground">•</span>
-            <Link href="/blog" className="text-sm text-accent hover:underline">
-              Blog
+            <Link href="/insights" className="text-sm text-accent hover:underline">
+              Insights
             </Link>
             <span className="text-muted-foreground">•</span>
             <Link href={SITE_CONFIG.calendarLink} className="text-sm text-accent hover:underline" target="_blank" rel="noopener noreferrer">

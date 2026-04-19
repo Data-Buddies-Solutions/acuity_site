@@ -1,10 +1,10 @@
 export const SITE_CONFIG = {
   name: "Acuity Health",
-  baseUrl: "https://visionops.ai",
+  baseUrl: "https://acuityhealth.io",
   email: "kyle@acuityhealth.io",
   calendarLink: "https://cal.com/kyle-shechtman-acuity/30min",
   description:
-    "The AI phone receptionist built for ophthalmology and optometry. Handles scheduling, insurance checks, and appointment confirmations. Everything syncs to your EMR.",
+    "Patient access and engagement for ophthalmology and optometry practices. Answer every patient call, reduce front-desk overload, and keep scheduling, confirmations, and follow-up moving.",
   twitter: {
     kyle: "_kyleshechtman",
     chase: "chasef07",

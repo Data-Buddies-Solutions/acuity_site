@@ -6,9 +6,9 @@ import "@testing-library/jest-dom/bun";
 import Header from "../Header";
 
 mock.module("next/image", () => ({
-  default: ({ priority: _priority, ...props }: any) => {
+  default: ({ priority: _priority, alt = "", ...props }: any) => {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img {...props} />;
+    return <img alt={alt} {...props} />;
   },
 }));
 

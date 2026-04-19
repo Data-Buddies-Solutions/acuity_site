@@ -1,6 +1,6 @@
-# Data Buddies Solutions
+# Acuity Health Website
 
-A Next.js landing page for Data Buddies Solutions - AI automation for small businesses.
+A Next.js marketing site for Acuity Health, focused on patient access and engagement for ophthalmology and optometry practices.
 
 ## Getting Started
 
@@ -23,7 +23,7 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 To create a production build:
 
 ```bash
-npm run build
+npx next build --webpack
 npm start
 ```
 
@@ -33,7 +33,7 @@ The easiest way to deploy this Next.js app is to use the [Vercel Platform](https
 
 ## Tech Stack
 
-- Next.js 15
+- Next.js 16
 - React 19
 - TypeScript
 - Tailwind CSS
@@ -42,7 +42,7 @@ The easiest way to deploy this Next.js app is to use the [Vercel Platform](https
 ## Structure
 
 - `/app` - Next.js App Router pages and components
-- `/app/components` - React components (Header, Hero, Problems, Process, etc.)
+- `/app/components` - React components for homepage sections, navigation, and shared UI
 - `/public` - Static assets (images, llms.txt)
 - `/app/globals.css` - Global styles
 
@@ -53,11 +53,7 @@ The easiest way to deploy this Next.js app is to use the [Vercel Platform](https
 - Robots.txt at `app/robots.ts`
 - LLM instructions at `public/llms.txt`
 
-## Missing Assets
-
-The hero image (`hero-isometric-removebg-preview.png`) needs to be added to the `/public` directory. This image was not in git history.
-
 ## Contact
 
-- **Email**: team@databuddiessolutions.com
-- **Book a Demo**: [Cal.com scheduling link](https://cal.com/data-buddies-solutions/30min)
+- **Email**: kyle@acuityhealth.io
+- **Book a Demo**: [Cal.com scheduling link](https://cal.com/kyle-shechtman-acuity/30min)

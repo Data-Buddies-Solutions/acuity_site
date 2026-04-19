@@ -9,10 +9,11 @@ import BookCallButton from "./BookCallButton";
 import Logo from "./VisionOpsLogo";
 
 const navLinks = [
+  { href: "/platform", label: "Platform" },
   { href: "/#how-it-works", label: "How It Works" },
-  { href: "/#results", label: "Results" },
+  { href: "/results", label: "Results" },
   { href: "/faq", label: "FAQ" },
-  { href: "/blog", label: "Blog" },
+  { href: "/insights", label: "Insights" },
 ];
 
 export default function Header() {

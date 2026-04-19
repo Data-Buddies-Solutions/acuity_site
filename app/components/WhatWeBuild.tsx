@@ -4,23 +4,23 @@ import { useEffect, useRef, useState } from "react";
 const valueProps = [
   {
     number: "01",
-    title: "Increase revenue",
-    description: "Every call gets answered. No drops, no voicemail, no busy signals. Every ring is an appointment opportunity.",
+    title: "Capture more patient demand",
+    description: "Every answered call is a chance to book, retain, or route a patient instead of sending them elsewhere.",
   },
   {
     number: "02",
-    title: "Lower costs",
-    description: "AI handles the repetitive stuff. Your staff only gets involved when it actually matters.",
+    title: "Reduce front-desk overload",
+    description: "Acuity handles repetitive phone volume so your team can stay focused on patients who are already in the office.",
   },
   {
     number: "03",
-    title: "Better patient care",
-    description: "70+ languages. Personalized to each caller. Every patient gets the same quality experience, every time.",
+    title: "Improve patient engagement",
+    description: "Scheduling, confirmations, and follow-up feel consistent, professional, and accessible in 70+ languages.",
   },
   {
     number: "04",
-    title: "Built on modern VoIP",
-    description: "No landlines, no hardware, no outages. Crystal clear calls with 99.99% uptime. Deploys in days.",
+    title: "Modernize the phone layer",
+    description: "Upgrade from hold queues and legacy hardware to a dependable, cloud-based phone system designed for growth.",
   },
 ];
 
@@ -47,10 +47,10 @@ export default function WhatWeBuild() {
           <div className="text-center mb-14 md:mb-18">
             <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">How it works</p>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight mb-4">
-              Three steps. Zero hold time.
+              From first call to confirmed visit.
             </h2>
             <p className="text-base text-muted-foreground max-w-lg mx-auto">
-              A patient calls. The AI handles it. Your EMR is updated. Your staff only steps in when they need to.
+              Acuity answers instantly, handles routine patient communication, and keeps your EMR and staff aligned when a human needs to step in.
             </p>
           </div>
 
@@ -66,7 +66,7 @@ export default function WhatWeBuild() {
                 <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center">
                   <span className="text-xs font-bold text-accent">1</span>
                 </div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Patient calls</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Patient reaches out</p>
               </div>
               <div className="flex justify-center my-4">
                 <img
@@ -75,7 +75,7 @@ export default function WhatWeBuild() {
                   className="w-full max-w-[220px] rounded-xl"
                 />
               </div>
-              <p className="text-sm text-muted-foreground mt-4">AI picks up instantly. No hold, no phone tree, day or night.</p>
+              <p className="text-sm text-muted-foreground mt-4">Acuity picks up instantly. No hold, no phone tree, day or night.</p>
             </div>
 
             {/* Step 2 */}
@@ -88,7 +88,7 @@ export default function WhatWeBuild() {
                 <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center">
                   <span className="text-xs font-bold text-accent">2</span>
                 </div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">AI handles it</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Acuity resolves or routes</p>
               </div>
               <div className="flex justify-center my-4">
                 <img
@@ -97,7 +97,7 @@ export default function WhatWeBuild() {
                   className="w-full max-w-[220px] rounded-xl"
                 />
               </div>
-              <p className="text-sm text-muted-foreground mt-4">Schedules, checks insurance, confirms. Or transfers with full context.</p>
+              <p className="text-sm text-muted-foreground mt-4">Schedules, checks insurance, confirms appointments, or transfers with full context when staff involvement matters.</p>
             </div>
 
             {/* Step 3 */}
@@ -110,7 +110,7 @@ export default function WhatWeBuild() {
                 <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center">
                   <span className="text-xs font-bold text-accent">3</span>
                 </div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Synced to EMR</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Practice stays in sync</p>
               </div>
               <div className="flex justify-center my-4">
                 <img
@@ -119,7 +119,7 @@ export default function WhatWeBuild() {
                   className="w-full max-w-[220px] rounded-xl"
                 />
               </div>
-              <p className="text-sm text-muted-foreground mt-4">Lands in your EMR automatically. No double entry.</p>
+              <p className="text-sm text-muted-foreground mt-4">Appointments and context land in your EMR automatically, so your team is not stuck re-entering the same information.</p>
             </div>
           </div>
         </div>
@@ -131,12 +131,12 @@ export default function WhatWeBuild() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
             {/* Left: copy + bullets */}
             <div>
-              <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">The value of Acuity Health</p>
+              <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">Why practices choose Acuity</p>
               <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-4">
-                Built for your practice
+                Built for patient access, not generic call handling
               </h2>
               <p className="text-base text-muted-foreground leading-relaxed mb-10">
-                Not a generic call center. Trained on your workflows, your payers, and how your front desk actually operates.
+                Acuity is configured around your appointment types, insurance rules, escalation paths, and the way your front desk actually works. The result is faster response times without sacrificing professionalism.
               </p>
 
               <div className="space-y-0">

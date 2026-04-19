@@ -5,14 +5,14 @@ import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 export const metadata: Metadata = {
   title: "Terms of Service",
   description:
-    "Read the Terms of Service for Acuity Health. Understand the terms and conditions for using our AI automation and workflow automation services.",
+    "Read the Terms of Service for Acuity Health. Understand the terms and conditions for using our patient access and engagement services.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/terms-of-service`,
   },
   openGraph: {
     title: "Terms of Service | Acuity Health",
     description:
-      "Terms and conditions for using Acuity Health AI automation services.",
+      "Terms and conditions for using Acuity Health patient access and engagement services.",
   },
 };
 

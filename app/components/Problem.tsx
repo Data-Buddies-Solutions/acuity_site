@@ -37,8 +37,8 @@ export default function Problem() {
             }`}
           >
             <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-semibold tracking-tight leading-[1.15]">
-              A patient calls your practice.
-              <span className="text-muted-foreground"> Here's what happens.</span>
+              Patient engagement starts
+              <span className="text-muted-foreground"> before the visit.</span>
             </h2>
           </div>
 
@@ -48,7 +48,7 @@ export default function Problem() {
             }`}
           >
             <p className="text-base text-muted-foreground leading-relaxed">
-              They wait on hold for 3–5 minutes. They get transferred. They repeat their insurance information. They finally book, if they haven't hung up already. Your staff spends 25+ hours a week on these calls.
+              When patients hit hold times, voicemail, and repeated questions just to schedule, trust drops before care even begins. Your team burns hours on repetitive phone work while after-hours demand goes unanswered.
             </p>
           </div>
         </div>
@@ -59,17 +59,17 @@ export default function Problem() {
             {
               number: "23%",
               label: "of patient calls go to voicemail",
-              detail: "Every missed call is a patient who might book somewhere else.",
+              detail: "Missed calls create patient access friction and lost appointment opportunities.",
             },
             {
               number: "15%",
               label: "of calls come in after hours",
-              detail: "Nights, weekends, holidays. When nobody's at the desk to pick up.",
+              detail: "Demand does not stop when the front desk goes home for the day.",
             },
             {
               number: "25+",
               label: "hours per week on the phone",
-              detail: "Staff stuck scheduling and confirming instead of helping patients in the office.",
+              detail: "Staff get pulled into repetitive scheduling and confirmation work instead of patient-facing care.",
             },
           ].map((item, i) => (
             <div
@@ -93,7 +93,7 @@ export default function Problem() {
           }`}
         >
           <p className="text-base text-muted-foreground">
-            With Acuity Health, here's what happens instead.
+            Acuity gives your practice a more responsive front door.
           </p>
           <div className="w-px h-10 bg-neutral-200 mx-auto mt-4" />
         </div>

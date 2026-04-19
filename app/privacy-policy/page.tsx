@@ -5,7 +5,7 @@ import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "Learn how Acuity Health collects, uses, and protects your personal information. Our commitment to data privacy and security for our AI automation services.",
+    "Learn how Acuity Health collects, uses, and protects your personal information for our patient access and engagement services.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/privacy-policy`,
   },

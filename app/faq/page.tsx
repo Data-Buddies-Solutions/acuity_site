@@ -50,8 +50,8 @@ const faqs = [
 ];
 
 export const metadata: Metadata = {
-  title: "FAQ | AI Phone Receptionist for Eye Care",
-  description: "Common questions about the Acuity Health AI phone receptionist for ophthalmology and optometry practices.",
+  title: "FAQ | Patient Access and Engagement for Eye Care",
+  description: "Common questions about Acuity Health's patient access and engagement platform for ophthalmology and optometry practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/faq`,
   },
