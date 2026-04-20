@@ -79,7 +79,7 @@ export default function OfferStory() {
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-neutral-200 bg-muted/40 p-8">
+          <div className="p-1">
             <p className="text-xs font-medium uppercase tracking-widest text-accent">
               The progression
             </p>
@@ -104,7 +104,7 @@ export default function OfferStory() {
           {offers.slice(0, 2).map(({ eyebrow, name, description, bullets, icon: Icon }) => (
             <div
               key={eyebrow}
-              className="rounded-[2rem] border border-neutral-200 bg-white p-8 shadow-sm"
+              className="rounded-[2rem] bg-white p-8 shadow-sm"
             >
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/10">
@@ -128,7 +128,7 @@ export default function OfferStory() {
           ))}
         </div>
 
-        <div className="mt-6 rounded-[2rem] border border-neutral-200 bg-[#f7fbfb] p-8 shadow-sm">
+        <div className="mt-8 rounded-[2.25rem] bg-[#f7fbfb] p-8 shadow-sm">
           <div className="grid grid-cols-1 lg:grid-cols-[0.7fr_1.3fr] gap-8 items-start">
             <div>
               <p className="text-xs font-medium uppercase tracking-widest text-accent">
@@ -143,7 +143,7 @@ export default function OfferStory() {
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               {offers[2].bullets.map((item) => (
-                <div key={item} className="rounded-2xl bg-white px-5 py-4 text-sm text-muted-foreground border border-neutral-200">
+                <div key={item} className="rounded-2xl bg-white px-5 py-4 text-sm text-muted-foreground">
                   {item}
                 </div>
               ))}
@@ -151,7 +151,7 @@ export default function OfferStory() {
           </div>
         </div>
 
-        <div className="mt-10 rounded-[2rem] border border-neutral-200 bg-muted/40 p-8 md:p-10">
+        <div className="mt-10 p-1 md:p-2">
           <p className="text-xs font-medium uppercase tracking-widest text-accent">
             How pricing works
           </p>

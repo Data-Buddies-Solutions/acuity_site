@@ -7,25 +7,25 @@ const outcomes = [
   {
     metric: "0",
     title: "Missed calls",
-    description: "Acuity is currently supporting a 6-location ophthalmology deployment reporting zero missed calls.",
+    description: "In the first 30 days, the deployment reported zero missed calls.",
     icon: PhoneCall,
   },
   {
     metric: "2,000+",
     title: "After-hours calls answered",
-    description: "Patients are still getting through when the front desk is unavailable, not dropping into voicemail.",
+    description: "In the first 30 days, after-hours demand was answered instead of dropping into voicemail.",
     icon: Users,
   },
   {
     metric: "400",
     title: "Staff hours returned",
-    description: "Operational time has been returned to the team instead of disappearing into repetitive phone work.",
+    description: "In the first 30 days, staff time was returned instead of disappearing into repetitive phone work.",
     icon: Clock3,
   },
   {
     metric: "500+",
-    title: "Appointments booked per month",
-    description: "Acuity is already converting communication volume into real scheduled visits at scale.",
+    title: "Appointments booked",
+    description: "In the first 30 days, Acuity booked 500+ appointments at scale.",
     icon: CalendarCheck2,
   },
 ];
@@ -62,7 +62,7 @@ const logos = [
 
 export default function ProofNarrative() {
   return (
-    <section className="py-20 md:py-32 bg-white relative overflow-hidden">
+    <section className="py-20 md:py-32 bg-white relative overflow-hidden" id="results">
       <div className="mx-auto max-w-6xl px-4 md:px-6">
         <div className="max-w-3xl relative z-10">
           <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
@@ -72,11 +72,11 @@ export default function ProofNarrative() {
             Better patient engagement shows up as faster response, calmer operations, and fewer dropped opportunities.
           </h2>
           <p className="mt-5 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-            Acuity is already supporting real ophthalmology complexity at scale.
+            In one 6-location ophthalmology deployment, the first 30 days already showed what responsive patient engagement can look like at scale.
           </p>
         </div>
 
-        <div className="mt-12 rounded-[2.25rem] border border-neutral-200 bg-white p-8 md:p-12 shadow-[0_20px_60px_rgba(13,115,119,0.08)] relative z-10">
+        <div className="mt-12 rounded-[2.5rem] bg-white p-8 md:p-14 shadow-[0_24px_80px_rgba(13,115,119,0.12)] relative z-10">
           <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <p className="text-xs font-medium uppercase tracking-widest text-accent">
@@ -86,7 +86,7 @@ export default function ProofNarrative() {
                 A 6-location ophthalmology practice is using Acuity to stay responsive at scale.
               </h3>
               <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-                Pediatric doctors. Medical and vision insurance. Spanish-language booking. 100+ concurrent calls. Acuity handles the front desk across all six locations.
+                Pediatric doctors. Medical and vision insurance. Spanish-language booking. 100+ concurrent calls. In the first 30 days, Acuity handled the front desk across all six locations and captured after-hours demand.
               </p>
               <div className="mt-8 grid gap-4 sm:grid-cols-2">
                 {[
@@ -101,7 +101,7 @@ export default function ProofNarrative() {
                     text: "Spanish-speaking patients can be handled end-to-end without a separate manual process.",
                   },
                 ].map(({ icon: Icon, title, text }) => (
-                  <div key={title} className="rounded-2xl bg-[#f8fcfc] p-5 border border-neutral-200">
+                  <div key={title} className="rounded-2xl bg-[#f8fcfc] p-5">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
                         <Icon className="h-4.5 w-4.5 text-accent" />
@@ -114,16 +114,16 @@ export default function ProofNarrative() {
               </div>
             </div>
 
-            <div className="rounded-[1.75rem] border border-neutral-200 bg-[#f7fbfb] p-6 md:p-8">
+            <div className="rounded-[1.9rem] bg-[#f7fbfb] p-6 md:p-8">
               <p className="text-xs font-medium uppercase tracking-widest text-accent">
                 Why this matters
               </p>
               <div className="mt-5 space-y-4">
                 {[
-                  "Multi-location complexity is already proven in production.",
+                  "Multi-location complexity proved out quickly.",
                   "High-volume patient communication can be handled without missed calls.",
-                  "After-hours demand is not being left to voicemail.",
-                  "Patient engagement holds across insurance, language, and pediatric workflow complexity.",
+                  "After-hours demand does not need to fall into voicemail.",
+                  "Patient engagement can hold across insurance, language, and pediatric workflow complexity.",
                 ].map((item) => (
                   <div key={item} className="flex items-start gap-3 text-sm text-muted-foreground">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
@@ -131,9 +131,9 @@ export default function ProofNarrative() {
                   </div>
                 ))}
               </div>
-              <div className="mt-6 rounded-2xl bg-white p-5 border border-neutral-200">
+              <div className="mt-6 rounded-2xl bg-white p-5">
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  This is what responsive patient engagement looks like in a real ophthalmology environment.
+                  This is what responsive patient engagement looked like in the first 30 days of a real ophthalmology deployment.
                 </p>
               </div>
             </div>
@@ -142,7 +142,7 @@ export default function ProofNarrative() {
 
         <div className="grid gap-6 md:grid-cols-4 mt-12 relative z-10">
           {outcomes.map(({ metric, title, description, icon: Icon }) => (
-            <div key={title} className="rounded-[1.8rem] border border-neutral-200 bg-white p-8 shadow-sm">
+            <div key={title} className="rounded-[1.8rem] bg-white p-8 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/10">
                   <Icon className="h-5 w-5 text-accent" />
@@ -156,7 +156,7 @@ export default function ProofNarrative() {
         </div>
 
         <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] mt-12 relative z-10">
-          <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 md:p-10 shadow-sm">
+          <div className="rounded-[2rem] bg-white p-8 md:p-10 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-widest text-accent">
               What operators measure
             </p>
@@ -168,20 +168,20 @@ export default function ProofNarrative() {
                 </div>
               ))}
             </div>
-            <div className="mt-8 rounded-2xl bg-[#f7fbfb] p-6 border border-neutral-200">
+            <div className="mt-8 rounded-2xl bg-[#f7fbfb] p-6">
               <p className="text-sm text-muted-foreground leading-relaxed">
-                These are the operational details that make patient engagement work in real eye care environments.
+                These are the operational details behind the first 30 days of results.
               </p>
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 md:p-10 shadow-sm">
+          <div className="rounded-[2rem] bg-white p-8 md:p-10 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-widest text-accent">
               Selected customer feedback
             </p>
             <div className="mt-6 space-y-6">
               {feedback.map(({ quote, author, role }) => (
-                <div key={`${author}-${role}`} className="rounded-2xl bg-[#f8fcfc] p-6 border border-neutral-200">
+                <div key={`${author}-${role}`} className="rounded-2xl bg-[#f8fcfc] p-6">
                   <blockquote className="text-lg font-medium leading-relaxed text-foreground">
                     &ldquo;{quote}&rdquo;
                   </blockquote>
@@ -210,7 +210,7 @@ export default function ProofNarrative() {
         </div>
 
         <div className="mt-14 max-w-4xl relative z-10">
-          <div className="rounded-[2rem] border border-neutral-200 bg-white px-6 py-6 md:px-8 md:py-7 shadow-sm">
+          <div className="rounded-[2rem] bg-white px-6 py-6 md:px-8 md:py-7 shadow-sm">
             <div className="flex items-start gap-3 text-sm md:text-base text-muted-foreground">
               <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
               <span>

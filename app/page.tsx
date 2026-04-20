@@ -3,7 +3,6 @@ import Hero from "./components/Hero";
 import Problem from "./components/Problem";
 import WhatWeBuild from "./components/WhatWeBuild";
 import OfferStory from "./components/OfferStory";
-import Results from "./components/Results";
 import ProofNarrative from "./components/ProofNarrative";
 import CTA from "./components/CTA";
 
@@ -24,7 +23,6 @@ export default function Home() {
       <WhatWeBuild />
       <ProofNarrative />
       <OfferStory />
-      <Results />
       <CTA />
     </>
   );

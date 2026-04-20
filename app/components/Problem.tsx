@@ -43,7 +43,7 @@ export default function Problem() {
           </div>
 
           <div
-            className={`rounded-[2rem] border border-neutral-200 bg-muted/40 p-8 transition-all duration-700 delay-150 ${
+            className={`transition-all duration-700 delay-150 ${
               isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
             }`}
           >
@@ -57,9 +57,9 @@ export default function Problem() {
                 "Staff lose time to repetitive calls.",
                 "The practice feels harder to reach.",
               ].map((item) => (
-                <div key={item} className="rounded-2xl bg-white px-4 py-4 text-sm leading-relaxed text-muted-foreground border border-neutral-200">
+                <p key={item} className="text-sm md:text-base leading-relaxed text-muted-foreground border-l-2 border-accent/25 pl-4">
                   {item}
-                </div>
+                </p>
               ))}
             </div>
           </div>
@@ -85,7 +85,7 @@ export default function Problem() {
           ].map((item, i) => (
             <div
               key={item.label}
-              className={`rounded-[1.75rem] border border-neutral-200 bg-muted/40 p-7 transition-all duration-700 ${
+              className={`rounded-[1.75rem] bg-muted/35 p-7 transition-all duration-700 ${
                 isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
               }`}
               style={{ transitionDelay: `${300 + i * 100}ms` }}

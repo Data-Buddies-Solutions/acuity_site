@@ -29,19 +29,33 @@ export default function Hero() {
               <span className="text-xs font-medium text-accent">Built for ophthalmology & optometry</span>
             </div>
 
+            <p className="text-xs md:text-sm uppercase tracking-[0.18em] text-muted-foreground/80 mb-4 text-center lg:text-left">
+              Patient engagement starts with an answered call.
+            </p>
+
             <h1 className="text-[1.75rem] md:text-5xl lg:text-[3.5rem] font-semibold tracking-[-0.04em] leading-[1.08] mb-4 md:mb-5 text-center lg:text-left">
-              Patient engagement starts
+              An AI front desk
               <br />
-              <span className="text-accent">with an answered call.</span>
+              <span className="text-accent">for ophthalmology practices.</span>
             </h1>
 
             <p className="text-sm md:text-lg text-muted-foreground max-w-lg leading-relaxed mb-6 md:mb-8 text-center lg:text-left mx-auto lg:mx-0">
-              Acuity helps eye care practices answer every call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving.
+              Answer every call, book appointments, send reminders, handle patient texts, and route patients correctly across your practice.
             </p>
 
-            <p className="text-xs md:text-sm uppercase tracking-[0.18em] text-muted-foreground/80 mb-6 text-center lg:text-left">
-              Built for ophthalmology complexity.
-            </p>
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2 mb-6 text-sm text-neutral-900">
+              {[
+                "Call answering",
+                "Scheduling",
+                "Reminders and texts",
+                "Smart routing",
+              ].map((item) => (
+                <span key={item} className="inline-flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                  {item}
+                </span>
+              ))}
+            </div>
 
             {/* Mobile: Hero image between subtitle and buttons */}
             <div className="flex justify-center lg:hidden mb-6">
@@ -82,7 +96,7 @@ export default function Hero() {
             <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3 max-w-xl text-center lg:text-left">
               {[
                 ["24/7", "response coverage"],
-                ["65%", "calls handled"],
+                ["500+", "appointments in first 30 days"],
                 ["70+", "languages"],
               ].map(([value, label]) => (
                 <div key={label} className="rounded-2xl bg-neutral-50 border border-neutral-100 px-4 py-3">

@@ -54,7 +54,7 @@ export default function WhatWeBuild() {
                 Acuity answers instantly, handles routine work, and keeps your EMR and staff aligned when a human needs to step in.
               </p>
 
-              <div className="mt-10 rounded-[2rem] border border-neutral-200 bg-muted/40 p-7">
+              <div className="mt-10 p-1">
                 <p className="text-xs font-medium text-accent uppercase tracking-widest mb-3">
                   What improves
                 </p>
@@ -128,7 +128,7 @@ export default function WhatWeBuild() {
               </div>
 
               <div
-                className={`relative md:col-span-8 md:ml-12 rounded-[2rem] bg-white border border-neutral-200 p-6 shadow-card transition-all duration-700 delay-300 ${
+                className={`relative md:col-span-8 md:ml-12 rounded-[2rem] bg-white p-6 shadow-card transition-all duration-700 delay-300 ${
                   isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
                 }`}
               >
