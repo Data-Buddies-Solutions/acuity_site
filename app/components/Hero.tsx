@@ -19,7 +19,6 @@ const duplicatedPartners = [...partners, ...partners];
 export default function Hero() {
   return (
     <section className="relative pt-6 md:pt-20 lg:pt-24 pb-10 md:pb-20 bg-background overflow-hidden" id="top">
-      <div className="absolute inset-x-0 top-0 h-[32rem] bg-[radial-gradient(circle_at_top_left,rgba(13,115,119,0.12),transparent_45%),radial-gradient(circle_at_top_right,rgba(13,115,119,0.08),transparent_40%)]" />
       {/* Main hero: two-column */}
       <div className="relative z-10 mx-auto max-w-6xl px-4 md:px-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-16 items-center">
@@ -31,17 +30,17 @@ export default function Hero() {
             </div>
 
             <h1 className="text-[1.75rem] md:text-5xl lg:text-[3.5rem] font-semibold tracking-[-0.04em] leading-[1.08] mb-4 md:mb-5 text-center lg:text-left">
-              Patient engagement
+              Patient engagement starts
               <br />
-              <span className="text-accent">for eye care practices.</span>
+              <span className="text-accent">with an answered call.</span>
             </h1>
 
             <p className="text-sm md:text-lg text-muted-foreground max-w-lg leading-relaxed mb-6 md:mb-8 text-center lg:text-left mx-auto lg:mx-0">
-              Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving. Built for ophthalmology groups handling medical and vision insurance, pediatric workflows, multilingual booking, and after-hours demand.
+              Acuity helps eye care practices answer every call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving.
             </p>
 
             <p className="text-xs md:text-sm uppercase tracking-[0.18em] text-muted-foreground/80 mb-6 text-center lg:text-left">
-              Engagement starts with whether patients can reach you.
+              Built for ophthalmology complexity.
             </p>
 
             {/* Mobile: Hero image between subtitle and buttons */}
@@ -82,9 +81,9 @@ export default function Hero() {
 
             <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3 max-w-xl text-center lg:text-left">
               {[
-                ["24/7", "patient response coverage"],
-                ["65%", "calls handled end-to-end"],
-                ["70+", "languages supported"],
+                ["24/7", "response coverage"],
+                ["65%", "calls handled"],
+                ["70+", "languages"],
               ].map(([value, label]) => (
                 <div key={label} className="rounded-2xl bg-neutral-50 border border-neutral-100 px-4 py-3">
                   <p className="text-lg font-semibold text-neutral-900">{value}</p>

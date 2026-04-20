@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Hero from "./components/Hero";
 import Problem from "./components/Problem";
 import WhatWeBuild from "./components/WhatWeBuild";
-import Differentiation from "./components/Differentiation";
 import OfferStory from "./components/OfferStory";
 import Results from "./components/Results";
 import ProofNarrative from "./components/ProofNarrative";
@@ -22,7 +21,6 @@ export default function Home() {
     <>
       <Hero />
       <Problem />
-      <Differentiation />
       <WhatWeBuild />
       <ProofNarrative />
       <OfferStory />

@@ -51,9 +51,7 @@ export default function WhatWeBuild() {
                 From first call to confirmed visit, the patient keeps moving.
               </h2>
               <p className="text-base md:text-lg text-muted-foreground leading-relaxed max-w-xl">
-                Acuity answers instantly, handles routine patient communication, and keeps your EMR
-                and staff aligned when a human needs to step in. The goal is not just automation. It
-                is a more responsive practice.
+                Acuity answers instantly, handles routine work, and keeps your EMR and staff aligned when a human needs to step in.
               </p>
 
               <div className="mt-10 rounded-[2rem] border border-neutral-200 bg-muted/40 p-7">
@@ -102,7 +100,7 @@ export default function WhatWeBuild() {
                   />
                 </div>
                 <p className="text-sm text-muted-foreground mt-4">
-                  Acuity picks up instantly. No hold, no phone tree, day or night.
+                  Instant answer. No hold. No phone tree.
                 </p>
               </div>
 
@@ -125,7 +123,7 @@ export default function WhatWeBuild() {
                   />
                 </div>
                 <p className="text-sm text-muted-foreground mt-4">
-                  Scheduling, insurance checks, confirmations, or a transfer with context when staff involvement matters.
+                  Scheduling, insurance checks, confirmations, or a transfer with context.
                 </p>
               </div>
 
@@ -148,7 +146,7 @@ export default function WhatWeBuild() {
                   />
                 </div>
                 <p className="text-sm text-muted-foreground mt-4">
-                  Appointments and context land in your EMR automatically, so the team is not stuck re-entering the same information.
+                  Appointments and context land in your EMR automatically.
                 </p>
               </div>
             </div>

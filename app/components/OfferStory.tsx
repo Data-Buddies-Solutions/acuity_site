@@ -8,7 +8,7 @@ const offers = [
     eyebrow: "Acuity Access",
     icon: PhoneCall,
     description:
-      "Acuity answers inbound calls, handles routine patient questions, schedules through your EMR, and routes escalations with context so the front desk is not buried in repetitive work.",
+      "Acuity answers inbound calls, handles routine questions, schedules through your EMR, and routes escalations with context.",
     bullets: [
       "Inbound AI call handling",
       "Scheduling and transfer workflows",
@@ -21,7 +21,7 @@ const offers = [
     eyebrow: "Acuity Engage",
     icon: MessageSquareText,
     description:
-      "Once the front door is working, Acuity extends the same responsiveness into reminders, confirmations, texting, missed-call text back, and follow-up communication.",
+      "Extend that responsiveness into reminders, confirmations, texting, missed-call text back, and follow-up.",
     bullets: [
       "2-way texting and shared inbox",
       "Appointment reminders and confirmations",
@@ -34,7 +34,7 @@ const offers = [
     eyebrow: "Enterprise / Multi-Location",
     icon: Building2,
     description:
-      "For larger groups, Acuity supports more complex routing, multi-location implementation, reporting, and communication design without turning into a custom-services business.",
+      "For larger groups, Acuity supports more complex routing, multi-location implementation, and reporting.",
     bullets: [
       "Multi-location implementation",
       "Advanced routing logic",
@@ -50,17 +50,33 @@ export default function OfferStory() {
       <div className="mx-auto max-w-6xl px-4 md:px-6">
         <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-12 lg:gap-20 items-start">
           <div className="max-w-3xl">
-          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
-            The offer story
-          </p>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight">
-            Patient engagement starts with how reachable, responsive, and organized the practice feels.
-          </h2>
-          <p className="mt-4 text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl">
-            Acuity is built to improve patient engagement first at the front desk, then across reminders,
-            texting, routing, scheduling, and follow-up. The point is not more channels. The point is a
-            practice that feels easier to reach and easier to trust.
-          </p>
+            <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
+              The offer story
+            </p>
+            <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight">
+              Start at the front desk. Extend engagement from there.
+            </h2>
+            <p className="mt-4 text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl">
+              Acuity starts with live patient communication, then extends into reminders, texting, routing, scheduling, and follow-up.
+            </p>
+
+            <div className="mt-8 rounded-[2rem] border border-neutral-200 bg-[#f7fbfb] p-7">
+              <p className="text-xs font-medium uppercase tracking-widest text-accent">
+                Why this is different
+              </p>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {[
+                  "Built for multi-location ophthalmology scale",
+                  "Handles medical and vision insurance complexity",
+                  "Supports pediatric workflows",
+                  "Books patients in Spanish end to end",
+                ].map((item) => (
+                  <div key={item} className="rounded-2xl bg-white px-4 py-4 text-sm text-muted-foreground border border-neutral-200">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="rounded-[2rem] border border-neutral-200 bg-muted/40 p-8">
@@ -69,9 +85,9 @@ export default function OfferStory() {
             </p>
             <div className="mt-5 space-y-4">
               {[
-                "Start by making the practice reachable and consistent at the front desk.",
-                "Extend that responsiveness into reminders, confirmations, texting, and follow-up.",
-                "Scale the same system across locations, specialties, and operational complexity.",
+                "Make the practice reachable.",
+                "Extend that responsiveness beyond the call.",
+                "Scale it across locations and workflows.",
               ].map((item, index) => (
                 <div key={item} className="flex items-start gap-4">
                   <div className="h-8 w-8 rounded-full bg-accent text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">

@@ -40,10 +40,6 @@ export default function Differentiation() {
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight">
             Built for ophthalmology communication complexity, not generic patient messaging.
           </h2>
-          <p className="mt-4 text-base md:text-lg leading-relaxed text-muted-foreground max-w-2xl">
-            The market already has broad patient engagement platforms. Acuity is built around the
-            specific communication challenges eye care practices actually face.
-          </p>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mt-12">

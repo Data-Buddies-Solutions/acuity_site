@@ -62,8 +62,7 @@ const logos = [
 
 export default function ProofNarrative() {
   return (
-    <section className="py-20 md:py-32 bg-[linear-gradient(180deg,#f7fbfb_0%,#ffffff_38%,#f5fbfb_100%)] relative overflow-hidden">
-      <div className="absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_center,rgba(13,115,119,0.10),transparent_60%)]" />
+    <section className="py-20 md:py-32 bg-white relative overflow-hidden">
       <div className="mx-auto max-w-6xl px-4 md:px-6">
         <div className="max-w-3xl relative z-10">
           <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
@@ -73,8 +72,7 @@ export default function ProofNarrative() {
             Better patient engagement shows up as faster response, calmer operations, and fewer dropped opportunities.
           </h2>
           <p className="mt-5 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-            This is the point in the story where the strategy stops being theoretical. Acuity is
-            already supporting real ophthalmology complexity at scale.
+            Acuity is already supporting real ophthalmology complexity at scale.
           </p>
         </div>
 
@@ -88,10 +86,7 @@ export default function ProofNarrative() {
                 A 6-location ophthalmology practice is using Acuity to stay responsive at scale.
               </h3>
               <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-                This group has pediatric doctors, both medical and vision insurance complexity,
-                Spanish-language patient communication needs, and enough volume to require 100+
-                concurrent calls. Acuity now supports the front desk across all six locations while
-                capturing after-hours demand and protecting appointment volume.
+                Pediatric doctors. Medical and vision insurance. Spanish-language booking. 100+ concurrent calls. Acuity handles the front desk across all six locations.
               </p>
               <div className="mt-8 grid gap-4 sm:grid-cols-2">
                 {[
@@ -128,7 +123,7 @@ export default function ProofNarrative() {
                   "Multi-location complexity is already proven in production.",
                   "High-volume patient communication can be handled without missed calls.",
                   "After-hours demand is not being left to voicemail.",
-                  "Patient engagement extends across insurance, language, and pediatric workflow complexity.",
+                  "Patient engagement holds across insurance, language, and pediatric workflow complexity.",
                 ].map((item) => (
                   <div key={item} className="flex items-start gap-3 text-sm text-muted-foreground">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
@@ -138,9 +133,7 @@ export default function ProofNarrative() {
               </div>
               <div className="mt-6 rounded-2xl bg-white p-5 border border-neutral-200">
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  This deployment shows what responsive patient engagement looks like when the
-                  communication layer is designed for ophthalmology complexity instead of generic
-                  office messaging.
+                  This is what responsive patient engagement looks like in a real ophthalmology environment.
                 </p>
               </div>
             </div>
@@ -177,8 +170,7 @@ export default function ProofNarrative() {
             </div>
             <div className="mt-8 rounded-2xl bg-[#f7fbfb] p-6 border border-neutral-200">
               <p className="text-sm text-muted-foreground leading-relaxed">
-                These are not abstract platform features. They are the operational realities that
-                make patient engagement work in a real multi-location eye care environment.
+                These are the operational details that make patient engagement work in real eye care environments.
               </p>
             </div>
           </div>
@@ -222,9 +214,7 @@ export default function ProofNarrative() {
             <div className="flex items-start gap-3 text-sm md:text-base text-muted-foreground">
               <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
               <span>
-                Acuity is strongest when patient engagement is defined operationally: every call
-                answered, the right patient booked, the right language supported, and the front desk
-                not buried in repetitive communication.
+                Acuity works best when patient engagement is defined operationally: every call answered, the right patient booked, the right language supported.
               </span>
             </div>
           </div>

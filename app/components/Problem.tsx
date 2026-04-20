@@ -35,12 +35,10 @@ export default function Problem() {
             }`}
           >
             <h2 className="text-3xl md:text-4xl lg:text-[3.1rem] font-semibold tracking-tight leading-[1.05]">
-              By the time a patient reaches the exam room, they have already decided how responsive your practice feels.
+              Patients judge the practice before the visit starts.
             </h2>
             <p className="mt-6 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-              Hold times, voicemail, repeated explanations, and after-hours dead ends do not just slow
-              the front desk down. They shape trust, booking behavior, and whether the practice feels
-              organized before care even begins.
+              Hold times, voicemail, repeated explanations, and after-hours dead ends shape trust before care even begins.
             </p>
           </div>
 
@@ -54,10 +52,10 @@ export default function Problem() {
             </p>
             <div className="mt-5 space-y-4">
               {[
-                "Patients feel friction before they ever schedule.",
-                "After-hours demand quietly leaks away.",
-                "Staff lose time to repetitive phone work.",
-                "The practice feels harder to reach than it should.",
+                "Patients hit friction before they schedule.",
+                "After-hours demand leaks away.",
+                "Staff lose time to repetitive calls.",
+                "The practice feels harder to reach.",
               ].map((item) => (
                 <div key={item} className="rounded-2xl bg-white px-4 py-4 text-sm leading-relaxed text-muted-foreground border border-neutral-200">
                   {item}
@@ -105,7 +103,7 @@ export default function Problem() {
           }`}
         >
           <p className="text-sm md:text-base text-muted-foreground uppercase tracking-[0.16em]">
-            Acuity changes the feeling of first contact.
+            Acuity makes first contact feel responsive.
           </p>
         </div>
       </div>
