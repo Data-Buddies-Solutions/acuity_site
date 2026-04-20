@@ -16,6 +16,20 @@ const partners = [
 
 const duplicatedPartners = [...partners, ...partners];
 
+const heroBullets = [
+  "AI receptionist books and confirms appointments",
+  "Insurance checks and intake",
+  "Two-way texting and reminders",
+  "Smart routing and transfers",
+];
+
+const proofStats = [
+  ["0", "missed calls in the first 30 days"],
+  ["500+", "appointments booked in the first 30 days"],
+  ["2,000+", "after-hours calls answered"],
+  ["6", "ophthalmology locations supported"],
+];
+
 export default function Hero() {
   return (
     <section className="relative pt-6 md:pt-20 lg:pt-24 pb-10 md:pb-20 bg-background overflow-hidden" id="top">
@@ -26,30 +40,27 @@ export default function Hero() {
           <div>
             <div className="hidden lg:inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/8 border border-accent/15 mb-6">
               <div className="w-1.5 h-1.5 rounded-full bg-accent" />
-              <span className="text-xs font-medium text-accent">Built for ophthalmology & optometry</span>
+              <span className="text-xs font-medium text-accent">Built for ophthalmology workflows</span>
             </div>
 
-            <p className="text-xs md:text-sm uppercase tracking-[0.18em] text-muted-foreground/80 mb-4 text-center lg:text-left">
-              Patient engagement starts with an answered call.
-            </p>
+            <h1 className="mx-auto max-w-[15ch] text-[1.75rem] md:max-w-[16ch] md:text-5xl font-semibold tracking-[-0.04em] leading-[1.02] md:leading-[1.05] mb-4 md:mb-5 text-center lg:hidden [text-wrap:balance]">
+              The <span className="text-accent">patient engagement</span> platform for ophthalmology practices.
+            </h1>
 
-            <h1 className="text-[1.75rem] md:text-5xl lg:text-[3.5rem] font-semibold tracking-[-0.04em] leading-[1.08] mb-4 md:mb-5 text-center lg:text-left">
-              An AI front desk
-              <br />
-              <span className="text-accent">for ophthalmology practices.</span>
+            <h1 className="hidden lg:block text-[3rem] font-semibold tracking-[-0.04em] leading-[0.98] mb-5 text-left">
+              <span className="block">
+                The <span className="text-accent">patient engagement</span>
+              </span>
+              <span className="block">platform for</span>
+              <span className="block">ophthalmology practices.</span>
             </h1>
 
             <p className="text-sm md:text-lg text-muted-foreground max-w-lg leading-relaxed mb-6 md:mb-8 text-center lg:text-left mx-auto lg:mx-0">
-              Answer every call, book appointments, send reminders, handle patient texts, and route patients correctly across your practice.
+              Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving across your practice.
             </p>
 
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2 mb-6 text-sm text-neutral-900">
-              {[
-                "Call answering",
-                "Scheduling",
-                "Reminders and texts",
-                "Smart routing",
-              ].map((item) => (
+              {heroBullets.map((item) => (
                 <span key={item} className="inline-flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                   {item}
@@ -59,10 +70,14 @@ export default function Hero() {
 
             {/* Mobile: Hero image between subtitle and buttons */}
             <div className="flex justify-center lg:hidden mb-6">
-              <img
+              <Image
                 src="/hero-phone-v4.png"
                 alt="AI phone receptionist active call screen"
-                className="w-[350px] md:w-[420px]"
+                width={420}
+                height={840}
+                sizes="(max-width: 768px) 350px, 420px"
+                className="w-[350px] md:w-[420px] h-auto"
+                priority
               />
             </div>
 
@@ -80,30 +95,22 @@ export default function Hero() {
                 className="text-sm md:text-base px-6 md:px-7 py-3 rounded-full border border-neutral-300 bg-white text-neutral-800 shadow-sm hover:bg-neutral-50 transition-colors w-full sm:w-auto"
                 asChild
               >
-                <Link href="/#offers">See the Story</Link>
+                <Link href="/#offers">See how it works</Link>
               </Button>
             </div>
 
-            <div className="mt-4 text-center lg:text-left">
-              <Link
-                href="/#results"
-                className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              >
-                See results and proof
-              </Link>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3 max-w-xl text-center lg:text-left">
-              {[
-                ["24/7", "response coverage"],
-                ["500+", "appointments in first 30 days"],
-                ["70+", "languages"],
-              ].map(([value, label]) => (
-                <div key={label} className="rounded-2xl bg-neutral-50 border border-neutral-100 px-4 py-3">
-                  <p className="text-lg font-semibold text-neutral-900">{value}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{label}</p>
-                </div>
-              ))}
+            <div className="mt-6 max-w-2xl rounded-[1.75rem] border border-neutral-200 bg-[#f7fbfb] px-5 py-5 text-center lg:text-left">
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-accent">
+                6-location ophthalmology deployment
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+                {proofStats.map(([value, label]) => (
+                  <div key={label} className="min-w-0">
+                    <p className="text-lg font-semibold text-neutral-900 md:text-xl">{value}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Trust signals — hidden on mobile */}
@@ -117,17 +124,21 @@ export default function Hero() {
               />
               <div className="w-px h-6 bg-neutral-200" />
               <p className="text-xs text-muted-foreground">
-                HIPAA compliant &middot; EMR-integrated &middot; 70+ languages
+                HIPAA compliant &middot; EMR-integrated &middot; Built for ophthalmology workflows
               </p>
             </div>
           </div>
 
           {/* Desktop: Image on right */}
           <div className="hidden lg:flex justify-center items-center overflow-visible">
-            <img
+            <Image
               src="/hero-phone-v4.png"
               alt="AI phone receptionist active call screen"
-              className="w-[760px] max-w-none drop-shadow-[0_24px_60px_rgba(0,0,0,0.10)]"
+              width={760}
+              height={1520}
+              sizes="760px"
+              className="w-[760px] h-auto max-w-none drop-shadow-[0_24px_60px_rgba(0,0,0,0.10)]"
+              priority
             />
           </div>
         </div>
@@ -164,16 +175,6 @@ export default function Hero() {
             </div>
           </div>
         </div>
-      </div>
-
-      <div className="relative z-10 mt-6 flex items-center justify-center">
-        <Link
-          href="/#problem"
-          className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/90 px-4 py-2 text-xs uppercase tracking-[0.16em] text-muted-foreground shadow-sm"
-        >
-          Scroll the story
-          <span className="text-accent">↓</span>
-        </Link>
       </div>
 
       <style jsx>{`

@@ -7,9 +7,9 @@ import ProofNarrative from "./components/ProofNarrative";
 import CTA from "./components/CTA";
 
 export const metadata: Metadata = {
-  title: "Patient Engagement for Eye Care Practices | Acuity Health",
+  title: "Patient Engagement Platform for Ophthalmology Practices | Acuity Health",
   description:
-    "Acuity Health helps ophthalmology and optometry practices improve patient engagement by answering calls, reducing front-desk overload, and keeping communication moving.",
+    "Acuity Health helps ophthalmology practices answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving.",
   alternates: {
     canonical: "/",
   },
@@ -21,8 +21,8 @@ export default function Home() {
       <Hero />
       <Problem />
       <WhatWeBuild />
-      <ProofNarrative />
       <OfferStory />
+      <ProofNarrative />
       <CTA />
     </>
   );

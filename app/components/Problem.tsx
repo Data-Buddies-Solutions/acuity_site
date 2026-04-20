@@ -25,7 +25,7 @@ export default function Problem() {
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
           }`}
         >
-          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-5">Where engagement breaks</p>
+          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-5">Why this matters</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-10 lg:gap-16 items-start">
@@ -35,10 +35,12 @@ export default function Problem() {
             }`}
           >
             <h2 className="text-3xl md:text-4xl lg:text-[3.1rem] font-semibold tracking-tight leading-[1.05]">
-              Patients judge the practice before the visit starts.
+              A more responsive front desk improves patient experience.
             </h2>
             <p className="mt-6 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-              Hold times, voicemail, repeated explanations, and after-hours dead ends shape trust before care even begins.
+              Missed calls, voicemail, and after-hours dead ends do more than create friction. They
+              slow booking, increase repetitive phone work, and make the practice feel harder to
+              reach.
             </p>
           </div>
 
@@ -48,14 +50,14 @@ export default function Problem() {
             }`}
           >
             <p className="text-xs font-medium uppercase tracking-widest text-accent">
-              What patients and staff feel
+              What a responsive front desk changes
             </p>
             <div className="mt-5 space-y-4">
               {[
-                "Patients hit friction before they schedule.",
-                "After-hours demand leaks away.",
-                "Staff lose time to repetitive calls.",
-                "The practice feels harder to reach.",
+                "More inbound demand turns into booked appointments.",
+                "After-hours demand gets captured instead of falling into voicemail.",
+                "Staff spend less time on repetitive phone work.",
+                "Patients reach the practice with less friction and more confidence.",
               ].map((item) => (
                 <p key={item} className="text-sm md:text-base leading-relaxed text-muted-foreground border-l-2 border-accent/25 pl-4">
                   {item}
@@ -103,7 +105,7 @@ export default function Problem() {
           }`}
         >
           <p className="text-sm md:text-base text-muted-foreground uppercase tracking-[0.16em]">
-            Acuity makes first contact feel responsive.
+            Acuity makes the front desk more responsive.
           </p>
         </div>
       </div>

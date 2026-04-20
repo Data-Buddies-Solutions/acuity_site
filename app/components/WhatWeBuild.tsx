@@ -1,26 +1,56 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-const valueProps = [
+
+const workflowSteps = [
   {
-    number: "01",
-    title: "Capture more patient demand",
-    description: "Every answered call is a chance to book, retain, or route a patient instead of sending them elsewhere.",
+    number: "1",
+    eyebrow: "AI receptionist",
+    title: "Answers every call without hold time or dropped demand.",
+    description:
+      "Acuity answers instantly, responds in the patient's language, and gives the practice a consistent front door across business hours and after hours.",
+    image: "/step1-call.png",
+    alt: "AI receptionist answering an inbound patient call",
+    className: "bg-muted",
+    imageShellClass: "bg-white/90 border border-neutral-200/80",
+    imageWidth: "max-w-[220px]",
   },
   {
-    number: "02",
-    title: "Reduce front-desk overload",
-    description: "Acuity handles repetitive phone volume so your team can stay focused on patients who are already in the office.",
+    number: "2",
+    eyebrow: "Scheduling workflows",
+    title: "Books, confirms, cancels, and reschedules appointments.",
+    description:
+      "It handles scheduling logic, insurance-related intake and checks, and transfers calls with context when a human needs to step in.",
+    image: "/step2-schedule.png",
+    alt: "Acuity scheduling an ophthalmology appointment",
+    className: "bg-[#f4faf9]",
+    imageShellClass: "bg-white/90 border border-[#d7ece8]",
+    imageWidth: "max-w-[210px]",
   },
   {
-    number: "03",
-    title: "Improve patient engagement",
-    description: "Scheduling, confirmations, and follow-up feel consistent, professional, and accessible in 70+ languages.",
+    number: "3",
+    eyebrow: "Patient engagement",
+    title: "Keeps reminders, confirmations, and two-way texting moving.",
+    description:
+      "After the call, Acuity continues the conversation with reminder texts, confirmations, follow-up, and patient messaging that reduces front-desk back-and-forth.",
+    image: "/step3-emr.png",
+    alt: "Patient communication and appointment data syncing into the workflow",
+    className: "bg-white",
+    imageShellClass: "bg-[#f7fbfb] border border-neutral-200/80",
+    imageWidth: "max-w-[220px]",
   },
   {
-    number: "04",
-    title: "Modernize the phone layer",
-    description: "Upgrade from hold queues and legacy hardware to a dependable, cloud-based phone system designed for growth.",
+    number: "4",
+    eyebrow: "Analytics and visibility",
+    title: "Shows the team what is happening across the front desk.",
+    description:
+      "Analytics make it easier to see call volume, booking activity, after-hours demand, and where workflows need attention across the practice.",
+    image: "/value-dashboard.png",
+    alt: "Analytics dashboard showing front-desk activity and outcomes",
+    className: "bg-[#f7fbfb]",
+    imageShellClass: "bg-white border border-neutral-200/80",
+    imageWidth: "max-w-[260px]",
   },
 ];
 
@@ -40,119 +70,62 @@ export default function WhatWeBuild() {
   }, []);
 
   return (
-    <>
-      {/* How It Works — 3-step visual flow */}
-      <section ref={sectionRef} className="py-20 md:py-28 bg-white" id="how-it-works">
-        <div className="mx-auto max-w-6xl px-4 md:px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-12 lg:gap-20 items-start">
-            <div>
-              <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">How the experience changes</p>
-              <h2 className="text-3xl md:text-4xl lg:text-[3rem] font-semibold tracking-tight leading-[1.05] mb-5">
-                From first call to confirmed visit, the patient keeps moving.
-              </h2>
-              <p className="text-base md:text-lg text-muted-foreground leading-relaxed max-w-xl">
-                Acuity answers instantly, handles routine work, and keeps your EMR and staff aligned when a human needs to step in.
-              </p>
-
-              <div className="mt-10 p-1">
-                <p className="text-xs font-medium text-accent uppercase tracking-widest mb-3">
-                  What improves
-                </p>
-                <div className="space-y-0">
-                  {valueProps.map((prop, i) => (
-                    <div
-                      key={prop.title}
-                      className={`flex items-start gap-4 py-4 transition-all duration-700 ${
-                        i !== valueProps.length - 1 ? "border-b border-neutral-200" : ""
-                      } ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
-                      style={{ transitionDelay: `${500 + i * 90}ms` }}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-accent text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
-                        {prop.number}
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-neutral-900">{prop.title}</h3>
-                        <p className="text-sm text-muted-foreground leading-relaxed mt-1">{prop.description}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-12">
-              <div
-                className={`relative md:col-span-7 rounded-[2rem] bg-muted p-6 shadow-card transition-all duration-700 ${
-                  isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-5">
-                  <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center">
-                    <span className="text-xs font-bold text-accent">1</span>
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Patient reaches out</p>
-                </div>
-                <div className="flex justify-center my-5">
-                  <img
-                    src="/step1-call.png"
-                    alt="Patient calling the practice"
-                    className="w-full max-w-[240px] rounded-xl"
-                  />
-                </div>
-                <p className="text-sm text-muted-foreground mt-4">
-                  Instant answer. No hold. No phone tree.
-                </p>
-              </div>
-
-              <div
-                className={`relative md:col-span-5 md:mt-12 rounded-[2rem] bg-[#f4faf9] p-6 shadow-card transition-all duration-700 delay-150 ${
-                  isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-5">
-                  <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center">
-                    <span className="text-xs font-bold text-accent">2</span>
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Acuity resolves or routes</p>
-                </div>
-                <div className="flex justify-center my-5">
-                  <img
-                    src="/step2-schedule.png"
-                    alt="AI scheduling an appointment"
-                    className="w-full max-w-[220px] rounded-xl"
-                  />
-                </div>
-                <p className="text-sm text-muted-foreground mt-4">
-                  Scheduling, insurance checks, confirmations, or a transfer with context.
-                </p>
-              </div>
-
-              <div
-                className={`relative md:col-span-8 md:ml-12 rounded-[2rem] bg-white p-6 shadow-card transition-all duration-700 delay-300 ${
-                  isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-5">
-                  <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center">
-                    <span className="text-xs font-bold text-accent">3</span>
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Practice stays in sync</p>
-                </div>
-                <div className="flex justify-center my-5">
-                  <img
-                    src="/step3-emr.png"
-                    alt="Appointment synced to EMR"
-                    className="w-full max-w-[240px] rounded-xl"
-                  />
-                </div>
-                <p className="text-sm text-muted-foreground mt-4">
-                  Appointments and context land in your EMR automatically.
-                </p>
-              </div>
-            </div>
-          </div>
+    <section ref={sectionRef} className="py-20 md:py-28 bg-white" id="how-it-works">
+      <div className="mx-auto max-w-6xl px-4 md:px-6">
+        <div className="max-w-3xl">
+          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">How Acuity works</p>
+          <h2 className="text-3xl md:text-4xl lg:text-[3rem] font-semibold tracking-tight leading-[1.05] mb-5">
+            Acuity handles the front desk, then keeps patient communication moving.
+          </h2>
+          <p className="text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl">
+            An AI receptionist handles calls first, followed by scheduling, texting, and analytics
+            across the practice.
+          </p>
         </div>
-      </section>
-    </>
+
+        <div className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+          {workflowSteps.map((step, index) => (
+            <div
+              key={step.number}
+              className={`relative overflow-hidden rounded-[2rem] p-6 shadow-card transition-all duration-700 md:p-7 ${step.className} ${
+                isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
+              }`}
+              style={{ transitionDelay: `${150 + index * 120}ms` }}
+            >
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center">
+                  <span className="text-xs font-bold text-accent">{step.number}</span>
+                </div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{step.eyebrow}</p>
+              </div>
+
+              <div className="flex min-h-full flex-col">
+                <h3 className="text-xl md:text-2xl font-semibold tracking-tight text-neutral-900">
+                  {step.title}
+                </h3>
+                <p className="text-sm md:text-base text-muted-foreground leading-relaxed mt-3">
+                  {step.description}
+                </p>
+
+                <div className="mt-6 flex-1 flex items-end">
+                  <div
+                    className={`w-full rounded-[1.5rem] p-4 shadow-[0_18px_45px_rgba(15,23,42,0.06)] md:p-5 ${step.imageShellClass}`}
+                  >
+                    <Image
+                      src={step.image}
+                      alt={step.alt}
+                      width={520}
+                      height={520}
+                      sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 25vw"
+                      className={`mx-auto h-auto w-full ${step.imageWidth} rounded-xl`}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }

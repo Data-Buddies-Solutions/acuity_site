@@ -1,55 +1,50 @@
 "use client";
 
 import Image from "next/image";
-import { ArrowRight, CheckCircle2, Clock3, PhoneCall, Users, ShieldCheck, CalendarCheck2, Languages } from "lucide-react";
+import { Check, Clock3, Languages, PhoneCall, ShieldCheck, Users } from "lucide-react";
 
 const outcomes = [
   {
     metric: "0",
-    title: "Missed calls",
-    description: "In the first 30 days, the deployment reported zero missed calls.",
+    label: "missed calls",
+    detail: "in the first 30 days",
     icon: PhoneCall,
   },
   {
     metric: "2,000+",
-    title: "After-hours calls answered",
-    description: "In the first 30 days, after-hours demand was answered instead of dropping into voicemail.",
+    label: "after-hours calls answered",
+    detail: "captured instead of voicemail",
     icon: Users,
   },
   {
     metric: "400",
-    title: "Staff hours returned",
-    description: "In the first 30 days, staff time was returned instead of disappearing into repetitive phone work.",
+    label: "staff hours returned",
+    detail: "back to the team",
     icon: Clock3,
   },
   {
     metric: "500+",
-    title: "Appointments booked",
-    description: "In the first 30 days, Acuity booked 500+ appointments at scale.",
-    icon: CalendarCheck2,
+    label: "appointments booked",
+    detail: "in the first 30 days",
+    icon: Check,
   },
 ];
 
-const measures = [
-  "100+ concurrent calls handled",
-  "Supports medical and vision insurance workflows",
-  "Supports pediatric ophthalmology workflows",
-  "Fully answers and books in Spanish",
-  "Filters robocalls before they reach staff",
-];
-
-const feedback = [
+const proofPoints = [
   {
-    quote:
-      "Acuity Health handles our phones now and gave hours back to our staff every week. We're booking more patients with less manual work.",
-    author: "Dr. Shechtman",
-    role: "North Miami Beach Eye Center",
+    title: "Insurance complexity handled",
+    text: "Supports both medical and vision insurance workflows across the practice.",
+    icon: ShieldCheck,
   },
   {
-    quote:
-      "I was spending 4+ hours a day on manual admin work. Acuity Health gave me my life back. I can finally focus on what matters.",
-    author: "Jason Buchwald",
-    role: "Practice Operator",
+    title: "Spanish-language booking supported",
+    text: "Patients can be answered and booked in Spanish without a separate manual process.",
+    icon: Languages,
+  },
+  {
+    title: "100+ concurrent calls handled",
+    text: "High-volume patient communication can be managed without dropped demand.",
+    icon: Users,
   },
 ];
 
@@ -62,138 +57,84 @@ const logos = [
 
 export default function ProofNarrative() {
   return (
-    <section className="py-20 md:py-32 bg-white relative overflow-hidden" id="results">
+    <section className="py-20 md:py-28 bg-white" id="results">
       <div className="mx-auto max-w-6xl px-4 md:px-6">
-        <div className="max-w-3xl relative z-10">
+        <div className="max-w-3xl">
           <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
-            Proof in practice
+            Proof from practice
           </p>
-          <h2 className="text-3xl md:text-4xl lg:text-[3.15rem] font-semibold tracking-tight leading-[1.04]">
-            Better patient engagement shows up as faster response, calmer operations, and fewer dropped opportunities.
+          <h2 className="text-3xl md:text-4xl lg:text-[3rem] font-semibold tracking-tight leading-[1.05]">
+            Real proof from a 6-location ophthalmology deployment.
           </h2>
           <p className="mt-5 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-            In one 6-location ophthalmology deployment, the first 30 days already showed what responsive patient engagement can look like at scale.
+            Acuity is already being used in a complex ophthalmology environment with pediatric
+            workflows, insurance complexity, multilingual communication, and high-volume call
+            demand.
           </p>
         </div>
 
-        <div className="mt-12 rounded-[2.5rem] bg-white p-8 md:p-14 shadow-[0_24px_80px_rgba(13,115,119,0.12)] relative z-10">
-          <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr]">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-widest text-accent">
-                Featured deployment spotlight
-              </p>
-              <h3 className="mt-4 text-3xl font-semibold tracking-tight md:text-4xl">
-                A 6-location ophthalmology practice is using Acuity to stay responsive at scale.
-              </h3>
-              <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-                Pediatric doctors. Medical and vision insurance. Spanish-language booking. 100+ concurrent calls. In the first 30 days, Acuity handled the front desk across all six locations and captured after-hours demand.
-              </p>
-              <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                {[
-                  {
-                    icon: ShieldCheck,
-                    title: "Insurance complexity handled",
-                    text: "Supports both medical and vision insurance workflows across the practice.",
-                  },
-                  {
-                    icon: Languages,
-                    title: "Fully answers and books in Spanish",
-                    text: "Spanish-speaking patients can be handled end-to-end without a separate manual process.",
-                  },
-                ].map(({ icon: Icon, title, text }) => (
-                  <div key={title} className="rounded-2xl bg-[#f8fcfc] p-5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
-                        <Icon className="h-4.5 w-4.5 text-accent" />
-                      </div>
-                      <p className="text-sm font-semibold text-neutral-900">{title}</p>
-                    </div>
-                    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{text}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[1.9rem] bg-[#f7fbfb] p-6 md:p-8">
-              <p className="text-xs font-medium uppercase tracking-widest text-accent">
-                Why this matters
-              </p>
-              <div className="mt-5 space-y-4">
-                {[
-                  "Multi-location complexity proved out quickly.",
-                  "High-volume patient communication can be handled without missed calls.",
-                  "After-hours demand does not need to fall into voicemail.",
-                  "Patient engagement can hold across insurance, language, and pediatric workflow complexity.",
-                ].map((item) => (
-                  <div key={item} className="flex items-start gap-3 text-sm text-muted-foreground">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
-                    <span>{item}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-6 rounded-2xl bg-white p-5">
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  This is what responsive patient engagement looked like in the first 30 days of a real ophthalmology deployment.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-4 mt-12 relative z-10">
-          {outcomes.map(({ metric, title, description, icon: Icon }) => (
-            <div key={title} className="rounded-[1.8rem] bg-white p-8 shadow-sm">
+        <div className="mt-12 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+          {outcomes.map(({ metric, label, detail, icon: Icon }) => (
+            <div key={label} className="rounded-[1.8rem] border border-neutral-200 bg-[#f7fbfb] p-7">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/10">
                   <Icon className="h-5 w-5 text-accent" />
                 </div>
-                <p className="text-3xl font-semibold tracking-tight">{metric}</p>
+                <p className="text-3xl font-semibold tracking-tight text-neutral-900">{metric}</p>
               </div>
-              <h3 className="mt-5 text-xl font-semibold tracking-tight">{title}</h3>
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{description}</p>
+              <p className="mt-5 text-base font-semibold text-neutral-900">{label}</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{detail}</p>
             </div>
           ))}
         </div>
 
-        <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] mt-12 relative z-10">
-          <div className="rounded-[2rem] bg-white p-8 md:p-10 shadow-sm">
+        <div className="mt-10 grid gap-6 lg:grid-cols-[1.1fr_0.9fr] items-start">
+          <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-widest text-accent">
-              What operators measure
+              Deployment snapshot
             </p>
-            <div className="mt-6 space-y-4">
-              {measures.map((item) => (
-                <div key={item} className="flex items-start gap-3 text-sm text-muted-foreground">
-                  <ArrowRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
-                  <span>{item}</span>
+            <h3 className="mt-4 text-2xl md:text-3xl font-semibold tracking-tight text-neutral-900">
+              One ophthalmology group. Six locations. High-volume patient communication.
+            </h3>
+            <p className="mt-4 text-sm md:text-base leading-relaxed text-muted-foreground">
+              This deployment includes pediatric workflows, medical and vision insurance, Spanish
+              language support, and after-hours demand across a multi-location ophthalmology
+              environment.
+            </p>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              {proofPoints.map(({ title, text, icon: Icon }) => (
+                <div key={title} className="rounded-[1.5rem] bg-[#f7fbfb] p-5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
+                      <Icon className="h-4.5 w-4.5 text-accent" />
+                    </div>
+                    <p className="text-sm font-semibold text-neutral-900">{title}</p>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{text}</p>
                 </div>
               ))}
-            </div>
-            <div className="mt-8 rounded-2xl bg-[#f7fbfb] p-6">
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                These are the operational details behind the first 30 days of results.
-              </p>
             </div>
           </div>
 
-          <div className="rounded-[2rem] bg-white p-8 md:p-10 shadow-sm">
+          <div className="rounded-[2rem] border border-neutral-200 bg-[#f7fbfb] p-8 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-widest text-accent">
-              Selected customer feedback
+              Customer feedback
             </p>
-            <div className="mt-6 space-y-6">
-              {feedback.map(({ quote, author, role }) => (
-                <div key={`${author}-${role}`} className="rounded-2xl bg-[#f8fcfc] p-6">
-                  <blockquote className="text-lg font-medium leading-relaxed text-foreground">
-                    &ldquo;{quote}&rdquo;
-                  </blockquote>
-                  <div className="mt-5">
-                    <p className="text-sm font-semibold text-neutral-900">{author}</p>
-                    <p className="text-sm text-muted-foreground">{role}</p>
-                  </div>
-                </div>
-              ))}
+            <blockquote className="mt-5 text-xl font-medium leading-relaxed text-foreground">
+              &ldquo;I was spending 4+ hours a day on manual admin work. Acuity Health gave me my
+              life back. I can finally focus on what matters.&rdquo;
+            </blockquote>
+            <div className="mt-5">
+              <p className="text-sm font-semibold text-neutral-900">Jason Buchwald</p>
+              <p className="text-sm text-muted-foreground">Practice Operator</p>
             </div>
+
             <div className="mt-8 border-t border-neutral-200 pt-6">
-              <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+              <p className="text-xs font-medium uppercase tracking-widest text-accent">
+                Trusted by eye care practices
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-6">
                 {logos.map((logo) => (
                   <div key={logo.name} className="relative mx-auto h-10 w-28">
                     <Image
@@ -205,17 +146,6 @@ export default function ProofNarrative() {
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-14 max-w-4xl relative z-10">
-          <div className="rounded-[2rem] bg-white px-6 py-6 md:px-8 md:py-7 shadow-sm">
-            <div className="flex items-start gap-3 text-sm md:text-base text-muted-foreground">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
-              <span>
-                Acuity works best when patient engagement is defined operationally: every call answered, the right patient booked, the right language supported.
-              </span>
             </div>
           </div>
         </div>
