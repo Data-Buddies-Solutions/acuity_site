@@ -36,7 +36,7 @@ export default function Hero() {
             </h1>
 
             <p className="text-sm md:text-lg text-muted-foreground max-w-lg leading-relaxed mb-6 md:mb-8 text-center lg:text-left mx-auto lg:mx-0">
-              Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving. Built for ophthalmology and optometry workflows, synced to your EMR, and available 24/7.
+              Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving. Built for ophthalmology groups handling medical and vision insurance, pediatric workflows, multilingual booking, and after-hours demand.
             </p>
 
             {/* Mobile: Hero image between subtitle and buttons */}

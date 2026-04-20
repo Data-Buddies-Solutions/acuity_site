@@ -1,6 +1,7 @@
 import { MetadataRoute } from "next";
 
 import { SITE_CONFIG } from "@/lib/config";
+import { insightPosts } from "./insights/posts";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = SITE_CONFIG.baseUrl;
@@ -44,5 +45,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
   ];
 
-  return staticRoutes;
+  const insightRoutes: MetadataRoute.Sitemap = insightPosts.map((post) => ({
+    url: `${baseUrl}/insights/${post.slug}`,
+    lastModified: new Date(post.date),
+    changeFrequency: "monthly",
+    priority: 0.7,
+  }));
+
+  return [...staticRoutes, ...insightRoutes];
 }

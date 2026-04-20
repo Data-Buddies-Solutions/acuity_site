@@ -1,16 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Lightbulb, ArrowRight } from "lucide-react";
+import { Lightbulb, ArrowRight, CalendarDays, Clock } from "lucide-react";
 
 import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 import BookCallButton from "@/app/components/BookCallButton";
 import { Button } from "@/app/components/ui/button";
 import { SITE_CONFIG } from "@/lib/config";
+import { insightPosts } from "./posts";
 
 export const metadata: Metadata = {
   title: "Insights",
   description:
-    "Acuity Health insights on patient access, patient engagement, front-desk operations, and communication strategy for eye care practices.",
+    "Acuity Health insights on patient engagement, front-desk operations, and communication strategy for eye care practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/insights`,
   },
@@ -34,45 +35,80 @@ export default function InsightsPage() {
             </span>
           </div>
           <h1 className="mt-6 text-4xl font-semibold tracking-tight md:text-5xl">
-            A focused library for patient access and engagement in eye care.
+            A focused library for patient engagement in eye care.
           </h1>
           <p className="mx-auto mt-6 max-w-3xl text-lg leading-relaxed text-muted-foreground">
-            We removed the old general AI topics. This section will only publish material that is
-            directly useful to ophthalmology and optometry operators evaluating patient access,
-            front-desk design, and patient engagement.
+            Practical writing for ophthalmology and optometry operators who care about
+            responsiveness, front-desk performance, scheduling flow, and patient engagement before
+            the visit.
           </p>
         </div>
       </section>
 
       <section className="border-y border-neutral-100 bg-muted/40 py-16 md:py-20">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 text-center md:p-12">
-            <p className="text-xs font-medium uppercase tracking-widest text-accent">
-              Coming next
-            </p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-tight md:text-4xl">
-              We are rebuilding this around operator-relevant topics only.
-            </h2>
-            <div className="mx-auto mt-8 grid max-w-3xl gap-4 text-left md:grid-cols-2">
-              {[
-                "The hidden cost of missed calls in ophthalmology",
-                "How eye care practices should measure patient access",
-                "Front-desk overload: what to fix first",
-                "Patient engagement before the visit",
-              ].map((topic) => (
-                <div key={topic} className="rounded-2xl bg-neutral-50 p-5 text-sm text-muted-foreground">
-                  {topic}
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="grid gap-8 md:grid-cols-2">
+            {insightPosts.map(({ slug, title, description, readingTime, date, tags }) => (
+              <div
+                key={slug}
+                className="rounded-[2rem] border border-neutral-200 bg-white p-8 shadow-sm"
+              >
+                <div className="flex flex-wrap items-center gap-4 text-xs uppercase tracking-wide text-foreground/50">
+                  <span className="inline-flex items-center gap-1">
+                    <CalendarDays className="h-3.5 w-3.5" aria-hidden />
+                    {new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5" aria-hidden />
+                    {readingTime}
+                  </span>
                 </div>
-              ))}
-            </div>
-            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                <h2 className="mt-5 text-2xl font-semibold tracking-tight">{title}</h2>
+                <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{description}</p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <Button
+                  asChild
+                  variant="secondary"
+                  className="mt-8 rounded-full border border-neutral-300 bg-white px-6 py-3 text-neutral-800 shadow-sm"
+                >
+                  <Link href={`/insights/${slug}`}>
+                    Read insight
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-12 rounded-[2rem] border border-neutral-200 bg-white p-8 text-center md:p-12">
+            <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+              Want to see how these ideas map to your practice?
+            </h2>
+            <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground">
+              The best way to evaluate Acuity is to compare your current responsiveness, call
+              patterns, and front-desk load against a real workflow design.
+            </p>
+            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Button
                 asChild
                 variant="secondary"
                 className="rounded-full border border-neutral-300 bg-white px-7 py-3 text-neutral-800 shadow-sm"
               >
-                <Link href="/results">
-                  See proof and results
+                <Link href="/#results">
+                  See proof on the homepage
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>

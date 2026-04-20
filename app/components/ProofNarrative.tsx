@@ -132,12 +132,10 @@ export default function ProofNarrative() {
                 ))}
               </div>
               <div className="mt-6 rounded-2xl bg-neutral-50 p-5">
-                <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-                  Publication note
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  Before wider public rollout, tighten these metrics with a defined time window such
-                  as monthly, quarterly, or to-date.
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  This deployment shows what responsive patient engagement looks like when the
+                  communication layer is designed for ophthalmology complexity instead of generic
+                  office messaging.
                 </p>
               </div>
             </div>
@@ -218,8 +216,9 @@ export default function ProofNarrative() {
           <div className="flex items-start gap-3 text-sm text-muted-foreground">
             <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
             <span>
-              The strongest long-term upgrade to this section is a published case study with explicit
-              measurement windows, screenshots, and a short operator quote tied to the deployment.
+              Acuity is strongest when patient engagement is defined operationally: every call
+              answered, the right patient booked, the right language supported, and the front desk
+              not buried in repetitive communication.
             </span>
           </div>
         </div>
