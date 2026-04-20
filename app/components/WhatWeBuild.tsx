@@ -133,10 +133,10 @@ export default function WhatWeBuild() {
             <div>
               <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">Why practices choose Acuity</p>
               <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-4">
-                Built for patient access, not generic call handling
+                Built for patient engagement, not generic call handling
               </h2>
               <p className="text-base text-muted-foreground leading-relaxed mb-10">
-                Acuity is configured around your appointment types, insurance rules, escalation paths, and the way your front desk actually works. The result is faster response times without sacrificing professionalism.
+                Acuity is configured around your appointment types, insurance rules, escalation paths, and the way your front desk actually works. The result is more responsive patient communication without sacrificing professionalism.
               </p>
 
               <div className="space-y-0">

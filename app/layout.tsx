@@ -16,8 +16,8 @@ const organizationSchema = {
   email: SITE_CONFIG.email,
   sameAs: [SITE_CONFIG.social.linkedin],
   serviceType: [
-    "Patient access platform for ophthalmology",
-    "Patient access platform for optometry",
+    "Patient engagement platform for ophthalmology",
+    "Patient engagement platform for optometry",
     "Eye care patient engagement",
     "Eye care phone system",
     "HIPAA-compliant patient communication",
@@ -28,9 +28,9 @@ const organizationSchema = {
   },
   offers: {
     "@type": "Service",
-    name: "Patient Access and Engagement Platform",
+    name: "Patient Engagement Platform",
     description:
-      "Patient access and engagement for ophthalmology and optometry practices, including call handling, scheduling, confirmations, and follow-up workflows.",
+      "Patient engagement for ophthalmology and optometry practices, including call handling, scheduling, confirmations, reminders, and follow-up workflows.",
     priceRange: "$$",
     url: SITE_CONFIG.baseUrl,
   },
@@ -43,13 +43,13 @@ const organizationSchema = {
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_CONFIG.baseUrl),
   title: {
-    default: `${SITE_CONFIG.name} | Patient Access and Engagement for Eye Care`,
+    default: `${SITE_CONFIG.name} | Patient Engagement for Eye Care`,
     template: `%s | ${SITE_CONFIG.name}`,
   },
   description: SITE_CONFIG.description,
   keywords: [
     "Acuity Health",
-    "patient access ophthalmology",
+    "patient engagement ophthalmology",
     "patient engagement optometry",
     "eye care phone system",
     "ophthalmology appointment scheduling",
@@ -77,24 +77,24 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: `${SITE_CONFIG.baseUrl}/`,
-    title: "Patient Access and Engagement for Eye Care | Acuity Health",
+    title: "Patient Engagement for Eye Care | Acuity Health",
     description: SITE_CONFIG.description,
     siteName: "Acuity Health",
     images: [
       {
-        url: `${SITE_CONFIG.baseUrl}/api/og?title=Patient Access for Eye Care&subtitle=Answer every patient call and reduce front-desk overload.`,
+        url: `${SITE_CONFIG.baseUrl}/api/og?title=Patient Engagement for Eye Care&subtitle=Answer every patient call and keep communication moving.`,
         width: 1200,
         height: 630,
-        alt: "Acuity Health - patient access and engagement for eye care practices",
+        alt: "Acuity Health - patient engagement for eye care practices",
         type: "image/png",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Patient Access and Engagement for Eye Care | Acuity Health",
+    title: "Patient Engagement for Eye Care | Acuity Health",
     description: SITE_CONFIG.description,
-    images: [`${SITE_CONFIG.baseUrl}/api/og?title=Patient Access for Eye Care&subtitle=Answer every patient call and reduce front-desk overload.`],
+    images: [`${SITE_CONFIG.baseUrl}/api/og?title=Patient Engagement for Eye Care&subtitle=Answer every patient call and keep communication moving.`],
   },
   robots: {
     index: true,

@@ -4,7 +4,7 @@ export const SITE_CONFIG = {
   email: "kyle@acuityhealth.io",
   calendarLink: "https://cal.com/kyle-shechtman-acuity/30min",
   description:
-    "Patient access and engagement for ophthalmology and optometry practices. Answer every patient call, reduce front-desk overload, and keep scheduling, confirmations, and follow-up moving.",
+    "Patient engagement for ophthalmology and optometry practices. Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving.",
   twitter: {
     kyle: "_kyleshechtman",
     chase: "chasef07",

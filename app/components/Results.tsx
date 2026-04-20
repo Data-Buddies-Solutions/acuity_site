@@ -22,7 +22,7 @@ export default function Results() {
       <div className="mx-auto max-w-4xl px-4 md:px-6">
         <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">Impact calculator</p>
         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-8 md:mb-10">
-          Estimate what better patient access can unlock
+          Estimate what better patient engagement can unlock
         </h2>
 
         {/* Slider */}
@@ -93,7 +93,7 @@ export default function Results() {
             className="text-sm px-2 text-muted-foreground hover:text-foreground"
             asChild
           >
-            <Link href="/results">View the results page</Link>
+            <Link href="/#results">Stay on the story</Link>
           </Button>
         </div>
       </div>

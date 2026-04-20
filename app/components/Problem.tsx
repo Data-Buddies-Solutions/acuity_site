@@ -48,7 +48,7 @@ export default function Problem() {
             }`}
           >
             <p className="text-base text-muted-foreground leading-relaxed">
-              When patients hit hold times, voicemail, and repeated questions just to schedule, trust drops before care even begins. Your team burns hours on repetitive phone work while after-hours demand goes unanswered.
+              When patients hit hold times, voicemail, and repeated questions just to schedule, engagement breaks down before care even begins. Your team burns hours on repetitive phone work while after-hours demand goes unanswered.
             </p>
           </div>
         </div>
@@ -59,7 +59,7 @@ export default function Problem() {
             {
               number: "23%",
               label: "of patient calls go to voicemail",
-              detail: "Missed calls create patient access friction and lost appointment opportunities.",
+              detail: "Missed calls weaken engagement and create lost appointment opportunities.",
             },
             {
               number: "15%",
@@ -93,7 +93,7 @@ export default function Problem() {
           }`}
         >
           <p className="text-base text-muted-foreground">
-            Acuity gives your practice a more responsive front door.
+            Acuity helps the practice feel more responsive from first contact onward.
           </p>
           <div className="w-px h-10 bg-neutral-200 mx-auto mt-4" />
         </div>

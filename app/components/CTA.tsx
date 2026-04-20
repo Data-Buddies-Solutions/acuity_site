@@ -8,7 +8,7 @@ export default function CTA() {
       <div className="mx-auto max-w-3xl px-6 text-center">
         <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">Get started</p>
         <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight mb-4">
-          Hear how Acuity handles a real patient call
+          Hear how Acuity improves a real patient interaction
           <span className="text-muted-foreground"> for your practice</span>
         </h2>
         <p className="text-base md:text-lg text-muted-foreground mb-8 max-w-xl mx-auto">

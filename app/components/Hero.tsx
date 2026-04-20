@@ -30,13 +30,13 @@ export default function Hero() {
             </div>
 
             <h1 className="text-[1.75rem] md:text-5xl lg:text-[3.5rem] font-semibold tracking-[-0.04em] leading-[1.08] mb-4 md:mb-5 text-center lg:text-left">
-              Patient access and engagement
+              Patient engagement
               <br />
               <span className="text-accent">for eye care practices.</span>
             </h1>
 
             <p className="text-sm md:text-lg text-muted-foreground max-w-lg leading-relaxed mb-6 md:mb-8 text-center lg:text-left mx-auto lg:mx-0">
-              Answer every patient call, reduce front-desk overload, and keep scheduling, confirmations, and follow-up moving. Built for ophthalmology and optometry workflows, synced to your EMR, and available 24/7.
+              Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving. Built for ophthalmology and optometry workflows, synced to your EMR, and available 24/7.
             </p>
 
             {/* Mobile: Hero image between subtitle and buttons */}
@@ -62,17 +62,30 @@ export default function Hero() {
                 className="text-sm md:text-base px-6 md:px-7 py-3 rounded-full border border-neutral-300 bg-white text-neutral-800 shadow-sm hover:bg-neutral-50 transition-colors w-full sm:w-auto"
                 asChild
               >
-                <Link href="/platform">Explore the Platform</Link>
+                <Link href="/#offers">See the Story</Link>
               </Button>
             </div>
 
             <div className="mt-4 text-center lg:text-left">
               <Link
-                href="/results"
+                href="/#results"
                 className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
               >
                 See results and proof
               </Link>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3 max-w-xl text-center lg:text-left">
+              {[
+                ["24/7", "patient response coverage"],
+                ["65%", "calls handled end-to-end"],
+                ["70+", "languages supported"],
+              ].map(([value, label]) => (
+                <div key={label} className="rounded-2xl bg-neutral-50 border border-neutral-100 px-4 py-3">
+                  <p className="text-lg font-semibold text-neutral-900">{value}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{label}</p>
+                </div>
+              ))}
             </div>
 
             {/* Trust signals — hidden on mobile */}

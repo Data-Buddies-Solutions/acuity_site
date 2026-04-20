@@ -9,9 +9,9 @@ import BookCallButton from "./BookCallButton";
 import Logo from "./VisionOpsLogo";
 
 const navLinks = [
-  { href: "/platform", label: "Platform" },
   { href: "/#how-it-works", label: "How It Works" },
-  { href: "/results", label: "Results" },
+  { href: "/#offers", label: "Solutions" },
+  { href: "/#results", label: "Results" },
   { href: "/faq", label: "FAQ" },
   { href: "/insights", label: "Insights" },
 ];

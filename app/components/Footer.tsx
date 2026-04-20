@@ -4,9 +4,9 @@ import Logo from "./VisionOpsLogo";
 import { SITE_CONFIG } from "@/lib/config";
 
 const footerLinks = [
-  { href: "/platform", label: "Platform" },
   { href: "/#how-it-works", label: "How It Works" },
-  { href: "/results", label: "Results" },
+  { href: "/#offers", label: "Solutions" },
+  { href: "/#results", label: "Results" },
   { href: "/faq", label: "FAQ" },
 ];
 
@@ -19,7 +19,7 @@ export default function Footer() {
           <div className="max-w-sm">
             <Logo className="mb-4" />
             <p className="text-sm text-muted-foreground mb-4">
-              Patient access and engagement for ophthalmology and optometry practices, from first call to confirmed visit.
+              Patient engagement for ophthalmology and optometry practices, from first call to follow-up.
             </p>
             <Image
               src="/hipaa-badge.webp"
