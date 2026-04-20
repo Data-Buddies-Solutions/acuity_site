@@ -62,18 +62,23 @@ const logos = [
 
 export default function ProofNarrative() {
   return (
-    <section className="py-20 md:py-28 bg-white">
+    <section className="py-20 md:py-32 bg-[linear-gradient(180deg,#f7fbfb_0%,#ffffff_38%,#f5fbfb_100%)] relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_center,rgba(13,115,119,0.10),transparent_60%)]" />
       <div className="mx-auto max-w-6xl px-4 md:px-6">
-        <div className="max-w-3xl">
+        <div className="max-w-3xl relative z-10">
           <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
-            What changes
+            Proof in practice
           </p>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight">
+          <h2 className="text-3xl md:text-4xl lg:text-[3.15rem] font-semibold tracking-tight leading-[1.04]">
             Better patient engagement shows up as faster response, calmer operations, and fewer dropped opportunities.
           </h2>
+          <p className="mt-5 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
+            This is the point in the story where the strategy stops being theoretical. Acuity is
+            already supporting real ophthalmology complexity at scale.
+          </p>
         </div>
 
-        <div className="mt-12 rounded-[2rem] border border-neutral-200 bg-muted/30 p-8 md:p-10">
+        <div className="mt-12 rounded-[2.25rem] border border-neutral-200 bg-white p-8 md:p-12 shadow-[0_20px_60px_rgba(13,115,119,0.08)] relative z-10">
           <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <p className="text-xs font-medium uppercase tracking-widest text-accent">
@@ -101,7 +106,7 @@ export default function ProofNarrative() {
                     text: "Spanish-speaking patients can be handled end-to-end without a separate manual process.",
                   },
                 ].map(({ icon: Icon, title, text }) => (
-                  <div key={title} className="rounded-2xl bg-white p-5">
+                  <div key={title} className="rounded-2xl bg-[#f8fcfc] p-5 border border-neutral-200">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
                         <Icon className="h-4.5 w-4.5 text-accent" />
@@ -114,7 +119,7 @@ export default function ProofNarrative() {
               </div>
             </div>
 
-            <div className="rounded-[1.75rem] border border-neutral-200 bg-white p-6 md:p-8">
+            <div className="rounded-[1.75rem] border border-neutral-200 bg-[#f7fbfb] p-6 md:p-8">
               <p className="text-xs font-medium uppercase tracking-widest text-accent">
                 Why this matters
               </p>
@@ -131,7 +136,7 @@ export default function ProofNarrative() {
                   </div>
                 ))}
               </div>
-              <div className="mt-6 rounded-2xl bg-neutral-50 p-5">
+              <div className="mt-6 rounded-2xl bg-white p-5 border border-neutral-200">
                 <p className="text-sm leading-relaxed text-muted-foreground">
                   This deployment shows what responsive patient engagement looks like when the
                   communication layer is designed for ophthalmology complexity instead of generic
@@ -142,9 +147,9 @@ export default function ProofNarrative() {
           </div>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-4 mt-12">
+        <div className="grid gap-6 md:grid-cols-4 mt-12 relative z-10">
           {outcomes.map(({ metric, title, description, icon: Icon }) => (
-            <div key={title} className="rounded-3xl border border-neutral-200 bg-muted/30 p-8">
+            <div key={title} className="rounded-[1.8rem] border border-neutral-200 bg-white p-8 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/10">
                   <Icon className="h-5 w-5 text-accent" />
@@ -157,8 +162,8 @@ export default function ProofNarrative() {
           ))}
         </div>
 
-        <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] mt-12">
-          <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 md:p-10">
+        <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] mt-12 relative z-10">
+          <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 md:p-10 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-widest text-accent">
               What operators measure
             </p>
@@ -170,7 +175,7 @@ export default function ProofNarrative() {
                 </div>
               ))}
             </div>
-            <div className="mt-8 rounded-2xl bg-neutral-50 p-6">
+            <div className="mt-8 rounded-2xl bg-[#f7fbfb] p-6 border border-neutral-200">
               <p className="text-sm text-muted-foreground leading-relaxed">
                 These are not abstract platform features. They are the operational realities that
                 make patient engagement work in a real multi-location eye care environment.
@@ -178,13 +183,13 @@ export default function ProofNarrative() {
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 md:p-10">
+          <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 md:p-10 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-widest text-accent">
               Selected customer feedback
             </p>
             <div className="mt-6 space-y-6">
               {feedback.map(({ quote, author, role }) => (
-                <div key={`${author}-${role}`} className="rounded-2xl bg-neutral-50 p-6">
+                <div key={`${author}-${role}`} className="rounded-2xl bg-[#f8fcfc] p-6 border border-neutral-200">
                   <blockquote className="text-lg font-medium leading-relaxed text-foreground">
                     &ldquo;{quote}&rdquo;
                   </blockquote>
@@ -212,14 +217,16 @@ export default function ProofNarrative() {
           </div>
         </div>
 
-        <div className="mt-12 max-w-3xl">
-          <div className="flex items-start gap-3 text-sm text-muted-foreground">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
-            <span>
-              Acuity is strongest when patient engagement is defined operationally: every call
-              answered, the right patient booked, the right language supported, and the front desk
-              not buried in repetitive communication.
-            </span>
+        <div className="mt-14 max-w-4xl relative z-10">
+          <div className="rounded-[2rem] border border-neutral-200 bg-white px-6 py-6 md:px-8 md:py-7 shadow-sm">
+            <div className="flex items-start gap-3 text-sm md:text-base text-muted-foreground">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
+              <span>
+                Acuity is strongest when patient engagement is defined operationally: every call
+                answered, the right patient booked, the right language supported, and the front desk
+                not buried in repetitive communication.
+              </span>
+            </div>
           </div>
         </div>
       </div>

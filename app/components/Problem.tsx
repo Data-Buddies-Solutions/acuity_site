@@ -18,14 +18,14 @@ export default function Problem() {
   }, []);
 
   return (
-    <section ref={sectionRef} className="py-20 md:py-28 bg-[#0f1516] text-white" id="problem">
+    <section ref={sectionRef} className="py-20 md:py-28 bg-white" id="problem">
       <div className="mx-auto max-w-6xl px-4 md:px-6">
         <div
           className={`transition-all duration-700 ${
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
           }`}
         >
-          <p className="text-xs font-medium text-[#6bc7ca] uppercase tracking-widest mb-5">Where engagement breaks</p>
+          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-5">Where engagement breaks</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-10 lg:gap-16 items-start">
@@ -34,10 +34,10 @@ export default function Problem() {
               isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
             }`}
           >
-            <h2 className="text-3xl md:text-4xl lg:text-[3.1rem] font-semibold tracking-tight leading-[1.05] text-white">
+            <h2 className="text-3xl md:text-4xl lg:text-[3.1rem] font-semibold tracking-tight leading-[1.05]">
               By the time a patient reaches the exam room, they have already decided how responsive your practice feels.
             </h2>
-            <p className="mt-6 max-w-2xl text-base md:text-lg leading-relaxed text-white/72">
+            <p className="mt-6 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
               Hold times, voicemail, repeated explanations, and after-hours dead ends do not just slow
               the front desk down. They shape trust, booking behavior, and whether the practice feels
               organized before care even begins.
@@ -45,11 +45,11 @@ export default function Problem() {
           </div>
 
           <div
-            className={`rounded-[2rem] border border-white/10 bg-white/[0.05] p-8 transition-all duration-700 delay-150 ${
+            className={`rounded-[2rem] border border-neutral-200 bg-muted/40 p-8 transition-all duration-700 delay-150 ${
               isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
             }`}
           >
-            <p className="text-xs font-medium uppercase tracking-widest text-[#6bc7ca]">
+            <p className="text-xs font-medium uppercase tracking-widest text-accent">
               What patients and staff feel
             </p>
             <div className="mt-5 space-y-4">
@@ -59,7 +59,7 @@ export default function Problem() {
                 "Staff lose time to repetitive phone work.",
                 "The practice feels harder to reach than it should.",
               ].map((item) => (
-                <div key={item} className="rounded-2xl bg-white/[0.05] px-4 py-4 text-sm leading-relaxed text-white/76">
+                <div key={item} className="rounded-2xl bg-white px-4 py-4 text-sm leading-relaxed text-muted-foreground border border-neutral-200">
                   {item}
                 </div>
               ))}
@@ -87,14 +87,14 @@ export default function Problem() {
           ].map((item, i) => (
             <div
               key={item.label}
-              className={`rounded-[1.75rem] border border-white/10 bg-white/[0.06] p-7 transition-all duration-700 ${
+              className={`rounded-[1.75rem] border border-neutral-200 bg-muted/40 p-7 transition-all duration-700 ${
                 isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
               }`}
               style={{ transitionDelay: `${300 + i * 100}ms` }}
             >
-              <p className="text-4xl md:text-5xl font-semibold tracking-tight text-[#8ce3e5]">{item.number}</p>
-              <p className="mt-3 text-sm font-semibold text-white">{item.label}</p>
-              <p className="mt-2 text-sm leading-relaxed text-white/70">{item.detail}</p>
+              <p className="text-4xl md:text-5xl font-semibold tracking-tight text-gradient">{item.number}</p>
+              <p className="mt-3 text-sm font-semibold text-neutral-900">{item.label}</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.detail}</p>
             </div>
           ))}
         </div>
@@ -104,7 +104,7 @@ export default function Problem() {
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
           }`}
         >
-          <p className="text-sm md:text-base text-white/70 uppercase tracking-[0.16em]">
+          <p className="text-sm md:text-base text-muted-foreground uppercase tracking-[0.16em]">
             Acuity changes the feeling of first contact.
           </p>
         </div>
