@@ -18,7 +18,8 @@ const duplicatedPartners = [...partners, ...partners];
 
 export default function Hero() {
   return (
-    <section className="relative pt-6 md:pt-20 lg:pt-24 pb-8 md:pb-16 bg-background overflow-hidden" id="top">
+    <section className="relative pt-6 md:pt-20 lg:pt-24 pb-10 md:pb-20 bg-background overflow-hidden" id="top">
+      <div className="absolute inset-x-0 top-0 h-[32rem] bg-[radial-gradient(circle_at_top_left,rgba(13,115,119,0.12),transparent_45%),radial-gradient(circle_at_top_right,rgba(13,115,119,0.08),transparent_40%)]" />
       {/* Main hero: two-column */}
       <div className="relative z-10 mx-auto max-w-6xl px-4 md:px-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-16 items-center">
@@ -37,6 +38,10 @@ export default function Hero() {
 
             <p className="text-sm md:text-lg text-muted-foreground max-w-lg leading-relaxed mb-6 md:mb-8 text-center lg:text-left mx-auto lg:mx-0">
               Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving. Built for ophthalmology groups handling medical and vision insurance, pediatric workflows, multilingual booking, and after-hours demand.
+            </p>
+
+            <p className="text-xs md:text-sm uppercase tracking-[0.18em] text-muted-foreground/80 mb-6 text-center lg:text-left">
+              Engagement starts with whether patients can reach you.
             </p>
 
             {/* Mobile: Hero image between subtitle and buttons */}
@@ -109,14 +114,14 @@ export default function Hero() {
             <img
               src="/hero-phone-v4.png"
               alt="AI phone receptionist active call screen"
-              className="w-[750px] max-w-none"
+              className="w-[760px] max-w-none drop-shadow-[0_24px_60px_rgba(0,0,0,0.10)]"
             />
           </div>
         </div>
       </div>
 
       {/* Logo Marquee */}
-      <div className="mt-14 md:mt-20">
+      <div className="mt-14 md:mt-20 relative z-10">
         <div className="py-6 md:py-8 overflow-hidden border-t border-neutral-100">
           <div className="mx-auto max-w-6xl px-4 md:px-6 mb-4 md:mb-6">
             <p className="text-center text-xs text-muted-foreground/60 uppercase tracking-widest font-medium">
@@ -146,6 +151,16 @@ export default function Hero() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="relative z-10 mt-6 flex items-center justify-center">
+        <Link
+          href="/#problem"
+          className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/90 px-4 py-2 text-xs uppercase tracking-[0.16em] text-muted-foreground shadow-sm"
+        >
+          Scroll the story
+          <span className="text-accent">↓</span>
+        </Link>
       </div>
 
       <style jsx>{`

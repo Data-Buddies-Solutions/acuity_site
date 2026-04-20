@@ -22,11 +22,11 @@ export default function Home() {
     <>
       <Hero />
       <Problem />
-      <WhatWeBuild />
       <Differentiation />
+      <WhatWeBuild />
+      <ProofNarrative />
       <OfferStory />
       <Results />
-      <ProofNarrative />
       <CTA />
     </>
   );

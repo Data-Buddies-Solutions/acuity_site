@@ -48,9 +48,10 @@ export default function OfferStory() {
   return (
     <section className="py-20 md:py-28 bg-background" id="offers">
       <div className="mx-auto max-w-6xl px-4 md:px-6">
-        <div className="max-w-3xl">
+        <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-12 lg:gap-20 items-start">
+          <div className="max-w-3xl">
           <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
-            The story
+            The offer story
           </p>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight">
             Patient engagement starts with how reachable, responsive, and organized the practice feels.
@@ -60,13 +61,34 @@ export default function OfferStory() {
             texting, routing, scheduling, and follow-up. The point is not more channels. The point is a
             practice that feels easier to reach and easier to trust.
           </p>
+          </div>
+
+          <div className="rounded-[2rem] border border-neutral-200 bg-muted/40 p-8">
+            <p className="text-xs font-medium uppercase tracking-widest text-accent">
+              The progression
+            </p>
+            <div className="mt-5 space-y-4">
+              {[
+                "Start by making the practice reachable and consistent at the front desk.",
+                "Extend that responsiveness into reminders, confirmations, texting, and follow-up.",
+                "Scale the same system across locations, specialties, and operational complexity.",
+              ].map((item, index) => (
+                <div key={item} className="flex items-start gap-4">
+                  <div className="h-8 w-8 rounded-full bg-accent text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
+                    {index + 1}
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{item}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3 mt-12">
-          {offers.map(({ eyebrow, name, description, bullets, icon: Icon }) => (
+        <div className="grid gap-6 lg:grid-cols-2 mt-12">
+          {offers.slice(0, 2).map(({ eyebrow, name, description, bullets, icon: Icon }) => (
             <div
               key={eyebrow}
-              className="rounded-3xl border border-neutral-200 bg-white p-8 shadow-sm"
+              className="rounded-[2rem] border border-neutral-200 bg-white p-8 shadow-sm"
             >
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/10">
@@ -88,6 +110,29 @@ export default function OfferStory() {
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="mt-6 rounded-[2rem] border border-neutral-200 bg-[#f7fbfb] p-8 shadow-sm">
+          <div className="grid grid-cols-1 lg:grid-cols-[0.7fr_1.3fr] gap-8 items-start">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-widest text-accent">
+                {offers[2].eyebrow}
+              </p>
+              <h3 className="mt-4 text-2xl md:text-3xl font-semibold tracking-tight">
+                {offers[2].name}
+              </h3>
+              <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                {offers[2].description}
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {offers[2].bullets.map((item) => (
+                <div key={item} className="rounded-2xl bg-white px-5 py-4 text-sm text-muted-foreground border border-neutral-200">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="mt-10 rounded-[2rem] border border-neutral-200 bg-muted/40 p-8 md:p-10">

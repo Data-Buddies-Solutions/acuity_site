@@ -18,42 +18,55 @@ export default function Problem() {
   }, []);
 
   return (
-    <section ref={sectionRef} className="py-20 md:py-28 bg-white" id="problem">
-      <div className="mx-auto max-w-5xl px-4 md:px-6">
-        {/* Section label */}
+    <section ref={sectionRef} className="py-20 md:py-28 bg-[#0f1516] text-white" id="problem">
+      <div className="mx-auto max-w-6xl px-4 md:px-6">
         <div
           className={`transition-all duration-700 ${
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
           }`}
         >
-          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">The problem</p>
+          <p className="text-xs font-medium text-[#6bc7ca] uppercase tracking-widest mb-5">Where engagement breaks</p>
         </div>
 
-        {/* Headline — editorial style */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-10 lg:gap-16 items-start">
           <div
             className={`transition-all duration-700 ${
               isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
             }`}
           >
-            <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-semibold tracking-tight leading-[1.15]">
-              Patient engagement starts
-              <span className="text-muted-foreground"> before the visit.</span>
+            <h2 className="text-3xl md:text-4xl lg:text-[3.1rem] font-semibold tracking-tight leading-[1.05] text-white">
+              By the time a patient reaches the exam room, they have already decided how responsive your practice feels.
             </h2>
+            <p className="mt-6 max-w-2xl text-base md:text-lg leading-relaxed text-white/72">
+              Hold times, voicemail, repeated explanations, and after-hours dead ends do not just slow
+              the front desk down. They shape trust, booking behavior, and whether the practice feels
+              organized before care even begins.
+            </p>
           </div>
 
           <div
-            className={`hidden lg:block transition-all duration-700 delay-150 ${
+            className={`rounded-[2rem] border border-white/10 bg-white/[0.05] p-8 transition-all duration-700 delay-150 ${
               isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
             }`}
           >
-            <p className="text-base text-muted-foreground leading-relaxed">
-              When patients hit hold times, voicemail, and repeated questions just to schedule, engagement breaks down before care even begins. Your team burns hours on repetitive phone work while after-hours demand goes unanswered.
+            <p className="text-xs font-medium uppercase tracking-widest text-[#6bc7ca]">
+              What patients and staff feel
             </p>
+            <div className="mt-5 space-y-4">
+              {[
+                "Patients feel friction before they ever schedule.",
+                "After-hours demand quietly leaks away.",
+                "Staff lose time to repetitive phone work.",
+                "The practice feels harder to reach than it should.",
+              ].map((item) => (
+                <div key={item} className="rounded-2xl bg-white/[0.05] px-4 py-4 text-sm leading-relaxed text-white/76">
+                  {item}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Three pain points — horizontal cards, no icons */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-14">
           {[
             {
@@ -74,28 +87,26 @@ export default function Problem() {
           ].map((item, i) => (
             <div
               key={item.label}
-              className={`p-6 rounded-2xl bg-neutral-50 border border-neutral-100 transition-all duration-700 ${
+              className={`rounded-[1.75rem] border border-white/10 bg-white/[0.06] p-7 transition-all duration-700 ${
                 isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
               }`}
               style={{ transitionDelay: `${300 + i * 100}ms` }}
             >
-              <p className="text-3xl md:text-4xl font-semibold text-gradient tracking-tight">{item.number}</p>
-              <p className="text-sm font-semibold text-neutral-900 mt-2">{item.label}</p>
-              <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{item.detail}</p>
+              <p className="text-4xl md:text-5xl font-semibold tracking-tight text-[#8ce3e5]">{item.number}</p>
+              <p className="mt-3 text-sm font-semibold text-white">{item.label}</p>
+              <p className="mt-2 text-sm leading-relaxed text-white/70">{item.detail}</p>
             </div>
           ))}
         </div>
 
-        {/* Transition line to next section */}
         <div
           className={`mt-14 text-center transition-all duration-700 delay-500 ${
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
           }`}
         >
-          <p className="text-base text-muted-foreground">
-            Acuity helps the practice feel more responsive from first contact onward.
+          <p className="text-sm md:text-base text-white/70 uppercase tracking-[0.16em]">
+            Acuity changes the feeling of first contact.
           </p>
-          <div className="w-px h-10 bg-neutral-200 mx-auto mt-4" />
         </div>
       </div>
     </section>
