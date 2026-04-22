@@ -66,12 +66,22 @@ export default function Header() {
         {/* CTA */}
         <div className="flex items-center gap-2 shrink-0">
           <BookCallButton
+            variant="secondary"
             size="sm"
             iconVariant="none"
-            className="hidden md:inline-flex rounded-full"
+            className="hidden md:inline-flex rounded-full border-stone-200 bg-white text-stone-900 shadow-sm hover:bg-stone-50"
           >
-            Book a Call
+            Book a Demo
           </BookCallButton>
+
+          <Button
+            variant="default"
+            size="sm"
+            className="hidden md:inline-flex rounded-full"
+            asChild
+          >
+            <Link href="/portal">Practice Portal</Link>
+          </Button>
 
           {/* Mobile menu button */}
           <Button
@@ -109,13 +119,26 @@ export default function Header() {
                   {label}
                 </Link>
               ))}
-              <BookCallButton
-                size="lg"
-                iconVariant="none"
-                className="rounded-full text-base mt-4"
-              >
-                Book a Call
-              </BookCallButton>
+              <div className="mt-4 flex w-full max-w-xs flex-col gap-3">
+                <BookCallButton
+                  variant="secondary"
+                  size="lg"
+                  iconVariant="none"
+                  className="w-full rounded-full border-stone-200 bg-white text-base text-stone-900 shadow-sm hover:bg-stone-50"
+                >
+                  Book a Demo
+                </BookCallButton>
+                <Button
+                  variant="default"
+                  size="lg"
+                  className="w-full rounded-full text-base"
+                  asChild
+                >
+                  <Link href="/portal" onClick={() => setMobileNavOpen(false)}>
+                    Practice Portal
+                  </Link>
+                </Button>
+              </div>
             </nav>
           </div>
         </div>

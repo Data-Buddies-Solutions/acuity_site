@@ -82,21 +82,22 @@ export default function Hero() {
             </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 sm:gap-4">
-              <BookCallButton
+              <Button
+                variant="default"
                 size="default"
                 className="text-sm md:text-base px-6 md:px-7 py-3 rounded-full hover:opacity-90 transition-opacity w-full sm:w-auto"
+                asChild
+              >
+                <Link href="/#offers">See the Platform</Link>
+              </Button>
+              <BookCallButton
+                variant="secondary"
+                size="default"
+                className="text-sm md:text-base px-6 md:px-7 py-3 rounded-full border border-neutral-300 bg-white text-neutral-800 shadow-sm hover:bg-neutral-50 transition-colors w-full sm:w-auto"
                 iconVariant="none"
               >
                 Book a Demo
               </BookCallButton>
-              <Button
-                variant="secondary"
-                size="default"
-                className="text-sm md:text-base px-6 md:px-7 py-3 rounded-full border border-neutral-300 bg-white text-neutral-800 shadow-sm hover:bg-neutral-50 transition-colors w-full sm:w-auto"
-                asChild
-              >
-                <Link href="/#offers">See how it works</Link>
-              </Button>
             </div>
 
             <div className="mt-6 max-w-2xl rounded-[1.75rem] border border-neutral-200 bg-[#f7fbfb] px-5 py-5 text-center lg:text-left">
