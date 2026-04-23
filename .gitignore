@@ -4,6 +4,7 @@ node_modules
 # Next.js build output
 .next
 out
+generated
 
 # Environment variables
 .env*.local
@@ -28,3 +29,6 @@ coverage
 
 # Turbopack
 .turbo
+
+# TypeScript
+tsconfig.tsbuildinfo

@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 
 import "./globals.css";
-import Footer from "./components/Footer";
-import Header from "./components/Header";
+import AppChrome from "./components/AppChrome";
 import { SITE_CONFIG } from "@/lib/config";
 
 const organizationSchema = {
@@ -120,9 +119,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-background text-foreground antialiased">
-        <Header />
-        <main className="flex flex-col pt-24">{children}</main>
-        <Footer />
+        <AppChrome>{children}</AppChrome>
         <Script
           id="structured-data-organization"
           type="application/ld+json"

@@ -1,0 +1,330 @@
+import { cookies } from "next/headers";
+
+import { getAuthSession } from "./auth";
+import { getPracticeWorkspaceSnapshotForUser } from "./practice-workspace";
+
+export const PORTAL_STATE_COOKIE = "acuity_portal_state";
+
+type PortalDraftState = {
+  address: string;
+  fax: string;
+  insuranceAcceptedPlans: string;
+  insuranceExceptions: string;
+  insuranceTransferRules: string;
+  knowledgeAfterHours: string;
+  knowledgeAppointmentPrep: string;
+  knowledgeCommonQuestions: string;
+  knowledgeOfficePolicies: string;
+  knowledgePhrases: string;
+  locationName: string;
+  phone: string;
+  practiceName: string;
+  providerHours: string;
+  providerLocation: string;
+  providerName: string;
+  providerNpi: string;
+  providerSchedulingNotes: string;
+  providerSpecialty: string;
+  websiteUrl: string;
+};
+
+type PortalSectionDefinition = {
+  description: string;
+  href?: string;
+  key:
+    | "practiceProfile"
+    | "providerRouting"
+    | "insuranceCrosswalk"
+    | "knowledgeBase"
+    | "rulesAndEscalations";
+  label: string;
+};
+
+export const portalSectionDefinitions = [
+  {
+    key: "practiceProfile",
+    label: "Practice basics",
+    description: "Practice name, location, phone, fax, and address.",
+  },
+  {
+    key: "providerRouting",
+    label: "Providers and locations",
+    description: "Provider name, specialty, NPI, hours, and scheduling notes.",
+  },
+  {
+    key: "insuranceCrosswalk",
+    label: "Insurance crosswalk",
+    description: "Accepted plans, exceptions, and when to transfer to staff.",
+    href: "/portal/app/insurance-crosswalk",
+  },
+  {
+    key: "knowledgeBase",
+    label: "Knowledge base",
+    description: "FAQs, prep, policies, after-hours rules, and required phrases.",
+    href: "/portal/app/knowledge-base",
+  },
+  {
+    key: "rulesAndEscalations",
+    label: "Rules and escalations",
+    description: "Urgent scenarios and escalation language already approved.",
+  },
+] as const satisfies readonly PortalSectionDefinition[];
+
+export type PortalSectionKey = PortalSectionDefinition["key"];
+
+type PortalCookieState = {
+  draft: PortalDraftState;
+  launched: boolean;
+} & Record<PortalSectionKey, boolean>;
+
+export type PortalWorkspaceState = {
+  completionCount: number;
+  draft: PortalDraftState;
+  launched: boolean;
+  missingSections: PortalSection[];
+  nextAction: PortalSection | null;
+  readyToLaunch: boolean;
+  sections: PortalSection[];
+  totalSections: number;
+};
+
+export type PortalSection = PortalSectionDefinition & {
+  complete: boolean;
+};
+
+const defaultPortalDraft: PortalDraftState = {
+  address: "",
+  fax: "",
+  insuranceAcceptedPlans: "",
+  insuranceExceptions: "",
+  insuranceTransferRules: "",
+  knowledgeAfterHours: "",
+  knowledgeAppointmentPrep: "",
+  knowledgeCommonQuestions: "",
+  knowledgeOfficePolicies: "",
+  knowledgePhrases: "",
+  locationName: "",
+  phone: "",
+  practiceName: "",
+  providerHours: "",
+  providerLocation: "",
+  providerName: "",
+  providerNpi: "",
+  providerSchedulingNotes: "",
+  providerSpecialty: "",
+  websiteUrl: "",
+};
+
+const defaultPortalState: PortalCookieState = {
+  draft: defaultPortalDraft,
+  launched: false,
+  practiceProfile: false,
+  providerRouting: false,
+  insuranceCrosswalk: false,
+  knowledgeBase: false,
+  rulesAndEscalations: true,
+};
+
+function buildPortalWorkspaceState({
+  draft,
+  launched,
+  practiceProfile,
+  providerRouting,
+  insuranceCrosswalk,
+  knowledgeBase,
+  rulesAndEscalations,
+}: {
+  draft: PortalDraftState;
+  insuranceCrosswalk: boolean;
+  knowledgeBase: boolean;
+  launched: boolean;
+  practiceProfile: boolean;
+  providerRouting: boolean;
+  rulesAndEscalations: boolean;
+}): PortalWorkspaceState {
+  const completionMap: Record<PortalSectionKey, boolean> = {
+    insuranceCrosswalk,
+    knowledgeBase,
+    practiceProfile,
+    providerRouting,
+    rulesAndEscalations,
+  };
+  const sections = portalSectionDefinitions.map((section) => ({
+    ...section,
+    complete: completionMap[section.key],
+  }));
+  const missingSections = sections.filter((section) => !section.complete);
+  const readyToLaunch = missingSections.length === 0;
+
+  return {
+    completionCount: sections.filter((section) => section.complete).length,
+    draft,
+    launched: readyToLaunch && launched,
+    missingSections,
+    nextAction: missingSections[0] ?? null,
+    readyToLaunch,
+    sections,
+    totalSections: sections.length,
+  };
+}
+
+function parsePortalDraft(rawDraft: Partial<PortalDraftState> | undefined): PortalDraftState {
+  return {
+    address: rawDraft?.address ?? defaultPortalDraft.address,
+    fax: rawDraft?.fax ?? defaultPortalDraft.fax,
+    insuranceAcceptedPlans:
+      rawDraft?.insuranceAcceptedPlans ?? defaultPortalDraft.insuranceAcceptedPlans,
+    insuranceExceptions:
+      rawDraft?.insuranceExceptions ?? defaultPortalDraft.insuranceExceptions,
+    insuranceTransferRules:
+      rawDraft?.insuranceTransferRules ?? defaultPortalDraft.insuranceTransferRules,
+    knowledgeAfterHours:
+      rawDraft?.knowledgeAfterHours ?? defaultPortalDraft.knowledgeAfterHours,
+    knowledgeAppointmentPrep:
+      rawDraft?.knowledgeAppointmentPrep ?? defaultPortalDraft.knowledgeAppointmentPrep,
+    knowledgeCommonQuestions:
+      rawDraft?.knowledgeCommonQuestions ?? defaultPortalDraft.knowledgeCommonQuestions,
+    knowledgeOfficePolicies:
+      rawDraft?.knowledgeOfficePolicies ?? defaultPortalDraft.knowledgeOfficePolicies,
+    knowledgePhrases: rawDraft?.knowledgePhrases ?? defaultPortalDraft.knowledgePhrases,
+    locationName: rawDraft?.locationName ?? defaultPortalDraft.locationName,
+    phone: rawDraft?.phone ?? defaultPortalDraft.phone,
+    practiceName: rawDraft?.practiceName ?? defaultPortalDraft.practiceName,
+    providerHours: rawDraft?.providerHours ?? defaultPortalDraft.providerHours,
+    providerLocation: rawDraft?.providerLocation ?? defaultPortalDraft.providerLocation,
+    providerName: rawDraft?.providerName ?? defaultPortalDraft.providerName,
+    providerNpi: rawDraft?.providerNpi ?? defaultPortalDraft.providerNpi,
+    providerSchedulingNotes:
+      rawDraft?.providerSchedulingNotes ?? defaultPortalDraft.providerSchedulingNotes,
+    providerSpecialty:
+      rawDraft?.providerSpecialty ?? defaultPortalDraft.providerSpecialty,
+    websiteUrl: rawDraft?.websiteUrl ?? defaultPortalDraft.websiteUrl,
+  };
+}
+
+function parsePortalCookie(rawValue: string | undefined): PortalCookieState {
+  if (!rawValue) {
+    return defaultPortalState;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<PortalCookieState>;
+
+    return {
+      draft: parsePortalDraft(parsed.draft),
+      launched: parsed.launched === true,
+      practiceProfile: parsed.practiceProfile ?? defaultPortalState.practiceProfile,
+      providerRouting: parsed.providerRouting ?? defaultPortalState.providerRouting,
+      insuranceCrosswalk:
+        parsed.insuranceCrosswalk ?? defaultPortalState.insuranceCrosswalk,
+      knowledgeBase: parsed.knowledgeBase ?? defaultPortalState.knowledgeBase,
+      rulesAndEscalations:
+        parsed.rulesAndEscalations ?? defaultPortalState.rulesAndEscalations,
+    };
+  } catch {
+    return defaultPortalState;
+  }
+}
+
+async function readPortalCookieState() {
+  const cookieStore = await cookies();
+
+  return parsePortalCookie(cookieStore.get(PORTAL_STATE_COOKIE)?.value);
+}
+
+function writePortalCookie(cookieState: PortalCookieState) {
+  return cookies().then((cookieStore) => {
+    cookieStore.set(PORTAL_STATE_COOKIE, JSON.stringify(cookieState), {
+      httpOnly: true,
+      maxAge: 60 * 60 * 24 * 30,
+      path: "/portal/app",
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+  });
+}
+
+async function getPortalWorkspaceStateFromCookie() {
+  const cookieState = await readPortalCookieState();
+
+  return buildPortalWorkspaceState({
+    draft: cookieState.draft,
+    insuranceCrosswalk: cookieState.insuranceCrosswalk,
+    knowledgeBase: cookieState.knowledgeBase,
+    launched: cookieState.launched,
+    practiceProfile: cookieState.practiceProfile,
+    providerRouting: cookieState.providerRouting,
+    rulesAndEscalations: cookieState.rulesAndEscalations,
+  });
+}
+
+async function getPortalWorkspaceStateFromDatabase() {
+  const session = await getAuthSession();
+
+  if (!session) {
+    return null;
+  }
+
+  const workspaceSnapshot = await getPracticeWorkspaceSnapshotForUser({
+    email: session.user.email,
+    id: session.user.id,
+    name: session.user.name,
+  });
+
+  if (!workspaceSnapshot) {
+    return null;
+  }
+
+  return buildPortalWorkspaceState({
+    draft: workspaceSnapshot.draft,
+    insuranceCrosswalk: workspaceSnapshot.insuranceCrosswalkComplete,
+    knowledgeBase: workspaceSnapshot.knowledgeBaseComplete,
+    launched: workspaceSnapshot.launched,
+    practiceProfile: workspaceSnapshot.practiceProfileComplete,
+    providerRouting: workspaceSnapshot.providerRoutingComplete,
+    rulesAndEscalations: workspaceSnapshot.rulesAndEscalationsComplete,
+  });
+}
+
+export async function getPortalWorkspaceState(): Promise<PortalWorkspaceState> {
+  const databaseState = await getPortalWorkspaceStateFromDatabase();
+
+  if (databaseState) {
+    return databaseState;
+  }
+
+  return getPortalWorkspaceStateFromCookie();
+}
+
+export async function setPortalSectionCompletion(
+  key: PortalSectionKey,
+  complete: boolean
+) {
+  const currentState = await readPortalCookieState();
+
+  await writePortalCookie({
+    ...currentState,
+    [key]: complete,
+  });
+}
+
+export async function updatePortalDraftState(draftPatch: Partial<PortalDraftState>) {
+  const currentState = await readPortalCookieState();
+
+  await writePortalCookie({
+    ...currentState,
+    draft: {
+      ...currentState.draft,
+      ...draftPatch,
+    },
+  });
+}
+
+export async function setPortalLaunchState(launched: boolean) {
+  const currentState = await readPortalCookieState();
+
+  await writePortalCookie({
+    ...currentState,
+    launched,
+  });
+}

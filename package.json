@@ -4,19 +4,28 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
-    "test": "bun test"
+    "test": "bun test",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
   },
   "dependencies": {
+    "@better-auth/prisma-adapter": "^1.6.8",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-slot": "^1.2.4",
+    "better-auth": "^1.6.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dotenv": "^17.4.2",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.8.0",
     "next": "16.2.4",
+    "pg": "^8.20.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwind-merge": "^3.5.0"
@@ -32,6 +41,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.4",
     "postcss": "^8.5.10",
+    "prisma": "^7.8.0",
     "tailwindcss": "^4.2.2",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^6.0.3"

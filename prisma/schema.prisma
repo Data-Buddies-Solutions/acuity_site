@@ -1,0 +1,231 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  memberships   PracticeMembership[]
+  sessions      Session[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([providerId, accountId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+enum PracticeMembershipRole {
+  OWNER
+  ADMIN
+  STAFF
+}
+
+enum PracticeOnboardingStatus {
+  WEBSITE_PENDING
+  BASICS_PENDING
+  PROVIDERS_PENDING
+  INSURANCE_PENDING
+  KNOWLEDGE_PENDING
+  READY_TO_LAUNCH
+  LIVE
+}
+
+enum PracticeType {
+  OPHTHALMOLOGY
+  OPTOMETRY
+  MIXED
+  OTHER
+}
+
+enum WebsiteScanStatus {
+  SUCCESS
+  FAILED
+}
+
+model Practice {
+  id                 String                     @id @default(cuid())
+  name               String
+  websiteUrl         String?
+  onboardingStatus   PracticeOnboardingStatus  @default(WEBSITE_PENDING)
+  practiceType       PracticeType              @default(OTHER)
+  launchReadyAt      DateTime?
+  launchedAt         DateTime?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  insuranceCrosswalk PracticeInsuranceCrosswalk?
+  knowledgeBase      PracticeKnowledgeBase?
+  locations          PracticeLocation[]
+  memberships        PracticeMembership[]
+  providers          PracticeProvider[]
+  websiteScans       PracticeWebsiteScan[]
+
+  @@map("practice")
+}
+
+model PracticeMembership {
+  id        String                 @id @default(cuid())
+  practiceId String
+  userId    String
+  role      PracticeMembershipRole @default(OWNER)
+  isPrimary Boolean                @default(true)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  practice   Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceId, userId])
+  @@index([practiceId])
+  @@index([userId])
+  @@map("practice_membership")
+}
+
+model PracticeLocation {
+  id          String             @id @default(cuid())
+  practiceId  String
+  name        String
+  address     String?
+  phone       String?
+  fax         String?
+  email       String?
+  hoursSummary String?
+  isPrimary   Boolean            @default(false)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  practice    Practice           @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  providers   PracticeProvider[]
+
+  @@index([practiceId])
+  @@map("practice_location")
+}
+
+model PracticeProvider {
+  id                String            @id @default(cuid())
+  practiceId        String
+  primaryLocationId String?
+  displayName       String
+  npi               String?
+  specialtySummary  String?
+  scheduleSummary   String?
+  schedulingNotes   String?
+  speechAliases     Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  practice          Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  primaryLocation   PracticeLocation? @relation(fields: [primaryLocationId], references: [id], onDelete: SetNull)
+
+  @@index([practiceId])
+  @@index([primaryLocationId])
+  @@map("practice_provider")
+}
+
+model PracticeKnowledgeBase {
+  id                       String    @id @default(cuid())
+  practiceId               String    @unique
+  emergencyNotice          String?
+  urgencyScreeningQuestions Json?
+  urgencyDisposition       String?
+  scopeSummary             String?
+  excludedServices         Json?
+  commonQuestions          String?
+  appointmentPrep          String?
+  officePolicies           String?
+  afterHoursRules          String?
+  phrasingRules            String?
+  whatToBring              Json?
+  appointmentExpectations  Json?
+  operationalNotes         Json?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  practice                 Practice  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@map("practice_knowledge_base")
+}
+
+model PracticeInsuranceCrosswalk {
+  id            String   @id @default(cuid())
+  practiceId    String   @unique
+  acceptedPlans String?
+  exceptions    String?
+  transferRules String?
+  planRules     Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  practice      Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@map("practice_insurance_crosswalk")
+}
+
+model PracticeWebsiteScan {
+  id              String            @id @default(cuid())
+  practiceId      String
+  sourceUrl       String
+  finalUrl        String?
+  title           String?
+  metaDescription String?
+  scanStatus      WebsiteScanStatus
+  errorMessage    String?
+  extractedData   Json?
+  scannedAt       DateTime          @default(now())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  practice        Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId, scannedAt])
+  @@map("practice_website_scan")
+}
