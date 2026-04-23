@@ -39,7 +39,6 @@ type OnboardingStep = {
 
 type SearchParamsInput =
   | Promise<Record<string, string | string[] | undefined>>
-  | Record<string, string | string[] | undefined>
   | undefined;
 
 function getOnboardingSteps(portalState: PortalWorkspaceState) {
@@ -53,29 +52,32 @@ function getOnboardingSteps(portalState: PortalWorkspaceState) {
       key: "practiceProfile",
       label: "Basics",
       complete:
-        portalState.sections.find((section) => section.key === "practiceProfile")?.complete ===
-        true,
+        portalState.sections.find(
+          (section) => section.key === "practiceProfile",
+        )?.complete === true,
     },
     {
       key: "providerRouting",
       label: "Providers",
       complete:
-        portalState.sections.find((section) => section.key === "providerRouting")?.complete ===
-        true,
+        portalState.sections.find(
+          (section) => section.key === "providerRouting",
+        )?.complete === true,
     },
     {
       key: "insuranceCrosswalk",
       label: "Insurance",
       complete:
-        portalState.sections.find((section) => section.key === "insuranceCrosswalk")
-          ?.complete === true,
+        portalState.sections.find(
+          (section) => section.key === "insuranceCrosswalk",
+        )?.complete === true,
     },
     {
       key: "knowledgeBase",
       label: "Knowledge",
       complete:
-        portalState.sections.find((section) => section.key === "knowledgeBase")?.complete ===
-        true,
+        portalState.sections.find((section) => section.key === "knowledgeBase")
+          ?.complete === true,
     },
     {
       key: "review",
@@ -89,7 +91,9 @@ function getCurrentStep(steps: readonly OnboardingStep[]) {
   return steps.find((step) => !step.complete)?.key ?? "review";
 }
 
-function isOnboardingStepKey(value: string | undefined): value is OnboardingStepKey {
+function isOnboardingStepKey(
+  value: string | undefined,
+): value is OnboardingStepKey {
   return [
     "website",
     "practiceProfile",
@@ -102,7 +106,9 @@ function isOnboardingStepKey(value: string | undefined): value is OnboardingStep
 
 async function readRequestedStep(searchParams: SearchParamsInput) {
   const resolved = (await searchParams) || {};
-  const rawStep = Array.isArray(resolved.step) ? resolved.step[0] : resolved.step;
+  const rawStep = Array.isArray(resolved.step)
+    ? resolved.step[0]
+    : resolved.step;
 
   return isOnboardingStepKey(rawStep) ? rawStep : undefined;
 }
@@ -110,7 +116,7 @@ async function readRequestedStep(searchParams: SearchParamsInput) {
 function getVisibleStep(
   requestedStep: OnboardingStepKey | undefined,
   currentStep: OnboardingStepKey,
-  steps: readonly OnboardingStep[]
+  steps: readonly OnboardingStep[],
 ) {
   if (!requestedStep) {
     return currentStep;
@@ -222,15 +228,18 @@ export default async function PortalOnboardingPage({
           Complete practice setup
         </h2>
         <p className="max-w-2xl text-base leading-relaxed text-[#617477]">
-          One step at a time. Start with the website, then confirm the structured setup before
-          launch.
+          One step at a time. Start with the website, then confirm the
+          structured setup before launch.
         </p>
       </section>
 
       <div className="grid gap-2 md:grid-cols-6">
         {steps.map((step, index) => {
-          const stepIndex = steps.findIndex((candidate) => candidate.key === step.key);
-          const isClickable = step.key === "website" || stepIndex <= currentIndex;
+          const stepIndex = steps.findIndex(
+            (candidate) => candidate.key === step.key,
+          );
+          const isClickable =
+            step.key === "website" || stepIndex <= currentIndex;
 
           return (
             <StepCard
@@ -247,7 +256,11 @@ export default async function PortalOnboardingPage({
       {visibleStep === "website" ? (
         <Card className="rounded-[1.8rem] border-black/6 bg-white">
           <CardHeader>
-            <CardTitle>{portalState.draft.websiteUrl ? "Edit or rescan website" : "Practice website"}</CardTitle>
+            <CardTitle>
+              {portalState.draft.websiteUrl
+                ? "Edit or rescan website"
+                : "Practice website"}
+            </CardTitle>
             <CardDescription>
               {portalState.draft.websiteUrl
                 ? "Update the URL and rescan anytime during onboarding."
@@ -265,12 +278,15 @@ export default async function PortalOnboardingPage({
               />
               <Button type="submit" variant="primary">
                 <Globe2 className="h-4 w-4" aria-hidden="true" />
-                {portalState.draft.websiteUrl ? "Rescan website" : "Scan website"}
+                {portalState.draft.websiteUrl
+                  ? "Rescan website"
+                  : "Scan website"}
               </Button>
             </form>
 
             <div className="rounded-[1.4rem] border border-dashed border-black/10 bg-[#f7fbfa] px-4 py-4 text-sm text-[#617477]">
-              Rescanning refreshes the imported basics and sends you back to review them.
+              Rescanning refreshes the imported basics and sends you back to
+              review them.
             </div>
           </CardContent>
         </Card>
@@ -282,7 +298,9 @@ export default async function PortalOnboardingPage({
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <CardTitle>Review practice basics</CardTitle>
-                <CardDescription>Confirm the imported office details.</CardDescription>
+                <CardDescription>
+                  Confirm the imported office details.
+                </CardDescription>
               </div>
               <RescanWebsiteButton />
             </div>
@@ -292,7 +310,10 @@ export default async function PortalOnboardingPage({
               Imported from {portalState.draft.websiteUrl}
             </div>
 
-            <form action={savePracticeBasicsAction} className="grid gap-4 md:grid-cols-2">
+            <form
+              action={savePracticeBasicsAction}
+              className="grid gap-4 md:grid-cols-2"
+            >
               <PortalInputField
                 defaultValue={portalState.draft.practiceName}
                 label="Practice name"
@@ -344,13 +365,18 @@ export default async function PortalOnboardingPage({
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <CardTitle>Providers and locations</CardTitle>
-                <CardDescription>Add the first provider record in structured form.</CardDescription>
+                <CardDescription>
+                  Add the first provider record in structured form.
+                </CardDescription>
               </div>
               <RescanWebsiteButton />
             </div>
           </CardHeader>
           <CardContent>
-            <form action={saveProviderSetupAction} className="grid gap-4 md:grid-cols-2">
+            <form
+              action={saveProviderSetupAction}
+              className="grid gap-4 md:grid-cols-2"
+            >
               <PortalInputField
                 defaultValue={portalState.draft.providerName}
                 label="Provider name"
@@ -404,7 +430,9 @@ export default async function PortalOnboardingPage({
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <CardTitle>Insurance crosswalk</CardTitle>
-                <CardDescription>Finish the insurance rules next.</CardDescription>
+                <CardDescription>
+                  Finish the insurance rules next.
+                </CardDescription>
               </div>
               <RescanWebsiteButton />
             </div>
@@ -429,7 +457,9 @@ export default async function PortalOnboardingPage({
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <CardTitle>Practice knowledge</CardTitle>
-                <CardDescription>Then capture the answers and scripts the agent uses.</CardDescription>
+                <CardDescription>
+                  Then capture the answers and scripts the agent uses.
+                </CardDescription>
               </div>
               <RescanWebsiteButton />
             </div>
@@ -454,7 +484,9 @@ export default async function PortalOnboardingPage({
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <CardTitle>Review and launch</CardTitle>
-                <CardDescription>Only the missing items show up here.</CardDescription>
+                <CardDescription>
+                  Only the missing items show up here.
+                </CardDescription>
               </div>
               <RescanWebsiteButton />
             </div>
