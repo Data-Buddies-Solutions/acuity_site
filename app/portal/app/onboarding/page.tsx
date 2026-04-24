@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowUpRight, CheckCircle2, ChevronRight, Globe2 } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, CheckCircle2, ChevronRight } from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
 import {
@@ -15,16 +15,17 @@ import {
   type PortalWorkspaceState,
 } from "@/lib/portal-state";
 
-import { PortalInputField } from "../PortalFields";
+import { PortalTextareaField } from "../PortalFields";
 import {
-  launchPortalAction,
-  savePracticeBasicsAction,
-  saveProviderSetupAction,
-  scanPracticeWebsiteAction,
+  saveInsuranceCrosswalkAction,
+  saveKnowledgeBaseAction,
+  submitOnboardingAction,
 } from "../actions";
+import LocationSetupForm from "./LocationSetupForm";
+import LocationRuleScopeFields from "./LocationRuleScopeFields";
+import ProviderSetupForm from "./ProviderSetupForm";
 
 type OnboardingStepKey =
-  | "website"
   | "practiceProfile"
   | "providerRouting"
   | "insuranceCrosswalk"
@@ -43,11 +44,6 @@ type SearchParamsInput =
 
 function getOnboardingSteps(portalState: PortalWorkspaceState) {
   return [
-    {
-      key: "website",
-      label: "Website",
-      complete: Boolean(portalState.draft.websiteUrl),
-    },
     {
       key: "practiceProfile",
       label: "Basics",
@@ -81,7 +77,7 @@ function getOnboardingSteps(portalState: PortalWorkspaceState) {
     },
     {
       key: "review",
-      label: "Launch",
+      label: "Review",
       complete: portalState.launched,
     },
   ] as const satisfies readonly OnboardingStep[];
@@ -95,7 +91,6 @@ function isOnboardingStepKey(
   value: string | undefined,
 ): value is OnboardingStepKey {
   return [
-    "website",
     "practiceProfile",
     "providerRouting",
     "insuranceCrosswalk",
@@ -122,10 +117,6 @@ function getVisibleStep(
     return currentStep;
   }
 
-  if (requestedStep === "website") {
-    return requestedStep;
-  }
-
   const currentIndex = steps.findIndex((step) => step.key === currentStep);
   const requestedIndex = steps.findIndex((step) => step.key === requestedStep);
 
@@ -138,6 +129,15 @@ function getVisibleStep(
 
 function getStepHref(step: OnboardingStepKey) {
   return `/portal/app/onboarding?step=${step}`;
+}
+
+function getPreviousStep(
+  steps: readonly OnboardingStep[],
+  visibleStep: OnboardingStepKey
+) {
+  const visibleIndex = steps.findIndex((step) => step.key === visibleStep);
+
+  return visibleIndex > 0 ? steps[visibleIndex - 1] : null;
 }
 
 function StepCard({
@@ -193,10 +193,21 @@ function StepCard({
   );
 }
 
-function RescanWebsiteButton() {
+function WizardBackButton({
+  previousStep,
+}: Readonly<{
+  previousStep: OnboardingStep | null;
+}>) {
+  if (!previousStep) {
+    return null;
+  }
+
   return (
     <Button asChild size="sm" variant="secondary">
-      <Link href={getStepHref("website")}>Edit or rescan website</Link>
+      <Link href={getStepHref(previousStep.key)}>
+        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+        Back
+      </Link>
     </Button>
   );
 }
@@ -217,6 +228,16 @@ export default async function PortalOnboardingPage({
   const requestedStep = await readRequestedStep(searchParams);
   const visibleStep = getVisibleStep(requestedStep, currentStep, steps);
   const currentIndex = steps.findIndex((step) => step.key === currentStep);
+  const previousStep = getPreviousStep(steps, visibleStep);
+  const locationNames = portalState.draft.locations
+    .map((location) => location.locationName)
+    .filter(Boolean);
+  const insuranceUsesLocationRules = portalState.draft.locations.some(
+    (location) => location.insuranceVaries || location.insuranceNotes
+  );
+  const knowledgeUsesLocationRules = portalState.draft.locations.some(
+    (location) => location.knowledgeVaries || location.knowledgeNotes
+  );
 
   return (
     <div className="space-y-6">
@@ -227,19 +248,14 @@ export default async function PortalOnboardingPage({
         <h2 className="text-3xl font-semibold tracking-[-0.05em] text-[#10272c]">
           Complete practice setup
         </h2>
-        <p className="max-w-2xl text-base leading-relaxed text-[#617477]">
-          One step at a time. Start with the website, then confirm the
-          structured setup before launch.
-        </p>
       </section>
 
-      <div className="grid gap-2 md:grid-cols-6">
+      <div className="grid gap-2 md:grid-cols-5">
         {steps.map((step, index) => {
           const stepIndex = steps.findIndex(
             (candidate) => candidate.key === step.key,
           );
-          const isClickable =
-            step.key === "website" || stepIndex <= currentIndex;
+          const isClickable = stepIndex <= currentIndex;
 
           return (
             <StepCard
@@ -253,108 +269,21 @@ export default async function PortalOnboardingPage({
         })}
       </div>
 
-      {visibleStep === "website" ? (
-        <Card className="rounded-[1.8rem] border-black/6 bg-white">
-          <CardHeader>
-            <CardTitle>
-              {portalState.draft.websiteUrl
-                ? "Edit or rescan website"
-                : "Practice website"}
-            </CardTitle>
-            <CardDescription>
-              {portalState.draft.websiteUrl
-                ? "Update the URL and rescan anytime during onboarding."
-                : "Paste the website to create a starting draft."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <form action={scanPracticeWebsiteAction} className="space-y-4">
-              <PortalInputField
-                defaultValue={portalState.draft.websiteUrl}
-                label="Website URL"
-                name="websiteUrl"
-                placeholder="https://yourpractice.com"
-                type="url"
-              />
-              <Button type="submit" variant="primary">
-                <Globe2 className="h-4 w-4" aria-hidden="true" />
-                {portalState.draft.websiteUrl
-                  ? "Rescan website"
-                  : "Scan website"}
-              </Button>
-            </form>
-
-            <div className="rounded-[1.4rem] border border-dashed border-black/10 bg-[#f7fbfa] px-4 py-4 text-sm text-[#617477]">
-              Rescanning refreshes the imported basics and sends you back to
-              review them.
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
       {visibleStep === "practiceProfile" ? (
         <Card className="rounded-[1.8rem] border-black/6 bg-white">
           <CardHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Review practice basics</CardTitle>
-                <CardDescription>
-                  Confirm the imported office details.
-                </CardDescription>
+                <CardTitle>Practice basics and locations</CardTitle>
               </div>
-              <RescanWebsiteButton />
+              <WizardBackButton previousStep={previousStep} />
             </div>
           </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="inline-flex rounded-full border border-[#d7ebe8] bg-[#edf8f6] px-3 py-1 text-xs font-medium text-[#0d7377]">
-              Imported from {portalState.draft.websiteUrl}
-            </div>
-
-            <form
-              action={savePracticeBasicsAction}
-              className="grid gap-4 md:grid-cols-2"
-            >
-              <PortalInputField
-                defaultValue={portalState.draft.practiceName}
-                label="Practice name"
-                name="practiceName"
-                placeholder="North Miami Beach Eye Center"
-              />
-              <PortalInputField
-                defaultValue={portalState.draft.locationName}
-                label="Primary location"
-                name="locationName"
-                placeholder="North Miami Beach"
-              />
-              <PortalInputField
-                defaultValue={portalState.draft.phone}
-                label="Phone"
-                name="phone"
-                placeholder="(305) 555-0184"
-                type="tel"
-              />
-              <PortalInputField
-                defaultValue={portalState.draft.fax}
-                label="Fax"
-                name="fax"
-                placeholder="(305) 555-0110"
-                type="tel"
-              />
-              <div className="md:col-span-2">
-                <PortalInputField
-                  defaultValue={portalState.draft.address}
-                  label="Address"
-                  name="address"
-                  placeholder="123 Main St, Suite 200"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <Button type="submit" variant="primary">
-                  Save and continue
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </div>
-            </form>
+          <CardContent>
+            <LocationSetupForm
+              initialLocations={portalState.draft.locations}
+              practiceName={portalState.draft.practiceName}
+            />
           </CardContent>
         </Card>
       ) : null}
@@ -366,60 +295,17 @@ export default async function PortalOnboardingPage({
               <div>
                 <CardTitle>Providers and locations</CardTitle>
                 <CardDescription>
-                  Add the first provider record in structured form.
+                  Add every provider staff may route or schedule for.
                 </CardDescription>
               </div>
-              <RescanWebsiteButton />
             </div>
           </CardHeader>
           <CardContent>
-            <form
-              action={saveProviderSetupAction}
-              className="grid gap-4 md:grid-cols-2"
-            >
-              <PortalInputField
-                defaultValue={portalState.draft.providerName}
-                label="Provider name"
-                name="providerName"
-                placeholder="Dr. Jane Doe"
-              />
-              <PortalInputField
-                defaultValue={portalState.draft.providerSpecialty}
-                label="Specialty"
-                name="providerSpecialty"
-                placeholder="Comprehensive ophthalmology"
-              />
-              <PortalInputField
-                defaultValue={portalState.draft.providerNpi}
-                label="NPI"
-                name="providerNpi"
-                placeholder="1234567890"
-              />
-              <PortalInputField
-                defaultValue={portalState.draft.providerLocation}
-                label="Primary location"
-                name="providerLocation"
-                placeholder={portalState.draft.locationName || "Main office"}
-              />
-              <PortalInputField
-                defaultValue={portalState.draft.providerHours}
-                label="Hours"
-                name="providerHours"
-                placeholder="Mon-Thu 8a-5p, Fri 8a-1p"
-              />
-              <PortalInputField
-                defaultValue={portalState.draft.providerSchedulingNotes}
-                label="Scheduling notes"
-                name="providerSchedulingNotes"
-                placeholder="New patients need referral on file"
-              />
-              <div className="md:col-span-2">
-                <Button type="submit" variant="primary">
-                  Save and continue
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </div>
-            </form>
+            <ProviderSetupForm
+              backHref={getStepHref("practiceProfile")}
+              initialProviders={portalState.draft.providers}
+              locationNames={locationNames}
+            />
           </CardContent>
         </Card>
       ) : null}
@@ -431,22 +317,51 @@ export default async function PortalOnboardingPage({
               <div>
                 <CardTitle>Insurance crosswalk</CardTitle>
                 <CardDescription>
-                  Finish the insurance rules next.
+                  Capture accepted plans, exceptions, and staff handoff rules.
                 </CardDescription>
               </div>
-              <RescanWebsiteButton />
             </div>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="text-sm text-[#617477]">
-              Accepted plans, exceptions, and staff handoff rules.
-            </div>
-            <Button asChild variant="primary">
-              <Link href="/portal/app/insurance-crosswalk">
-                Open insurance step
-                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
-            </Button>
+          <CardContent>
+            <form action={saveInsuranceCrosswalkAction} className="grid gap-4">
+              <PortalTextareaField
+                defaultValue={portalState.draft.insuranceAcceptedPlans}
+                label="Accepted plans"
+                name="insuranceAcceptedPlans"
+                placeholder="Aetna, Blue Cross Blue Shield, Medicare, VSP"
+                rows={3}
+              />
+              <PortalTextareaField
+                defaultValue={portalState.draft.insuranceExceptions}
+                label="Exceptions"
+                name="insuranceExceptions"
+                placeholder="No Medicaid at surgery center. Vision plans only at main office."
+                rows={3}
+              />
+              <LocationRuleScopeFields
+                byLocationLabel="Insurance rules differ by location"
+                defaultByLocation={insuranceUsesLocationRules}
+                locationNotesKey="insuranceNotes"
+                locations={portalState.draft.locations}
+                placeholder="Plans, exceptions, authorizations, or coverage notes that only apply to this location."
+                scopeName="insuranceRulesScope"
+                sectionTitle="Insurance rule scope"
+                sharedLabel="Same insurance rules for all locations"
+                variesKey="insuranceVaries"
+              />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Button asChild variant="secondary">
+                  <Link href={getStepHref("providerRouting")}>
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    Back
+                  </Link>
+                </Button>
+                <Button type="submit" variant="primary">
+                  Save and continue
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </form>
           </CardContent>
         </Card>
       ) : null}
@@ -458,22 +373,80 @@ export default async function PortalOnboardingPage({
               <div>
                 <CardTitle>Practice knowledge</CardTitle>
                 <CardDescription>
-                  Then capture the answers and scripts the agent uses.
+                  Capture the answers, scripts, and handoff rules.
                 </CardDescription>
               </div>
-              <RescanWebsiteButton />
             </div>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="text-sm text-[#617477]">
-              FAQs, appointment prep, office policies, and after-hours rules.
-            </div>
-            <Button asChild variant="primary">
-              <Link href="/portal/app/knowledge-base">
-                Open knowledge step
-                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
-            </Button>
+          <CardContent>
+            <form action={saveKnowledgeBaseAction} className="grid gap-4">
+              <PortalTextareaField
+                defaultValue={portalState.draft.knowledgeCommonQuestions}
+                label="Common questions"
+                name="knowledgeCommonQuestions"
+                placeholder="Do you take walk-ins? How do I send a referral?"
+                rows={3}
+              />
+              <PortalTextareaField
+                defaultValue={portalState.draft.knowledgeAppointmentPrep}
+                label="Appointment prep"
+                name="knowledgeAppointmentPrep"
+                placeholder="Dilated exam patients should bring sunglasses and arrive 15 minutes early."
+                rows={3}
+              />
+              <PortalTextareaField
+                defaultValue={portalState.draft.knowledgeOfficePolicies}
+                label="Office policies"
+                name="knowledgeOfficePolicies"
+                placeholder="Late arrivals over 15 minutes may need rescheduling."
+                rows={3}
+              />
+              <PortalTextareaField
+                defaultValue={portalState.draft.knowledgeAfterHours}
+                label="After-hours rules"
+                name="knowledgeAfterHours"
+                placeholder="Urgent flashes, floaters, or vision loss should be transferred immediately."
+                rows={3}
+              />
+              <PortalTextareaField
+                defaultValue={portalState.draft.insuranceTransferRules}
+                label="Transfer to staff when"
+                name="insuranceTransferRules"
+                placeholder="A caller is upset, symptoms sound urgent, coverage is unclear, or the request falls outside approved scripts."
+                rows={3}
+              />
+              <PortalTextareaField
+                defaultValue={portalState.draft.knowledgePhrases}
+                label="Always say / never say"
+                name="knowledgePhrases"
+                placeholder="Always confirm callback timing. Never promise same-day availability."
+                rows={3}
+              />
+              <LocationRuleScopeFields
+                byLocationLabel="Knowledge or scripts differ by location"
+                defaultByLocation={knowledgeUsesLocationRules}
+                locationNotesKey="knowledgeNotes"
+                locations={portalState.draft.locations}
+                placeholder="Location-specific hours, policies, scripts, prep, parking, routing, or escalation notes."
+                scopeName="knowledgeRulesScope"
+                sectionTitle="Knowledge scope"
+                sharedLabel="Same knowledge and scripts for all locations"
+                variesKey="knowledgeVaries"
+              />
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Button asChild variant="secondary">
+                  <Link href={getStepHref("insuranceCrosswalk")}>
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    Back
+                  </Link>
+                </Button>
+                <Button type="submit" variant="primary">
+                  Save and continue
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </form>
           </CardContent>
         </Card>
       ) : null}
@@ -483,15 +456,109 @@ export default async function PortalOnboardingPage({
           <CardHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Review and launch</CardTitle>
+                <CardTitle>Review info</CardTitle>
                 <CardDescription>
-                  Only the missing items show up here.
+                  You can edit the knowledge base and insurance crosswalk after submitting.
                 </CardDescription>
               </div>
-              <RescanWebsiteButton />
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-[1.4rem] border border-black/6 bg-[#f7fbfa] px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#10272c]">Practice basics</p>
+                  <Link
+                    className="text-sm font-medium text-[#0d7377]"
+                    href={getStepHref("practiceProfile")}
+                  >
+                    Edit
+                  </Link>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-[#617477]">
+                  {portalState.draft.practiceName || "Practice name missing"}
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-[#617477]">
+                  {portalState.draft.locations.length
+                    ? `${portalState.draft.locations.length} location${
+                        portalState.draft.locations.length === 1 ? "" : "s"
+                      } added`
+                    : "No locations added"}
+                </p>
+              </div>
+
+              <div className="rounded-[1.4rem] border border-black/6 bg-[#f7fbfa] px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#10272c]">Providers</p>
+                  <Link
+                    className="text-sm font-medium text-[#0d7377]"
+                    href={getStepHref("providerRouting")}
+                  >
+                    Edit
+                  </Link>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-[#617477]">
+                  {portalState.draft.providers.length
+                    ? `${portalState.draft.providers.length} provider${
+                        portalState.draft.providers.length === 1 ? "" : "s"
+                      } added`
+                    : "No providers added"}
+                </p>
+              </div>
+
+              <div className="rounded-[1.4rem] border border-black/6 bg-[#f7fbfa] px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#10272c]">Insurance</p>
+                  <Link
+                    className="text-sm font-medium text-[#0d7377]"
+                    href={getStepHref("insuranceCrosswalk")}
+                  >
+                    Edit
+                  </Link>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-[#617477]">
+                  {portalState.draft.insuranceAcceptedPlans ||
+                  portalState.draft.insuranceExceptions ||
+                  insuranceUsesLocationRules
+                    ? "Insurance guidance captured"
+                    : "Insurance guidance missing"}
+                  {insuranceUsesLocationRules
+                    ? ` (${portalState.draft.locations.length} location override${
+                        portalState.draft.locations.length === 1 ? "" : "s"
+                      })`
+                    : ""}
+                </p>
+              </div>
+
+              <div className="rounded-[1.4rem] border border-black/6 bg-[#f7fbfa] px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#10272c]">Knowledge</p>
+                  <Link
+                    className="text-sm font-medium text-[#0d7377]"
+                    href={getStepHref("knowledgeBase")}
+                  >
+                    Edit
+                  </Link>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-[#617477]">
+                  {portalState.draft.knowledgeCommonQuestions ||
+                  portalState.draft.knowledgeAppointmentPrep ||
+                  portalState.draft.knowledgeOfficePolicies ||
+                  portalState.draft.knowledgeAfterHours ||
+                  portalState.draft.insuranceTransferRules ||
+                  portalState.draft.knowledgePhrases ||
+                  knowledgeUsesLocationRules
+                    ? "Practice knowledge captured"
+                    : "Practice knowledge missing"}
+                  {knowledgeUsesLocationRules
+                    ? ` (${portalState.draft.locations.length} location override${
+                        portalState.draft.locations.length === 1 ? "" : "s"
+                      })`
+                    : ""}
+                </p>
+              </div>
+            </div>
+
             {portalState.missingSections.length ? (
               portalState.missingSections.map((section) => (
                 <div
@@ -501,17 +568,21 @@ export default async function PortalOnboardingPage({
                   {section.label} still needs review.
                 </div>
               ))
-            ) : (
-              <div className="rounded-[1.4rem] border border-[#d7ebe8] bg-[#edf8f6] px-4 py-4 text-sm text-[#0d7377]">
-                Everything required for launch is complete.
-              </div>
-            )}
+            ) : null}
 
-            <form action={launchPortalAction}>
-              <Button type="submit" variant="primary">
-                Launch agent
-                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-              </Button>
+            <form action={submitOnboardingAction}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Button asChild variant="secondary">
+                  <Link href={getStepHref("knowledgeBase")}>
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    Back
+                  </Link>
+                </Button>
+                <Button type="submit" variant="primary">
+                  Submit setup
+                  <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
             </form>
           </CardContent>
         </Card>

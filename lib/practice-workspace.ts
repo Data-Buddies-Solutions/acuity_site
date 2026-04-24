@@ -3,6 +3,29 @@ import type { Prisma } from "@/generated/prisma/client";
 import type { PracticeWebsiteScanResult } from "./practice-records";
 import { prisma } from "./prisma";
 
+export type PracticeProviderDraft = {
+  id?: string;
+  providerHours: string;
+  providerLocation: string;
+  providerName: string;
+  providerNpi: string;
+  providerSchedulingNotes: string;
+  providerSpecialty: string;
+};
+
+export type PracticeLocationDraft = {
+  address: string;
+  fax: string;
+  hours: string;
+  id?: string;
+  insuranceNotes: string;
+  insuranceVaries: boolean;
+  knowledgeNotes: string;
+  knowledgeVaries: boolean;
+  locationName: string;
+  phone: string;
+};
+
 export type PracticeWorkspaceDraft = {
   address: string;
   fax: string;
@@ -14,9 +37,11 @@ export type PracticeWorkspaceDraft = {
   knowledgeCommonQuestions: string;
   knowledgeOfficePolicies: string;
   knowledgePhrases: string;
+  locations: PracticeLocationDraft[];
   locationName: string;
   phone: string;
   practiceName: string;
+  providers: PracticeProviderDraft[];
   providerHours: string;
   providerLocation: string;
   providerName: string;
@@ -45,10 +70,17 @@ type PracticeWorkspaceUser = {
 const practiceWorkspaceInclude = {
   insuranceCrosswalk: true,
   knowledgeBase: true,
-  locations: true,
+  locations: {
+    orderBy: {
+      createdAt: "asc",
+    },
+  },
   providers: {
     include: {
       primaryLocation: true,
+    },
+    orderBy: {
+      createdAt: "asc",
     },
   },
   websiteScans: {
@@ -97,13 +129,77 @@ function getPrimaryLocation(practice: LoadedPractice) {
   );
 }
 
-function getPrimaryProvider(practice: LoadedPractice) {
-  return practice.providers[0] || null;
+function readLocationOverrides(value: Prisma.JsonValue | null | undefined) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+
+  const rawOverrides = (value as Record<string, unknown>).locationOverrides;
+
+  if (!Array.isArray(rawOverrides)) {
+    return [];
+  }
+
+  return rawOverrides
+    .filter((entry): entry is Record<string, unknown> =>
+      Boolean(entry && typeof entry === "object" && !Array.isArray(entry))
+    )
+    .map((entry) => ({
+      insuranceNotes: textValue(entry.insuranceNotes as string | undefined),
+      insuranceVaries: entry.insuranceVaries === true,
+      knowledgeNotes: textValue(entry.knowledgeNotes as string | undefined),
+      knowledgeVaries: entry.knowledgeVaries === true,
+      locationId: textValue(entry.locationId as string | undefined),
+      locationName: textValue(entry.locationName as string | undefined),
+    }));
+}
+
+function getLocationOverride(
+  overrides: ReturnType<typeof readLocationOverrides>,
+  location: LoadedPractice["locations"][number]
+) {
+  return overrides.find(
+    (override) =>
+      (override.locationId && override.locationId === location.id) ||
+      (override.locationName && override.locationName === location.name)
+  );
 }
 
 function buildDraftFromPractice(practice: LoadedPractice): PracticeWorkspaceDraft {
   const primaryLocation = getPrimaryLocation(practice);
-  const primaryProvider = getPrimaryProvider(practice);
+  const insuranceLocationOverrides = readLocationOverrides(
+    practice.insuranceCrosswalk?.planRules
+  );
+  const knowledgeLocationOverrides = readLocationOverrides(
+    practice.knowledgeBase?.operationalNotes
+  );
+  const locations = practice.locations.map<PracticeLocationDraft>((location) => {
+    const insuranceOverride = getLocationOverride(insuranceLocationOverrides, location);
+    const knowledgeOverride = getLocationOverride(knowledgeLocationOverrides, location);
+
+    return {
+      address: textValue(location.address),
+      fax: textValue(location.fax),
+      hours: textValue(location.hoursSummary),
+      id: location.id,
+      insuranceNotes: insuranceOverride?.insuranceNotes || "",
+      insuranceVaries: insuranceOverride?.insuranceVaries === true,
+      knowledgeNotes: knowledgeOverride?.knowledgeNotes || "",
+      knowledgeVaries: knowledgeOverride?.knowledgeVaries === true,
+      locationName: textValue(location.name),
+      phone: textValue(location.phone),
+    };
+  });
+  const providers = practice.providers.map<PracticeProviderDraft>((provider) => ({
+    id: provider.id,
+    providerHours: textValue(provider.scheduleSummary),
+    providerLocation: textValue(provider.primaryLocation?.name || primaryLocation?.name),
+    providerName: textValue(provider.displayName),
+    providerNpi: textValue(provider.npi),
+    providerSchedulingNotes: textValue(provider.schedulingNotes),
+    providerSpecialty: textValue(provider.specialtySummary),
+  }));
+  const primaryProvider = providers[0] || null;
   const knowledgeBase = practice.knowledgeBase;
   const insuranceCrosswalk = practice.insuranceCrosswalk;
 
@@ -118,15 +214,17 @@ function buildDraftFromPractice(practice: LoadedPractice): PracticeWorkspaceDraf
     knowledgeCommonQuestions: textValue(knowledgeBase?.commonQuestions),
     knowledgeOfficePolicies: textValue(knowledgeBase?.officePolicies),
     knowledgePhrases: textValue(knowledgeBase?.phrasingRules),
+    locations,
     locationName: textValue(primaryLocation?.name),
     phone: textValue(primaryLocation?.phone),
     practiceName: textValue(practice.name),
-    providerHours: textValue(primaryProvider?.scheduleSummary),
-    providerLocation: textValue(primaryProvider?.primaryLocation?.name || primaryLocation?.name),
-    providerName: textValue(primaryProvider?.displayName),
-    providerNpi: textValue(primaryProvider?.npi),
-    providerSchedulingNotes: textValue(primaryProvider?.schedulingNotes),
-    providerSpecialty: textValue(primaryProvider?.specialtySummary),
+    providers,
+    providerHours: textValue(primaryProvider?.providerHours),
+    providerLocation: textValue(primaryProvider?.providerLocation),
+    providerName: textValue(primaryProvider?.providerName),
+    providerNpi: textValue(primaryProvider?.providerNpi),
+    providerSchedulingNotes: textValue(primaryProvider?.providerSchedulingNotes),
+    providerSpecialty: textValue(primaryProvider?.providerSpecialty),
     websiteUrl: textValue(practice.websiteUrl || practice.websiteScans[0]?.sourceUrl),
   };
 }
@@ -137,23 +235,33 @@ function buildSnapshotFromPractice(practice: LoadedPractice): PracticeWorkspaceS
   const insuranceCrosswalk = practice.insuranceCrosswalk;
   const launched = Boolean(practice.launchedAt);
   const practiceProfileComplete =
-    hasText(draft.websiteUrl) &&
     hasText(draft.practiceName) &&
-    hasText(draft.locationName) &&
-    hasText(draft.address) &&
-    hasText(draft.phone);
-  const providerRoutingComplete = hasText(draft.providerName);
+    draft.locations.some(
+      (location) =>
+        hasText(location.locationName) &&
+        hasText(location.address) &&
+        hasText(location.phone)
+    );
+  const providerRoutingComplete =
+    draft.providers.some((provider) => hasText(provider.providerName)) ||
+    hasText(draft.providerName);
   const insuranceCrosswalkComplete =
     hasText(insuranceCrosswalk?.acceptedPlans) ||
     hasText(insuranceCrosswalk?.exceptions) ||
-    hasText(insuranceCrosswalk?.transferRules);
+    draft.locations.some(
+      (location) => location.insuranceVaries || hasText(location.insuranceNotes)
+    );
   const knowledgeBaseComplete =
     hasText(knowledgeBase?.commonQuestions) ||
     hasText(knowledgeBase?.appointmentPrep) ||
     hasText(knowledgeBase?.officePolicies) ||
     hasText(knowledgeBase?.afterHoursRules) ||
     hasText(knowledgeBase?.phrasingRules) ||
-    hasText(knowledgeBase?.scopeSummary);
+    hasText(knowledgeBase?.scopeSummary) ||
+    hasText(insuranceCrosswalk?.transferRules) ||
+    draft.locations.some(
+      (location) => location.knowledgeVaries || hasText(location.knowledgeNotes)
+    );
 
   return {
     draft,
@@ -169,10 +277,6 @@ function buildSnapshotFromPractice(practice: LoadedPractice): PracticeWorkspaceS
 function resolveOnboardingStatus(snapshot: PracticeWorkspaceSnapshot) {
   if (snapshot.launched) {
     return "LIVE";
-  }
-
-  if (!hasText(snapshot.draft.websiteUrl)) {
-    return "WEBSITE_PENDING";
   }
 
   if (!snapshot.practiceProfileComplete) {
@@ -343,6 +447,152 @@ async function upsertPrimaryLocation(
   });
 }
 
+function buildInsuranceLocationOverrides(locations: PracticeLocationDraft[]) {
+  return locations
+    .filter(
+      (location) =>
+        hasText(location.locationName) &&
+        (location.insuranceVaries || hasText(location.insuranceNotes))
+    )
+    .map((location) => ({
+      insuranceNotes: location.insuranceNotes,
+      insuranceVaries: location.insuranceVaries,
+      locationId: location.id,
+      locationName: location.locationName,
+    }));
+}
+
+function buildKnowledgeLocationOverrides(locations: PracticeLocationDraft[]) {
+  return locations
+    .filter(
+      (location) =>
+        hasText(location.locationName) &&
+        (location.knowledgeVaries || hasText(location.knowledgeNotes))
+    )
+    .map((location) => ({
+      knowledgeNotes: location.knowledgeNotes,
+      knowledgeVaries: location.knowledgeVaries,
+      locationId: location.id,
+      locationName: location.locationName,
+    }));
+}
+
+async function persistLocationOverrides(
+  practiceId: string,
+  locations: PracticeLocationDraft[]
+) {
+  const insuranceOverrides = buildInsuranceLocationOverrides(locations);
+  const knowledgeOverrides = buildKnowledgeLocationOverrides(locations);
+
+  await prisma.practiceInsuranceCrosswalk.upsert({
+    create: {
+      planRules: {
+        locationOverrides: insuranceOverrides,
+      },
+      practiceId,
+    },
+    update: {
+      planRules: {
+        locationOverrides: insuranceOverrides,
+      },
+    },
+    where: {
+      practiceId,
+    },
+  });
+
+  await prisma.practiceKnowledgeBase.upsert({
+    create: {
+      operationalNotes: {
+        locationOverrides: knowledgeOverrides,
+      },
+      practiceId,
+    },
+    update: {
+      operationalNotes: {
+        locationOverrides: knowledgeOverrides,
+      },
+    },
+    where: {
+      practiceId,
+    },
+  });
+}
+
+async function upsertPracticeLocations(
+  practiceId: string,
+  locations: PracticeLocationDraft[]
+) {
+  const submittedLocations = locations.filter((location) =>
+    hasText(location.locationName)
+  );
+
+  if (!submittedLocations.length) {
+    return [];
+  }
+
+  const existingLocations = await prisma.practiceLocation.findMany({
+    orderBy: {
+      createdAt: "asc",
+    },
+    where: {
+      practiceId,
+    },
+  });
+  const savedLocations: PracticeLocationDraft[] = [];
+
+  for (const [index, location] of submittedLocations.entries()) {
+    const existingLocation =
+      (location.id &&
+        existingLocations.find((candidate) => candidate.id === location.id)) ||
+      existingLocations[index];
+    const locationData = {
+      address: location.address || null,
+      fax: location.fax || null,
+      hoursSummary: location.hours || null,
+      isPrimary: index === 0,
+      name: location.locationName,
+      phone: location.phone || null,
+    };
+    const savedLocation = existingLocation
+      ? await prisma.practiceLocation.update({
+          data: locationData,
+          where: {
+            id: existingLocation.id,
+          },
+        })
+      : await prisma.practiceLocation.create({
+          data: {
+            ...locationData,
+            practiceId,
+          },
+        });
+
+    savedLocations.push({
+      ...location,
+      id: savedLocation.id,
+    });
+  }
+
+  const savedLocationIds = new Set(savedLocations.map((location) => location.id));
+  const removedLocationIds = existingLocations
+    .filter((location) => !savedLocationIds.has(location.id))
+    .map((location) => location.id);
+
+  if (removedLocationIds.length) {
+    await prisma.practiceLocation.deleteMany({
+      where: {
+        id: {
+          in: removedLocationIds,
+        },
+        practiceId,
+      },
+    });
+  }
+
+  return savedLocations;
+}
+
 async function upsertPrimaryProvider(
   practiceId: string,
   values: Partial<{
@@ -404,6 +654,37 @@ async function upsertPrimaryProvider(
       schedulingNotes: values.schedulingNotes,
       specialtySummary: values.specialtySummary,
       speechAliases: values.speechAliases || [],
+    },
+  });
+}
+
+async function findOrCreateProviderLocation(practiceId: string, locationName: string) {
+  if (!hasText(locationName)) {
+    return null;
+  }
+
+  const existing = await prisma.practiceLocation.findFirst({
+    where: {
+      name: locationName,
+      practiceId,
+    },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const existingLocation = await prisma.practiceLocation.findFirst({
+    where: {
+      practiceId,
+    },
+  });
+
+  return prisma.practiceLocation.create({
+    data: {
+      isPrimary: !existingLocation,
+      name: locationName,
+      practiceId,
     },
   });
 }
@@ -519,6 +800,7 @@ export async function persistPracticeBasicsForUser(
     address: string;
     fax: string;
     locationName: string;
+    locations: PracticeLocationDraft[];
     phone: string;
     practiceName: string;
   }
@@ -538,12 +820,26 @@ export async function persistPracticeBasicsForUser(
     },
   });
 
-  await upsertPrimaryLocation(practice.id, {
-    address: input.address,
-    fax: input.fax,
-    name: input.locationName,
-    phone: input.phone,
-  });
+  const savedLocations = await upsertPracticeLocations(
+    practice.id,
+    input.locations.length
+      ? input.locations
+      : [
+          {
+            address: input.address,
+            fax: input.fax,
+            hours: "",
+            insuranceNotes: "",
+            insuranceVaries: false,
+            knowledgeNotes: "",
+            knowledgeVaries: false,
+            locationName: input.locationName,
+            phone: input.phone,
+          },
+        ]
+  );
+
+  await persistLocationOverrides(practice.id, savedLocations);
 
   await syncPracticeOnboardingStatus(practice.id);
 }
@@ -551,12 +847,7 @@ export async function persistPracticeBasicsForUser(
 export async function persistProviderSetupForUser(
   user: PracticeWorkspaceUser,
   input: {
-    providerHours: string;
-    providerLocation: string;
-    providerName: string;
-    providerNpi: string;
-    providerSchedulingNotes: string;
-    providerSpecialty: string;
+    providers: PracticeProviderDraft[];
   }
 ) {
   if (!(await hasPracticeWorkspaceTables())) {
@@ -564,18 +855,79 @@ export async function persistProviderSetupForUser(
   }
 
   const practice = await ensurePracticeForUser(user);
-  const primaryLocation = await upsertPrimaryLocation(practice.id, {
-    name: input.providerLocation,
-  });
+  const submittedProviders = input.providers.filter((provider) =>
+    hasText(provider.providerName)
+  );
 
-  await upsertPrimaryProvider(practice.id, {
-    displayName: input.providerName,
-    npi: input.providerNpi,
-    primaryLocationId: primaryLocation?.id,
-    scheduleSummary: input.providerHours,
-    schedulingNotes: input.providerSchedulingNotes,
-    specialtySummary: input.providerSpecialty,
+  if (!submittedProviders.length) {
+    await prisma.practiceProvider.deleteMany({
+      where: {
+        practiceId: practice.id,
+      },
+    });
+    await syncPracticeOnboardingStatus(practice.id);
+    return;
+  }
+
+  const existingProviders = await prisma.practiceProvider.findMany({
+    orderBy: {
+      createdAt: "asc",
+    },
+    where: {
+      practiceId: practice.id,
+    },
   });
+  const savedProviderIds = new Set<string>();
+
+  for (const [index, provider] of submittedProviders.entries()) {
+    const location = await findOrCreateProviderLocation(
+      practice.id,
+      provider.providerLocation
+    );
+    const existingProvider =
+      (provider.id &&
+        existingProviders.find((candidate) => candidate.id === provider.id)) ||
+      existingProviders[index];
+    const providerData = {
+      displayName: provider.providerName,
+      npi: provider.providerNpi || null,
+      primaryLocationId: location?.id || null,
+      scheduleSummary: provider.providerHours || null,
+      schedulingNotes: provider.providerSchedulingNotes || null,
+      specialtySummary: provider.providerSpecialty || null,
+    };
+    const savedProvider = existingProvider
+      ? await prisma.practiceProvider.update({
+          data: providerData,
+          where: {
+            id: existingProvider.id,
+          },
+        })
+      : await prisma.practiceProvider.create({
+          data: {
+            ...providerData,
+            practiceId: practice.id,
+            speechAliases: [],
+          },
+        });
+
+    savedProviderIds.add(savedProvider.id);
+  }
+
+  const removedProviderIds = existingProviders
+    .filter((provider) => !savedProviderIds.has(provider.id))
+    .map((provider) => provider.id);
+
+  if (removedProviderIds.length) {
+    await prisma.practiceProvider.deleteMany({
+      where: {
+        id: {
+          in: removedProviderIds,
+        },
+        practiceId: practice.id,
+      },
+    });
+  }
 
   await syncPracticeOnboardingStatus(practice.id);
 }
@@ -586,6 +938,7 @@ export async function persistKnowledgeBaseForUser(
     knowledgeAfterHours: string;
     knowledgeAppointmentPrep: string;
     knowledgeCommonQuestions: string;
+    knowledgeLocationRules?: PracticeLocationDraft[];
     knowledgeOfficePolicies: string;
     knowledgePhrases: string;
   }
@@ -602,6 +955,13 @@ export async function persistKnowledgeBaseForUser(
       appointmentPrep: input.knowledgeAppointmentPrep,
       commonQuestions: input.knowledgeCommonQuestions,
       officePolicies: input.knowledgeOfficePolicies,
+      operationalNotes: input.knowledgeLocationRules
+        ? {
+            locationOverrides: buildKnowledgeLocationOverrides(
+              input.knowledgeLocationRules
+            ),
+          }
+        : undefined,
       phrasingRules: input.knowledgePhrases,
       practiceId: practice.id,
     },
@@ -610,6 +970,13 @@ export async function persistKnowledgeBaseForUser(
       appointmentPrep: input.knowledgeAppointmentPrep,
       commonQuestions: input.knowledgeCommonQuestions,
       officePolicies: input.knowledgeOfficePolicies,
+      operationalNotes: input.knowledgeLocationRules
+        ? {
+            locationOverrides: buildKnowledgeLocationOverrides(
+              input.knowledgeLocationRules
+            ),
+          }
+        : undefined,
       phrasingRules: input.knowledgePhrases,
     },
     where: {
@@ -625,6 +992,7 @@ export async function persistInsuranceCrosswalkForUser(
   input: {
     insuranceAcceptedPlans: string;
     insuranceExceptions: string;
+    insuranceLocationRules?: PracticeLocationDraft[];
     insuranceTransferRules: string;
   }
 ) {
@@ -638,12 +1006,26 @@ export async function persistInsuranceCrosswalkForUser(
     create: {
       acceptedPlans: input.insuranceAcceptedPlans,
       exceptions: input.insuranceExceptions,
+      planRules: input.insuranceLocationRules
+        ? {
+            locationOverrides: buildInsuranceLocationOverrides(
+              input.insuranceLocationRules
+            ),
+          }
+        : undefined,
       practiceId: practice.id,
       transferRules: input.insuranceTransferRules,
     },
     update: {
       acceptedPlans: input.insuranceAcceptedPlans,
       exceptions: input.insuranceExceptions,
+      planRules: input.insuranceLocationRules
+        ? {
+            locationOverrides: buildInsuranceLocationOverrides(
+              input.insuranceLocationRules
+            ),
+          }
+        : undefined,
       transferRules: input.insuranceTransferRules,
     },
     where: {

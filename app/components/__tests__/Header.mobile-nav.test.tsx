@@ -1,9 +1,11 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { mock, describe, it, expect, beforeEach } from "bun:test";
-import "@testing-library/jest-dom/bun";
+import { mock, describe, it, expect } from "bun:test";
+import * as matchers from "@testing-library/jest-dom/matchers";
 
 import Header from "../Header";
+
+expect.extend(matchers);
 
 mock.module("next/image", () => ({
   default: ({ priority: _priority, alt = "", ...props }: any) => {
@@ -22,9 +24,6 @@ mock.module("next/link", () => ({
 }));
 
 describe("Header mobile navigation overlay", () => {
-  beforeEach(() => {
-  });
-
   it("renders opaque backgrounds when the hamburger menu is opened", () => {
     render(<Header />);
 
@@ -39,7 +38,7 @@ describe("Header mobile navigation overlay", () => {
 
     const mobileNav = screen
       .getAllByRole("navigation")
-      .find((nav) => nav.classList.contains("space-y-3"));
+      .find((nav) => nav.classList.contains("space-y-6"));
     expect(mobileNav).toBeDefined();
 
     const sheet = mobileNav?.closest("div");
@@ -47,8 +46,8 @@ describe("Header mobile navigation overlay", () => {
     expect(sheet).toHaveClass("bg-white");
     expect(sheet).toHaveClass("min-h-full");
 
-    const mobileLink = screen.getAllByRole("link", { name: "Why Teams Call Us" }).at(-1);
+    const mobileLink = screen.getAllByRole("link", { name: "How It Works" }).at(-1);
     expect(mobileLink).toBeDefined();
-    expect(mobileLink).toHaveClass("bg-neutral-50");
+    expect(mobileLink).toHaveClass("text-2xl");
   });
 });

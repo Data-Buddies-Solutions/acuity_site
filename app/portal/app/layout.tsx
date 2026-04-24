@@ -20,12 +20,9 @@ export default async function PortalAppLayout({
 
   return (
     <PortalWorkspaceShell
-      completionCount={portalState.completionCount}
-      email={session.user.email}
       isLive={portalState.launched}
-      readyToLaunch={portalState.readyToLaunch}
-      totalSections={portalState.totalSections}
-      userName={session.user.name}
+      practiceName={portalState.draft.practiceName}
+      userEmail={session.user.email}
     >
       {children}
     </PortalWorkspaceShell>

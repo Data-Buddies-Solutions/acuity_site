@@ -1,11 +1,14 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BookOpenCheck,
+  Building2,
+  ChevronDown,
   ClipboardList,
+  FolderOpen,
   LayoutDashboard,
   LineChart,
   MessageSquareText,
@@ -25,15 +28,9 @@ type NavItem = {
 
 const setupNavItems = [
   { href: "/portal/app/onboarding", icon: ClipboardList, label: "Onboarding" },
-  { href: "/portal/app/knowledge-base", icon: BookOpenCheck, label: "Knowledge Base" },
-  {
-    href: "/portal/app/insurance-crosswalk",
-    icon: ShieldAlert,
-    label: "Insurance Crosswalk",
-  },
 ] satisfies NavItem[];
 
-const liveNavItems = [
+const livePrimaryNavItems = [
   { href: "/portal/app/overview", icon: LayoutDashboard, label: "Overview" },
   { href: "/portal/app/call-center", icon: PhoneCall, label: "Call Center" },
   {
@@ -47,6 +44,14 @@ const liveNavItems = [
     icon: LineChart,
     label: "Post-call Analytics",
   },
+] satisfies NavItem[];
+
+const liveDocumentNavItems = [
+  {
+    href: "/portal/app/practice-information",
+    icon: Building2,
+    label: "Practice Information",
+  },
   { href: "/portal/app/knowledge-base", icon: BookOpenCheck, label: "Knowledge Base" },
   {
     href: "/portal/app/insurance-crosswalk",
@@ -59,31 +64,88 @@ function isCurrentPath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function SidebarLink({
+  href,
+  icon: Icon,
+  isIndented = false,
+  label,
+  pathname,
+}: NavItem & { isIndented?: boolean; pathname: string }) {
+  const isActive = isCurrentPath(pathname, href);
+
+  return (
+    <Link
+      className={cn(
+        "inline-flex min-w-fit items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
+        isIndented && "xl:rounded-lg xl:py-2 xl:pl-4",
+        isActive
+          ? "bg-[#e8f4f4] text-[#0d7377]"
+          : "text-[#566a6d] hover:bg-white hover:text-[#10272c]"
+      )}
+      href={href}
+    >
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      {label}
+    </Link>
+  );
+}
+
 export default function PortalWorkspaceShell({
   children,
-  completionCount,
-  email,
   isLive,
-  readyToLaunch,
-  totalSections,
-  userName,
+  practiceName,
+  userEmail,
 }: Readonly<{
   children: React.ReactNode;
-  completionCount: number;
-  email: string;
   isLive: boolean;
-  readyToLaunch: boolean;
-  totalSections: number;
-  userName?: string | null;
+  practiceName?: string;
+  userEmail?: string;
 }>) {
   const pathname = usePathname();
-  const navItems = isLive ? liveNavItems : setupNavItems;
-  const workspaceLabel = userName || email;
+  const navItems = isLive ? livePrimaryNavItems : setupNavItems;
+  const accountName = practiceName?.trim() || "Practice account";
+  const hasActiveDocument = liveDocumentNavItems.some(({ href }) =>
+    isCurrentPath(pathname, href)
+  );
+  const [documentsOpen, setDocumentsOpen] = useState(hasActiveDocument);
+  const isDocumentsOpen = documentsOpen;
+  const isPreparing = pathname.startsWith("/portal/app/preparing");
+  const isFocusedSetup = pathname.startsWith("/portal/app/onboarding") || isPreparing;
+
+  if (isPreparing) {
+    return <>{children}</>;
+  }
+
+  if (isFocusedSetup) {
+    return (
+      <section className="min-h-screen bg-[linear-gradient(180deg,#f7fbfa_0%,#eef5f3_42%,#ffffff_100%)]">
+        <header className="border-b border-black/6 bg-white/78 backdrop-blur">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 md:px-6">
+            <Link href="/" className="flex items-center gap-3" aria-label="Acuity Health home">
+              <Logo />
+              <div>
+                <p className="text-base font-semibold tracking-[-0.03em] text-[#10272c]">
+                  Acuity Health
+                </p>
+                <p className="text-sm text-[#65787b]">Practice Portal</p>
+              </div>
+            </Link>
+
+            {isPreparing ? null : <PortalSignOutButton />}
+          </div>
+        </header>
+
+        <main className="mx-auto w-full max-w-5xl px-4 py-6 md:px-6 md:py-8">
+          {children}
+        </main>
+      </section>
+    );
+  }
 
   return (
     <section className="bg-[linear-gradient(180deg,#f7fbfa_0%,#eef5f3_42%,#ffffff_100%)]">
-      <div className="mx-auto grid min-h-screen max-w-[1600px] grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="border-b border-black/6 bg-white/75 backdrop-blur xl:border-b-0 xl:border-r">
+      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col xl:grid xl:grid-cols-[288px_minmax(0,1fr)] xl:gap-6 xl:px-4">
+        <aside className="border-b border-black/6 bg-white/75 backdrop-blur xl:sticky xl:top-4 xl:my-4 xl:h-[calc(100vh-2rem)] xl:self-start xl:overflow-hidden xl:rounded-2xl xl:border xl:border-black/8 xl:bg-white/82 xl:shadow-[0_18px_70px_rgba(16,39,44,0.08)]">
           <div className="flex h-full flex-col p-4 md:p-6">
             <div className="flex items-center gap-3">
               <Logo />
@@ -95,86 +157,104 @@ export default function PortalWorkspaceShell({
               </div>
             </div>
 
-            <div className="mt-6 rounded-[1.8rem] border border-black/6 bg-[#10353a] p-5 text-white">
-              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/62">
-                Workspace
-              </p>
-              <p className="mt-3 text-lg font-semibold tracking-[-0.03em]">{workspaceLabel}</p>
-              <p className="mt-2 text-sm leading-relaxed text-white/70">
-                {isLive
-                  ? "Overview is the default home."
-                  : "Setup stays focused on one step at a time."}
-              </p>
-            </div>
-
             <nav className="mt-6 flex gap-2 overflow-x-auto pb-1 xl:flex-col xl:overflow-visible">
-              {navItems.map(({ href, icon: Icon, label }) => {
-                const isActive = isCurrentPath(pathname, href);
-
-                return (
-                  <Link
-                    key={href}
-                    className={cn(
-                      "inline-flex min-w-fit items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
-                      isActive
-                        ? "bg-[#e8f4f4] text-[#0d7377]"
-                        : "text-[#566a6d] hover:bg-white hover:text-[#10272c]"
-                    )}
-                    href={href}
-                  >
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                    {label}
-                  </Link>
-                );
-              })}
+              {navItems.map((item) => (
+                <SidebarLink key={item.href} {...item} pathname={pathname} />
+              ))}
+              {isLive ? (
+                <div className="flex gap-2 xl:hidden">
+                  {liveDocumentNavItems.map((item) => (
+                    <SidebarLink
+                      key={item.href}
+                      {...item}
+                      pathname={pathname}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </nav>
 
-            <div className="mt-6 rounded-[1.8rem] border border-black/6 bg-white p-5">
-              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#6a7b7e]">
-                Status
-              </p>
-              <p className="mt-3 text-lg font-semibold tracking-[-0.03em] text-[#10272c]">
-                {isLive
-                  ? "Agent live"
-                  : readyToLaunch
-                    ? "Ready to launch"
-                    : `${completionCount} of ${totalSections} sections ready`}
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-[#617477]">
-                {isLive
-                  ? "Overview, then the live modules."
-                  : readyToLaunch
-                    ? "Launch to switch the default home to overview."
-                    : "Finish the current setup step."}
-              </p>
+            {isLive ? (
+              <div className="mt-5 hidden xl:block">
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold transition",
+                    hasActiveDocument
+                      ? "bg-[#f2f8f7] text-[#10272c]"
+                      : "text-[#566a6d] hover:bg-white hover:text-[#10272c]"
+                  )}
+                  aria-expanded={isDocumentsOpen}
+                  onClick={() => setDocumentsOpen((current) => !current)}
+                >
+                  <span className="flex items-center gap-3">
+                    <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                    Documents
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 transition-transform",
+                      isDocumentsOpen && "rotate-180"
+                    )}
+                    aria-hidden="true"
+                  />
+                </button>
+                <div
+                  className={cn(
+                    "grid transition-all duration-200",
+                    isDocumentsOpen
+                      ? "grid-rows-[1fr] opacity-100"
+                      : "grid-rows-[0fr] opacity-0"
+                  )}
+                >
+                  <div className="overflow-hidden">
+                    <div className="mt-2 flex flex-col gap-1">
+                      {liveDocumentNavItems.map((item) => (
+                        <SidebarLink
+                          key={item.href}
+                          {...item}
+                          isIndented
+                          pathname={pathname}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-auto hidden border-t border-black/8 pt-4 xl:block">
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#8a9a9d]">
+                  Account
+                </p>
+                <p className="mt-2 truncate text-sm font-semibold tracking-[-0.02em] text-[#10272c]">
+                  {accountName}
+                </p>
+                <p className="mt-0.5 truncate text-xs text-[#65787b]">
+                  {userEmail || "Practice account"}
+                </p>
+                <div className="mt-3">
+                  <PortalSignOutButton className="justify-start border-transparent bg-transparent px-0 text-[#566a6d] shadow-none hover:bg-transparent hover:text-[#10272c]" />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-black/8 pt-4 xl:hidden">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold tracking-[-0.02em] text-[#10272c]">
+                  {accountName}
+                </p>
+                <p className="truncate text-xs text-[#65787b]">
+                  {userEmail || "Practice account"}
+                </p>
+              </div>
+              <PortalSignOutButton className="shrink-0" />
             </div>
           </div>
         </aside>
 
         <div className="min-w-0">
-          <header className="sticky top-0 z-10 border-b border-black/6 bg-white/80 backdrop-blur">
-            <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 md:px-6 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm text-[#6c7f82]">
-                  {isLive ? "Live Portal" : "Setup Workspace"}
-                </p>
-                <h1 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-[#10272c] md:text-3xl">
-                  {workspaceLabel}
-                </h1>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="rounded-full border border-black/6 bg-[#f7fbfa] px-3 py-1.5 text-sm text-[#5f7376]">
-                  {isLive ? "Live" : "Setup"}
-                </div>
-                <div className="rounded-full border border-black/6 bg-white px-4 py-2 text-sm text-[#5f7376]">
-                  {email}
-                </div>
-                <PortalSignOutButton />
-              </div>
-            </div>
-          </header>
-
           <main className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-8">
             {children}
           </main>

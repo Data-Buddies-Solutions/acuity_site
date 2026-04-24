@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/app/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 
-export function PortalSignOutButton() {
+export function PortalSignOutButton({ className }: { className?: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -16,6 +16,7 @@ export function PortalSignOutButton() {
       size="sm"
       type="button"
       variant="secondary"
+      className={className}
       disabled={isPending}
       onClick={() =>
         startTransition(async () => {

@@ -3,6 +3,7 @@ type BaseFieldProps = {
   label: string;
   name: string;
   placeholder?: string;
+  required?: boolean;
 };
 
 const fieldClassName =
@@ -13,6 +14,7 @@ export function PortalInputField({
   label,
   name,
   placeholder,
+  required,
   type = "text",
 }: Readonly<
   BaseFieldProps & {
@@ -29,6 +31,7 @@ export function PortalInputField({
         defaultValue={defaultValue}
         name={name}
         placeholder={placeholder}
+        required={required}
         type={type}
       />
     </label>
@@ -40,6 +43,7 @@ export function PortalTextareaField({
   label,
   name,
   placeholder,
+  required,
   rows = 4,
 }: Readonly<
   BaseFieldProps & {
@@ -56,6 +60,7 @@ export function PortalTextareaField({
         defaultValue={defaultValue}
         name={name}
         placeholder={placeholder}
+        required={required}
         rows={rows}
       />
     </label>

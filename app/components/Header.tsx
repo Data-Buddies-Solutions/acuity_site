@@ -98,12 +98,12 @@ export default function Header() {
 
       {/* Mobile nav - fullscreen overlay */}
       {isMobileNavOpen && (
-        <div className="md:hidden fixed inset-0 z-40 bg-background/95 backdrop-blur-md">
-          <div className="flex min-h-full flex-col items-center justify-center gap-8 px-6 py-8">
+        <div className="md:hidden fixed inset-0 z-40 bg-white">
+          <div className="flex min-h-full flex-col items-center justify-center gap-8 bg-white px-6 py-8">
             <button
               type="button"
               onClick={() => setMobileNavOpen(false)}
-              className="absolute top-6 right-6 h-10 w-10 rounded-full border border-border bg-background text-foreground shadow-sm flex items-center justify-center"
+              className="absolute top-6 right-6 h-10 w-10 rounded-full border border-border bg-white text-foreground shadow-sm flex items-center justify-center"
               aria-label="Close navigation"
             >
               <X className="h-5 w-5" />
