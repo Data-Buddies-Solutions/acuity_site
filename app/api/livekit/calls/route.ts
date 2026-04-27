@@ -15,11 +15,13 @@ function getWebhookSecret() {
 function isAuthorized(request: NextRequest) {
   const secret = getWebhookSecret();
 
-  if (!secret && process.env.NODE_ENV === "production") {
-    return false;
-  }
-
   if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      console.warn(
+        "[livekit-call-ingestion] Accepting unauthenticated webhook because no LIVEKIT_FORWARD_SYNC_SECRET or WEBHOOK_SECRET is configured.",
+      );
+    }
+
     return true;
   }
 

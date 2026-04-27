@@ -5,6 +5,7 @@ import {
   toJsonCompatible,
 } from "@/lib/call-normalization";
 import type { CallSummaryData, LiveKitWebhookPayload } from "@/lib/call-types";
+import { ESTIMATED_USAGE_PROVIDERS } from "@/lib/pricing";
 
 export class CallIngestionError extends Error {
   status: number;
@@ -240,7 +241,9 @@ export async function ingestLiveKitCallPayload(
     await tx.usageCostLineItem.deleteMany({
       where: {
         agentCallId: agentCall.id,
-        provider: "estimated",
+        provider: {
+          in: [...ESTIMATED_USAGE_PROVIDERS],
+        },
       },
     });
 

@@ -66,12 +66,29 @@ function estimateCostLineItems(call) {
   const nonCachedInput = Math.max(0, inputTokens - cachedTokens);
   const ttsChars = Math.max(0, Number(call.ttsChars ?? 0));
   const durationSec = Math.max(0, Number(call.durationSec ?? 0));
+  const minutes = durationSec / 60;
   const model = call.llmModel || null;
 
   return [
     {
+      category: "TELEPHONY",
+      provider: "livekit",
+      model: null,
+      quantity: minutes,
+      unit: "minutes",
+      costMicros: dollarsToMicros(minutes * 0.01),
+    },
+    {
+      category: "TELEPHONY",
+      provider: "telnyx",
+      model: null,
+      quantity: minutes,
+      unit: "minutes",
+      costMicros: dollarsToMicros(minutes * 0.0035),
+    },
+    {
       category: "LLM_INPUT",
-      provider: "estimated",
+      provider: "baseten",
       model,
       quantity: nonCachedInput,
       unit: "tokens",
@@ -79,35 +96,35 @@ function estimateCostLineItems(call) {
     },
     {
       category: "LLM_CACHED_INPUT",
-      provider: "estimated",
+      provider: "baseten",
       model,
       quantity: cachedTokens,
       unit: "tokens",
-      costMicros: dollarsToMicros((cachedTokens / 1_000_000) * 0.3),
+      costMicros: dollarsToMicros((cachedTokens / 1_000_000) * 0.12),
     },
     {
       category: "LLM_OUTPUT",
-      provider: "estimated",
+      provider: "baseten",
       model,
       quantity: outputTokens,
       unit: "tokens",
-      costMicros: dollarsToMicros((outputTokens / 1_000_000) * 1.2),
+      costMicros: dollarsToMicros((outputTokens / 1_000_000) * 2.2),
     },
     {
       category: "TEXT_TO_SPEECH",
-      provider: "estimated",
+      provider: "elevenlabs",
       model: null,
       quantity: ttsChars,
       unit: "characters",
-      costMicros: dollarsToMicros((ttsChars / 1_000) * 0.3),
+      costMicros: dollarsToMicros((ttsChars / 1_000) * 0.05),
     },
     {
       category: "SPEECH_TO_TEXT",
-      provider: "estimated",
+      provider: "assemblyai",
       model: null,
-      quantity: durationSec / 60,
+      quantity: minutes,
       unit: "minutes",
-      costMicros: dollarsToMicros((durationSec / 60) * 0.0043),
+      costMicros: dollarsToMicros(minutes * 0.0075),
     },
   ].filter((item) => item.quantity > 0 || item.costMicros > 0);
 }
@@ -556,8 +573,13 @@ async function upsertCall(targetPool, call, practiceId, agentId, locationByPhone
   const agentCallId = upserted.rows[0].id;
 
   await targetPool.query(
-    `DELETE FROM usage_cost_line_item WHERE "agentCallId" = $1 AND provider = 'estimated'`,
-    [agentCallId],
+    `DELETE FROM usage_cost_line_item
+    WHERE "agentCallId" = $1
+      AND provider = ANY($2)`,
+    [
+      agentCallId,
+      ["assemblyai", "baseten", "elevenlabs", "livekit", "telnyx", "estimated"],
+    ],
   );
 
   if (costItems.length > 0) {

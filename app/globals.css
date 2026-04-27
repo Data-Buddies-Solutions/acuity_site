@@ -3,10 +3,21 @@
 @theme {
   --color-background: #FFFFFF;
   --color-background-alt: #FAFAFA;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #1D1D1D;
   --color-foreground: #1D1D1D;
   --color-border: #E5E5E5;
+  --color-input: #E5E5E5;
   --color-muted: #F7F7F7;
   --color-muted-foreground: #666666;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1D1D1D;
+  --color-primary: #0D7377;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #E8F4F4;
+  --color-secondary-foreground: #10272C;
+  --color-destructive: #DC2626;
+  --color-ring: #0D7377;
   --color-accent: #0D7377;
   --color-accent-hover: #0A5C5F;
   --color-accent-light: #E8F4F4;
@@ -29,6 +40,11 @@
 @layer base {
   :root {
     color-scheme: light;
+    --chart-1: #0D7377;
+    --chart-2: #2563EB;
+    --chart-3: #7C3AED;
+    --chart-4: #C9A227;
+    --chart-5: #DC2626;
   }
 
   * {

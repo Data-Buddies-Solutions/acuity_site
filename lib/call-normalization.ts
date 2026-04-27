@@ -1,15 +1,19 @@
 import type {
   AgentCallStatusValue,
+  AgentSessionUsage,
   CallSummaryData,
   ChatHistoryItem,
   CostLineEstimate,
   JudgeResult,
   LiveKitMetric,
   LiveKitWebhookPayload,
+  ModelUsageRecord,
   SessionReport,
   ToolCallRecord,
+  TurnMetricRecord,
   TurnRecord,
 } from "@/lib/call-types";
+import { estimateUsageCostLineItems } from "@/lib/pricing";
 
 const LLM_METRIC_TYPES = new Set(["llm_metrics", "realtime_model_metrics"]);
 const FALLBACK_MODEL = "MiniMaxAI/MiniMax-M2.5";
@@ -100,19 +104,14 @@ function average(values: number[]) {
     : 0;
 }
 
-function dollarsToMicros(dollars: number) {
-  return Math.max(0, Math.round(dollars * 1_000_000));
-}
-
 function pushModel(set: Set<string>, value: unknown) {
   if (typeof value === "string" && value.trim()) {
     set.add(value.trim());
   }
 }
 
-function usageModels(report?: SessionReport): string[] {
+function usageModelsFromArray(usage: unknown): string[] {
   const models = new Set<string>();
-  const usage = report?.usage;
   if (!Array.isArray(usage)) {
     return [];
   }
@@ -124,6 +123,16 @@ function usageModels(report?: SessionReport): string[] {
   }
 
   return [...models];
+}
+
+function usageModels(
+  usage?: AgentSessionUsage,
+  report?: SessionReport,
+): string[] {
+  return [
+    ...usageModelsFromArray(usage?.modelUsage),
+    ...usageModelsFromArray(report?.usage),
+  ];
 }
 
 function metricModels(metrics?: LiveKitMetric[]): string[] {
@@ -149,6 +158,7 @@ function metricModels(metrics?: LiveKitMetric[]): string[] {
 export function deriveLlmInfo(input: {
   llm?: Partial<{ model: string; fallbackUsed: boolean; usedModels: string[] }>;
   metrics?: LiveKitMetric[];
+  usage?: AgentSessionUsage;
   sessionReport?: SessionReport;
 }) {
   const explicit = input.llm;
@@ -170,7 +180,7 @@ export function deriveLlmInfo(input: {
   const usedModels = [
     ...new Set([
       ...metricModels(input.metrics),
-      ...usageModels(input.sessionReport),
+      ...usageModels(input.usage, input.sessionReport),
     ]),
   ];
   const fallbackUsed = usedModels.includes(FALLBACK_MODEL);
@@ -179,10 +189,152 @@ export function deriveLlmInfo(input: {
   return { fallbackUsed, model, usedModels };
 }
 
-export function isRawLiveKitPayload(
+export function isLiveKitPayload(
   body: LiveKitWebhookPayload | CallSummaryData,
-): body is LiveKitWebhookPayload & { metrics: LiveKitMetric[] } {
-  return Array.isArray((body as LiveKitWebhookPayload).metrics);
+): body is LiveKitWebhookPayload {
+  const payload = body as LiveKitWebhookPayload;
+  const summary = body as CallSummaryData;
+
+  return (
+    !Array.isArray(summary.turns) &&
+    (Array.isArray(payload.metrics) ||
+      Array.isArray(payload.llmMetrics) ||
+      Array.isArray(payload.turnMetrics) ||
+      payload.usage !== undefined ||
+      payload.sessionReport !== undefined)
+  );
+}
+
+function payloadMetrics(body: LiveKitWebhookPayload): LiveKitMetric[] {
+  if (body.metrics?.length) {
+    return body.metrics;
+  }
+
+  return body.llmMetrics ?? [];
+}
+
+function toMilliseconds(
+  value: unknown,
+  unit: "seconds" | "milliseconds" | "auto" = "auto",
+) {
+  const numberValue = asNumber(value);
+
+  if (numberValue <= 0) {
+    return 0;
+  }
+
+  if (unit === "seconds") {
+    return Math.round(numberValue * 1000);
+  }
+
+  if (unit === "milliseconds") {
+    return Math.round(numberValue);
+  }
+
+  return Math.round(numberValue < 30 ? numberValue * 1000 : numberValue);
+}
+
+function metricMs(
+  metrics: Record<string, unknown> | undefined,
+  fields: Array<{ key: string; unit?: "seconds" | "milliseconds" | "auto" }>,
+) {
+  if (!metrics) {
+    return 0;
+  }
+
+  for (const field of fields) {
+    const value = metrics[field.key];
+    if (value !== undefined) {
+      return toMilliseconds(value, field.unit ?? "auto");
+    }
+  }
+
+  return 0;
+}
+
+function buildTurnMetricMap(turnMetrics?: TurnMetricRecord[]) {
+  const byItemId = new Map<string, Record<string, unknown>>();
+
+  for (const item of turnMetrics ?? []) {
+    if (item.itemId && item.metrics) {
+      byItemId.set(item.itemId, item.metrics);
+    }
+  }
+
+  return byItemId;
+}
+
+function metricsForItem(
+  item: ChatHistoryItem,
+  turnMetricMap: Map<string, Record<string, unknown>>,
+) {
+  return (item.id ? turnMetricMap.get(item.id) : undefined) ?? item.metrics;
+}
+
+function modelUsageEntries(body: LiveKitWebhookPayload): ModelUsageRecord[] {
+  const entries: ModelUsageRecord[] = [];
+
+  if (Array.isArray(body.usage?.modelUsage)) {
+    entries.push(...body.usage.modelUsage);
+  }
+
+  if (Array.isArray(body.sessionReport?.usage)) {
+    entries.push(...(body.sessionReport.usage as ModelUsageRecord[]));
+  }
+
+  return entries;
+}
+
+function usageValue(entry: ModelUsageRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = asNumber(entry[key]);
+    if (value > 0) {
+      return value;
+    }
+  }
+
+  return 0;
+}
+
+function deriveUsageTotals(body: LiveKitWebhookPayload) {
+  const totals = {
+    cachedTokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    ttsChars: 0,
+  };
+
+  for (const entry of modelUsageEntries(body)) {
+    if (entry.type === "llm_usage") {
+      totals.inputTokens += usageValue(entry, [
+        "inputTokens",
+        "input_tokens",
+        "promptTokens",
+        "prompt_tokens",
+      ]);
+      totals.outputTokens += usageValue(entry, [
+        "outputTokens",
+        "output_tokens",
+        "completionTokens",
+        "completion_tokens",
+      ]);
+      totals.cachedTokens += usageValue(entry, [
+        "inputCachedTokens",
+        "input_cached_tokens",
+        "promptCachedTokens",
+        "prompt_cached_tokens",
+      ]);
+    }
+
+    if (entry.type === "tts_usage") {
+      totals.ttsChars += usageValue(entry, [
+        "charactersCount",
+        "characters_count",
+      ]);
+    }
+  }
+
+  return totals;
 }
 
 function extractText(content?: ChatHistoryItem["content"]): string {
@@ -255,58 +407,42 @@ function groupedLlmMetrics(metrics: LiveKitMetric[]) {
 }
 
 export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData {
-  const metrics = body.metrics ?? [];
+  const metrics = payloadMetrics(body);
   const items = body.sessionReport?.chat_history?.items ?? [];
-  const llm = deriveLlmInfo(body);
-  const ttftValues: number[] = [];
-  const ttsttfbValues: number[] = [];
-  const sttLatencyValues: number[] = [];
-  const totalLatencyValues: number[] = [];
+  const llm = deriveLlmInfo({ ...body, metrics });
+  const usageTotals = deriveUsageTotals(body);
+  const hasTokenUsageTotals =
+    usageTotals.inputTokens > 0 ||
+    usageTotals.outputTokens > 0 ||
+    usageTotals.cachedTokens > 0;
+  const hasTtsUsageTotals = usageTotals.ttsChars > 0;
+  const turnMetricMap = buildTurnMetricMap(body.turnMetrics);
 
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalCachedTokens = 0;
+  let totalInputTokens = usageTotals.inputTokens;
+  let totalOutputTokens = usageTotals.outputTokens;
+  let totalCachedTokens = usageTotals.cachedTokens;
   let peakContextTokens = 0;
+  let ttsChars = usageTotals.ttsChars;
 
   for (const metric of metrics) {
     if (LLM_METRIC_TYPES.has(metric.type)) {
-      const ttft = asNumber(metric.ttftMs);
-      if (ttft > 0) {
-        ttftValues.push(ttft);
-      }
-
       const prompt = asNumber(metric.promptTokens);
       const completion = asNumber(metric.completionTokens);
       const cached = asNumber(metric.promptCachedTokens);
-      totalInputTokens += prompt;
-      totalOutputTokens += completion;
-      totalCachedTokens += cached;
+
+      if (!hasTokenUsageTotals) {
+        totalInputTokens += prompt;
+        totalOutputTokens += completion;
+        totalCachedTokens += cached;
+      }
+
       if (prompt > peakContextTokens) {
         peakContextTokens = prompt;
       }
     }
 
-    if (metric.type === "tts_metrics") {
-      const ttfb = asNumber(metric.ttfbMs);
-      if (ttfb > 0) {
-        ttsttfbValues.push(ttfb);
-      }
-    }
-
-    if (metric.type === "eou_metrics") {
-      const sttMs = Math.round(asNumber(metric.transcriptionDelayMs));
-      if (sttMs > 0) {
-        sttLatencyValues.push(sttMs);
-      }
-    }
-  }
-
-  for (let index = 0; index < ttftValues.length; index++) {
-    const ttft = ttftValues[index] ?? 0;
-    const stt = sttLatencyValues[index] ?? 0;
-    const tts = ttsttfbValues[index] ?? 0;
-    if (ttft > 0) {
-      totalLatencyValues.push(stt + ttft + tts);
+    if (metric.type === "tts_metrics" && !hasTtsUsageTotals) {
+      ttsChars += asNumber(metric.charactersCount);
     }
   }
 
@@ -348,10 +484,19 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
       const ttsMetric = ttsMetrics[ttsIndex++];
       const llmGroup = llmGroups[llmGroupIndex++] ?? [];
       const firstLlm = llmGroup[0];
+      const itemMetrics = metricsForItem(item, turnMetricMap);
 
       currentTurn.ttftMs = asNumber(firstLlm?.ttftMs);
       currentTurn.ttsttfbMs = asNumber(ttsMetric?.ttfbMs);
-      currentTurn.sttLatencyMs = Math.round(asNumber(sttMetric?.transcriptionDelayMs));
+      currentTurn.sttLatencyMs =
+        Math.round(asNumber(sttMetric?.transcriptionDelayMs)) ||
+        metricMs(itemMetrics, [
+          { key: "stt_latency", unit: "milliseconds" },
+          { key: "transcriptionDelay", unit: "seconds" },
+          { key: "transcription_delay", unit: "auto" },
+          { key: "transcriptionDelayMs", unit: "milliseconds" },
+          { key: "transcription_delay_ms", unit: "milliseconds" },
+        ]);
 
       for (const llmMetric of llmGroup) {
         currentTurn.promptTokens += asNumber(llmMetric.promptTokens);
@@ -368,10 +513,45 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
     if (item.type === "message" && item.role === "assistant") {
       currentTurn ??= emptyTurn();
       currentTurn.agentText = extractText(item.content) || null;
+      const itemMetrics = metricsForItem(item, turnMetricMap);
+      if (currentTurn.ttftMs <= 0) {
+        currentTurn.ttftMs = metricMs(itemMetrics, [
+          { key: "llmNodeTtft", unit: "seconds" },
+          { key: "llm_node_ttft", unit: "auto" },
+          { key: "ttftMs", unit: "milliseconds" },
+          { key: "ttft_ms", unit: "milliseconds" },
+        ]);
+      }
+
+      if (currentTurn.ttsttfbMs <= 0) {
+        currentTurn.ttsttfbMs = metricMs(itemMetrics, [
+          { key: "ttsNodeTtfb", unit: "seconds" },
+          { key: "tts_node_ttfb", unit: "auto" },
+          { key: "ttfbMs", unit: "milliseconds" },
+          { key: "ttfb_ms", unit: "milliseconds" },
+        ]);
+      }
+
+      const e2eLatencyMs = metricMs(itemMetrics, [
+        { key: "e2eLatency", unit: "seconds" },
+        { key: "e2e_latency", unit: "auto" },
+        { key: "totalLatencyMs", unit: "milliseconds" },
+        { key: "total_latency_ms", unit: "milliseconds" },
+      ]);
+
+      if (e2eLatencyMs > 0) {
+        currentTurn.totalLatencyMs = e2eLatencyMs;
+      } else {
+        currentTurn.totalLatencyMs = deriveTotalLatency(currentTurn);
+      }
+
       item.metrics = {
         ...(item.metrics ?? {}),
         llm_node_ttft: currentTurn.ttftMs,
         tts_node_ttfb: currentTurn.ttsttfbMs,
+        ...(currentTurn.totalLatencyMs
+          ? { e2e_latency: currentTurn.totalLatencyMs }
+          : {}),
       };
     }
 
@@ -405,6 +585,14 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
     }
   }
 
+  const ttftValues = turns.map((turn) => turn.ttftMs).filter((value) => value > 0);
+  const ttsttfbValues = turns
+    .map((turn) => turn.ttsttfbMs)
+    .filter((value) => value > 0);
+  const totalLatencyValues = turns
+    .map((turn) => deriveTotalLatency(turn))
+    .filter((value) => value > 0);
+
   return {
     callId: body.callId,
     callerPhone: body.callerPhone ?? "",
@@ -426,6 +614,7 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
       peakContextTokens,
+      ttsChars,
       toolCalls: totalToolCalls,
       toolErrors: totalToolErrors,
     },
@@ -512,51 +701,7 @@ export function estimateCostLineItems(call: {
   outputTokens: number;
   ttsChars: number;
 }): CostLineEstimate[] {
-  const nonCachedInput = Math.max(0, call.inputTokens - call.cachedTokens);
-  const items: CostLineEstimate[] = [
-    {
-      category: "LLM_INPUT",
-      costMicros: dollarsToMicros((nonCachedInput / 1_000_000) * 0.6),
-      model: call.llmModel,
-      provider: "estimated",
-      quantity: nonCachedInput,
-      unit: "tokens",
-    },
-    {
-      category: "LLM_CACHED_INPUT",
-      costMicros: dollarsToMicros((call.cachedTokens / 1_000_000) * 0.3),
-      model: call.llmModel,
-      provider: "estimated",
-      quantity: call.cachedTokens,
-      unit: "tokens",
-    },
-    {
-      category: "LLM_OUTPUT",
-      costMicros: dollarsToMicros((call.outputTokens / 1_000_000) * 1.2),
-      model: call.llmModel,
-      provider: "estimated",
-      quantity: call.outputTokens,
-      unit: "tokens",
-    },
-    {
-      category: "TEXT_TO_SPEECH",
-      costMicros: dollarsToMicros((call.ttsChars / 1_000) * 0.3),
-      model: null,
-      provider: "estimated",
-      quantity: call.ttsChars,
-      unit: "characters",
-    },
-    {
-      category: "SPEECH_TO_TEXT",
-      costMicros: dollarsToMicros((call.durationSec / 60) * 0.0043),
-      model: null,
-      provider: "estimated",
-      quantity: call.durationSec / 60,
-      unit: "minutes",
-    },
-  ];
-
-  return items.filter((item) => item.quantity > 0 || item.costMicros > 0);
+  return estimateUsageCostLineItems(call);
 }
 
 export function toJsonCompatible(value: unknown) {
@@ -596,7 +741,7 @@ function buildLatencyValues(summary: CallSummaryData, body: LiveKitWebhookPayloa
     }
   }
 
-  for (const metric of body.metrics ?? []) {
+  for (const metric of payloadMetrics(body)) {
     if (LLM_METRIC_TYPES.has(metric.type)) {
       const tokens = asNumber(metric.tokensPerSecond);
       if (tokens > 0) {
@@ -609,9 +754,14 @@ function buildLatencyValues(summary: CallSummaryData, body: LiveKitWebhookPayloa
 }
 
 function getTtsChars(summary: CallSummaryData, body: LiveKitWebhookPayload) {
+  const summaryTtsChars = asNumber(summary.totals?.ttsChars);
+  if (summaryTtsChars > 0) {
+    return summaryTtsChars;
+  }
+
   let ttsChars = 0;
 
-  for (const metric of body.metrics ?? []) {
+  for (const metric of payloadMetrics(body)) {
     if (metric.type === "tts_metrics") {
       ttsChars += asNumber(metric.charactersCount);
     }
@@ -631,7 +781,7 @@ function getTtsChars(summary: CallSummaryData, body: LiveKitWebhookPayload) {
 function getInterruptionCount(summary: CallSummaryData, body: LiveKitWebhookPayload) {
   let interruptionCount = 0;
 
-  for (const metric of body.metrics ?? []) {
+  for (const metric of payloadMetrics(body)) {
     if (metric.type === "interruption_metrics") {
       interruptionCount += asNumber(metric.numInterruptions);
     }
@@ -696,7 +846,8 @@ export function normalizeLiveKitCallPayload(
   body: LiveKitWebhookPayload | CallSummaryData,
 ): NormalizedPortalCall {
   const webhookBody = body as LiveKitWebhookPayload;
-  const summary = isRawLiveKitPayload(body)
+  const liveKitPayload = isLiveKitPayload(body);
+  const summary = liveKitPayload
     ? deriveCallSummary(webhookBody)
     : (body as CallSummaryData);
   const normalizedBody: LiveKitWebhookPayload = {
@@ -711,7 +862,8 @@ export function normalizeLiveKitCallPayload(
   const latencyValues = buildLatencyValues(summary, normalizedBody);
   const llm = deriveLlmInfo({
     llm: summary.llm,
-    metrics: normalizedBody.metrics,
+    metrics: payloadMetrics(normalizedBody),
+    usage: summary.usage ?? normalizedBody.usage,
     sessionReport: summary.sessionReport ?? normalizedBody.sessionReport,
   });
   const reviewResult = getReviewResult(normalizedBody);
@@ -745,7 +897,7 @@ export function normalizeLiveKitCallPayload(
     toolErrors,
   });
   const strippedBody = stripAudioPayload(normalizedBody);
-  const dataPayload = isRawLiveKitPayload(body)
+  const dataPayload = liveKitPayload
     ? toJsonCompatible({ ...strippedBody, ...summary })
     : toJsonCompatible(strippedBody);
 

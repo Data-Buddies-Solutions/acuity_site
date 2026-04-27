@@ -24,8 +24,8 @@ The portal now has two call data paths:
 
 2. Portal-native forward sync
    - `POST /api/livekit/calls`
-   - Auth: `Authorization: Bearer $LIVEKIT_FORWARD_SYNC_SECRET`
-   - This endpoint normalizes LiveKit/session payloads into `AgentCall` and estimated `UsageCostLineItem` rows.
+   - Auth is optional during migration. If `LIVEKIT_FORWARD_SYNC_SECRET` or `WEBHOOK_SECRET` is configured, requests must send `Authorization: Bearer <secret>`. If no secret is configured, the endpoint accepts unauthenticated posts and logs a production warning.
+   - This endpoint normalizes both legacy call-summary payloads and the current LiveKit observability payload shape (`usage`, `llmMetrics`, `turnMetrics`, `sessionReport`) into `AgentCall` and estimated `UsageCostLineItem` rows.
    - It resolves the practice by explicit `practiceId` or by `officePhone` through `PracticePhoneNumber`.
 
 If the live agent is not posting to `/api/livekit/calls` yet, the portal is not fully live from the agent. It is either showing imported data or any calls posted directly to the new endpoint.
@@ -71,6 +71,20 @@ Practice-facing pages should stay operational and non-technical:
 
 Raw payloads, latency traces, token costs, model fallback, and tool debugging belong in `/admin`.
 
+## Vendor Cost Model
+
+Admin cost estimates use the current vendor-rate calculator in `lib/pricing.ts`:
+
+- LiveKit media: `$0.0100 / minute`
+- Telnyx SIP inbound: `$0.0035 / minute`
+- AssemblyAI STT: `$0.0075 / minute`
+- Baseten GLM-4.7 input: `$0.60 / 1M tokens`
+- Baseten GLM-4.7 cached input: `$0.12 / 1M tokens`
+- Baseten GLM-4.7 output: `$2.20 / 1M tokens`
+- ElevenLabs Flash TTS: `$0.05 / 1K characters`
+
+The admin analytics Costs tab shows total estimated vendor cost, cost per call, cost per minute, and the line-item breakdown for the selected practice/range.
+
 ## Migration Plan
 
 1. Keep `call-analytics` as a temporary backfill/source bridge.
@@ -85,6 +99,7 @@ Raw payloads, latency traces, token costs, model fallback, and tool debugging be
 1. Configure the LiveKit agent to post call-end payloads to `/api/livekit/calls`.
 2. Ensure every live practice has `PracticePhoneNumber` rows for each routed office number.
 3. Decide whether the agent will send `practiceId` directly; this is more reliable than resolving only by phone number.
-4. Move the review worker output into `AgentCall.reviewResult`.
-5. Add a small ingestion smoke test that posts a fixture payload and verifies the portal overview updates.
-6. Add customer-facing call outcome fields if appointment review needs more structured data than tool payload parsing can provide.
+4. Keep unauthenticated ingestion only long enough to verify the migration, then set a shared secret in the portal and LiveKit agent.
+5. Move the review worker output into `AgentCall.reviewResult`.
+6. Add a small ingestion smoke test that posts a fixture payload and verifies the portal overview updates.
+7. Add customer-facing call outcome fields if appointment review needs more structured data than tool payload parsing can provide.

@@ -49,6 +49,7 @@ export type CallSummaryData = {
     inputTokens?: number;
     outputTokens?: number;
     cachedTokens?: number;
+    ttsChars?: number;
     cacheHitRate?: number;
     peakContextTokens?: number;
     avgASR?: number;
@@ -66,6 +67,7 @@ export type CallSummaryData = {
   };
   sessionReport?: SessionReport;
   audioBase64?: string;
+  usage?: AgentSessionUsage;
 };
 
 export type LiveKitMetric = {
@@ -96,6 +98,27 @@ export type SessionReport = {
   [key: string]: unknown;
 };
 
+export type ModelUsageRecord = {
+  type?: string;
+  provider?: string;
+  model?: string;
+  [key: string]: unknown;
+};
+
+export type AgentSessionUsage = {
+  modelUsage?: ModelUsageRecord[];
+  [key: string]: unknown;
+};
+
+export type TurnMetricRecord = {
+  itemId?: string;
+  role?: string;
+  type?: string;
+  createdAt?: number;
+  interrupted?: boolean;
+  metrics?: Record<string, unknown>;
+};
+
 export type LiveKitWebhookPayload = {
   callId: string;
   callerPhone?: string;
@@ -107,6 +130,9 @@ export type LiveKitWebhookPayload = {
   endedAt?: string;
   durationSec?: number;
   metrics?: LiveKitMetric[];
+  llmMetrics?: LiveKitMetric[];
+  usage?: AgentSessionUsage;
+  turnMetrics?: TurnMetricRecord[];
   sessionReport?: SessionReport;
   audioBase64?: string;
   reviewStatus?: string;
