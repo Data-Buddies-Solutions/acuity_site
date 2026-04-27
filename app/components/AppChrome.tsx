@@ -7,13 +7,13 @@ import Header from "./Header";
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isPortalRoute = pathname.startsWith("/portal");
+  const isWorkspaceRoute = pathname.startsWith("/portal") || pathname.startsWith("/admin");
 
   return (
     <>
-      {!isPortalRoute ? <Header /> : null}
-      <main className={isPortalRoute ? "flex flex-col" : "flex flex-col pt-24"}>{children}</main>
-      {!isPortalRoute ? <Footer /> : null}
+      {!isWorkspaceRoute ? <Header /> : null}
+      <main className={isWorkspaceRoute ? "flex flex-col" : "flex flex-col pt-24"}>{children}</main>
+      {!isWorkspaceRoute ? <Footer /> : null}
     </>
   );
 }

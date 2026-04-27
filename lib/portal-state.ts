@@ -168,7 +168,7 @@ function buildPortalWorkspaceState({
   return {
     completionCount: sections.filter((section) => section.complete).length,
     draft,
-    launched: readyToLaunch && launched,
+    launched,
     missingSections,
     nextAction: missingSections[0] ?? null,
     readyToLaunch,

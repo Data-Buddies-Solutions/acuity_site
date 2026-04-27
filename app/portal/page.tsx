@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { LockKeyhole } from "lucide-react";
 
 import Logo from "@/app/components/VisionOpsLogo";
+import { isAdminEmail } from "@/lib/admin-auth";
 import { getAuthSession } from "@/lib/auth";
 
 import { PortalLoginForm } from "./PortalLoginForm";
@@ -19,11 +20,27 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function PortalPage() {
+function getSafeNextPath(value: string | string[] | undefined) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  return value.startsWith("/") && !value.startsWith("//") ? value : null;
+}
+
+export default async function PortalPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
   const session = await getAuthSession();
 
   if (session) {
-    redirect("/portal/app");
+    redirect(
+      getSafeNextPath(params.next) ||
+        (isAdminEmail(session.user.email) ? "/admin/practices" : "/portal/app")
+    );
   }
 
   return (

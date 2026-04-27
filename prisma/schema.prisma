@@ -8,13 +8,13 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String               @id @default(cuid())
   name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
+  email         String               @unique
+  emailVerified Boolean              @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
   accounts      Account[]
   memberships   PracticeMembership[]
   sessions      Session[]
@@ -53,8 +53,8 @@ model Account {
   updatedAt             DateTime  @updatedAt
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
   @@unique([providerId, accountId])
+  @@index([userId])
   @@map("account")
 }
 
@@ -93,41 +93,187 @@ enum PracticeType {
   OTHER
 }
 
+enum PracticeAgentStatus {
+  SETUP
+  ACTIVE
+  PAUSED
+  ERROR
+}
+
+enum AgentCallStatus {
+  IN_PROGRESS
+  COMPLETED
+  ESCALATED
+  FAILED
+  ABANDONED
+}
+
+enum UsageCostCategory {
+  LLM_INPUT
+  LLM_CACHED_INPUT
+  LLM_OUTPUT
+  SPEECH_TO_TEXT
+  TEXT_TO_SPEECH
+  TELEPHONY
+  REVIEW
+  OTHER
+}
+
 enum WebsiteScanStatus {
   SUCCESS
   FAILED
 }
 
 model Practice {
-  id                 String                     @id @default(cuid())
+  id                 String                      @id @default(cuid())
   name               String
   websiteUrl         String?
-  onboardingStatus   PracticeOnboardingStatus  @default(WEBSITE_PENDING)
-  practiceType       PracticeType              @default(OTHER)
+  onboardingStatus   PracticeOnboardingStatus    @default(WEBSITE_PENDING)
+  practiceType       PracticeType                @default(OTHER)
   launchReadyAt      DateTime?
   launchedAt         DateTime?
-  createdAt          DateTime                  @default(now())
-  updatedAt          DateTime                  @updatedAt
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  agentCalls         AgentCall[]
+  agents             PracticeAgent[]
+  costLineItems      UsageCostLineItem[]
   insuranceCrosswalk PracticeInsuranceCrosswalk?
   knowledgeBase      PracticeKnowledgeBase?
   locations          PracticeLocation[]
   memberships        PracticeMembership[]
+  phoneNumbers       PracticePhoneNumber[]
   providers          PracticeProvider[]
   websiteScans       PracticeWebsiteScan[]
 
   @@map("practice")
 }
 
+model PracticeAgent {
+  id              String              @id @default(cuid())
+  practiceId      String
+  name            String
+  status          PracticeAgentStatus @default(SETUP)
+  llmModel        String?
+  voiceProvider   String?
+  voiceName       String?
+  configVersion   String?
+  lastHeartbeatAt DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  calls           AgentCall[]
+  practice        Practice            @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId])
+  @@index([status])
+  @@map("practice_agent")
+}
+
+model PracticePhoneNumber {
+  id          String            @id @default(cuid())
+  practiceId  String
+  locationId  String?
+  phoneNumber String            @unique
+  label       String?
+  isPrimary   Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  location    PracticeLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice    Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId])
+  @@index([locationId])
+  @@map("practice_phone_number")
+}
+
+model AgentCall {
+  id                   String              @id @default(cuid())
+  practiceId           String
+  locationId           String?
+  agentId              String?
+  callId               String              @unique
+  callerPhone          String
+  officePhone          String
+  status               AgentCallStatus     @default(COMPLETED)
+  startedAt            DateTime            @default(now())
+  endedAt              DateTime?
+  durationSec          Int                 @default(0)
+  transferred          Boolean             @default(false)
+  bookedAppointment    Boolean             @default(false)
+  confirmedAppointment Boolean             @default(false)
+  cancelledAppointment Boolean             @default(false)
+  needsReview          Boolean             @default(false)
+  reviewStatus         String?
+  reviewAverageScore   Float?
+  reviewResult         Json?
+  llmModel             String?
+  fallbackUsed         Boolean             @default(false)
+  totalTurns           Int                 @default(0)
+  inputTokens          Int                 @default(0)
+  outputTokens         Int                 @default(0)
+  cachedTokens         Int                 @default(0)
+  ttsChars             Int                 @default(0)
+  toolCalls            Int                 @default(0)
+  toolErrors           Int                 @default(0)
+  avgTtft              Float               @default(0)
+  avgTtsttfb           Float               @default(0)
+  cacheHitRate         Float               @default(0)
+  peakContext          Int                 @default(0)
+  avgTokensPerSec      Float               @default(0)
+  interruptionCount    Int                 @default(0)
+  estimatedCostMicros  Int                 @default(0)
+  outcomeSummary       String?
+  latencyValues        Json                @default("{}")
+  data                 Json?
+  audioData            Bytes?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  agent                PracticeAgent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  costLineItems        UsageCostLineItem[]
+  location             PracticeLocation?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice             Practice            @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId, startedAt])
+  @@index([practiceId, needsReview])
+  @@index([practiceId, status])
+  @@index([locationId])
+  @@index([agentId])
+  @@index([callerPhone])
+  @@index([officePhone])
+  @@map("agent_call")
+}
+
+model UsageCostLineItem {
+  id          String            @id @default(cuid())
+  practiceId  String
+  agentCallId String?
+  category    UsageCostCategory
+  provider    String
+  model       String?
+  quantity    Float             @default(0)
+  unit        String
+  costMicros  Int               @default(0)
+  occurredAt  DateTime          @default(now())
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  agentCall   AgentCall?        @relation(fields: [agentCallId], references: [id], onDelete: SetNull)
+  practice    Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId, occurredAt])
+  @@index([agentCallId])
+  @@index([category])
+  @@map("usage_cost_line_item")
+}
+
 model PracticeMembership {
-  id        String                 @id @default(cuid())
+  id         String                 @id @default(cuid())
   practiceId String
-  userId    String
-  role      PracticeMembershipRole @default(OWNER)
-  isPrimary Boolean                @default(true)
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
-  practice   Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  role       PracticeMembershipRole @default(OWNER)
+  isPrimary  Boolean                @default(true)
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  practice   Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([practiceId, userId])
   @@index([practiceId])
@@ -136,19 +282,21 @@ model PracticeMembership {
 }
 
 model PracticeLocation {
-  id          String             @id @default(cuid())
-  practiceId  String
-  name        String
-  address     String?
-  phone       String?
-  fax         String?
-  email       String?
+  id           String                @id @default(cuid())
+  practiceId   String
+  name         String
+  address      String?
+  phone        String?
+  fax          String?
+  email        String?
   hoursSummary String?
-  isPrimary   Boolean            @default(false)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  practice    Practice           @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  providers   PracticeProvider[]
+  isPrimary    Boolean               @default(false)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  agentCalls   AgentCall[]
+  phoneNumbers PracticePhoneNumber[]
+  practice     Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  providers    PracticeProvider[]
 
   @@index([practiceId])
   @@map("practice_location")
@@ -175,24 +323,24 @@ model PracticeProvider {
 }
 
 model PracticeKnowledgeBase {
-  id                       String    @id @default(cuid())
-  practiceId               String    @unique
-  emergencyNotice          String?
+  id                        String   @id @default(cuid())
+  practiceId                String   @unique
+  emergencyNotice           String?
   urgencyScreeningQuestions Json?
-  urgencyDisposition       String?
-  scopeSummary             String?
-  excludedServices         Json?
-  commonQuestions          String?
-  appointmentPrep          String?
-  officePolicies           String?
-  afterHoursRules          String?
-  phrasingRules            String?
-  whatToBring              Json?
-  appointmentExpectations  Json?
-  operationalNotes         Json?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
-  practice                 Practice  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  urgencyDisposition        String?
+  scopeSummary              String?
+  excludedServices          Json?
+  commonQuestions           String?
+  appointmentPrep           String?
+  officePolicies            String?
+  afterHoursRules           String?
+  phrasingRules             String?
+  whatToBring               Json?
+  appointmentExpectations   Json?
+  operationalNotes          Json?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  practice                  Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
 
   @@map("practice_knowledge_base")
 }

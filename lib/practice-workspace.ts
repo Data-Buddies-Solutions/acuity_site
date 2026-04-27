@@ -233,7 +233,7 @@ function buildSnapshotFromPractice(practice: LoadedPractice): PracticeWorkspaceS
   const draft = buildDraftFromPractice(practice);
   const knowledgeBase = practice.knowledgeBase;
   const insuranceCrosswalk = practice.insuranceCrosswalk;
-  const launched = Boolean(practice.launchedAt);
+  const launched = Boolean(practice.launchedAt) || practice.onboardingStatus === "LIVE";
   const practiceProfileComplete =
     hasText(draft.practiceName) &&
     draft.locations.some(
@@ -308,19 +308,18 @@ export async function hasPracticeWorkspaceTables() {
       Array<Record<string, string | null>>
     >(
       `SELECT
-        to_regclass('public.practice') AS practice,
-        to_regclass('public.practice_membership') AS practice_membership,
-        to_regclass('public.practice_location') AS practice_location,
-        to_regclass('public.practice_provider') AS practice_provider,
-        to_regclass('public.practice_knowledge_base') AS practice_knowledge_base,
-        to_regclass('public.practice_insurance_crosswalk') AS practice_insurance_crosswalk,
-        to_regclass('public.practice_website_scan') AS practice_website_scan`
+        to_regclass('public.practice')::text AS practice,
+        to_regclass('public.practice_membership')::text AS practice_membership,
+        to_regclass('public.practice_location')::text AS practice_location,
+        to_regclass('public.practice_provider')::text AS practice_provider,
+        to_regclass('public.practice_knowledge_base')::text AS practice_knowledge_base,
+        to_regclass('public.practice_insurance_crosswalk')::text AS practice_insurance_crosswalk,
+        to_regclass('public.practice_website_scan')::text AS practice_website_scan`
     );
 
     workspaceTablesAvailable = Object.values(row || {}).every(Boolean);
     return workspaceTablesAvailable;
   } catch {
-    workspaceTablesAvailable = false;
     return false;
   }
 }
@@ -579,6 +578,8 @@ async function upsertPracticeLocations(
     .filter((location) => !savedLocationIds.has(location.id))
     .map((location) => location.id);
 
+  await syncPracticePhoneNumbers(practiceId, savedLocations, removedLocationIds);
+
   if (removedLocationIds.length) {
     await prisma.practiceLocation.deleteMany({
       where: {
@@ -591,6 +592,90 @@ async function upsertPracticeLocations(
   }
 
   return savedLocations;
+}
+
+async function syncPracticePhoneNumbers(
+  practiceId: string,
+  locations: PracticeLocationDraft[],
+  removedLocationIds: string[]
+) {
+  if (removedLocationIds.length) {
+    await prisma.practicePhoneNumber.deleteMany({
+      where: {
+        locationId: {
+          in: removedLocationIds,
+        },
+        practiceId,
+      },
+    });
+  }
+
+  const existingPhoneNumbers = await prisma.practicePhoneNumber.findMany({
+    where: {
+      practiceId,
+    },
+  });
+
+  for (const [index, location] of locations.entries()) {
+    if (!location.id) {
+      continue;
+    }
+
+    const phoneNumber = textValue(location.phone);
+
+    if (!phoneNumber) {
+      await prisma.practicePhoneNumber.deleteMany({
+        where: {
+          locationId: location.id,
+          practiceId,
+        },
+      });
+      continue;
+    }
+
+    const data = {
+      isPrimary: index === 0,
+      label: textValue(location.locationName) || null,
+      locationId: location.id,
+    };
+    const existingForPhone = existingPhoneNumbers.find(
+      (phone) => phone.phoneNumber === phoneNumber
+    );
+    const existingForLocation = existingPhoneNumbers.find(
+      (phone) => phone.locationId === location.id
+    );
+
+    if (existingForPhone) {
+      await prisma.practicePhoneNumber.update({
+        data,
+        where: {
+          id: existingForPhone.id,
+        },
+      });
+      continue;
+    }
+
+    if (existingForLocation) {
+      await prisma.practicePhoneNumber.update({
+        data: {
+          ...data,
+          phoneNumber,
+        },
+        where: {
+          id: existingForLocation.id,
+        },
+      });
+      continue;
+    }
+
+    await prisma.practicePhoneNumber.create({
+      data: {
+        ...data,
+        phoneNumber,
+        practiceId,
+      },
+    });
+  }
 }
 
 async function upsertPrimaryProvider(

@@ -13,28 +13,28 @@ export default async function PortalPostCallAnalyticsPage() {
 
   return (
     <PortalModulePlaceholder
-      description="Post-call analytics should help the practice audit what happened, where automation is succeeding, and where workflows still need tuning."
-      eyebrow="Post-call Analytics"
+      description="Outcomes should help the practice see front-desk value without exposing raw technical analytics."
+      eyebrow="Outcomes"
       primaryActionHref="/portal/app/overview"
       primaryActionLabel="Back to overview"
       queueDescription="The next implementation work for this module."
       queueItems={[
         {
-          label: "Call outcomes",
-          description: "Break down completed calls by intent, resolution path, and escalation rate.",
+          label: "Booked appointments",
+          description: "Show who booked, when they booked, and the appointment details staff should verify.",
         },
         {
-          label: "Quality review",
-          description: "Surface transcripts and flagged interactions for QA and workflow tuning.",
+          label: "Escalations",
+          description: "Track transfers, callbacks, and unresolved handoffs that need staff follow-up.",
         },
         {
-          label: "Trend reporting",
-          description: "Track call volume, booking results, and repeat pain points over time.",
+          label: "Practice value",
+          description: "Track calls handled, peak call times, staff time saved, and call outcomes.",
         },
       ]}
-      statusDescription="The route is wired into the live portal, but production reporting is not connected yet."
-      statusTitle="Analytics foundation is in place"
-      title="Audit performance after launch"
+      statusDescription="The route is wired into the live portal. The overview now carries the first live value metrics while this deeper outcomes view is built."
+      statusTitle="Outcomes foundation is in place"
+      title="Review front-desk outcomes"
     />
   );
 }

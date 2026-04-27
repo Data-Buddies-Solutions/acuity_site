@@ -50,6 +50,45 @@ Documents are now read-first structured pages:
 
 Knowledge Base and Insurance Crosswalk keep structured edit forms behind an edit mode. Practice Information also supports post-launch editing for locations and providers.
 
+### Operations Overview
+
+The live overview should stay small and useful for a practice team. The current direction is a 24-hour default view with four top metrics:
+
+- Total calls
+- Total call minutes
+- Average time per call
+- Transfer rate
+
+Below those metrics, staff should have a compact booked-appointments review queue. This gives the front desk a fast way to see who booked, when the call happened, the appointment time, provider/location when available, and the booking ID/status.
+
+### Admin Analytics
+
+Internal analytics belong in `/admin`, not in the customer portal. Admin surfaces can show:
+
+- Transcript and audio playback
+- Latency and model performance
+- Tool calls and raw tool inputs/outputs
+- Review result and findings
+- Cost line items
+- Raw payload diagnostics
+
+Customer-facing reporting should translate the same underlying data into practice-value metrics instead of technical analytics.
+
+## Data Pipeline Direction
+
+The portal database should become the source of truth for both customer-facing operations and internal admin analytics. The current call model is built around:
+
+- `PracticeAgent`
+- `PracticePhoneNumber`
+- `AgentCall`
+- `UsageCostLineItem`
+
+`AgentCall` should receive every LiveKit call through `POST /api/livekit/calls`. That endpoint can resolve a practice by explicit `practiceId` or by `officePhone` through `PracticePhoneNumber`.
+
+`call-analytics` is still useful as a temporary historical bridge. The current import script reads the sibling `../call-analytics` database and backfills portal `AgentCall` rows. That should not be the final live architecture. The final state is the agent posting exact call-end data directly into the portal, with the review worker updating `AgentCall.reviewResult`.
+
+See `PRACTICE_PORTAL_DATA_PIPELINE.md` for the concrete migration path.
+
 ## Product Principles
 
 1. Keep onboarding short and confidence-building.
@@ -65,12 +104,21 @@ Knowledge Base and Insurance Crosswalk keep structured edit forms behind an edit
 ### 1. Strengthen Data Model and Persistence
 
 - Move fully away from cookie-backed draft storage for authenticated DB-backed accounts.
+- Keep `PracticePhoneNumber` synchronized from practice/location setup so live call ingestion can resolve practices by office number.
 - Add explicit tests for multi-location save flows.
 - Add explicit tests for provider add/remove behavior.
 - Add tests for location-specific insurance and knowledge overrides.
 - Add tests for post-launch document edit redirects.
 
-### 2. Improve Practice Information Editing
+### 2. Connect Live Call Ingestion
+
+- Configure the LiveKit agent to post call-end payloads to `/api/livekit/calls`.
+- Prefer sending `practiceId` directly from the agent when available.
+- Keep phone-number resolution as a fallback for forwarded calls.
+- Add an ingestion smoke test that posts a fixture call and verifies the overview metrics update.
+- Move review worker output directly into `AgentCall.reviewResult`, `reviewStatus`, and `needsReview`.
+
+### 3. Improve Practice Information Editing
 
 - Consider separating edit modes into tabs or sections:
   - Locations
@@ -79,7 +127,7 @@ Knowledge Base and Insurance Crosswalk keep structured edit forms behind an edit
 - Add clearer empty states for practices with no providers.
 - Consider provider-to-multiple-location relationships if practices need doctors at more than one location.
 
-### 3. Make Documents More Useful
+### 4. Make Documents More Useful
 
 - Add "last updated" metadata per document.
 - Add section-level edit buttons.
@@ -89,14 +137,15 @@ Knowledge Base and Insurance Crosswalk keep structured edit forms behind an edit
   - Needs update
 - Add an internal audit trail for changes that affect AI behavior.
 
-### 4. Dashboard Evolution
+### 5. Dashboard Evolution
 
 - Make Overview an operations summary, not a setup status page.
-- Surface recent calls, unresolved handoffs, callbacks, and patient messages when integrations are live.
+- Keep the 24-hour default for daily operations.
+- Surface recent booked appointments, unresolved handoffs, callbacks, and patient messages when integrations are live.
 - Add a "Needs attention" queue as the primary daily workflow.
 - Keep Documents in the sidebar as a secondary reference area.
 
-### 5. Launch Readiness
+### 6. Launch Readiness
 
 - Add mobile visual QA for onboarding and document pages.
 - Add reduced-motion support for the preparing animation.
@@ -130,6 +179,8 @@ Once real call/text data is connected, the portal should show:
 - Which insurance questions are creating friction
 - Which locations/providers generate the most exceptions
 - Suggested document updates based on real conversations
+
+The separate `call-analytics` app should be retired only after portal ingestion, call detail, review updates, and admin analytics are stable on `AgentCall`.
 
 ### Practice Change Management
 

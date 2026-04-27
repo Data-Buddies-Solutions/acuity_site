@@ -7,13 +7,13 @@ A Next.js marketing site for Acuity Health, focused on patient access and engage
 First, install dependencies:
 
 ```bash
-npm install
+bun install
 ```
 
 Then, run the development server:
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
@@ -23,9 +23,28 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 To create a production build:
 
 ```bash
-npx next build --webpack
-npm start
+bun run build
+bun run start
 ```
+
+## Practice Portal
+
+Portal routes:
+
+- `/portal` - staff login
+- `/portal/app` - redirects launched practices to overview and setup practices to onboarding
+- `/portal/app/overview` - customer-facing operational summary
+- `/admin/practices` - internal practice command center
+
+Call data should land in the portal through `POST /api/livekit/calls`. Historical/demo data can be backfilled from the sibling `call-analytics` project with `scripts/import-abita-analytics.mjs`, but the target architecture is direct agent-to-portal forward sync. See `PRACTICE_PORTAL_DATA_PIPELINE.md`.
+
+Useful environment variables:
+
+- `DATABASE_URL`
+- `BETTER_AUTH_SECRET`
+- `BETTER_AUTH_URL`
+- `LIVEKIT_FORWARD_SYNC_SECRET`
+- `ADMIN_EMAILS` or `ACUITY_ADMIN_EMAILS`
 
 ## Deploy on Vercel
 
@@ -38,6 +57,9 @@ The easiest way to deploy this Next.js app is to use the [Vercel Platform](https
 - TypeScript
 - Tailwind CSS
 - Next.js App Router
+- Prisma 7
+- Better Auth
+- Bun
 
 ## Structure
 

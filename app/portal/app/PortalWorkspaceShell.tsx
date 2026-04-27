@@ -42,7 +42,7 @@ const livePrimaryNavItems = [
   {
     href: "/portal/app/post-call-analytics",
     icon: LineChart,
-    label: "Post-call Analytics",
+    label: "Outcomes",
   },
 ] satisfies NavItem[];
 

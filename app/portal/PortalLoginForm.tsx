@@ -2,13 +2,14 @@
 
 import { FormEvent, useState, useTransition } from "react";
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/app/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 
 export function PortalLoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -20,8 +21,13 @@ export function PortalLoginForm() {
     setErrorMessage(null);
 
     startTransition(async () => {
+      const rawLogin = email.trim();
+      const loginEmail =
+        rawLogin.toLowerCase() === "admin" ? "admin@acuityhealth.io" : rawLogin;
+      const isAdminLogin = loginEmail.toLowerCase() === "admin@acuityhealth.io";
+
       const { error } = await authClient.signIn.email({
-        email,
+        email: loginEmail,
         password,
         rememberMe: true,
       });
@@ -31,7 +37,17 @@ export function PortalLoginForm() {
         return;
       }
 
-      router.replace("/portal/app");
+      const nextPath = searchParams.get("next");
+      const safeNextPath =
+        nextPath?.startsWith("/") &&
+        !nextPath.startsWith("//") &&
+        !nextPath.startsWith("/portal/app/onboarding")
+          ? nextPath
+          : isAdminLogin
+            ? "/admin/practices"
+            : "/portal/app";
+
+      router.replace(safeNextPath);
       router.refresh();
     });
   };
@@ -45,13 +61,13 @@ export function PortalLoginForm() {
         </span>
         <div className="rounded-[1.35rem] border border-[#0f2b31]/8 bg-white/85 shadow-[0_12px_28px_rgba(16,39,44,0.04),inset_0_1px_0_rgba(255,255,255,0.82)] transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
           <input
-            autoComplete="email"
+            autoComplete="username"
             className="w-full rounded-[1.35rem] bg-transparent px-4 py-4 text-base text-[#10272c] outline-none placeholder:text-[#90a0a2]"
             name="email"
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@practice.com"
             required
-            type="email"
+            type="text"
             value={email}
           />
         </div>
