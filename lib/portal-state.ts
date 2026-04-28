@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 
 import { getAuthSession } from "./auth";
+import { emptyPracticeBranding, type PracticeBranding } from "./practice-branding";
 import {
   getPracticeWorkspaceSnapshotForUser,
   hasPracticeWorkspaceTables,
@@ -85,6 +86,7 @@ type PortalCookieState = {
 } & Record<PortalSectionKey, boolean>;
 
 export type PortalWorkspaceState = {
+  branding: PracticeBranding;
   completionCount: number;
   draft: PortalDraftState;
   launched: boolean;
@@ -135,6 +137,7 @@ const defaultPortalState: PortalCookieState = {
 };
 
 function buildPortalWorkspaceState({
+  branding = emptyPracticeBranding,
   draft,
   launched,
   practiceProfile,
@@ -143,6 +146,7 @@ function buildPortalWorkspaceState({
   knowledgeBase,
   rulesAndEscalations,
 }: {
+  branding?: PracticeBranding;
   draft: PortalDraftState;
   insuranceCrosswalk: boolean;
   knowledgeBase: boolean;
@@ -166,6 +170,7 @@ function buildPortalWorkspaceState({
   const readyToLaunch = missingSections.length === 0;
 
   return {
+    branding,
     completionCount: sections.filter((section) => section.complete).length,
     draft,
     launched,
@@ -178,7 +183,7 @@ function buildPortalWorkspaceState({
 }
 
 function parseProviderDrafts(
-  rawDraft: Partial<PortalDraftState> | undefined
+  rawDraft: Partial<PortalDraftState> | undefined,
 ): PracticeProviderDraft[] {
   if (Array.isArray(rawDraft?.providers)) {
     return rawDraft.providers
@@ -193,8 +198,8 @@ function parseProviderDrafts(
       }))
       .filter((provider) =>
         Object.entries(provider).some(
-          ([key, value]) => key !== "id" && Boolean(String(value || "").trim())
-        )
+          ([key, value]) => key !== "id" && Boolean(String(value || "").trim()),
+        ),
       );
   }
 
@@ -215,7 +220,7 @@ function parseProviderDrafts(
 }
 
 function parseLocationDrafts(
-  rawDraft: Partial<PortalDraftState> | undefined
+  rawDraft: Partial<PortalDraftState> | undefined,
 ): PracticeLocationDraft[] {
   if (Array.isArray(rawDraft?.locations)) {
     return rawDraft.locations
@@ -240,7 +245,7 @@ function parseLocationDrafts(
           location.knowledgeNotes,
           location.locationName,
           location.phone,
-        ].some((value) => Boolean(String(value || "").trim()))
+        ].some((value) => Boolean(String(value || "").trim())),
       );
   }
 
@@ -263,15 +268,16 @@ function parseLocationDrafts(
   return [];
 }
 
-function parsePortalDraft(rawDraft: Partial<PortalDraftState> | undefined): PortalDraftState {
+function parsePortalDraft(
+  rawDraft: Partial<PortalDraftState> | undefined,
+): PortalDraftState {
   const locations = parseLocationDrafts(rawDraft);
   const primaryLocation = locations[0];
   const providers = parseProviderDrafts(rawDraft);
   const primaryProvider = providers[0];
 
   return {
-    address:
-      primaryLocation?.address ?? rawDraft?.address ?? defaultPortalDraft.address,
+    address: primaryLocation?.address ?? rawDraft?.address ?? defaultPortalDraft.address,
     fax: primaryLocation?.fax ?? rawDraft?.fax ?? defaultPortalDraft.fax,
     insuranceAcceptedPlans:
       rawDraft?.insuranceAcceptedPlans ?? defaultPortalDraft.insuranceAcceptedPlans,
@@ -408,6 +414,7 @@ async function getPortalWorkspaceStateFromDatabase() {
   }
 
   return buildPortalWorkspaceState({
+    branding: workspaceSnapshot.branding,
     draft: workspaceSnapshot.draft,
     insuranceCrosswalk: workspaceSnapshot.insuranceCrosswalkComplete,
     knowledgeBase: workspaceSnapshot.knowledgeBaseComplete,
@@ -430,7 +437,7 @@ export async function getPortalWorkspaceState(): Promise<PortalWorkspaceState> {
 
 export async function setPortalSectionCompletion(
   key: PortalSectionKey,
-  complete: boolean
+  complete: boolean,
 ) {
   if (!(await shouldWritePortalCookieFallback())) {
     return;

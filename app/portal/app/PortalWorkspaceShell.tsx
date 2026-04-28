@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 
 import Logo from "@/app/components/VisionOpsLogo";
+import { PracticeBrandLogo } from "@/app/portal/app/PracticeBrandLogo";
 import { PortalSignOutButton } from "@/app/portal/PortalSignOutButton";
+import type { PracticeBranding } from "@/lib/practice-branding";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -80,7 +82,7 @@ function SidebarLink({
         isIndented && "xl:rounded-lg xl:py-2 xl:pl-4",
         isActive
           ? "bg-[#e8f4f4] text-[#0d7377]"
-          : "text-[#566a6d] hover:bg-white hover:text-[#10272c]"
+          : "text-[#566a6d] hover:bg-white hover:text-[#10272c]",
       )}
       href={href}
     >
@@ -93,11 +95,13 @@ function SidebarLink({
 export default function PortalWorkspaceShell({
   children,
   isLive,
+  practiceBranding,
   practiceName,
   userEmail,
 }: Readonly<{
   children: React.ReactNode;
   isLive: boolean;
+  practiceBranding: PracticeBranding;
   practiceName?: string;
   userEmail?: string;
 }>) {
@@ -105,7 +109,7 @@ export default function PortalWorkspaceShell({
   const navItems = isLive ? livePrimaryNavItems : setupNavItems;
   const accountName = practiceName?.trim() || "Practice account";
   const hasActiveDocument = liveDocumentNavItems.some(({ href }) =>
-    isCurrentPath(pathname, href)
+    isCurrentPath(pathname, href),
   );
   const [documentsOpen, setDocumentsOpen] = useState(hasActiveDocument);
   const isDocumentsOpen = documentsOpen;
@@ -121,7 +125,11 @@ export default function PortalWorkspaceShell({
       <section className="min-h-screen bg-[linear-gradient(180deg,#f7fbfa_0%,#eef5f3_42%,#ffffff_100%)]">
         <header className="border-b border-black/6 bg-white/78 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 md:px-6">
-            <Link href="/" className="flex items-center gap-3" aria-label="Acuity Health home">
+            <Link
+              href="/"
+              className="flex items-center gap-3"
+              aria-label="Acuity Health home"
+            >
               <Logo />
               <div>
                 <p className="text-base font-semibold tracking-[-0.03em] text-[#10272c]">
@@ -164,11 +172,7 @@ export default function PortalWorkspaceShell({
               {isLive ? (
                 <div className="flex gap-2 xl:hidden">
                   {liveDocumentNavItems.map((item) => (
-                    <SidebarLink
-                      key={item.href}
-                      {...item}
-                      pathname={pathname}
-                    />
+                    <SidebarLink key={item.href} {...item} pathname={pathname} />
                   ))}
                 </div>
               ) : null}
@@ -182,7 +186,7 @@ export default function PortalWorkspaceShell({
                     "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold transition",
                     hasActiveDocument
                       ? "bg-[#f2f8f7] text-[#10272c]"
-                      : "text-[#566a6d] hover:bg-white hover:text-[#10272c]"
+                      : "text-[#566a6d] hover:bg-white hover:text-[#10272c]",
                   )}
                   aria-expanded={isDocumentsOpen}
                   onClick={() => setDocumentsOpen((current) => !current)}
@@ -194,7 +198,7 @@ export default function PortalWorkspaceShell({
                   <ChevronDown
                     className={cn(
                       "h-4 w-4 transition-transform",
-                      isDocumentsOpen && "rotate-180"
+                      isDocumentsOpen && "rotate-180",
                     )}
                     aria-hidden="true"
                   />
@@ -204,7 +208,7 @@ export default function PortalWorkspaceShell({
                     "grid transition-all duration-200",
                     isDocumentsOpen
                       ? "grid-rows-[1fr] opacity-100"
-                      : "grid-rows-[0fr] opacity-0"
+                      : "grid-rows-[0fr] opacity-0",
                   )}
                 >
                   <div className="overflow-hidden">
@@ -224,30 +228,44 @@ export default function PortalWorkspaceShell({
             ) : null}
 
             <div className="mt-auto hidden border-t border-black/8 pt-4 xl:block">
-              <div className="min-w-0">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#8a9a9d]">
-                  Account
-                </p>
-                <p className="mt-2 truncate text-sm font-semibold tracking-[-0.02em] text-[#10272c]">
-                  {accountName}
-                </p>
-                <p className="mt-0.5 truncate text-xs text-[#65787b]">
-                  {userEmail || "Practice account"}
-                </p>
-                <div className="mt-3">
-                  <PortalSignOutButton className="justify-start border-transparent bg-transparent px-0 text-[#566a6d] shadow-none hover:bg-transparent hover:text-[#10272c]" />
+              <div className="flex min-w-0 gap-3">
+                <PracticeBrandLogo
+                  branding={practiceBranding}
+                  practiceName={accountName}
+                  variant="mark"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#8a9a9d]">
+                    Account
+                  </p>
+                  <p className="mt-2 truncate text-sm font-semibold tracking-[-0.02em] text-[#10272c]">
+                    {accountName}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-[#65787b]">
+                    {userEmail || "Practice account"}
+                  </p>
+                  <div className="mt-3">
+                    <PortalSignOutButton className="justify-start border-transparent bg-transparent px-0 text-[#566a6d] shadow-none hover:bg-transparent hover:text-[#10272c]" />
+                  </div>
                 </div>
               </div>
             </div>
 
             <div className="mt-4 flex items-center justify-between gap-3 border-t border-black/8 pt-4 xl:hidden">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold tracking-[-0.02em] text-[#10272c]">
-                  {accountName}
-                </p>
-                <p className="truncate text-xs text-[#65787b]">
-                  {userEmail || "Practice account"}
-                </p>
+              <div className="flex min-w-0 items-center gap-3">
+                <PracticeBrandLogo
+                  branding={practiceBranding}
+                  practiceName={accountName}
+                  variant="mark"
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold tracking-[-0.02em] text-[#10272c]">
+                    {accountName}
+                  </p>
+                  <p className="truncate text-xs text-[#65787b]">
+                    {userEmail || "Practice account"}
+                  </p>
+                </div>
               </div>
               <PortalSignOutButton className="shrink-0" />
             </div>
