@@ -107,6 +107,11 @@ webhook must be resolved to a practice by phone number. Prefer explicit
 7. Connection-ID fallback only applies when no usable phone number is present and exactly one enabled settings row matches the connection.
 8. The portal stores active sessions, missed callbacks, and voicemails in call-center tables.
 
+For practices where the AI agent owns the public inbound line, keep that AI/SIP
+number as `TELNYX_PHONE_NUMBER` so staff outbound calls present the same caller
+ID. Use `TELNYX_INBOUND_NUMBER` for the portal softphone line that the AI
+transfers to when staff should answer in the browser.
+
 Inbound calls only pop in the browser when Telnyx routes the called number to the
 same WebRTC credential/connection used by the signed-in staff browser and the
 deployed webhook route is reachable.
@@ -149,8 +154,8 @@ TELNYX_API_KEY=""
 TELNYX_PUBLIC_KEY=""
 TELNYX_CONNECTION_ID=""
 TELNYX_CREDENTIAL_ID=""
-TELNYX_PHONE_NUMBER=""
-TELNYX_INBOUND_NUMBER=""
+TELNYX_PHONE_NUMBER="" # Outbound caller ID, e.g. the AI/SIP public line.
+TELNYX_INBOUND_NUMBER="" # Staff browser softphone target, e.g. the transfer line.
 TELNYX_ALLOW_UNVERIFIED_WEBHOOKS="false"
 ```
 
