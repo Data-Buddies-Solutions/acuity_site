@@ -21,6 +21,7 @@ export default async function PortalAppLayout({
   return (
     <PortalWorkspaceShell
       isLive={portalState.launched}
+      practiceBranding={portalState.branding}
       practiceName={portalState.draft.practiceName}
       userEmail={session.user.email}
     >

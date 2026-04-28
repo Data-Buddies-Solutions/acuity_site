@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { PracticeBrandLogo } from "@/app/portal/app/PracticeBrandLogo";
 import {
   getPortalOverviewMetrics,
   type PortalBookedAppointment,
@@ -109,9 +110,7 @@ function formatAppointmentTime(value: string | null) {
     return "Appointment time missing";
   }
 
-  const localDateTime = value.match(
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/,
-  );
+  const localDateTime = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
 
   if (localDateTime) {
     const [, year, month, day, hour, minute] = localDateTime;
@@ -160,11 +159,7 @@ function MetricBlock({
   );
 }
 
-function BookedAppointmentRow({
-  appointment,
-}: {
-  appointment: PortalBookedAppointment;
-}) {
+function BookedAppointmentRow({ appointment }: { appointment: PortalBookedAppointment }) {
   const providerLocation = [appointment.providerName, appointment.locationName]
     .filter(Boolean)
     .join(" at ");
@@ -242,10 +237,7 @@ function BookedAppointmentsPanel({
         {appointments.length > 0 ? (
           <div className="divide-y divide-black/6">
             {appointments.map((appointment) => (
-              <BookedAppointmentRow
-                key={appointment.callId}
-                appointment={appointment}
-              />
+              <BookedAppointmentRow key={appointment.callId} appointment={appointment} />
             ))}
           </div>
         ) : (
@@ -280,13 +272,19 @@ export default async function PortalOverviewPage({
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <section className="flex flex-col gap-4 border-b border-black/8 pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6f8083]">
-            Overview
-          </p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-[#10272c] md:text-4xl">
-            {metrics.practiceName}
-          </h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <PracticeBrandLogo
+            branding={metrics.branding}
+            practiceName={metrics.practiceName}
+          />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6f8083]">
+              Overview
+            </p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-[#10272c] md:text-4xl">
+              {metrics.practiceName}
+            </h2>
+          </div>
         </div>
         <nav
           aria-label="Overview range"

@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 
 import type { PracticeWebsiteScanResult } from "./practice-records";
+import { getPracticeBranding, type PracticeBranding } from "./practice-branding";
 import { prisma } from "./prisma";
 
 export type PracticeProviderDraft = {
@@ -52,6 +53,7 @@ export type PracticeWorkspaceDraft = {
 };
 
 export type PracticeWorkspaceSnapshot = {
+  branding: PracticeBranding;
   draft: PracticeWorkspaceDraft;
   insuranceCrosswalkComplete: boolean;
   knowledgeBaseComplete: boolean;
@@ -125,7 +127,9 @@ function inferPracticeNameFromUser(user: PracticeWorkspaceUser) {
 
 function getPrimaryLocation(practice: LoadedPractice) {
   return (
-    practice.locations.find((location) => location.isPrimary) || practice.locations[0] || null
+    practice.locations.find((location) => location.isPrimary) ||
+    practice.locations[0] ||
+    null
   );
 }
 
@@ -142,7 +146,7 @@ function readLocationOverrides(value: Prisma.JsonValue | null | undefined) {
 
   return rawOverrides
     .filter((entry): entry is Record<string, unknown> =>
-      Boolean(entry && typeof entry === "object" && !Array.isArray(entry))
+      Boolean(entry && typeof entry === "object" && !Array.isArray(entry)),
     )
     .map((entry) => ({
       insuranceNotes: textValue(entry.insuranceNotes as string | undefined),
@@ -156,22 +160,22 @@ function readLocationOverrides(value: Prisma.JsonValue | null | undefined) {
 
 function getLocationOverride(
   overrides: ReturnType<typeof readLocationOverrides>,
-  location: LoadedPractice["locations"][number]
+  location: LoadedPractice["locations"][number],
 ) {
   return overrides.find(
     (override) =>
       (override.locationId && override.locationId === location.id) ||
-      (override.locationName && override.locationName === location.name)
+      (override.locationName && override.locationName === location.name),
   );
 }
 
 function buildDraftFromPractice(practice: LoadedPractice): PracticeWorkspaceDraft {
   const primaryLocation = getPrimaryLocation(practice);
   const insuranceLocationOverrides = readLocationOverrides(
-    practice.insuranceCrosswalk?.planRules
+    practice.insuranceCrosswalk?.planRules,
   );
   const knowledgeLocationOverrides = readLocationOverrides(
-    practice.knowledgeBase?.operationalNotes
+    practice.knowledgeBase?.operationalNotes,
   );
   const locations = practice.locations.map<PracticeLocationDraft>((location) => {
     const insuranceOverride = getLocationOverride(insuranceLocationOverrides, location);
@@ -240,7 +244,7 @@ function buildSnapshotFromPractice(practice: LoadedPractice): PracticeWorkspaceS
       (location) =>
         hasText(location.locationName) &&
         hasText(location.address) &&
-        hasText(location.phone)
+        hasText(location.phone),
     );
   const providerRoutingComplete =
     draft.providers.some((provider) => hasText(provider.providerName)) ||
@@ -249,7 +253,7 @@ function buildSnapshotFromPractice(practice: LoadedPractice): PracticeWorkspaceS
     hasText(insuranceCrosswalk?.acceptedPlans) ||
     hasText(insuranceCrosswalk?.exceptions) ||
     draft.locations.some(
-      (location) => location.insuranceVaries || hasText(location.insuranceNotes)
+      (location) => location.insuranceVaries || hasText(location.insuranceNotes),
     );
   const knowledgeBaseComplete =
     hasText(knowledgeBase?.commonQuestions) ||
@@ -260,10 +264,11 @@ function buildSnapshotFromPractice(practice: LoadedPractice): PracticeWorkspaceS
     hasText(knowledgeBase?.scopeSummary) ||
     hasText(insuranceCrosswalk?.transferRules) ||
     draft.locations.some(
-      (location) => location.knowledgeVaries || hasText(location.knowledgeNotes)
+      (location) => location.knowledgeVaries || hasText(location.knowledgeNotes),
     );
 
   return {
+    branding: getPracticeBranding(practice),
     draft,
     insuranceCrosswalkComplete,
     knowledgeBaseComplete,
@@ -304,9 +309,7 @@ export async function hasPracticeWorkspaceTables() {
   }
 
   try {
-    const [row] = await prisma.$queryRawUnsafe<
-      Array<Record<string, string | null>>
-    >(
+    const [row] = await prisma.$queryRawUnsafe<Array<Record<string, string | null>>>(
       `SELECT
         to_regclass('public.practice')::text AS practice,
         to_regclass('public.practice_membership')::text AS practice_membership,
@@ -314,7 +317,7 @@ export async function hasPracticeWorkspaceTables() {
         to_regclass('public.practice_provider')::text AS practice_provider,
         to_regclass('public.practice_knowledge_base')::text AS practice_knowledge_base,
         to_regclass('public.practice_insurance_crosswalk')::text AS practice_insurance_crosswalk,
-        to_regclass('public.practice_website_scan')::text AS practice_website_scan`
+        to_regclass('public.practice_website_scan')::text AS practice_website_scan`,
     );
 
     workspaceTablesAvailable = Object.values(row || {}).every(Boolean);
@@ -382,7 +385,9 @@ async function syncPracticeOnboardingStatus(practiceId: string) {
   await prisma.practice.update({
     data: {
       launchReadyAt:
-        onboardingStatus === "READY_TO_LAUNCH" ? practice.launchReadyAt || new Date() : null,
+        onboardingStatus === "READY_TO_LAUNCH"
+          ? practice.launchReadyAt || new Date()
+          : null,
       onboardingStatus,
     },
     where: {
@@ -400,7 +405,7 @@ async function upsertPrimaryLocation(
     hoursSummary: string;
     name: string;
     phone: string;
-  }>
+  }>,
 ) {
   if (!Object.values(values).some(Boolean)) {
     return null;
@@ -451,7 +456,7 @@ function buildInsuranceLocationOverrides(locations: PracticeLocationDraft[]) {
     .filter(
       (location) =>
         hasText(location.locationName) &&
-        (location.insuranceVaries || hasText(location.insuranceNotes))
+        (location.insuranceVaries || hasText(location.insuranceNotes)),
     )
     .map((location) => ({
       insuranceNotes: location.insuranceNotes,
@@ -466,7 +471,7 @@ function buildKnowledgeLocationOverrides(locations: PracticeLocationDraft[]) {
     .filter(
       (location) =>
         hasText(location.locationName) &&
-        (location.knowledgeVaries || hasText(location.knowledgeNotes))
+        (location.knowledgeVaries || hasText(location.knowledgeNotes)),
     )
     .map((location) => ({
       knowledgeNotes: location.knowledgeNotes,
@@ -478,7 +483,7 @@ function buildKnowledgeLocationOverrides(locations: PracticeLocationDraft[]) {
 
 async function persistLocationOverrides(
   practiceId: string,
-  locations: PracticeLocationDraft[]
+  locations: PracticeLocationDraft[],
 ) {
   const insuranceOverrides = buildInsuranceLocationOverrides(locations);
   const knowledgeOverrides = buildKnowledgeLocationOverrides(locations);
@@ -520,10 +525,10 @@ async function persistLocationOverrides(
 
 async function upsertPracticeLocations(
   practiceId: string,
-  locations: PracticeLocationDraft[]
+  locations: PracticeLocationDraft[],
 ) {
   const submittedLocations = locations.filter((location) =>
-    hasText(location.locationName)
+    hasText(location.locationName),
   );
 
   if (!submittedLocations.length) {
@@ -597,7 +602,7 @@ async function upsertPracticeLocations(
 async function syncPracticePhoneNumbers(
   practiceId: string,
   locations: PracticeLocationDraft[],
-  removedLocationIds: string[]
+  removedLocationIds: string[],
 ) {
   if (removedLocationIds.length) {
     await prisma.practicePhoneNumber.deleteMany({
@@ -639,10 +644,10 @@ async function syncPracticePhoneNumbers(
       locationId: location.id,
     };
     const existingForPhone = existingPhoneNumbers.find(
-      (phone) => phone.phoneNumber === phoneNumber
+      (phone) => phone.phoneNumber === phoneNumber,
     );
     const existingForLocation = existingPhoneNumbers.find(
-      (phone) => phone.locationId === location.id
+      (phone) => phone.locationId === location.id,
     );
 
     if (existingForPhone) {
@@ -688,7 +693,7 @@ async function upsertPrimaryProvider(
     schedulingNotes: string;
     specialtySummary: string;
     speechAliases: string[];
-  }>
+  }>,
 ) {
   if (!values.displayName) {
     return null;
@@ -721,7 +726,7 @@ async function upsertPrimaryProvider(
         specialtySummary: values.specialtySummary ?? existing.specialtySummary,
         speechAliases: values.speechAliases?.length
           ? values.speechAliases
-          : existing.speechAliases ?? undefined,
+          : (existing.speechAliases ?? undefined),
       },
       where: {
         id: existing.id,
@@ -790,7 +795,7 @@ export async function getPracticeWorkspaceSnapshotForUser(user: PracticeWorkspac
 
 export async function persistWebsiteScanForUser(
   user: PracticeWorkspaceUser,
-  scanResult: PracticeWebsiteScanResult
+  scanResult: PracticeWebsiteScanResult,
 ) {
   if (!(await hasPracticeWorkspaceTables())) {
     return;
@@ -888,7 +893,7 @@ export async function persistPracticeBasicsForUser(
     locations: PracticeLocationDraft[];
     phone: string;
     practiceName: string;
-  }
+  },
 ) {
   if (!(await hasPracticeWorkspaceTables())) {
     return;
@@ -921,7 +926,7 @@ export async function persistPracticeBasicsForUser(
             locationName: input.locationName,
             phone: input.phone,
           },
-        ]
+        ],
   );
 
   await persistLocationOverrides(practice.id, savedLocations);
@@ -933,7 +938,7 @@ export async function persistProviderSetupForUser(
   user: PracticeWorkspaceUser,
   input: {
     providers: PracticeProviderDraft[];
-  }
+  },
 ) {
   if (!(await hasPracticeWorkspaceTables())) {
     return;
@@ -941,7 +946,7 @@ export async function persistProviderSetupForUser(
 
   const practice = await ensurePracticeForUser(user);
   const submittedProviders = input.providers.filter((provider) =>
-    hasText(provider.providerName)
+    hasText(provider.providerName),
   );
 
   if (!submittedProviders.length) {
@@ -967,7 +972,7 @@ export async function persistProviderSetupForUser(
   for (const [index, provider] of submittedProviders.entries()) {
     const location = await findOrCreateProviderLocation(
       practice.id,
-      provider.providerLocation
+      provider.providerLocation,
     );
     const existingProvider =
       (provider.id &&
@@ -1026,7 +1031,7 @@ export async function persistKnowledgeBaseForUser(
     knowledgeLocationRules?: PracticeLocationDraft[];
     knowledgeOfficePolicies: string;
     knowledgePhrases: string;
-  }
+  },
 ) {
   if (!(await hasPracticeWorkspaceTables())) {
     return;
@@ -1043,7 +1048,7 @@ export async function persistKnowledgeBaseForUser(
       operationalNotes: input.knowledgeLocationRules
         ? {
             locationOverrides: buildKnowledgeLocationOverrides(
-              input.knowledgeLocationRules
+              input.knowledgeLocationRules,
             ),
           }
         : undefined,
@@ -1058,7 +1063,7 @@ export async function persistKnowledgeBaseForUser(
       operationalNotes: input.knowledgeLocationRules
         ? {
             locationOverrides: buildKnowledgeLocationOverrides(
-              input.knowledgeLocationRules
+              input.knowledgeLocationRules,
             ),
           }
         : undefined,
@@ -1079,7 +1084,7 @@ export async function persistInsuranceCrosswalkForUser(
     insuranceExceptions: string;
     insuranceLocationRules?: PracticeLocationDraft[];
     insuranceTransferRules: string;
-  }
+  },
 ) {
   if (!(await hasPracticeWorkspaceTables())) {
     return;
@@ -1094,7 +1099,7 @@ export async function persistInsuranceCrosswalkForUser(
       planRules: input.insuranceLocationRules
         ? {
             locationOverrides: buildInsuranceLocationOverrides(
-              input.insuranceLocationRules
+              input.insuranceLocationRules,
             ),
           }
         : undefined,
@@ -1107,7 +1112,7 @@ export async function persistInsuranceCrosswalkForUser(
       planRules: input.insuranceLocationRules
         ? {
             locationOverrides: buildInsuranceLocationOverrides(
-              input.insuranceLocationRules
+              input.insuranceLocationRules,
             ),
           }
         : undefined,

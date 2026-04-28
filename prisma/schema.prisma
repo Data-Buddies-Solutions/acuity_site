@@ -119,31 +119,60 @@ enum UsageCostCategory {
   OTHER
 }
 
+enum CallCenterProvider {
+  TELNYX
+}
+
+enum CallCenterSessionDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+  UNKNOWN
+}
+
+enum CallCenterSessionStatus {
+  RINGING
+  ACTIVE
+  COMPLETED
+  MISSED
+  VOICEMAIL
+  FAILED
+}
+
 enum WebsiteScanStatus {
   SUCCESS
   FAILED
 }
 
 model Practice {
-  id                 String                      @id @default(cuid())
-  name               String
-  websiteUrl         String?
-  onboardingStatus   PracticeOnboardingStatus    @default(WEBSITE_PENDING)
-  practiceType       PracticeType                @default(OTHER)
-  launchReadyAt      DateTime?
-  launchedAt         DateTime?
-  createdAt          DateTime                    @default(now())
-  updatedAt          DateTime                    @updatedAt
-  agentCalls         AgentCall[]
-  agents             PracticeAgent[]
-  costLineItems      UsageCostLineItem[]
-  insuranceCrosswalk PracticeInsuranceCrosswalk?
-  knowledgeBase      PracticeKnowledgeBase?
-  locations          PracticeLocation[]
-  memberships        PracticeMembership[]
-  phoneNumbers       PracticePhoneNumber[]
-  providers          PracticeProvider[]
-  websiteScans       PracticeWebsiteScan[]
+  id                   String                      @id @default(cuid())
+  name                 String
+  websiteUrl           String?
+  brandLogoUrl         String?
+  brandLogoAlt         String?
+  brandMarkUrl         String?
+  brandPrimaryColor    String?
+  brandAccentColor     String?
+  onboardingStatus     PracticeOnboardingStatus    @default(WEBSITE_PENDING)
+  practiceType         PracticeType                @default(OTHER)
+  launchReadyAt        DateTime?
+  launchedAt           DateTime?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  agentCalls           AgentCall[]
+  agents               PracticeAgent[]
+  callCenterMissed     CallCenterMissedCall[]
+  callCenterSessions   CallCenterSession[]
+  callCenterSettings   PracticeCallCenterSettings?
+  callCenterVoicemails CallCenterVoicemail[]
+  costLineItems        UsageCostLineItem[]
+  insuranceCrosswalk   PracticeInsuranceCrosswalk?
+  knowledgeBase        PracticeKnowledgeBase?
+  locations            PracticeLocation[]
+  memberships          PracticeMembership[]
+  phoneNumbers         PracticePhoneNumber[]
+  providers            PracticeProvider[]
+  websiteScans         PracticeWebsiteScan[]
 
   @@map("practice")
 }
@@ -186,51 +215,53 @@ model PracticePhoneNumber {
 }
 
 model AgentCall {
-  id                   String              @id @default(cuid())
+  id                   String                 @id @default(cuid())
   practiceId           String
   locationId           String?
   agentId              String?
-  callId               String              @unique
+  callId               String                 @unique
   callerPhone          String
   officePhone          String
-  status               AgentCallStatus     @default(COMPLETED)
-  startedAt            DateTime            @default(now())
+  status               AgentCallStatus        @default(COMPLETED)
+  startedAt            DateTime               @default(now())
   endedAt              DateTime?
-  durationSec          Int                 @default(0)
-  transferred          Boolean             @default(false)
-  bookedAppointment    Boolean             @default(false)
-  confirmedAppointment Boolean             @default(false)
-  cancelledAppointment Boolean             @default(false)
-  needsReview          Boolean             @default(false)
+  durationSec          Int                    @default(0)
+  transferred          Boolean                @default(false)
+  bookedAppointment    Boolean                @default(false)
+  confirmedAppointment Boolean                @default(false)
+  cancelledAppointment Boolean                @default(false)
+  needsReview          Boolean                @default(false)
   reviewStatus         String?
   reviewAverageScore   Float?
   reviewResult         Json?
   llmModel             String?
-  fallbackUsed         Boolean             @default(false)
-  totalTurns           Int                 @default(0)
-  inputTokens          Int                 @default(0)
-  outputTokens         Int                 @default(0)
-  cachedTokens         Int                 @default(0)
-  ttsChars             Int                 @default(0)
-  toolCalls            Int                 @default(0)
-  toolErrors           Int                 @default(0)
-  avgTtft              Float               @default(0)
-  avgTtsttfb           Float               @default(0)
-  cacheHitRate         Float               @default(0)
-  peakContext          Int                 @default(0)
-  avgTokensPerSec      Float               @default(0)
-  interruptionCount    Int                 @default(0)
-  estimatedCostMicros  Int                 @default(0)
+  fallbackUsed         Boolean                @default(false)
+  totalTurns           Int                    @default(0)
+  inputTokens          Int                    @default(0)
+  outputTokens         Int                    @default(0)
+  cachedTokens         Int                    @default(0)
+  ttsChars             Int                    @default(0)
+  toolCalls            Int                    @default(0)
+  toolErrors           Int                    @default(0)
+  avgTtft              Float                  @default(0)
+  avgTtsttfb           Float                  @default(0)
+  cacheHitRate         Float                  @default(0)
+  peakContext          Int                    @default(0)
+  avgTokensPerSec      Float                  @default(0)
+  interruptionCount    Int                    @default(0)
+  estimatedCostMicros  Int                    @default(0)
   outcomeSummary       String?
-  latencyValues        Json                @default("{}")
+  latencyValues        Json                   @default("{}")
   data                 Json?
   audioData            Bytes?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  agent                PracticeAgent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  agent                PracticeAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  callCenterMissed     CallCenterMissedCall[]
+  callCenterSessions   CallCenterSession[]
   costLineItems        UsageCostLineItem[]
-  location             PracticeLocation?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  practice             Practice            @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  location             PracticeLocation?      @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice             Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
 
   @@index([practiceId, startedAt])
   @@index([practiceId, needsReview])
@@ -282,21 +313,24 @@ model PracticeMembership {
 }
 
 model PracticeLocation {
-  id           String                @id @default(cuid())
-  practiceId   String
-  name         String
-  address      String?
-  phone        String?
-  fax          String?
-  email        String?
-  hoursSummary String?
-  isPrimary    Boolean               @default(false)
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
-  agentCalls   AgentCall[]
-  phoneNumbers PracticePhoneNumber[]
-  practice     Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  providers    PracticeProvider[]
+  id                   String                 @id @default(cuid())
+  practiceId           String
+  name                 String
+  address              String?
+  phone                String?
+  fax                  String?
+  email                String?
+  hoursSummary         String?
+  isPrimary            Boolean                @default(false)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  agentCalls           AgentCall[]
+  callCenterMissed     CallCenterMissedCall[]
+  callCenterSessions   CallCenterSession[]
+  callCenterVoicemails CallCenterVoicemail[]
+  phoneNumbers         PracticePhoneNumber[]
+  practice             Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  providers            PracticeProvider[]
 
   @@index([practiceId])
   @@map("practice_location")
@@ -376,4 +410,115 @@ model PracticeWebsiteScan {
 
   @@index([practiceId, scannedAt])
   @@map("practice_website_scan")
+}
+
+model PracticeCallCenterSettings {
+  id                   String             @id @default(cuid())
+  practiceId           String             @unique
+  enabled              Boolean            @default(false)
+  provider             CallCenterProvider @default(TELNYX)
+  telnyxConnectionId   String?
+  telnyxCredentialId   String?
+  inboundPhoneNumber   String?
+  outboundCallerNumber String?
+  voicemailGreeting    String             @default("Please leave a message after the beep.")
+  voicemailTimeoutSec  Int                @default(10)
+  recordingEnabled     Boolean            @default(true)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  practice             Practice           @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([enabled])
+  @@index([enabled, inboundPhoneNumber])
+  @@index([enabled, outboundCallerNumber])
+  @@index([enabled, telnyxConnectionId])
+  @@map("practice_call_center_settings")
+}
+
+model CallCenterSession {
+  id                  String                     @id @default(cuid())
+  practiceId          String
+  locationId          String?
+  agentCallId         String?
+  provider            CallCenterProvider         @default(TELNYX)
+  telnyxCallControlId String?                    @unique
+  telnyxCallSessionId String?
+  direction           CallCenterSessionDirection @default(UNKNOWN)
+  status              CallCenterSessionStatus    @default(RINGING)
+  fromPhone           String?
+  toPhone             String?
+  callerName          String?
+  startedAt           DateTime                   @default(now())
+  answeredAt          DateTime?
+  endedAt             DateTime?
+  metadata            Json?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  agentCall           AgentCall?                 @relation(fields: [agentCallId], references: [id], onDelete: SetNull)
+  location            PracticeLocation?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  missedCalls         CallCenterMissedCall[]
+  practice            Practice                   @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  voicemails          CallCenterVoicemail[]
+
+  @@index([practiceId, startedAt])
+  @@index([practiceId, status])
+  @@index([locationId])
+  @@index([agentCallId])
+  @@index([telnyxCallSessionId])
+  @@map("call_center_session")
+}
+
+model CallCenterMissedCall {
+  id          String                @id @default(cuid())
+  practiceId  String
+  locationId  String?
+  sessionId   String?
+  agentCallId String?
+  fromPhone   String
+  callerName  String?
+  calledBack  Boolean               @default(false)
+  resolvedAt  DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  agentCall   AgentCall?            @relation(fields: [agentCallId], references: [id], onDelete: SetNull)
+  location    PracticeLocation?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice    Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  session     CallCenterSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  voicemails  CallCenterVoicemail[]
+
+  @@index([practiceId, calledBack, createdAt])
+  @@index([practiceId, fromPhone])
+  @@index([locationId])
+  @@index([sessionId])
+  @@index([agentCallId])
+  @@map("call_center_missed_call")
+}
+
+model CallCenterVoicemail {
+  id           String                @id @default(cuid())
+  practiceId   String
+  locationId   String?
+  sessionId    String?
+  missedCallId String?
+  fromPhone    String
+  callerName   String?
+  recordingUrl String
+  recordingId  String                @unique
+  durationSec  Int                   @default(0)
+  listenedAt   DateTime?
+  resolvedAt   DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  location     PracticeLocation?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  missedCall   CallCenterMissedCall? @relation(fields: [missedCallId], references: [id], onDelete: SetNull)
+  practice     Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  session      CallCenterSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([practiceId, createdAt])
+  @@index([practiceId, resolvedAt])
+  @@index([practiceId, fromPhone])
+  @@index([locationId])
+  @@index([sessionId])
+  @@index([missedCallId])
+  @@map("call_center_voicemail")
 }

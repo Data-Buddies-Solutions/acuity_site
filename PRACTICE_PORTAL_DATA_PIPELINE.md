@@ -10,12 +10,20 @@ Current core tables:
 - `PracticeKnowledgeBase`, `PracticeInsuranceCrosswalk`
 - `PracticeAgent`, `PracticePhoneNumber`
 - `AgentCall`, `UsageCostLineItem`
+- `PracticeCallCenterSettings`, `CallCenterSession`, `CallCenterMissedCall`, `CallCenterVoicemail`
+
+Practice branding is stored directly on `Practice`:
+
+- `brandLogoUrl`, `brandLogoAlt`, `brandMarkUrl`
+- `brandPrimaryColor`, `brandAccentColor`
+
+Logos should be stable hosted assets, preferably Vercel Blob URLs. Next.js image loading is configured for `*.public.blob.vercel-storage.com`.
 
 The customer portal should read from these tables and show practice-value metrics. The internal admin portal can expose technical diagnostics, latency, raw payloads, review results, and costs.
 
 ## Current State
 
-The portal now has two call data paths:
+The portal now has four practice data paths:
 
 1. Historical bridge from `call-analytics`
    - `scripts/import-abita-analytics.mjs` reads the sibling `../call-analytics` database.
@@ -28,7 +36,25 @@ The portal now has two call data paths:
    - This endpoint normalizes both legacy call-summary payloads and the current LiveKit observability payload shape (`usage`, `llmMetrics`, `turnMetrics`, `sessionReport`) into `AgentCall` and estimated `UsageCostLineItem` rows.
    - It resolves the practice by explicit `practiceId` or by `officePhone` through `PracticePhoneNumber`.
 
+3. Practice opt-in Telnyx call center
+   - `/portal/app/call-center`
+   - `POST /api/telnyx/webhooks`
+   - Enabled practices get a browser WebRTC softphone, active-session counts, missed-call callback queue, and voicemail inbox.
+   - Telnyx webhooks are verified with `TELNYX_PUBLIC_KEY` and scoped to enabled `PracticeCallCenterSettings` rows. Inbound webhooks resolve by the practice-owned `to` number; outbound webhooks resolve by the practice-owned `from` number.
+   - Connection-ID fallback is intentionally conservative. It only applies when a webhook has no usable practice phone number and exactly one enabled settings row matches the connection. If a phone number is present but does not match a configured practice number, the event is ignored instead of being attributed by shared connection ID.
+   - Telnyx runtime defaults can come from env vars while per-practice overrides live in `PracticeCallCenterSettings`.
+   - Open queue KPIs use database counts, while the page lists the latest 20 unresolved missed calls and voicemails.
+
+4. Practice branding
+   - `Practice` owns customer branding fields, not cookies or local assets.
+   - Portal shell, overview, and call center render the practice logo when `brandLogoUrl` is set.
+   - Use `scripts/set-practice-branding.mjs <user-email> <logo-url> [logo-alt] [primary-color] [accent-color] [mark-url]` to update a practice row.
+
+The current Abita demo row for `demo@acuity.local` is configured with the Abita Eye Group Vercel Blob logo, primary/accent colors, and call-center settings for the 727 caller/inbound number.
+
 If the live agent is not posting to `/api/livekit/calls` yet, the portal is not fully live from the agent. It is either showing imported data or any calls posted directly to the new endpoint.
+
+If inbound calls should pop in `/portal/app/call-center`, Telnyx must route the practice number to the WebRTC credential/connection used by the portal softphone, the staff browser must be signed in with the page open, and the deployed app must expose `POST /api/telnyx/webhooks`. Localhost can place/receive browser WebRTC calls only when Telnyx can reach the configured route or the number is routed directly to the registered WebRTC client.
 
 ## Target Live Flow
 
@@ -71,6 +97,18 @@ Practice-facing pages should stay operational and non-technical:
 
 Raw payloads, latency traces, token costs, model fallback, and tool debugging belong in `/admin`.
 
+## Call Center Model
+
+The practice-owned call center is intentionally opt-in per practice.
+
+- `PracticeCallCenterSettings` stores enablement, provider, Telnyx connection/credential IDs, inbound number, caller ID, voicemail greeting, and recording behavior.
+- `CallCenterSession` stores live Telnyx call session state and links to `AgentCall` when client state provides a matching call ID.
+- `CallCenterMissedCall` stores unresolved callback work.
+- `CallCenterVoicemail` stores recording metadata and listened/resolved state.
+- `PracticePhoneNumber` remains the routing bridge for phone-to-practice ownership and should contain every live office/call-center number.
+
+For scale, webhook lookup indexes exist on enabled settings by inbound number, outbound caller number, and Telnyx connection ID. Do not rely on shared connection ID as the primary tenant boundary; phone number ownership or explicit `practiceId` should be the durable routing signal.
+
 ## Vendor Cost Model
 
 Admin cost estimates use the current vendor-rate calculator in `lib/pricing.ts`:
@@ -91,8 +129,9 @@ The admin analytics Costs tab shows total estimated vendor cost, cost per call, 
 2. Point the live agent at `POST /api/livekit/calls`.
 3. Add a portal review worker that updates `AgentCall` directly.
 4. Backfill enough historical calls into `AgentCall` for demo and trend continuity.
-5. Move admin call detail and analytics fully onto portal tables.
-6. Stop relying on `call-analytics` once ingestion, review updates, and admin views are stable.
+5. Manage practice call-center settings and branding from admin UI instead of scripts.
+6. Move admin call detail and analytics fully onto portal tables.
+7. Stop relying on `call-analytics` once ingestion, review updates, and admin views are stable.
 
 ## Immediate Next Actions
 
@@ -103,3 +142,6 @@ The admin analytics Costs tab shows total estimated vendor cost, cost per call, 
 5. Move the review worker output into `AgentCall.reviewResult`.
 6. Add a small ingestion smoke test that posts a fixture payload and verifies the portal overview updates.
 7. Add customer-facing call outcome fields if appointment review needs more structured data than tool payload parsing can provide.
+8. Configure each call-center practice with Telnyx connection, credential, inbound, caller-ID, and `PracticePhoneNumber` values before enabling staff softphone access.
+9. Deploy the Telnyx webhook route before expecting public inbound events to update call-center queues.
+10. Add admin screens for branding and call-center settings so production operators do not need direct DB scripts.

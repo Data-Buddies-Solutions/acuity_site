@@ -1,5 +1,6 @@
 import { getAuthSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
 
 export type PortalBookedAppointment = {
   appointmentId: string | null;
@@ -16,6 +17,7 @@ export type PortalBookedAppointment = {
 export type PortalOverviewMetrics = {
   averageCallDurationSec: number;
   bookedAppointments: PortalBookedAppointment[];
+  branding: PracticeBranding;
   practiceName: string;
   range: PortalOverviewRange;
   totalCallMinutes: number;
@@ -156,13 +158,11 @@ function extractBookedAppointment(call: {
 }): PortalBookedAppointment {
   const turns = getTurns(call.data);
   const availabilityMatches: AvailabilityMatch[] = [];
-  let booking:
-    | {
-        args: Record<string, unknown> | null;
-        result: Record<string, unknown> | null;
-        turnAgentText: string | null;
-      }
-    | null = null;
+  let booking: {
+    args: Record<string, unknown> | null;
+    result: Record<string, unknown> | null;
+    turnAgentText: string | null;
+  } | null = null;
 
   for (const turn of turns) {
     const toolCalls = Array.isArray(turn.toolCalls) ? turn.toolCalls : [];
@@ -227,6 +227,11 @@ export async function getPortalOverviewMetrics(
     include: {
       practice: {
         select: {
+          brandAccentColor: true,
+          brandLogoAlt: true,
+          brandLogoUrl: true,
+          brandMarkUrl: true,
+          brandPrimaryColor: true,
           id: true,
           name: true,
         },
@@ -248,46 +253,49 @@ export async function getPortalOverviewMetrics(
     ...(rangeStart ? { startedAt: { gte: rangeStart } } : {}),
   };
 
-  const [callCount, transferredCalls, durationAggregate, bookedCalls] = await Promise.all([
-    prisma.agentCall.count({
-      where: callWhere,
-    }),
-    prisma.agentCall.count({
-      where: {
-        ...callWhere,
-        transferred: true,
-      },
-    }),
-    prisma.agentCall.aggregate({
-      _sum: {
-        durationSec: true,
-      },
-      where: callWhere,
-    }),
-    prisma.agentCall.findMany({
-      orderBy: {
-        startedAt: "desc",
-      },
-      select: {
-        callerPhone: true,
-        data: true,
-        id: true,
-        outcomeSummary: true,
-        startedAt: true,
-      },
-      take: 8,
-      where: {
-        ...callWhere,
-        bookedAppointment: true,
-      },
-    }),
-  ]);
+  const [callCount, transferredCalls, durationAggregate, bookedCalls] = await Promise.all(
+    [
+      prisma.agentCall.count({
+        where: callWhere,
+      }),
+      prisma.agentCall.count({
+        where: {
+          ...callWhere,
+          transferred: true,
+        },
+      }),
+      prisma.agentCall.aggregate({
+        _sum: {
+          durationSec: true,
+        },
+        where: callWhere,
+      }),
+      prisma.agentCall.findMany({
+        orderBy: {
+          startedAt: "desc",
+        },
+        select: {
+          callerPhone: true,
+          data: true,
+          id: true,
+          outcomeSummary: true,
+          startedAt: true,
+        },
+        take: 8,
+        where: {
+          ...callWhere,
+          bookedAppointment: true,
+        },
+      }),
+    ],
+  );
 
   const totalDurationSec = durationAggregate._sum.durationSec ?? 0;
 
   return {
     averageCallDurationSec: callCount > 0 ? totalDurationSec / callCount : 0,
     bookedAppointments: bookedCalls.map(extractBookedAppointment),
+    branding: getPracticeBranding(membership.practice),
     practiceName: membership.practice.name,
     range,
     totalCallMinutes: totalDurationSec / 60,
