@@ -2,13 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import {
-  AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Check,
-} from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -145,7 +139,7 @@ function getSortValue(call: AdminCallTableRow, key: SortKey) {
     case "durationSec":
       return call.durationSec;
     case "review":
-      return call.reviewNeedsAttention ? 1 : call.reviewAverageScore ?? -1;
+      return call.reviewNeedsAttention ? 1 : (call.reviewAverageScore ?? -1);
     case "startedAt":
       return new Date(call.startedAt).getTime();
     case "totalLatency":
@@ -408,11 +402,7 @@ export function CallsTable({
                   </SortButton>
                 </TableHead>
                 <TableHead>
-                  <SortButton
-                    sortKey="actions"
-                    sortState={sortState}
-                    onSort={handleSort}
-                  >
+                  <SortButton sortKey="actions" sortState={sortState} onSort={handleSort}>
                     Actions
                   </SortButton>
                 </TableHead>
@@ -467,9 +457,7 @@ export function CallsTable({
                       {call.p50Ttft > 0 ? formatLatencyMs(call.p50Ttft) : "--"}
                     </TableCell>
                     <TableCell>
-                      {call.p50Ttsttfb > 0
-                        ? formatLatencyMs(call.p50Ttsttfb)
-                        : "--"}
+                      {call.p50Ttsttfb > 0 ? formatLatencyMs(call.p50Ttsttfb) : "--"}
                     </TableCell>
                     <TableCell>
                       {call.p50TotalLatency > 0
@@ -542,9 +530,7 @@ export function CallsTable({
             </Button>
             <Button
               variant="outline"
-              onClick={() =>
-                setPage((current) => Math.min(pageCount - 1, current + 1))
-              }
+              onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
               disabled={pageIndex >= pageCount - 1}
             >
               Next

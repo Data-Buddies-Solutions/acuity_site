@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import {
-  CallIngestionError,
-  ingestLiveKitCallPayload,
-} from "@/lib/call-ingestion";
+import { CallIngestionError, ingestLiveKitCallPayload } from "@/lib/call-ingestion";
 import type { LiveKitWebhookPayload } from "@/lib/call-types";
 
 export const dynamic = "force-dynamic";
@@ -50,16 +47,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     if (error instanceof CallIngestionError) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: error.status },
-      );
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
     console.error("[livekit-call-ingestion] Failed to store call", error);
-    return NextResponse.json(
-      { error: "Failed to store call" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to store call" }, { status: 500 });
   }
 }

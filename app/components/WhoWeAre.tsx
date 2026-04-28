@@ -35,7 +35,7 @@ export default function WhoWeAre() {
       ([entry]) => {
         if (entry.isIntersecting) setIsVisible(true);
       },
-      { threshold: 0.15 }
+      { threshold: 0.15 },
     );
     if (sectionRef.current) observer.observe(sectionRef.current);
     return () => observer.disconnect();
@@ -56,13 +56,25 @@ export default function WhoWeAre() {
               <div className="relative z-10 flex flex-col items-center justify-center h-full text-center px-8">
                 {/* Eye care themed placeholder content */}
                 <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    className="text-accent"
+                  >
                     <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
                 </div>
-                <p className="text-sm font-medium text-accent/80">Photo: Eye care practice in action</p>
-                <p className="text-xs text-accent/50 mt-1">Replace with real practice photography</p>
+                <p className="text-sm font-medium text-accent/80">
+                  Photo: Eye care practice in action
+                </p>
+                <p className="text-xs text-accent/50 mt-1">
+                  Replace with real practice photography
+                </p>
               </div>
             </div>
 
@@ -89,7 +101,9 @@ export default function WhoWeAre() {
                 isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
               }`}
             >
-              <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">Why Acuity Health</p>
+              <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
+                Why Acuity Health
+              </p>
               <h2 className="text-3xl md:text-4xl font-semibold tracking-tight leading-[1.15]">
                 We only build for eye care.
                 <span className="text-muted-foreground"> And it shows.</span>
@@ -105,8 +119,12 @@ export default function WhoWeAre() {
                   }`}
                   style={{ transitionDelay: `${200 + i * 100}ms` }}
                 >
-                  <h3 className="text-base font-semibold text-neutral-900 mb-1">{reason.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{reason.description}</p>
+                  <h3 className="text-base font-semibold text-neutral-900 mb-1">
+                    {reason.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {reason.description}
+                  </p>
                 </div>
               ))}
             </div>

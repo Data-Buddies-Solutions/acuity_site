@@ -21,15 +21,18 @@ export default async function PortalPostCallAnalyticsPage() {
       queueItems={[
         {
           label: "Booked appointments",
-          description: "Show who booked, when they booked, and the appointment details staff should verify.",
+          description:
+            "Show who booked, when they booked, and the appointment details staff should verify.",
         },
         {
           label: "Escalations",
-          description: "Track transfers, callbacks, and unresolved handoffs that need staff follow-up.",
+          description:
+            "Track transfers, callbacks, and unresolved handoffs that need staff follow-up.",
         },
         {
           label: "Practice value",
-          description: "Track calls handled, peak call times, staff time saved, and call outcomes.",
+          description:
+            "Track calls handled, peak call times, staff time saved, and call outcomes.",
         },
       ]}
       statusDescription="The route is wired into the live portal. The overview now carries the first live value metrics while this deeper outcomes view is built."

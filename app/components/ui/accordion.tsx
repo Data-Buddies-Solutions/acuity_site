@@ -27,7 +27,7 @@ const AccordionTrigger = React.forwardRef<
       ref={ref}
       className={cn(
         "flex flex-1 items-center justify-between py-4 text-left text-base font-medium transition-all hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-        className
+        className,
       )}
       {...props}
     >
@@ -53,4 +53,3 @@ const AccordionContent = React.forwardRef<
 AccordionContent.displayName = AccordionPrimitive.Content.displayName;
 
 export { Accordion, AccordionContent, AccordionItem, AccordionTrigger };
-

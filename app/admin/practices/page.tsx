@@ -5,13 +5,7 @@ import { formatCostMicros } from "@/lib/admin-format";
 
 export const dynamic = "force-dynamic";
 
-function StatTile({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function StatTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-black/6 bg-white px-4 py-3">
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#748588]">
@@ -27,10 +21,18 @@ function StatTile({
 export default async function AdminPracticesPage() {
   const practices = await getAdminPracticeSummaries();
   const liveCount = practices.filter((practice) => Boolean(practice.launchedAt)).length;
-  const activeAgentCount = practices.filter((practice) => practice.agentStatus === "ACTIVE").length;
+  const activeAgentCount = practices.filter(
+    (practice) => practice.agentStatus === "ACTIVE",
+  ).length;
   const calls24h = practices.reduce((sum, practice) => sum + practice.calls24h, 0);
-  const cost7dMicros = practices.reduce((sum, practice) => sum + practice.cost7dMicros, 0);
-  const attentionCount = practices.reduce((sum, practice) => sum + practice.needsReviewCount, 0);
+  const cost7dMicros = practices.reduce(
+    (sum, practice) => sum + practice.cost7dMicros,
+    0,
+  );
+  const attentionCount = practices.reduce(
+    (sum, practice) => sum + practice.needsReviewCount,
+    0,
+  );
 
   return (
     <div className="space-y-6">
@@ -76,8 +78,12 @@ export default async function AdminPracticesPage() {
                       {practice.name}
                     </Link>
                   </td>
-                  <td className="px-5 py-4 font-mono text-[#10272c]">{practice.calls24h}</td>
-                  <td className="px-5 py-4 font-mono text-[#10272c]">{practice.calls7d}</td>
+                  <td className="px-5 py-4 font-mono text-[#10272c]">
+                    {practice.calls24h}
+                  </td>
+                  <td className="px-5 py-4 font-mono text-[#10272c]">
+                    {practice.calls7d}
+                  </td>
                   <td className="px-5 py-4 font-mono text-[#10272c]">
                     {formatCostMicros(practice.cost7dMicros)}
                   </td>

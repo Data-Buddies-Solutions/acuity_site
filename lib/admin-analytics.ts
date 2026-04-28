@@ -27,9 +27,7 @@ type CallMetric = {
   transferred: boolean;
 };
 
-type AdminCallRecord = Awaited<
-  ReturnType<typeof loadPracticeCalls>
->[number];
+type AdminCallRecord = Awaited<ReturnType<typeof loadPracticeCalls>>[number];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TIMEZONE = "America/New_York";
@@ -304,9 +302,7 @@ function createPseudoUtcDate(parts: {
   month: number;
   year: number;
 }) {
-  return new Date(
-    Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour ?? 0),
-  );
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour ?? 0));
 }
 
 function getBucketStart(date: Date, granularity: BucketGranularity) {
@@ -333,10 +329,7 @@ function getBucketStart(date: Date, granularity: BucketGranularity) {
   return base;
 }
 
-function getBucketInfoFromStart(
-  start: Date,
-  granularity: BucketGranularity,
-): BucketInfo {
+function getBucketInfoFromStart(start: Date, granularity: BucketGranularity): BucketInfo {
   const year = start.getUTCFullYear();
   const month = String(start.getUTCMonth() + 1).padStart(2, "0");
   const day = String(start.getUTCDate()).padStart(2, "0");
@@ -416,10 +409,7 @@ function createEmptyAnalyticsBucket(): AnalyticsBucketStats {
   };
 }
 
-function percentileDatum(
-  bucket: BucketInfo,
-  values: number[],
-): PercentileTrendDatum {
+function percentileDatum(bucket: BucketInfo, values: number[]): PercentileTrendDatum {
   if (values.length === 0) {
     return {
       label: bucket.label,
@@ -475,9 +465,7 @@ function average(values: number[]) {
 }
 
 function percentile(values: number[], p: number) {
-  const sorted = values
-    .filter((value) => Number.isFinite(value))
-    .sort((a, b) => a - b);
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
 
   if (sorted.length === 0) {
     return 0;
@@ -577,9 +565,7 @@ function getReviewPassed(reviewResult: unknown) {
     : null;
 }
 
-function normalizeReviewStatus(
-  status: string | null,
-): AdminCallTableRow["reviewStatus"] {
+function normalizeReviewStatus(status: string | null): AdminCallTableRow["reviewStatus"] {
   if (status === "pending" || status === "completed" || status === "failed") {
     return status;
   }
@@ -596,9 +582,7 @@ function formatToolAction(name: string) {
     case "cancel_appt":
       return "Cancel";
     default:
-      return name
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (char) => char.toUpperCase());
+      return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
   }
 }
 
@@ -614,9 +598,7 @@ function extractTranscriptText(data: unknown) {
   const sessionReport = isRecord(data.sessionReport) ? data.sessionReport : null;
   const chatHistory = sessionReport?.chat_history;
   const items =
-    isRecord(chatHistory) && Array.isArray(chatHistory.items)
-      ? chatHistory.items
-      : [];
+    isRecord(chatHistory) && Array.isArray(chatHistory.items) ? chatHistory.items : [];
   const sessionMessages = items
     .filter(isRecord)
     .map((item) => {
@@ -875,9 +857,7 @@ function buildPeakTraffic(calls: AdminCallRecord[]) {
   for (const call of calls) {
     const dayIndex = (call.startedAt.getDay() + 6) % 7;
     const hour = call.startedAt.getHours();
-    const cell = grid.find(
-      (item) => item.day === labels[dayIndex] && item.hour === hour,
-    );
+    const cell = grid.find((item) => item.day === labels[dayIndex] && item.hour === hour);
 
     if (cell) {
       cell.calls++;
@@ -1007,7 +987,10 @@ function buildPracticeAnalyticsData(
     for (let index = 0; index < DURATION_BUCKETS.length; index++) {
       const durationBucket = DURATION_BUCKETS[index];
 
-      if (call.durationSec <= durationBucket.max || index === DURATION_BUCKETS.length - 1) {
+      if (
+        call.durationSec <= durationBucket.max ||
+        index === DURATION_BUCKETS.length - 1
+      ) {
         bucketCounts[index]++;
         break;
       }
@@ -1175,9 +1158,7 @@ function buildPracticeAnalyticsData(
       llm: allTtftValues.length > 0 ? percentile(allTtftValues, 50) : null,
       stt: allSttValues.length > 0 ? percentile(allSttValues, 50) : null,
       total:
-        allTotalLatencyValues.length > 0
-          ? percentile(allTotalLatencyValues, 50)
-          : null,
+        allTotalLatencyValues.length > 0 ? percentile(allTotalLatencyValues, 50) : null,
       tts: allTtsValues.length > 0 ? percentile(allTtsValues, 50) : null,
     },
     sttLatencyTrendData: sortedBuckets.map((bucket) =>
@@ -1211,7 +1192,9 @@ function buildPracticeAnalyticsData(
   };
 }
 
-function buildPracticeDashboardData(calls: AdminCallRecord[]): AdminPracticeDashboardData {
+function buildPracticeDashboardData(
+  calls: AdminCallRecord[],
+): AdminPracticeDashboardData {
   let totalDurationSec = 0;
   let totalPeakContext = 0;
   let totalCacheHitRate = 0;
@@ -1620,8 +1603,7 @@ export async function getAdminPracticeDetail(
     (sum, call) => sum + call.estimatedCostMicros,
     0,
   );
-  const appointments =
-    bookedAppointments + confirmedAppointments + cancelledAppointments;
+  const appointments = bookedAppointments + confirmedAppointments + cancelledAppointments;
 
   return {
     agentStatus: getAgentStatus(practice.agents),

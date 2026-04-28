@@ -19,7 +19,8 @@ export default function Footer() {
           <div className="max-w-sm">
             <Logo className="mb-4" />
             <p className="text-sm text-muted-foreground mb-4">
-              Patient engagement for ophthalmology and optometry practices, from first call to follow-up.
+              Patient engagement for ophthalmology and optometry practices, from first
+              call to follow-up.
             </p>
             <Image
               src="/hipaa-badge.webp"

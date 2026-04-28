@@ -93,7 +93,9 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Patient Engagement for Eye Care | Acuity Health",
     description: SITE_CONFIG.description,
-    images: [`${SITE_CONFIG.baseUrl}/api/og?title=Patient Engagement for Eye Care&subtitle=Answer every patient call and keep communication moving.`],
+    images: [
+      `${SITE_CONFIG.baseUrl}/api/og?title=Patient Engagement for Eye Care&subtitle=Answer every patient call and keep communication moving.`,
+    ],
   },
   robots: {
     index: true,

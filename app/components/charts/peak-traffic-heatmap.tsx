@@ -54,11 +54,17 @@ export function PeakTrafficHeatmap({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <div className="inline-grid gap-[2px]" style={{ gridTemplateColumns: `auto repeat(${visibleHours.length}, 1fr)` }}>
+            <div
+              className="inline-grid gap-[2px]"
+              style={{ gridTemplateColumns: `auto repeat(${visibleHours.length}, 1fr)` }}
+            >
               {/* Header row */}
               <div />
               {visibleHours.map((h) => (
-                <div key={h} className="px-1 pb-1 text-center text-[9px] font-medium text-gray-400">
+                <div
+                  key={h}
+                  className="px-1 pb-1 text-center text-[9px] font-medium text-gray-400"
+                >
                   {formatHour(h)}
                 </div>
               ))}

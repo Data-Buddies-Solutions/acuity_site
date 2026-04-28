@@ -19,7 +19,5 @@ export default async function AdminLayout({
 }>) {
   const session = await requireAdminSession();
 
-  return (
-    <AdminShell userEmail={session.user.email}>{children}</AdminShell>
-  );
+  return <AdminShell userEmail={session.user.email}>{children}</AdminShell>;
 }

@@ -191,9 +191,9 @@ function callNeedsReview(call, reviewResult) {
 
   return Boolean(
     reviewResult.passed === false ||
-      reviewResult.labels?.hallucination !== "none" ||
-      reviewResult.labels?.toolPath === "incorrect" ||
-      reviewResult.labels?.resolutionPath === "failed",
+    reviewResult.labels?.hallucination !== "none" ||
+    reviewResult.labels?.toolPath === "incorrect" ||
+    reviewResult.labels?.resolutionPath === "failed",
   );
 }
 
@@ -656,7 +656,13 @@ async function main() {
     let reviewCount = 0;
 
     for (const [index, call] of calls.entries()) {
-      const result = await upsertCall(targetPool, call, practiceId, agentId, locationByPhone);
+      const result = await upsertCall(
+        targetPool,
+        call,
+        practiceId,
+        agentId,
+        locationByPhone,
+      );
       totalCostMicros += result.estimatedCostMicros;
       if (result.needsReview) {
         reviewCount++;

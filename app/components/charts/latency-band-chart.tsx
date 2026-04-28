@@ -1,7 +1,13 @@
 "use client";
 
 import { Area, AreaChart, CartesianGrid, Line, XAxis, YAxis } from "recharts";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { formatLatencyMs } from "@/lib/format";
 
@@ -29,7 +35,9 @@ export function LatencyBandChart({
       </CardHeader>
       <CardContent>
         {!hasData ? (
-          <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">No data available</div>
+          <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
+            No data available
+          </div>
         ) : (
           <ChartContainer config={chartConfig} className="h-[220px] w-full">
             <AreaChart data={data}>
@@ -40,8 +48,19 @@ export function LatencyBandChart({
                 </linearGradient>
               </defs>
               <CartesianGrid vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
-              <YAxis tickFormatter={(value) => `${Math.round(Number(value))}ms`} tickLine={false} axisLine={false} width={54} />
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                minTickGap={24}
+              />
+              <YAxis
+                tickFormatter={(value) => `${Math.round(Number(value))}ms`}
+                tickLine={false}
+                axisLine={false}
+                width={54}
+              />
               <ChartTooltip
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
@@ -57,8 +76,20 @@ export function LatencyBandChart({
                   );
                 }}
               />
-              <Area type="monotone" dataKey="p95" stroke="var(--color-p95)" fill={`url(#${title}-p95)`} strokeWidth={1.5} />
-              <Line type="natural" dataKey="p50" stroke="var(--color-p50)" strokeWidth={2} dot={{ r: 2 }} />
+              <Area
+                type="monotone"
+                dataKey="p95"
+                stroke="var(--color-p95)"
+                fill={`url(#${title}-p95)`}
+                strokeWidth={1.5}
+              />
+              <Line
+                type="natural"
+                dataKey="p50"
+                stroke="var(--color-p50)"
+                strokeWidth={2}
+                dot={{ r: 2 }}
+              />
             </AreaChart>
           </ChartContainer>
         )}

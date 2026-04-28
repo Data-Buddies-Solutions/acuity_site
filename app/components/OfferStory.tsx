@@ -60,37 +60,48 @@ export default function OfferStory() {
             One platform for patient communication and front-desk workflows.
           </h2>
           <p className="mt-5 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-            Acuity brings AI call handling, scheduling workflows, reminders, two-way texting, and
-            analytics into one system built for ophthalmology practices.
+            Acuity brings AI call handling, scheduling workflows, reminders, two-way
+            texting, and analytics into one system built for ophthalmology practices.
           </p>
         </div>
 
         <div className="mt-12 grid gap-6 xl:grid-cols-3">
-          {products.map(({ name, title, description, bullets, icon: Icon, accentClass }) => (
-            <div
-              key={name}
-              className={`rounded-[2rem] border border-neutral-200 p-7 shadow-sm ${accentClass}`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/10">
-                  <Icon className="h-5 w-5 text-accent" />
-                </div>
-                <p className="text-xs font-medium uppercase tracking-widest text-accent">{name}</p>
-              </div>
-
-              <h3 className="mt-5 text-2xl font-semibold tracking-tight text-neutral-900">{title}</h3>
-              <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{description}</p>
-
-              <div className="mt-6 space-y-3">
-                {bullets.map((item) => (
-                  <div key={item} className="flex items-start gap-3 text-sm text-muted-foreground">
-                    <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
-                    <span>{item}</span>
+          {products.map(
+            ({ name, title, description, bullets, icon: Icon, accentClass }) => (
+              <div
+                key={name}
+                className={`rounded-[2rem] border border-neutral-200 p-7 shadow-sm ${accentClass}`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/10">
+                    <Icon className="h-5 w-5 text-accent" />
                   </div>
-                ))}
+                  <p className="text-xs font-medium uppercase tracking-widest text-accent">
+                    {name}
+                  </p>
+                </div>
+
+                <h3 className="mt-5 text-2xl font-semibold tracking-tight text-neutral-900">
+                  {title}
+                </h3>
+                <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                  {description}
+                </p>
+
+                <div className="mt-6 space-y-3">
+                  {bullets.map((item) => (
+                    <div
+                      key={item}
+                      className="flex items-start gap-3 text-sm text-muted-foreground"
+                    >
+                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ),
+          )}
         </div>
       </div>
     </section>

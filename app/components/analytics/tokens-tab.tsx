@@ -24,9 +24,7 @@ export function TokensTab({ data }: { data: AnalyticsData }) {
         <StatCard
           label="Cached Tokens"
           value={
-            data.totalCachedTokens > 0
-              ? data.totalCachedTokens.toLocaleString()
-              : "--"
+            data.totalCachedTokens > 0 ? data.totalCachedTokens.toLocaleString() : "--"
           }
           sub="discounted input"
           size="hero"
@@ -39,23 +37,40 @@ export function TokensTab({ data }: { data: AnalyticsData }) {
         />
         <StatCard
           label="Avg Input Tokens"
-          value={data.totalCalls > 0 ? Math.round(data.totalInputTokens / data.totalCalls).toLocaleString() : "--"}
+          value={
+            data.totalCalls > 0
+              ? Math.round(data.totalInputTokens / data.totalCalls).toLocaleString()
+              : "--"
+          }
           sub="per call"
           size="hero"
         />
         <StatCard
           label="Avg Output Tokens"
-          value={data.totalCalls > 0 ? Math.round(data.totalOutputTokens / data.totalCalls).toLocaleString() : "--"}
+          value={
+            data.totalCalls > 0
+              ? Math.round(data.totalOutputTokens / data.totalCalls).toLocaleString()
+              : "--"
+          }
           sub="per call"
           size="hero"
         />
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <TokenMixTrendChart data={data.tokenTrendData} granularityLabel={data.trendGranularityLabel} />
-        <CacheEfficiencyTrendChart data={data.cacheEfficiencyTrendData} granularityLabel={data.trendGranularityLabel} />
+        <TokenMixTrendChart
+          data={data.tokenTrendData}
+          granularityLabel={data.trendGranularityLabel}
+        />
+        <CacheEfficiencyTrendChart
+          data={data.cacheEfficiencyTrendData}
+          granularityLabel={data.trendGranularityLabel}
+        />
         <div className="md:col-span-2">
-          <PeakContextTrendChart data={data.peakContextTrendData} granularityLabel={data.trendGranularityLabel} />
+          <PeakContextTrendChart
+            data={data.peakContextTrendData}
+            granularityLabel={data.trendGranularityLabel}
+          />
         </div>
       </div>
     </div>

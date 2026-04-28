@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  motion,
-  useAnimationFrame,
-  useMotionValue,
-} from "framer-motion";
+import { motion, useAnimationFrame, useMotionValue } from "framer-motion";
 
 const statusLines = [
   "Mapping locations and providers",
@@ -71,8 +67,7 @@ function LivingLogoDot({ home, index }: { home: LogoDot; index: number }) {
     const openingBreath =
       Math.sin(openingProgress * Math.PI) * (1 - waveIn) * (1 - reformIn);
     const phase = (index / logoDots.length) * Math.PI * 2;
-    const wakeWeight =
-      Math.max(openingBreath, wakeIn * (1 - waveIn)) * (1 - reformIn);
+    const wakeWeight = Math.max(openingBreath, wakeIn * (1 - waveIn)) * (1 - reformIn);
     const wake = {
       x: mix(home.x, 50, openingBreath * 0.16),
       y:
@@ -81,9 +76,7 @@ function LivingLogoDot({ home, index }: { home: LogoDot; index: number }) {
         Math.sin(index * 0.9) * openingBreath * 0.8,
     };
     const voiceLevel =
-      0.58 +
-      Math.sin(turn * 2.2) * 0.18 +
-      Math.sin(turn * 5.7 + index) * 0.12;
+      0.58 + Math.sin(turn * 2.2) * 0.18 + Math.sin(turn * 5.7 + index) * 0.12;
     const waveAmplitude = 19 + voiceLevel * 12;
     const wave = {
       x: 15.5 + index * 11.5 + Math.sin(turn * 3.3 + phase) * 2.5,
@@ -106,8 +99,7 @@ function LivingLogoDot({ home, index }: { home: LogoDot; index: number }) {
       y: mix(wavedPoint.y, home.y - settle, reformIn),
     };
     const liveWeight = Math.max(wakeWeight, waveIn * (1 - reformIn));
-    const waveScale =
-      0.76 + Math.abs(Math.sin(turn * 4.15 + index * 0.86)) * 0.32;
+    const waveScale = 0.76 + Math.abs(Math.sin(turn * 4.15 + index * 0.86)) * 0.32;
     const openingScale = 1 + openingBreath * 0.05;
     const scaleTarget = mix(openingScale, waveScale, waveIn);
     const stagePosition = toStagePosition(point);
@@ -115,9 +107,7 @@ function LivingLogoDot({ home, index }: { home: LogoDot; index: number }) {
     x.set(stagePosition.x);
     y.set(stagePosition.y);
     scale.set(mix(1, scaleTarget, liveWeight));
-    opacity.set(
-      mix(1, 0.9 + Math.sin(turn * 4.4 + index) * 0.06, liveWeight)
-    );
+    opacity.set(mix(1, 0.9 + Math.sin(turn * 4.4 + index) * 0.06, liveWeight));
   });
 
   return (

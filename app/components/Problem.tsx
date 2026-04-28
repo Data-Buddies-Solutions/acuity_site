@@ -11,7 +11,7 @@ export default function Problem() {
       ([entry]) => {
         if (entry.isIntersecting) setIsVisible(true);
       },
-      { threshold: 0.15 }
+      { threshold: 0.15 },
     );
     if (sectionRef.current) observer.observe(sectionRef.current);
     return () => observer.disconnect();
@@ -25,7 +25,9 @@ export default function Problem() {
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
           }`}
         >
-          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-5">Why this matters</p>
+          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-5">
+            Why this matters
+          </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-10 lg:gap-16 items-start">
@@ -38,9 +40,9 @@ export default function Problem() {
               A more responsive front desk improves patient experience.
             </h2>
             <p className="mt-6 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-              Missed calls, voicemail, and after-hours dead ends do more than create friction. They
-              slow booking, increase repetitive phone work, and make the practice feel harder to
-              reach.
+              Missed calls, voicemail, and after-hours dead ends do more than create
+              friction. They slow booking, increase repetitive phone work, and make the
+              practice feel harder to reach.
             </p>
           </div>
 
@@ -59,7 +61,10 @@ export default function Problem() {
                 "Staff spend less time on repetitive phone work.",
                 "Patients reach the practice with less friction and more confidence.",
               ].map((item) => (
-                <p key={item} className="text-sm md:text-base leading-relaxed text-muted-foreground border-l-2 border-accent/25 pl-4">
+                <p
+                  key={item}
+                  className="text-sm md:text-base leading-relaxed text-muted-foreground border-l-2 border-accent/25 pl-4"
+                >
                   {item}
                 </p>
               ))}
@@ -72,7 +77,8 @@ export default function Problem() {
             {
               number: "23%",
               label: "of patient calls go to voicemail",
-              detail: "Missed calls weaken engagement and create lost appointment opportunities.",
+              detail:
+                "Missed calls weaken engagement and create lost appointment opportunities.",
             },
             {
               number: "15%",
@@ -82,7 +88,8 @@ export default function Problem() {
             {
               number: "25+",
               label: "hours per week on the phone",
-              detail: "Staff get pulled into repetitive scheduling and confirmation work instead of patient-facing care.",
+              detail:
+                "Staff get pulled into repetitive scheduling and confirmation work instead of patient-facing care.",
             },
           ].map((item, i) => (
             <div
@@ -92,9 +99,13 @@ export default function Problem() {
               }`}
               style={{ transitionDelay: `${300 + i * 100}ms` }}
             >
-              <p className="text-4xl md:text-5xl font-semibold tracking-tight text-gradient">{item.number}</p>
+              <p className="text-4xl md:text-5xl font-semibold tracking-tight text-gradient">
+                {item.number}
+              </p>
               <p className="mt-3 text-sm font-semibold text-neutral-900">{item.label}</p>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.detail}</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                {item.detail}
+              </p>
             </div>
           ))}
         </div>

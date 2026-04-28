@@ -1,9 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import {
-  normalizeLiveKitCallPayload,
-  toJsonCompatible,
-} from "@/lib/call-normalization";
+import { normalizeLiveKitCallPayload, toJsonCompatible } from "@/lib/call-normalization";
 import type { CallSummaryData, LiveKitWebhookPayload } from "@/lib/call-types";
 import { ESTIMATED_USAGE_PROVIDERS } from "@/lib/pricing";
 
@@ -175,12 +172,8 @@ export async function ingestLiveKitCallPayload(
   const jsonData = nullableJsonInput(normalized.dataPayload);
   const latencyValues = jsonInput(normalized.latencyValues);
   const reviewResult =
-    normalized.reviewResult == null
-      ? undefined
-      : jsonInput(normalized.reviewResult);
-  const audioData = normalized.audioData
-    ? Buffer.from(normalized.audioData)
-    : null;
+    normalized.reviewResult == null ? undefined : jsonInput(normalized.reviewResult);
+  const audioData = normalized.audioData ? Buffer.from(normalized.audioData) : null;
   const baseWrite = {
     agentId,
     avgTokensPerSec: normalized.avgTokensPerSec,

@@ -227,47 +227,44 @@ export default function PortalWorkspaceShell({
               </div>
             ) : null}
 
-            <div className="mt-auto hidden border-t border-black/8 pt-4 xl:block">
-              <div className="flex min-w-0 gap-3">
+            <div className="mt-auto hidden border-t border-black/8 pt-5 xl:block">
+              <div className="flex min-w-0 items-center gap-3">
                 <PracticeBrandLogo
                   branding={practiceBranding}
+                  className="h-16 w-16 rounded-full p-2"
                   practiceName={accountName}
                   variant="mark"
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#8a9a9d]">
-                    Account
-                  </p>
-                  <p className="mt-2 truncate text-sm font-semibold tracking-[-0.02em] text-[#10272c]">
+                  <p className="truncate text-base font-semibold tracking-[-0.03em] text-[#10272c]">
                     {accountName}
                   </p>
-                  <p className="mt-0.5 truncate text-xs text-[#65787b]">
-                    {userEmail || "Practice account"}
-                  </p>
-                  <div className="mt-3">
-                    <PortalSignOutButton className="justify-start border-transparent bg-transparent px-0 text-[#566a6d] shadow-none hover:bg-transparent hover:text-[#10272c]" />
-                  </div>
+                  {userEmail ? (
+                    <p className="mt-1 truncate text-xs text-[#65787b]">{userEmail}</p>
+                  ) : null}
                 </div>
               </div>
+              <PortalSignOutButton className="mt-4 w-full justify-start border-transparent bg-transparent px-0 text-[#566a6d] shadow-none hover:bg-transparent hover:text-[#10272c]" />
             </div>
 
-            <div className="mt-4 flex items-center justify-between gap-3 border-t border-black/8 pt-4 xl:hidden">
+            <div className="mt-4 flex flex-col gap-3 border-t border-black/8 pt-4 xl:hidden">
               <div className="flex min-w-0 items-center gap-3">
                 <PracticeBrandLogo
                   branding={practiceBranding}
+                  className="h-14 w-14 rounded-full p-2"
                   practiceName={accountName}
                   variant="mark"
                 />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold tracking-[-0.02em] text-[#10272c]">
+                  <p className="truncate text-base font-semibold tracking-[-0.03em] text-[#10272c]">
                     {accountName}
                   </p>
-                  <p className="truncate text-xs text-[#65787b]">
-                    {userEmail || "Practice account"}
-                  </p>
+                  {userEmail ? (
+                    <p className="mt-1 truncate text-xs text-[#65787b]">{userEmail}</p>
+                  ) : null}
                 </div>
               </div>
-              <PortalSignOutButton className="shrink-0" />
+              <PortalSignOutButton className="w-fit justify-start" />
             </div>
           </div>
         </aside>

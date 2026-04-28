@@ -80,9 +80,7 @@ function formatToolLabel(name: string): string {
     case "transfer_call":
       return "Transfer";
     default:
-      return name
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (char) => char.toUpperCase());
+      return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
   }
 }
 
@@ -180,7 +178,8 @@ export default async function AdminCallDetailPage({
   const outputTokens = totals.outputTokens ?? call.outputTokens;
   const cachedTokens = totals.cachedTokens ?? call.cachedTokens;
   const cacheHitRate =
-    totals.cacheHitRate ?? (inputTokens > 0 ? cachedTokens / inputTokens : call.cacheHitRate);
+    totals.cacheHitRate ??
+    (inputTokens > 0 ? cachedTokens / inputTokens : call.cacheHitRate);
   const peakContextTokens = totals.peakContextTokens ?? call.peakContext;
 
   const ttftValues = turns.map((turn) => turn.ttftMs).filter((value) => value > 0);
@@ -211,8 +210,12 @@ export default async function AdminCallDetailPage({
       }
     : { total: [], tts: [], ttft: [] };
 
-  const p50Ttft = computePercentiles(ttftValues.length ? ttftValues : latencyFallback.ttft).p50;
-  const p50Tts = computePercentiles(ttsValues.length ? ttsValues : latencyFallback.tts).p50;
+  const p50Ttft = computePercentiles(
+    ttftValues.length ? ttftValues : latencyFallback.ttft,
+  ).p50;
+  const p50Tts = computePercentiles(
+    ttsValues.length ? ttsValues : latencyFallback.tts,
+  ).p50;
   const p50Stt = computePercentiles(sttValues).p50;
   const p50Total = computePercentiles(
     totalLatencyValues.length ? totalLatencyValues : latencyFallback.total,
@@ -235,7 +238,8 @@ export default async function AdminCallDetailPage({
   const rawJson = JSON.stringify(data, null, 2);
   const reviewResult = getReviewResult(call);
   const reviewAverageScore = getReviewAverageScore(call, reviewResult);
-  const reviewStatus = call.reviewStatus ?? (call.needsReview ? "needs_review" : "not_created");
+  const reviewStatus =
+    call.reviewStatus ?? (call.needsReview ? "needs_review" : "not_created");
   const reviewFindings = Array.isArray(reviewResult?.findings)
     ? reviewResult.findings
     : [];
@@ -304,10 +308,22 @@ export default async function AdminCallDetailPage({
             </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <StatCard label="P50 STT" value={p50Stt > 0 ? formatLatencyMs(p50Stt) : "--"} />
-            <StatCard label="P50 TTFT" value={p50Ttft > 0 ? formatLatencyMs(p50Ttft) : "--"} />
-            <StatCard label="P50 TTS TTFB" value={p50Tts > 0 ? formatLatencyMs(p50Tts) : "--"} />
-            <StatCard label="P50 Total" value={p50Total > 0 ? formatLatencyMs(p50Total) : "--"} />
+            <StatCard
+              label="P50 STT"
+              value={p50Stt > 0 ? formatLatencyMs(p50Stt) : "--"}
+            />
+            <StatCard
+              label="P50 TTFT"
+              value={p50Ttft > 0 ? formatLatencyMs(p50Ttft) : "--"}
+            />
+            <StatCard
+              label="P50 TTS TTFB"
+              value={p50Tts > 0 ? formatLatencyMs(p50Tts) : "--"}
+            />
+            <StatCard
+              label="P50 Total"
+              value={p50Total > 0 ? formatLatencyMs(p50Total) : "--"}
+            />
             <StatCard
               label="Interruptions"
               value={String(call.interruptionCount)}
@@ -401,9 +417,7 @@ export default async function AdminCallDetailPage({
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge
                             variant={
-                              finding.severity === "high"
-                                ? "destructive"
-                                : "outline"
+                              finding.severity === "high" ? "destructive" : "outline"
                             }
                           >
                             {finding.severity ?? "finding"}
@@ -474,7 +488,9 @@ export default async function AdminCallDetailPage({
                   return (
                     <div key={item.key} className="space-y-1.5">
                       <div className="flex items-center justify-between gap-4">
-                        <p className="text-sm font-medium text-foreground">{item.label}</p>
+                        <p className="text-sm font-medium text-foreground">
+                          {item.label}
+                        </p>
                         <p className="font-mono text-sm tabular-nums text-muted-foreground">
                           {score}/5
                         </p>
@@ -546,9 +562,7 @@ export default async function AdminCallDetailPage({
                   </Badge>
                 ))
               ) : (
-                <span className="text-sm text-muted-foreground">
-                  No tool failures.
-                </span>
+                <span className="text-sm text-muted-foreground">No tool failures.</span>
               )}
             </CardContent>
           </Card>

@@ -39,8 +39,8 @@ export default function InsightsPage() {
           </h1>
           <p className="mx-auto mt-6 max-w-3xl text-lg leading-relaxed text-muted-foreground">
             Practical writing for ophthalmology and optometry operators who care about
-            responsiveness, front-desk performance, scheduling flow, and patient engagement before
-            the visit.
+            responsiveness, front-desk performance, scheduling flow, and patient
+            engagement before the visit.
           </p>
         </div>
       </section>
@@ -68,7 +68,9 @@ export default function InsightsPage() {
                   </span>
                 </div>
                 <h2 className="mt-5 text-2xl font-semibold tracking-tight">{title}</h2>
-                <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{description}</p>
+                <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                  {description}
+                </p>
                 <div className="mt-5 flex flex-wrap gap-2">
                   {tags.map((tag) => (
                     <span
@@ -98,8 +100,8 @@ export default function InsightsPage() {
               Want to see how these ideas map to your practice?
             </h2>
             <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground">
-              The best way to evaluate Acuity is to compare your current responsiveness, call
-              patterns, and front-desk load against a real workflow design.
+              The best way to evaluate Acuity is to compare your current responsiveness,
+              call patterns, and front-desk load against a real workflow design.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Button
@@ -112,7 +114,11 @@ export default function InsightsPage() {
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
-              <BookCallButton size="default" className="rounded-full px-7 py-3" iconVariant="none">
+              <BookCallButton
+                size="default"
+                className="rounded-full px-7 py-3"
+                iconVariant="none"
+              >
                 Book a Demo
               </BookCallButton>
             </div>

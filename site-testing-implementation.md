@@ -1,19 +1,23 @@
 # Site Testing Implementation Plan
 
 ## Objective
+
 Establish automated site-level testing that validates critical user journeys (navigation, content, and key conversions) so regressions are caught before deployment.
 
 ## Tooling
+
 - Playwright for browser-based end-to-end tests (integrates well with Next.js and supports multiple browsers).
 - Testing Library + Vitest already present for component-level coverage; keep using for unit checks.
 
 ## Scope & Test Targets
+
 - **Smoke**: Home page renders, main sections visible, no console errors.
 - **Navigation**: Header links (including FAQ and Blog) route correctly; mobile menu works on small viewports.
 - **Conversion CTA**: “Book a Strategy Call” buttons open the expected external link.
 - **Forms / Interactions**: Validate any lead capture forms or interactive components once available.
 
 ## Implementation Steps
+
 1. **Install Playwright**
    - Add `@playwright/test` and run `npx playwright install` to fetch browser binaries.
    - Create a dedicated npm script (`test:e2e`) for running the suite locally and in CI.
@@ -35,6 +39,7 @@ Establish automated site-level testing that validates critical user journeys (na
    - Update `README.md` with instructions on running Playwright tests locally, including required commands and troubleshooting tips.
 
 ## Verification
+
 - Run `npm run test` (unit) + `npm run test:e2e` (Playwright) locally; ensure both pass.
 - Perform a manual sanity check in production-like environment after significant UI changes until coverage is complete.
 - Monitor CI runs for stability; investigate flaky tests promptly.

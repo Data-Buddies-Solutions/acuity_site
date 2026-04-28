@@ -78,7 +78,8 @@ export default async function PracticeInformationPage({
           <CardHeader>
             <CardTitle>Providers</CardTitle>
             <CardDescription>
-              Update provider routing details or remove providers that should no longer appear.
+              Update provider routing details or remove providers that should no longer
+              appear.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -160,10 +161,7 @@ export default async function PracticeInformationPage({
                     {provider.providerName || `Provider ${index + 1}`}
                   </p>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <DetailItem
-                      label="Specialty"
-                      value={provider.providerSpecialty}
-                    />
+                    <DetailItem label="Specialty" value={provider.providerSpecialty} />
                     <DetailItem label="NPI" value={provider.providerNpi} />
                     <DetailItem
                       label="Primary location"

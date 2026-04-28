@@ -42,7 +42,7 @@ export default function ProviderSetupForm({
     normalizeInitialProviders(initialProviders).map((provider, index) => ({
       ...provider,
       rowKey: provider.id || `provider-${index}`,
-    }))
+    })),
   );
   const [nextProviderIndex, setNextProviderIndex] = useState(providers.length);
   const locationOptions = Array.from(new Set(locationNames.filter(Boolean)));
@@ -55,9 +55,7 @@ export default function ProviderSetupForm({
           className="rounded-[1.4rem] border border-black/6 bg-[#f7fbfa] p-4"
         >
           <div className="mb-4 flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-[#10272c]">
-              Provider {index + 1}
-            </p>
+            <p className="text-sm font-semibold text-[#10272c]">Provider {index + 1}</p>
             {providers.length > 1 || allowEmptyProviders ? (
               <Button
                 size="sm"
@@ -65,7 +63,7 @@ export default function ProviderSetupForm({
                 variant="secondary"
                 onClick={() =>
                   setProviders((current) =>
-                    current.filter((candidate) => candidate.rowKey !== provider.rowKey)
+                    current.filter((candidate) => candidate.rowKey !== provider.rowKey),
                   )
                 }
               >

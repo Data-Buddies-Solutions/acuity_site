@@ -159,6 +159,43 @@ function MetricBlock({
   );
 }
 
+function SchedulingOutcomesBlock({
+  actions,
+}: {
+  actions: {
+    booked: number;
+    cancelled: number;
+    confirmed: number;
+  };
+}) {
+  const items = [
+    { label: "Booked", value: actions.booked },
+    { label: "Confirmed", value: actions.confirmed },
+    { label: "Cancelled", value: actions.cancelled },
+  ];
+
+  return (
+    <div className="rounded-lg border border-black/6 bg-white px-5 py-5 shadow-[0_14px_40px_rgba(16,39,44,0.05)]">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+        Scheduling outcomes
+      </p>
+      <div className="mt-5 space-y-3">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="flex items-baseline justify-between gap-3 border-b border-black/6 pb-3 last:border-0 last:pb-0"
+          >
+            <p className="text-sm font-semibold text-[#617477]">{item.label}</p>
+            <p className="text-3xl font-semibold tracking-[-0.05em] text-[#10272c]">
+              {formatInteger(item.value)}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BookedAppointmentRow({ appointment }: { appointment: PortalBookedAppointment }) {
   const providerLocation = [appointment.providerName, appointment.locationName]
     .filter(Boolean)
@@ -219,11 +256,8 @@ function BookedAppointmentsPanel({
     <section className="space-y-3 pt-2">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6f8083]">
-            Booked appointments
-          </p>
-          <h3 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-[#10272c]">
-            Staff review queue
+          <h3 className="text-xl font-semibold tracking-[-0.04em] text-[#10272c]">
+            Recent booked appointments
           </h3>
         </div>
         <p className="text-sm text-[#617477]">
@@ -271,20 +305,16 @@ export default async function PortalOverviewPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <section className="flex flex-col gap-4 border-b border-black/8 pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <section className="flex flex-col gap-4 border-b border-black/8 pb-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-4">
           <PracticeBrandLogo
             branding={metrics.branding}
+            className="h-16"
             practiceName={metrics.practiceName}
           />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6f8083]">
-              Overview
-            </p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-[#10272c] md:text-4xl">
-              {metrics.practiceName}
-            </h2>
-          </div>
+          <h2 className="min-w-0 text-3xl font-semibold tracking-[-0.05em] text-[#10272c] md:text-4xl">
+            {metrics.practiceName}
+          </h2>
         </div>
         <nav
           aria-label="Overview range"
@@ -312,24 +342,25 @@ export default async function PortalOverviewPage({
         </nav>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <SchedulingOutcomesBlock actions={metrics.appointmentActions} />
         <MetricBlock
-          label="Total calls"
-          note="Calls handled by the agent."
+          label="Calls handled"
+          note="Patient conversations answered."
           value={formatInteger(metrics.totalCalls)}
         />
         <MetricBlock
-          label="Total call minutes"
-          note="Patient time covered by the system."
-          value={formatMinutes(metrics.totalCallMinutes)}
+          label="Patient call minutes"
+          note="Total minutes handled by the AI receptionist."
+          value={`${formatMinutes(metrics.totalCallMinutes)}m`}
         />
         <MetricBlock
-          label="Avg time / call"
-          note="Mean call duration."
+          label="Avg call length"
+          note="Mean conversation duration."
           value={formatDuration(metrics.averageCallDurationSec)}
         />
         <MetricBlock
-          label="Transfer rate"
+          label="Staff transfers"
           note={`${formatInteger(metrics.transferredCalls)} transferred calls.`}
           value={formatRate(metrics.transferRate)}
         />

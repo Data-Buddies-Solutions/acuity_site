@@ -105,13 +105,7 @@ function InlineMetric({
   );
 }
 
-function SectionHeading({
-  description,
-  title,
-}: {
-  description?: string;
-  title: string;
-}) {
+function SectionHeading({ description, title }: { description?: string; title: string }) {
   return (
     <div className="mb-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -126,9 +120,7 @@ function SectionHeading({
 
 export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
   const toolFailureRate =
-    data.toolCallCount > 0
-      ? (data.toolFailureCount / data.toolCallCount) * 100
-      : null;
+    data.toolCallCount > 0 ? (data.toolFailureCount / data.toolCallCount) * 100 : null;
   const transferRate =
     data.totalCalls > 0 ? (data.transferCount / data.totalCalls) * 100 : null;
   const cacheShare =
@@ -218,9 +210,7 @@ export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
             <InlineMetric
               label="Total Input Tokens"
               value={
-                data.totalInputTokens > 0
-                  ? data.totalInputTokens.toLocaleString()
-                  : "--"
+                data.totalInputTokens > 0 ? data.totalInputTokens.toLocaleString() : "--"
               }
               sub={
                 data.avgInputTokens > 0
@@ -252,7 +242,9 @@ export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
             />
             <InlineMetric
               label="Effective Uncached Input"
-              value={effectiveInputTokens > 0 ? effectiveInputTokens.toLocaleString() : "--"}
+              value={
+                effectiveInputTokens > 0 ? effectiveInputTokens.toLocaleString() : "--"
+              }
               sub="Fresh prompt load after cache reuse"
             />
             <InlineMetric

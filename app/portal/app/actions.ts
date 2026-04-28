@@ -28,15 +28,13 @@ function readTextField(formData: FormData, key: string, maxLength?: number) {
 }
 
 function readRepeatedTextFields(formData: FormData, key: string, maxLength?: number) {
-  return formData
-    .getAll(key)
-    .map((value) => {
-      const normalizedValue = String(value || "").trim();
+  return formData.getAll(key).map((value) => {
+    const normalizedValue = String(value || "").trim();
 
-      return typeof maxLength === "number"
-        ? normalizedValue.slice(0, maxLength)
-        : normalizedValue;
-    });
+    return typeof maxLength === "number"
+      ? normalizedValue.slice(0, maxLength)
+      : normalizedValue;
+  });
 }
 
 function readProviderRows(formData: FormData): PracticeProviderDraft[] {
@@ -52,7 +50,7 @@ function readProviderRows(formData: FormData): PracticeProviderDraft[] {
     specialties.length,
     npis.length,
     locations.length,
-    hours.length
+    hours.length,
   );
 
   return Array.from({ length: rowCount }, (_, index) => ({
@@ -71,7 +69,7 @@ function readProviderRows(formData: FormData): PracticeProviderDraft[] {
       provider.providerNpi,
       provider.providerSchedulingNotes,
       provider.providerSpecialty,
-    ].some(Boolean)
+    ].some(Boolean),
   );
 }
 
@@ -96,7 +94,7 @@ function readLocationRows(formData: FormData): PracticeLocationDraft[] {
     insuranceVaries.length,
     insuranceNotes.length,
     knowledgeVaries.length,
-    knowledgeNotes.length
+    knowledgeNotes.length,
   );
 
   return Array.from({ length: rowCount }, (_, index) => ({
@@ -119,7 +117,7 @@ function readLocationRows(formData: FormData): PracticeLocationDraft[] {
       location.knowledgeNotes,
       location.locationName,
       location.phone,
-    ].some(Boolean)
+    ].some(Boolean),
   );
 }
 
@@ -132,7 +130,7 @@ function mergeLocationRuleRows(
   }: {
     notesKey: "insuranceNotes" | "knowledgeNotes";
     variesKey: "insuranceVaries" | "knowledgeVaries";
-  }
+  },
 ) {
   const ids = readRepeatedTextFields(formData, "locationId", 80);
   const names = readRepeatedTextFields(formData, "locationName", 160);
@@ -140,7 +138,7 @@ function mergeLocationRuleRows(
   const notes = readRepeatedTextFields(formData, notesKey);
   const rulesAreShared =
     formData.get(
-      variesKey === "insuranceVaries" ? "insuranceRulesScope" : "knowledgeRulesScope"
+      variesKey === "insuranceVaries" ? "insuranceRulesScope" : "knowledgeRulesScope",
     ) !== "byLocation";
 
   if (rulesAreShared) {
@@ -155,7 +153,7 @@ function mergeLocationRuleRows(
     const rowIndex = ids.findIndex(
       (id, index) =>
         (id && location.id && id === location.id) ||
-        (!id && names[index] === location.locationName)
+        (!id && names[index] === location.locationName),
     );
 
     if (rowIndex === -1) {
@@ -273,7 +271,7 @@ export async function savePracticeBasicsAction(formData: FormData) {
   await updatePortalDraftState(input);
   await setPortalSectionCompletion(
     "practiceProfile",
-    Boolean(input.practiceName && input.locationName && input.address && input.phone)
+    Boolean(input.practiceName && input.locationName && input.address && input.phone),
   );
 
   if (workspaceUser) {
@@ -285,7 +283,7 @@ export async function savePracticeBasicsAction(formData: FormData) {
   redirect(
     portalState.launched
       ? "/portal/app/practice-information"
-      : "/portal/app/onboarding?step=providerRouting"
+      : "/portal/app/onboarding?step=providerRouting",
   );
 }
 
@@ -306,7 +304,7 @@ export async function saveProviderSetupAction(formData: FormData) {
   await updatePortalDraftState(input);
   await setPortalSectionCompletion(
     "providerRouting",
-    providers.some((provider) => provider.providerName)
+    providers.some((provider) => provider.providerName),
   );
 
   if (workspaceUser) {
@@ -320,7 +318,7 @@ export async function saveProviderSetupAction(formData: FormData) {
       ? "/portal/app/practice-information"
       : providers.some((provider) => provider.providerName)
         ? "/portal/app/onboarding?step=insuranceCrosswalk"
-        : "/portal/app/onboarding?step=providerRouting"
+        : "/portal/app/onboarding?step=providerRouting",
   );
 }
 
@@ -332,19 +330,13 @@ export async function saveKnowledgeBaseAction(formData: FormData) {
     {
       notesKey: "knowledgeNotes",
       variesKey: "knowledgeVaries",
-    }
+    },
   );
   const input = {
     insuranceTransferRules: readTextField(formData, "insuranceTransferRules"),
     knowledgeAfterHours: readTextField(formData, "knowledgeAfterHours"),
-    knowledgeAppointmentPrep: readTextField(
-      formData,
-      "knowledgeAppointmentPrep"
-    ),
-    knowledgeCommonQuestions: readTextField(
-      formData,
-      "knowledgeCommonQuestions"
-    ),
+    knowledgeAppointmentPrep: readTextField(formData, "knowledgeAppointmentPrep"),
+    knowledgeCommonQuestions: readTextField(formData, "knowledgeCommonQuestions"),
     knowledgeLocationRules,
     knowledgeOfficePolicies: readTextField(formData, "knowledgeOfficePolicies"),
     knowledgePhrases: readTextField(formData, "knowledgePhrases"),
@@ -377,7 +369,7 @@ export async function saveKnowledgeBaseAction(formData: FormData) {
   redirect(
     portalState.launched
       ? "/portal/app/knowledge-base"
-      : "/portal/app/onboarding?step=review"
+      : "/portal/app/onboarding?step=review",
   );
 }
 
@@ -389,7 +381,7 @@ export async function saveInsuranceCrosswalkAction(formData: FormData) {
     {
       notesKey: "insuranceNotes",
       variesKey: "insuranceVaries",
-    }
+    },
   );
   const input = {
     insuranceAcceptedPlans: readTextField(formData, "insuranceAcceptedPlans"),
@@ -418,7 +410,7 @@ export async function saveInsuranceCrosswalkAction(formData: FormData) {
   redirect(
     portalState.launched
       ? "/portal/app/insurance-crosswalk"
-      : "/portal/app/onboarding?step=knowledgeBase"
+      : "/portal/app/onboarding?step=knowledgeBase",
   );
 }
 

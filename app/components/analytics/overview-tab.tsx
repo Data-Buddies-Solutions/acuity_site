@@ -8,8 +8,11 @@ import { DurationDistributionChart } from "@/app/components/charts/duration-dist
 
 export function OverviewTab({ data }: { data: AnalyticsData }) {
   const transferRate =
-    data.totalCalls > 0 ? ((data.transferCount / data.totalCalls) * 100).toFixed(1) : null;
-  const totalActions = data.bookApptSuccesses + data.confirmApptSuccesses + data.cancelApptSuccesses;
+    data.totalCalls > 0
+      ? ((data.transferCount / data.totalCalls) * 100).toFixed(1)
+      : null;
+  const totalActions =
+    data.bookApptSuccesses + data.confirmApptSuccesses + data.cancelApptSuccesses;
 
   return (
     <div className="space-y-6">
@@ -28,7 +31,11 @@ export function OverviewTab({ data }: { data: AnalyticsData }) {
         <StatCard
           label="Transfer Rate"
           value={transferRate != null ? `${transferRate}%` : "--"}
-          sub={transferRate != null ? `${data.transferCount}/${data.totalCalls} calls` : undefined}
+          sub={
+            transferRate != null
+              ? `${data.transferCount}/${data.totalCalls} calls`
+              : undefined
+          }
           size="hero"
         />
         <StatCard
@@ -40,10 +47,19 @@ export function OverviewTab({ data }: { data: AnalyticsData }) {
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <CallVolumeTrendChart data={data.callVolumeTrendData} granularityLabel={data.trendGranularityLabel} />
-        <TransferRateTrendChart data={data.transferTrendData} granularityLabel={data.trendGranularityLabel} />
+        <CallVolumeTrendChart
+          data={data.callVolumeTrendData}
+          granularityLabel={data.trendGranularityLabel}
+        />
+        <TransferRateTrendChart
+          data={data.transferTrendData}
+          granularityLabel={data.trendGranularityLabel}
+        />
         <div className="md:col-span-2">
-          <ActionTrendChart data={data.actionTrendData} granularityLabel={data.trendGranularityLabel} />
+          <ActionTrendChart
+            data={data.actionTrendData}
+            granularityLabel={data.trendGranularityLabel}
+          />
         </div>
         <DurationDistributionChart data={data.durationDistributionData} />
       </div>

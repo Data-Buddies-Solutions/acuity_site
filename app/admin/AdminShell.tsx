@@ -127,7 +127,8 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
                 <PortalSignOutButton
                   className={cn(
                     "justify-start border-transparent bg-transparent px-0 text-[#566a6d] shadow-none hover:bg-transparent hover:text-[#10272c]",
-                    collapsed && "h-9 w-9 justify-center overflow-hidden px-0 [&>svg]:shrink-0",
+                    collapsed &&
+                      "h-9 w-9 justify-center overflow-hidden px-0 [&>svg]:shrink-0",
                   )}
                 />
               </div>

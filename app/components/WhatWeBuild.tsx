@@ -63,7 +63,7 @@ export default function WhatWeBuild() {
       ([entry]) => {
         if (entry.isIntersecting) setIsVisible(true);
       },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
     if (sectionRef.current) observer.observe(sectionRef.current);
     return () => observer.disconnect();
@@ -73,13 +73,15 @@ export default function WhatWeBuild() {
     <section ref={sectionRef} className="py-20 md:py-28 bg-white" id="how-it-works">
       <div className="mx-auto max-w-6xl px-4 md:px-6">
         <div className="max-w-3xl">
-          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">How Acuity works</p>
+          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
+            How Acuity works
+          </p>
           <h2 className="text-3xl md:text-4xl lg:text-[3rem] font-semibold tracking-tight leading-[1.05] mb-5">
             Acuity handles the front desk, then keeps patient communication moving.
           </h2>
           <p className="text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl">
-            An AI receptionist handles calls first, followed by scheduling, texting, and analytics
-            across the practice.
+            An AI receptionist handles calls first, followed by scheduling, texting, and
+            analytics across the practice.
           </p>
         </div>
 
@@ -96,7 +98,9 @@ export default function WhatWeBuild() {
                 <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center">
                   <span className="text-xs font-bold text-accent">{step.number}</span>
                 </div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{step.eyebrow}</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {step.eyebrow}
+                </p>
               </div>
 
               <div className="flex min-h-full flex-col">

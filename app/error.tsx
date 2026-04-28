@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
-import Link from 'next/link';
-import { Button } from '@/app/components/ui/button';
-import { Badge } from '@/app/components/ui/badge';
-import { AlertCircle } from 'lucide-react';
+import { useEffect } from "react";
+import Link from "next/link";
+import { Button } from "@/app/components/ui/button";
+import { Badge } from "@/app/components/ui/badge";
+import { AlertCircle } from "lucide-react";
 
 export default function Error({
   error,
@@ -14,13 +14,16 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('Application error:', error);
+    console.error("Application error:", error);
   }, [error]);
 
   return (
     <section className="min-h-[60vh] flex items-center justify-center py-16 md:py-24">
       <div className="mx-auto max-w-2xl space-y-8 px-4 text-center">
-        <Badge variant="outline" className="text-sm font-medium uppercase bg-red-50 text-red-600 border-red-200">
+        <Badge
+          variant="outline"
+          className="text-sm font-medium uppercase bg-red-50 text-red-600 border-red-200"
+        >
           Error
         </Badge>
         <div className="space-y-4">
@@ -46,7 +49,7 @@ export default function Error({
 
         <div className="pt-8">
           <p className="text-sm text-muted-foreground">
-            Need help?{' '}
+            Need help?{" "}
             <a href="mailto:kyle@acuityhealth.io" className="text-accent hover:underline">
               Contact support
             </a>

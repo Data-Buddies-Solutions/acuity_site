@@ -43,7 +43,7 @@ export default function LocationSetupForm({
     normalizeInitialLocations(initialLocations).map((location, index) => ({
       ...location,
       rowKey: location.id || `location-${index}`,
-    }))
+    })),
   );
   const [nextLocationIndex, setNextLocationIndex] = useState(locations.length);
 
@@ -63,9 +63,7 @@ export default function LocationSetupForm({
           className="rounded-[1.4rem] border border-black/6 bg-[#f7fbfa] p-4"
         >
           <div className="mb-4 flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-[#10272c]">
-              Location {index + 1}
-            </p>
+            <p className="text-sm font-semibold text-[#10272c]">Location {index + 1}</p>
             {locations.length > 1 ? (
               <Button
                 size="sm"
@@ -73,7 +71,7 @@ export default function LocationSetupForm({
                 variant="secondary"
                 onClick={() =>
                   setLocations((current) =>
-                    current.filter((candidate) => candidate.rowKey !== location.rowKey)
+                    current.filter((candidate) => candidate.rowKey !== location.rowKey),
                   )
                 }
               >

@@ -42,8 +42,12 @@ export default function PortalModulePlaceholder({
         <p className="text-sm font-medium uppercase tracking-[0.16em] text-[#6a7b7e]">
           {eyebrow}
         </p>
-        <h2 className="text-3xl font-semibold tracking-[-0.05em] text-[#10272c]">{title}</h2>
-        <p className="max-w-3xl text-base leading-relaxed text-[#617477]">{description}</p>
+        <h2 className="text-3xl font-semibold tracking-[-0.05em] text-[#10272c]">
+          {title}
+        </h2>
+        <p className="max-w-3xl text-base leading-relaxed text-[#617477]">
+          {description}
+        </p>
       </section>
 
       <Card className="rounded-[1.8rem] border-black/6 bg-white">
@@ -53,8 +57,8 @@ export default function PortalModulePlaceholder({
         </CardHeader>
         <CardContent className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <p className="max-w-2xl text-sm text-[#617477]">
-            The route exists and the navigation is real. The remaining work here is wiring live
-            events, persisted records, and module-specific actions.
+            The route exists and the navigation is real. The remaining work here is wiring
+            live events, persisted records, and module-specific actions.
           </p>
 
           <Button asChild variant="primary">
@@ -78,7 +82,9 @@ export default function PortalModulePlaceholder({
               className="rounded-[1.4rem] border border-black/6 bg-[#f7fbfa] px-4 py-4"
             >
               <p className="text-sm font-semibold text-[#10272c]">{item.label}</p>
-              <p className="mt-1 text-sm leading-relaxed text-[#617477]">{item.description}</p>
+              <p className="mt-1 text-sm leading-relaxed text-[#617477]">
+                {item.description}
+              </p>
             </div>
           ))}
         </CardContent>

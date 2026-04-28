@@ -9,28 +9,48 @@ export function PerformanceTab({ data }: { data: AnalyticsData }) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="STT P50"
-          value={data.pipelineP50.stt != null ? formatLatencyMs(data.pipelineP50.stt) : "--"}
+          value={
+            data.pipelineP50.stt != null ? formatLatencyMs(data.pipelineP50.stt) : "--"
+          }
           size="hero"
-          color={data.pipelineP50.stt != null ? latencyColor(data.pipelineP50.stt) : undefined}
+          color={
+            data.pipelineP50.stt != null ? latencyColor(data.pipelineP50.stt) : undefined
+          }
         />
         <StatCard
           label="LLM TTFT P50"
-          value={data.pipelineP50.llm != null ? formatLatencyMs(data.pipelineP50.llm) : "--"}
+          value={
+            data.pipelineP50.llm != null ? formatLatencyMs(data.pipelineP50.llm) : "--"
+          }
           size="hero"
-          color={data.pipelineP50.llm != null ? latencyColor(data.pipelineP50.llm) : undefined}
+          color={
+            data.pipelineP50.llm != null ? latencyColor(data.pipelineP50.llm) : undefined
+          }
         />
         <StatCard
           label="TTS TTFB P50"
-          value={data.pipelineP50.tts != null ? formatLatencyMs(data.pipelineP50.tts) : "--"}
+          value={
+            data.pipelineP50.tts != null ? formatLatencyMs(data.pipelineP50.tts) : "--"
+          }
           size="hero"
-          color={data.pipelineP50.tts != null ? latencyColor(data.pipelineP50.tts) : undefined}
+          color={
+            data.pipelineP50.tts != null ? latencyColor(data.pipelineP50.tts) : undefined
+          }
         />
         <StatCard
           label="Total Latency P50"
-          value={data.pipelineP50.total != null ? formatLatencyMs(data.pipelineP50.total) : "--"}
+          value={
+            data.pipelineP50.total != null
+              ? formatLatencyMs(data.pipelineP50.total)
+              : "--"
+          }
           sub="STT + LLM + TTS"
           size="hero"
-          color={data.pipelineP50.total != null ? latencyColor(data.pipelineP50.total) : undefined}
+          color={
+            data.pipelineP50.total != null
+              ? latencyColor(data.pipelineP50.total)
+              : undefined
+          }
         />
         <StatCard
           label="Avg tok/s"

@@ -4,17 +4,20 @@ import { useState, useEffect } from "react";
 
 const testimonials = [
   {
-    quote: "Acuity Health handles our phones now and gave hours back to our staff every week. We're booking more patients with less manual work.",
+    quote:
+      "Acuity Health handles our phones now and gave hours back to our staff every week. We're booking more patients with less manual work.",
     author: "Dr. Shechtman",
     role: "North Miami Beach Eye Center",
   },
   {
-    quote: "We had no way to track inventory or make smart purchasing decisions with suppliers. Now we have full visibility and save thousands every month.",
+    quote:
+      "We had no way to track inventory or make smart purchasing decisions with suppliers. Now we have full visibility and save thousands every month.",
     author: "Dr. Laura Falco",
     role: "Jazzy Eyes Optical",
   },
   {
-    quote: "I was spending 4+ hours a day on manual admin work. Acuity Health gave me my life back. I can finally focus on what matters.",
+    quote:
+      "I was spending 4+ hours a day on manual admin work. Acuity Health gave me my life back. I can finally focus on what matters.",
     author: "Jason Buchwald",
     role: "OnlineDoctorNote",
   },
@@ -52,9 +55,7 @@ export default function Testimonials() {
         <div className="text-center">
           <div
             className={`transition-all duration-300 ${
-              isAnimating
-                ? "opacity-0 translate-y-4"
-                : "opacity-100 translate-y-0"
+              isAnimating ? "opacity-0 translate-y-4" : "opacity-100 translate-y-0"
             }`}
           >
             {/* Quote */}

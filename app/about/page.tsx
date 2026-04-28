@@ -34,23 +34,27 @@ const values = [
   {
     icon: Stethoscope,
     title: "Built for eye care",
-    description: "We only work with ophthalmology and optometry practices. Every system is designed around how eye care offices actually operate.",
+    description:
+      "We only work with ophthalmology and optometry practices. Every system is designed around how eye care offices actually operate.",
   },
   {
     icon: Target,
     title: "Custom to your practice",
-    description: "Every practice is different. We configure the phone system around your insurance rules, EMR, and appointment types.",
+    description:
+      "Every practice is different. We configure the phone system around your insurance rules, EMR, and appointment types.",
   },
   {
     icon: Users,
     title: "White-glove setup",
-    description: "We handle everything from configuration to go-live. No technical expertise needed on your end.",
+    description:
+      "We handle everything from configuration to go-live. No technical expertise needed on your end.",
   },
 ];
 
 export const metadata: Metadata = {
   title: "About Us",
-  description: "Meet the Acuity Health team building patient access and engagement systems for ophthalmology and optometry practices.",
+  description:
+    "Meet the Acuity Health team building patient access and engagement systems for ophthalmology and optometry practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/about`,
   },
@@ -66,7 +70,9 @@ export default function AboutPage() {
             About Acuity Health
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            We build patient access and engagement systems for ophthalmology and optometry practices so teams spend less time on repetitive phone work and more time with patients.
+            We build patient access and engagement systems for ophthalmology and optometry
+            practices so teams spend less time on repetitive phone work and more time with
+            patients.
           </p>
         </div>
       </section>
@@ -82,7 +88,13 @@ export default function AboutPage() {
               <div key={name} className="text-center">
                 {image ? (
                   <div className="relative h-32 w-32 rounded-full overflow-hidden mx-auto mb-6 border border-border">
-                    <Image src={image} alt={name} fill className="object-cover" sizes="128px" />
+                    <Image
+                      src={image}
+                      alt={name}
+                      fill
+                      className="object-cover"
+                      sizes="128px"
+                    />
                   </div>
                 ) : (
                   <div className="h-32 w-32 rounded-full bg-muted flex items-center justify-center mx-auto mb-6 text-2xl font-semibold">
@@ -98,8 +110,7 @@ export default function AboutPage() {
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
                   >
-                    <XLogo className="h-3 w-3" />
-                    @{twitter}
+                    <XLogo className="h-3 w-3" />@{twitter}
                   </a>
                 )}
                 <p className="text-sm text-muted-foreground">{bio}</p>

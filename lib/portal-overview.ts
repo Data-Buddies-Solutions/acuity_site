@@ -15,6 +15,11 @@ export type PortalBookedAppointment = {
 };
 
 export type PortalOverviewMetrics = {
+  appointmentActions: {
+    booked: number;
+    cancelled: number;
+    confirmed: number;
+  };
   averageCallDurationSec: number;
   bookedAppointments: PortalBookedAppointment[];
   branding: PracticeBranding;
@@ -253,46 +258,75 @@ export async function getPortalOverviewMetrics(
     ...(rangeStart ? { startedAt: { gte: rangeStart } } : {}),
   };
 
-  const [callCount, transferredCalls, durationAggregate, bookedCalls] = await Promise.all(
-    [
-      prisma.agentCall.count({
-        where: callWhere,
-      }),
-      prisma.agentCall.count({
-        where: {
-          ...callWhere,
-          transferred: true,
-        },
-      }),
-      prisma.agentCall.aggregate({
-        _sum: {
-          durationSec: true,
-        },
-        where: callWhere,
-      }),
-      prisma.agentCall.findMany({
-        orderBy: {
-          startedAt: "desc",
-        },
-        select: {
-          callerPhone: true,
-          data: true,
-          id: true,
-          outcomeSummary: true,
-          startedAt: true,
-        },
-        take: 8,
-        where: {
-          ...callWhere,
-          bookedAppointment: true,
-        },
-      }),
-    ],
-  );
+  const [
+    callCount,
+    transferredCalls,
+    durationAggregate,
+    bookedActionCount,
+    confirmedActionCount,
+    cancelledActionCount,
+    bookedCalls,
+  ] = await Promise.all([
+    prisma.agentCall.count({
+      where: callWhere,
+    }),
+    prisma.agentCall.count({
+      where: {
+        ...callWhere,
+        transferred: true,
+      },
+    }),
+    prisma.agentCall.aggregate({
+      _sum: {
+        durationSec: true,
+      },
+      where: callWhere,
+    }),
+    prisma.agentCall.count({
+      where: {
+        ...callWhere,
+        bookedAppointment: true,
+      },
+    }),
+    prisma.agentCall.count({
+      where: {
+        ...callWhere,
+        confirmedAppointment: true,
+      },
+    }),
+    prisma.agentCall.count({
+      where: {
+        ...callWhere,
+        cancelledAppointment: true,
+      },
+    }),
+    prisma.agentCall.findMany({
+      orderBy: {
+        startedAt: "desc",
+      },
+      select: {
+        callerPhone: true,
+        data: true,
+        id: true,
+        outcomeSummary: true,
+        startedAt: true,
+      },
+      take: 8,
+      where: {
+        ...callWhere,
+        bookedAppointment: true,
+      },
+    }),
+  ]);
 
   const totalDurationSec = durationAggregate._sum.durationSec ?? 0;
 
   return {
+    appointmentActions: {
+      booked: bookedActionCount,
+      cancelled: cancelledActionCount,
+      confirmed: confirmedActionCount,
+    },
     averageCallDurationSec: callCount > 0 ? totalDurationSec / callCount : 0,
     bookedAppointments: bookedCalls.map(extractBookedAppointment),
     branding: getPracticeBranding(membership.practice),

@@ -1,7 +1,13 @@
 "use client";
 
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 
 const chartConfig = {
@@ -21,11 +27,16 @@ export function PeakContextTrendChart({
     <Card>
       <CardHeader>
         <CardTitle>Peak Context</CardTitle>
-        <CardDescription>{granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} maximum prompt tokens</CardDescription>
+        <CardDescription>
+          {granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} maximum prompt
+          tokens
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {!hasData ? (
-          <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">No data available</div>
+          <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
+            No data available
+          </div>
         ) : (
           <ChartContainer config={chartConfig} className="h-[220px] w-full">
             <AreaChart data={data}>
@@ -36,7 +47,13 @@ export function PeakContextTrendChart({
                 </linearGradient>
               </defs>
               <CartesianGrid vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                minTickGap={24}
+              />
               <YAxis tickLine={false} axisLine={false} width={56} />
               <ChartTooltip
                 content={({ active, payload }) => {
@@ -45,12 +62,20 @@ export function PeakContextTrendChart({
                   return (
                     <div className="rounded-lg border bg-background p-2 shadow-sm text-xs">
                       <p className="font-medium">{row.tooltipLabel}</p>
-                      <p className="mt-1 font-mono">{row.peak.toLocaleString()} peak tokens</p>
+                      <p className="mt-1 font-mono">
+                        {row.peak.toLocaleString()} peak tokens
+                      </p>
                     </div>
                   );
                 }}
               />
-              <Area type="natural" dataKey="peak" fill="url(#peak-context-fill)" stroke="var(--color-peak)" strokeWidth={2} />
+              <Area
+                type="natural"
+                dataKey="peak"
+                fill="url(#peak-context-fill)"
+                stroke="var(--color-peak)"
+                strokeWidth={2}
+              />
             </AreaChart>
           </ChartContainer>
         )}

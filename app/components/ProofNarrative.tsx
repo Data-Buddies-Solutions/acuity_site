@@ -67,23 +67,30 @@ export default function ProofNarrative() {
             Real proof from a 6-location ophthalmology deployment.
           </h2>
           <p className="mt-5 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-            Acuity is already being used in a complex ophthalmology environment with pediatric
-            workflows, insurance complexity, multilingual communication, and high-volume call
-            demand.
+            Acuity is already being used in a complex ophthalmology environment with
+            pediatric workflows, insurance complexity, multilingual communication, and
+            high-volume call demand.
           </p>
         </div>
 
         <div className="mt-12 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           {outcomes.map(({ metric, label, detail, icon: Icon }) => (
-            <div key={label} className="rounded-[1.8rem] border border-neutral-200 bg-[#f7fbfb] p-7">
+            <div
+              key={label}
+              className="rounded-[1.8rem] border border-neutral-200 bg-[#f7fbfb] p-7"
+            >
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/10">
                   <Icon className="h-5 w-5 text-accent" />
                 </div>
-                <p className="text-3xl font-semibold tracking-tight text-neutral-900">{metric}</p>
+                <p className="text-3xl font-semibold tracking-tight text-neutral-900">
+                  {metric}
+                </p>
               </div>
               <p className="mt-5 text-base font-semibold text-neutral-900">{label}</p>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{detail}</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                {detail}
+              </p>
             </div>
           ))}
         </div>
@@ -97,9 +104,9 @@ export default function ProofNarrative() {
               One ophthalmology group. Six locations. High-volume patient communication.
             </h3>
             <p className="mt-4 text-sm md:text-base leading-relaxed text-muted-foreground">
-              This deployment includes pediatric workflows, medical and vision insurance, Spanish
-              language support, and after-hours demand across a multi-location ophthalmology
-              environment.
+              This deployment includes pediatric workflows, medical and vision insurance,
+              Spanish language support, and after-hours demand across a multi-location
+              ophthalmology environment.
             </p>
 
             <div className="mt-6 grid gap-4 md:grid-cols-3">
@@ -111,7 +118,9 @@ export default function ProofNarrative() {
                     </div>
                     <p className="text-sm font-semibold text-neutral-900">{title}</p>
                   </div>
-                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{text}</p>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                    {text}
+                  </p>
                 </div>
               ))}
             </div>
@@ -122,8 +131,8 @@ export default function ProofNarrative() {
               Customer feedback
             </p>
             <blockquote className="mt-5 text-xl font-medium leading-relaxed text-foreground">
-              &ldquo;I was spending 4+ hours a day on manual admin work. Acuity Health gave me my
-              life back. I can finally focus on what matters.&rdquo;
+              &ldquo;I was spending 4+ hours a day on manual admin work. Acuity Health
+              gave me my life back. I can finally focus on what matters.&rdquo;
             </blockquote>
             <div className="mt-5">
               <p className="text-sm font-semibold text-neutral-900">Jason Buchwald</p>

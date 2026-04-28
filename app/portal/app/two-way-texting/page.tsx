@@ -21,15 +21,18 @@ export default async function PortalTwoWayTextingPage() {
       queueItems={[
         {
           label: "Inbox view",
-          description: "Group unread patient replies, pending responses, and threads that need escalation.",
+          description:
+            "Group unread patient replies, pending responses, and threads that need escalation.",
         },
         {
           label: "Conversation history",
-          description: "Show the full message timeline with delivery state and handoff context.",
+          description:
+            "Show the full message timeline with delivery state and handoff context.",
         },
         {
           label: "Staff actions",
-          description: "Allow reply, assign, snooze, or escalate actions without leaving the thread.",
+          description:
+            "Allow reply, assign, snooze, or escalate actions without leaving the thread.",
         },
       ]}
       statusDescription="The route exists and the portal recognizes it as a live module, but messaging data is not connected yet."

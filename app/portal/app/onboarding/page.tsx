@@ -10,10 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/app/components/ui/card";
-import {
-  getPortalWorkspaceState,
-  type PortalWorkspaceState,
-} from "@/lib/portal-state";
+import { getPortalWorkspaceState, type PortalWorkspaceState } from "@/lib/portal-state";
 
 import { PortalTextareaField } from "../PortalFields";
 import {
@@ -48,25 +45,22 @@ function getOnboardingSteps(portalState: PortalWorkspaceState) {
       key: "practiceProfile",
       label: "Basics",
       complete:
-        portalState.sections.find(
-          (section) => section.key === "practiceProfile",
-        )?.complete === true,
+        portalState.sections.find((section) => section.key === "practiceProfile")
+          ?.complete === true,
     },
     {
       key: "providerRouting",
       label: "Providers",
       complete:
-        portalState.sections.find(
-          (section) => section.key === "providerRouting",
-        )?.complete === true,
+        portalState.sections.find((section) => section.key === "providerRouting")
+          ?.complete === true,
     },
     {
       key: "insuranceCrosswalk",
       label: "Insurance",
       complete:
-        portalState.sections.find(
-          (section) => section.key === "insuranceCrosswalk",
-        )?.complete === true,
+        portalState.sections.find((section) => section.key === "insuranceCrosswalk")
+          ?.complete === true,
     },
     {
       key: "knowledgeBase",
@@ -87,9 +81,7 @@ function getCurrentStep(steps: readonly OnboardingStep[]) {
   return steps.find((step) => !step.complete)?.key ?? "review";
 }
 
-function isOnboardingStepKey(
-  value: string | undefined,
-): value is OnboardingStepKey {
+function isOnboardingStepKey(value: string | undefined): value is OnboardingStepKey {
   return [
     "practiceProfile",
     "providerRouting",
@@ -101,9 +93,7 @@ function isOnboardingStepKey(
 
 async function readRequestedStep(searchParams: SearchParamsInput) {
   const resolved = (await searchParams) || {};
-  const rawStep = Array.isArray(resolved.step)
-    ? resolved.step[0]
-    : resolved.step;
+  const rawStep = Array.isArray(resolved.step) ? resolved.step[0] : resolved.step;
 
   return isOnboardingStepKey(rawStep) ? rawStep : undefined;
 }
@@ -133,7 +123,7 @@ function getStepHref(step: OnboardingStepKey) {
 
 function getPreviousStep(
   steps: readonly OnboardingStep[],
-  visibleStep: OnboardingStepKey
+  visibleStep: OnboardingStepKey,
 ) {
   const visibleIndex = steps.findIndex((step) => step.key === visibleStep);
 
@@ -233,10 +223,10 @@ export default async function PortalOnboardingPage({
     .map((location) => location.locationName)
     .filter(Boolean);
   const insuranceUsesLocationRules = portalState.draft.locations.some(
-    (location) => location.insuranceVaries || location.insuranceNotes
+    (location) => location.insuranceVaries || location.insuranceNotes,
   );
   const knowledgeUsesLocationRules = portalState.draft.locations.some(
-    (location) => location.knowledgeVaries || location.knowledgeNotes
+    (location) => location.knowledgeVaries || location.knowledgeNotes,
   );
 
   return (
@@ -252,9 +242,7 @@ export default async function PortalOnboardingPage({
 
       <div className="grid gap-2 md:grid-cols-5">
         {steps.map((step, index) => {
-          const stepIndex = steps.findIndex(
-            (candidate) => candidate.key === step.key,
-          );
+          const stepIndex = steps.findIndex((candidate) => candidate.key === step.key);
           const isClickable = stepIndex <= currentIndex;
 
           return (
@@ -458,7 +446,8 @@ export default async function PortalOnboardingPage({
               <div>
                 <CardTitle>Review info</CardTitle>
                 <CardDescription>
-                  You can edit the knowledge base and insurance crosswalk after submitting.
+                  You can edit the knowledge base and insurance crosswalk after
+                  submitting.
                 </CardDescription>
               </div>
             </div>
@@ -559,16 +548,16 @@ export default async function PortalOnboardingPage({
               </div>
             </div>
 
-            {portalState.missingSections.length ? (
-              portalState.missingSections.map((section) => (
-                <div
-                  key={section.key}
-                  className="rounded-[1.4rem] border border-[#f0dfcc] bg-[#fff8f1] px-4 py-4 text-sm text-[#7a5a27]"
-                >
-                  {section.label} still needs review.
-                </div>
-              ))
-            ) : null}
+            {portalState.missingSections.length
+              ? portalState.missingSections.map((section) => (
+                  <div
+                    key={section.key}
+                    className="rounded-[1.4rem] border border-[#f0dfcc] bg-[#fff8f1] px-4 py-4 text-sm text-[#7a5a27]"
+                  >
+                    {section.label} still needs review.
+                  </div>
+                ))
+              : null}
 
             <form action={submitOnboardingAction}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

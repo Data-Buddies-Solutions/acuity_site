@@ -32,7 +32,10 @@ const proofStats = [
 
 export default function Hero() {
   return (
-    <section className="relative pt-6 md:pt-20 lg:pt-24 pb-10 md:pb-20 bg-background overflow-hidden" id="top">
+    <section
+      className="relative pt-6 md:pt-20 lg:pt-24 pb-10 md:pb-20 bg-background overflow-hidden"
+      id="top"
+    >
       {/* Main hero: two-column */}
       <div className="relative z-10 mx-auto max-w-6xl px-4 md:px-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-16 items-center">
@@ -40,11 +43,14 @@ export default function Hero() {
           <div>
             <div className="hidden lg:inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/8 border border-accent/15 mb-6">
               <div className="w-1.5 h-1.5 rounded-full bg-accent" />
-              <span className="text-xs font-medium text-accent">Built for ophthalmology workflows</span>
+              <span className="text-xs font-medium text-accent">
+                Built for ophthalmology workflows
+              </span>
             </div>
 
             <h1 className="mx-auto max-w-[15ch] text-[1.75rem] md:max-w-[16ch] md:text-5xl font-semibold tracking-[-0.04em] leading-[1.02] md:leading-[1.05] mb-4 md:mb-5 text-center lg:hidden [text-wrap:balance]">
-              The <span className="text-accent">patient engagement</span> platform for ophthalmology practices.
+              The <span className="text-accent">patient engagement</span> platform for
+              ophthalmology practices.
             </h1>
 
             <h1 className="hidden lg:block text-[3rem] font-semibold tracking-[-0.04em] leading-[0.98] mb-5 text-left">
@@ -56,7 +62,8 @@ export default function Hero() {
             </h1>
 
             <p className="text-sm md:text-lg text-muted-foreground max-w-lg leading-relaxed mb-6 md:mb-8 text-center lg:text-left mx-auto lg:mx-0">
-              Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving across your practice.
+              Answer every patient call, reduce front-desk overload, and keep scheduling,
+              reminders, and follow-up moving across your practice.
             </p>
 
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2 mb-6 text-sm text-neutral-900">
@@ -107,8 +114,12 @@ export default function Hero() {
               <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
                 {proofStats.map(([value, label]) => (
                   <div key={label} className="min-w-0">
-                    <p className="text-lg font-semibold text-neutral-900 md:text-xl">{value}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{label}</p>
+                    <p className="text-lg font-semibold text-neutral-900 md:text-xl">
+                      {value}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      {label}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -125,7 +136,8 @@ export default function Hero() {
               />
               <div className="w-px h-6 bg-neutral-200" />
               <p className="text-xs text-muted-foreground">
-                HIPAA compliant &middot; EMR-integrated &middot; Built for ophthalmology workflows
+                HIPAA compliant &middot; EMR-integrated &middot; Built for ophthalmology
+                workflows
               </p>
             </div>
           </div>
@@ -180,8 +192,12 @@ export default function Hero() {
 
       <style jsx>{`
         @keyframes scroll {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
+          0% {
+            transform: translateX(0);
+          }
+          100% {
+            transform: translateX(-50%);
+          }
         }
         .animate-scroll {
           animation: scroll 25s linear infinite;

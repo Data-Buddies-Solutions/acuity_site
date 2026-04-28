@@ -21,15 +21,18 @@ export default async function PortalTaskingPage() {
       queueItems={[
         {
           label: "Action queue",
-          description: "Show every open task with owner, due time, source conversation, and status.",
+          description:
+            "Show every open task with owner, due time, source conversation, and status.",
         },
         {
           label: "Task detail",
-          description: "Open the patient context, transcript, and the exact reason the AI created the task.",
+          description:
+            "Open the patient context, transcript, and the exact reason the AI created the task.",
         },
         {
           label: "Workflow updates",
-          description: "Support assign, complete, reopen, and escalate actions from inside the portal.",
+          description:
+            "Support assign, complete, reopen, and escalate actions from inside the portal.",
         },
       ]}
       statusDescription="The route is real and ready for wiring, but task records are not persisted yet."

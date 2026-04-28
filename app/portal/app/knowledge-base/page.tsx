@@ -40,19 +40,21 @@ export default async function PortalKnowledgeBasePage({
   const portalState = await getPortalWorkspaceState();
   const editing = await isEditMode(searchParams);
   const knowledgeUsesLocationRules = portalState.draft.locations.some(
-    (location) => location.knowledgeVaries || location.knowledgeNotes
+    (location) => location.knowledgeVaries || location.knowledgeNotes,
   );
   const isReviewed = portalState.sections.find(
-    (section) => section.key === "knowledgeBase"
+    (section) => section.key === "knowledgeBase",
   )?.complete;
   const shouldShowDocument = portalState.launched && !editing;
   const primaryLabel = portalState.launched ? "Save changes" : "Save and continue";
-  const returnHref = portalState.launched ? "/portal/app/knowledge-base" : "/portal/app/onboarding";
+  const returnHref = portalState.launched
+    ? "/portal/app/knowledge-base"
+    : "/portal/app/onboarding";
   const returnLabel = portalState.launched ? "Back to document" : "Back to onboarding";
 
   if (shouldShowDocument) {
     const locationRules = portalState.draft.locations.filter(
-      (location) => location.knowledgeVaries || location.knowledgeNotes
+      (location) => location.knowledgeVaries || location.knowledgeNotes,
     );
 
     return (
@@ -149,7 +151,8 @@ export default async function PortalKnowledgeBasePage({
           {portalState.launched ? "Edit knowledge base" : "Practice knowledge"}
         </h2>
         <p className="max-w-2xl text-base leading-relaxed text-[#617477]">
-          Keep this short and structured. Add what the practice wants said, skipped, or escalated.
+          Keep this short and structured. Add what the practice wants said, skipped, or
+          escalated.
         </p>
       </section>
 

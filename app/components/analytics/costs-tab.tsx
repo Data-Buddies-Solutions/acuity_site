@@ -1,9 +1,6 @@
 import type { AnalyticsData } from "@/lib/analytics";
 import { formatDuration } from "@/lib/format";
-import {
-  calculateUsageCostBreakdown,
-  microsToDollars,
-} from "@/lib/pricing";
+import { calculateUsageCostBreakdown, microsToDollars } from "@/lib/pricing";
 import { StatCard } from "@/app/components/stat-card";
 import {
   Card,

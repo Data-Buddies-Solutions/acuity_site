@@ -28,11 +28,17 @@ export function ToolsTab({ data }: { data: AnalyticsData }) {
               : undefined
           }
           size="hero"
-          color={failureRate != null ? inverseRateColor(Number(failureRate), 0, 5) : undefined}
+          color={
+            failureRate != null ? inverseRateColor(Number(failureRate), 0, 5) : undefined
+          }
         />
         <StatCard
           label="Avg Calls/Event"
-          value={data.totalCalls > 0 ? (data.totalToolCalls / data.totalCalls).toFixed(1) : "--"}
+          value={
+            data.totalCalls > 0
+              ? (data.totalToolCalls / data.totalCalls).toFixed(1)
+              : "--"
+          }
           size="hero"
         />
       </div>

@@ -31,11 +31,7 @@ function parseValue(str: string): {
   return { prefix, number, decimals, suffix, useLocale };
 }
 
-function formatAnimatedNumber(
-  n: number,
-  decimals: number,
-  useLocale: boolean
-): string {
+function formatAnimatedNumber(n: number, decimals: number, useLocale: boolean): string {
   if (useLocale) {
     return n.toLocaleString("en-US", {
       minimumFractionDigits: decimals,

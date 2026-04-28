@@ -17,7 +17,7 @@ const authSecret =
   "acuity-build-placeholder-secret-set-better-auth-secret-before-deploy";
 
 const trustedOrigins = Array.from(
-  new Set([new URL(authBaseUrl).origin, new URL(SITE_CONFIG.baseUrl).origin])
+  new Set([new URL(authBaseUrl).origin, new URL(SITE_CONFIG.baseUrl).origin]),
 );
 
 export const auth = betterAuth({

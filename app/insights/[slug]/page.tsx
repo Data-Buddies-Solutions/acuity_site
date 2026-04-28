@@ -73,7 +73,9 @@ export default async function InsightPostPage({ params }: PageProps) {
           </Button>
           <div className="space-y-4">
             <Badge className="w-fit">{formattedDate}</Badge>
-            <h1 className="text-4xl font-semibold leading-tight md:text-5xl">{post.title}</h1>
+            <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
+              {post.title}
+            </h1>
             <p className="text-base text-foreground/70 md:text-lg">{post.description}</p>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-sm text-foreground/60">
@@ -98,9 +100,14 @@ export default async function InsightPostPage({ params }: PageProps) {
         <div className="space-y-12">
           {post.sections.map((section) => (
             <section key={section.heading} className="space-y-4">
-              <h2 className="text-2xl font-semibold text-foreground">{section.heading}</h2>
+              <h2 className="text-2xl font-semibold text-foreground">
+                {section.heading}
+              </h2>
               {section.paragraphs.map((paragraph, idx) => (
-                <p key={`${section.heading}-${idx}`} className="text-base leading-relaxed text-foreground/80">
+                <p
+                  key={`${section.heading}-${idx}`}
+                  className="text-base leading-relaxed text-foreground/80"
+                >
                   {paragraph}
                 </p>
               ))}

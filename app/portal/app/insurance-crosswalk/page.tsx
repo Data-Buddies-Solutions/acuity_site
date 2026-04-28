@@ -40,19 +40,21 @@ export default async function PortalInsuranceCrosswalkPage({
   const portalState = await getPortalWorkspaceState();
   const editing = await isEditMode(searchParams);
   const insuranceUsesLocationRules = portalState.draft.locations.some(
-    (location) => location.insuranceVaries || location.insuranceNotes
+    (location) => location.insuranceVaries || location.insuranceNotes,
   );
   const isReviewed = portalState.sections.find(
-    (section) => section.key === "insuranceCrosswalk"
+    (section) => section.key === "insuranceCrosswalk",
   )?.complete;
   const shouldShowDocument = portalState.launched && !editing;
   const primaryLabel = portalState.launched ? "Save changes" : "Save and continue";
-  const returnHref = portalState.launched ? "/portal/app/insurance-crosswalk" : "/portal/app/onboarding";
+  const returnHref = portalState.launched
+    ? "/portal/app/insurance-crosswalk"
+    : "/portal/app/onboarding";
   const returnLabel = portalState.launched ? "Back to document" : "Back to onboarding";
 
   if (shouldShowDocument) {
     const locationRules = portalState.draft.locations.filter(
-      (location) => location.insuranceVaries || location.insuranceNotes
+      (location) => location.insuranceVaries || location.insuranceNotes,
     );
 
     return (
@@ -100,10 +102,7 @@ export default async function PortalInsuranceCrosswalkPage({
                 ))}
               </div>
             ) : (
-              <DocumentText
-                value=""
-                empty="Same insurance rules for all locations."
-              />
+              <DocumentText value="" empty="Same insurance rules for all locations." />
             )}
           </DocumentSection>
         </DocumentPanel>

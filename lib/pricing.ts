@@ -145,8 +145,7 @@ export function calculateUsageCostBreakdown(
     costItem({
       category: "LLM_OUTPUT",
       costDollars:
-        (outputTokens / 1_000_000) *
-        USAGE_PRICING_RATES.basetenOutputPerMillionTokens,
+        (outputTokens / 1_000_000) * USAGE_PRICING_RATES.basetenOutputPerMillionTokens,
       label: "Baseten output",
       model: input.llmModel ?? "GLM-4.7",
       provider: "baseten",
@@ -157,8 +156,7 @@ export function calculateUsageCostBreakdown(
     costItem({
       category: "TEXT_TO_SPEECH",
       costDollars:
-        (ttsChars / 1_000) *
-        USAGE_PRICING_RATES.elevenLabsFlashPerThousandCharacters,
+        (ttsChars / 1_000) * USAGE_PRICING_RATES.elevenLabsFlashPerThousandCharacters,
       label: "ElevenLabs Flash TTS",
       provider: "elevenlabs",
       quantity: ttsChars,
@@ -179,9 +177,7 @@ export function calculateUsageCostBreakdown(
   };
 }
 
-export function estimateUsageCostLineItems(
-  input: UsageCostInput,
-): CostLineEstimate[] {
+export function estimateUsageCostLineItems(input: UsageCostInput): CostLineEstimate[] {
   return calculateUsageCostBreakdown(input).items.map((item) => ({
     category: item.category,
     costMicros: item.costMicros,

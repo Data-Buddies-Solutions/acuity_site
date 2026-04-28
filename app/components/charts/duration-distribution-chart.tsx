@@ -44,18 +44,9 @@ export function DurationDistributionChart({
           <ChartContainer config={chartConfig} className="h-[200px] w-full">
             <BarChart data={data}>
               <CartesianGrid vertical={false} />
-              <XAxis
-                dataKey="bucket"
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-              />
+              <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} />
               <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    formatter={(value) => `${value} calls`}
-                  />
-                }
+                content={<ChartTooltipContent formatter={(value) => `${value} calls`} />}
               />
               <Bar dataKey="count" fill="var(--color-count)" radius={[4, 4, 0, 0]} />
             </BarChart>

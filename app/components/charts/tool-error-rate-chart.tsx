@@ -1,7 +1,13 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 
 const chartConfig = {
@@ -23,13 +29,26 @@ export function ToolErrorRateChart({
       </CardHeader>
       <CardContent>
         {displayData.length === 0 ? (
-          <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">No data available</div>
+          <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
+            No data available
+          </div>
         ) : (
           <ChartContainer config={chartConfig} className="h-[240px] w-full">
             <BarChart data={displayData} layout="vertical">
               <CartesianGrid horizontal={false} />
-              <XAxis type="number" tickFormatter={(value) => `${Math.round(Number(value))}%`} tickLine={false} axisLine={false} />
-              <YAxis type="category" dataKey="tool" tickLine={false} axisLine={false} width={140} />
+              <XAxis
+                type="number"
+                tickFormatter={(value) => `${Math.round(Number(value))}%`}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                type="category"
+                dataKey="tool"
+                tickLine={false}
+                axisLine={false}
+                width={140}
+              />
               <ChartTooltip
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
@@ -39,13 +58,19 @@ export function ToolErrorRateChart({
                       <p className="font-medium">{row.tool}</p>
                       <div className="mt-1 space-y-0.5 font-mono">
                         <p>{row.errorRate.toFixed(1)}% error rate</p>
-                        <p>{row.errors} errors / {row.total} calls</p>
+                        <p>
+                          {row.errors} errors / {row.total} calls
+                        </p>
                       </div>
                     </div>
                   );
                 }}
               />
-              <Bar dataKey="errorRate" fill="var(--color-errorRate)" radius={[0, 4, 4, 0]} />
+              <Bar
+                dataKey="errorRate"
+                fill="var(--color-errorRate)"
+                radius={[0, 4, 4, 0]}
+              />
             </BarChart>
           </ChartContainer>
         )}

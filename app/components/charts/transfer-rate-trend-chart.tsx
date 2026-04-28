@@ -1,7 +1,13 @@
 "use client";
 
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 
 const chartConfig = {
@@ -12,24 +18,46 @@ export function TransferRateTrendChart({
   data,
   granularityLabel,
 }: {
-  data: { label: string; tooltipLabel: string; rate: number; transfers: number; calls: number }[];
+  data: {
+    label: string;
+    tooltipLabel: string;
+    rate: number;
+    transfers: number;
+    calls: number;
+  }[];
   granularityLabel: string;
 }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>Transfer Rate Trend</CardTitle>
-        <CardDescription>{granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} transfer rate to a human</CardDescription>
+        <CardDescription>
+          {granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} transfer rate to
+          a human
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
-          <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">No data available</div>
+          <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
+            No data available
+          </div>
         ) : (
           <ChartContainer config={chartConfig} className="h-[220px] w-full">
             <LineChart data={data}>
               <CartesianGrid vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
-              <YAxis tickFormatter={(value) => `${Math.round(Number(value))}%`} tickLine={false} axisLine={false} width={48} />
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                minTickGap={24}
+              />
+              <YAxis
+                tickFormatter={(value) => `${Math.round(Number(value))}%`}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+              />
               <ChartTooltip
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
@@ -44,7 +72,13 @@ export function TransferRateTrendChart({
                   );
                 }}
               />
-              <Line type="natural" dataKey="rate" stroke="var(--color-rate)" strokeWidth={2} dot={{ r: 3 }} />
+              <Line
+                type="natural"
+                dataKey="rate"
+                stroke="var(--color-rate)"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
             </LineChart>
           </ChartContainer>
         )}

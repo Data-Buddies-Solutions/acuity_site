@@ -125,10 +125,7 @@ function usageModelsFromArray(usage: unknown): string[] {
   return [...models];
 }
 
-function usageModels(
-  usage?: AgentSessionUsage,
-  report?: SessionReport,
-): string[] {
+function usageModels(usage?: AgentSessionUsage, report?: SessionReport): string[] {
   return [
     ...usageModelsFromArray(usage?.modelUsage),
     ...usageModelsFromArray(report?.usage),
@@ -184,7 +181,7 @@ export function deriveLlmInfo(input: {
     ]),
   ];
   const fallbackUsed = usedModels.includes(FALLBACK_MODEL);
-  const model = fallbackUsed ? FALLBACK_MODEL : usedModels[0] ?? "";
+  const model = fallbackUsed ? FALLBACK_MODEL : (usedModels[0] ?? "");
 
   return { fallbackUsed, model, usedModels };
 }
@@ -327,10 +324,7 @@ function deriveUsageTotals(body: LiveKitWebhookPayload) {
     }
 
     if (entry.type === "tts_usage") {
-      totals.ttsChars += usageValue(entry, [
-        "charactersCount",
-        "characters_count",
-      ]);
+      totals.ttsChars += usageValue(entry, ["charactersCount", "characters_count"]);
     }
   }
 
@@ -343,7 +337,7 @@ function extractText(content?: ChatHistoryItem["content"]): string {
   }
 
   return content
-    .map((item) => (typeof item === "string" ? item : item.transcript ?? ""))
+    .map((item) => (typeof item === "string" ? item : (item.transcript ?? "")))
     .join("")
     .trim();
 }
@@ -447,7 +441,9 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
   }
 
   const turns: TurnRecord[] = [];
-  const llmGroups = groupedLlmMetrics(metrics.filter((metric) => LLM_METRIC_TYPES.has(metric.type)));
+  const llmGroups = groupedLlmMetrics(
+    metrics.filter((metric) => LLM_METRIC_TYPES.has(metric.type)),
+  );
   const ttsMetrics = metrics.filter((metric) => metric.type === "tts_metrics");
   const sttMetrics = metrics.filter((metric) => metric.type === "eou_metrics");
   const outputs = outputByCallId(items);
@@ -586,9 +582,7 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
   }
 
   const ttftValues = turns.map((turn) => turn.ttftMs).filter((value) => value > 0);
-  const ttsttfbValues = turns
-    .map((turn) => turn.ttsttfbMs)
-    .filter((value) => value > 0);
+  const ttsttfbValues = turns.map((turn) => turn.ttsttfbMs).filter((value) => value > 0);
   const totalLatencyValues = turns
     .map((turn) => deriveTotalLatency(turn))
     .filter((value) => value > 0);
@@ -608,8 +602,7 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
       avgTTFT: Math.round(average(ttftValues)),
       avgTTSttfb: Math.round(average(ttsttfbValues)),
       avgTotalLatency: Math.round(average(totalLatencyValues)),
-      cacheHitRate:
-        totalInputTokens > 0 ? totalCachedTokens / totalInputTokens : 0,
+      cacheHitRate: totalInputTokens > 0 ? totalCachedTokens / totalInputTokens : 0,
       cachedTokens: totalCachedTokens,
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
@@ -622,7 +615,9 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
   };
 }
 
-export function getToolActions(turns: Array<{ toolCalls?: ToolCallRecord[] }>): ToolActions {
+export function getToolActions(
+  turns: Array<{ toolCalls?: ToolCallRecord[] }>,
+): ToolActions {
   const actions: ToolActions = {
     bookedAppointment: false,
     cancelledAppointment: false,
@@ -687,9 +682,9 @@ export function callNeedsReview(call: {
 
   return Boolean(
     result.passed === false ||
-      labels.hallucination !== "none" ||
-      labels.toolPath === "incorrect" ||
-      labels.resolutionPath === "failed",
+    labels.hallucination !== "none" ||
+    labels.toolPath === "incorrect" ||
+    labels.resolutionPath === "failed",
   );
 }
 
@@ -875,7 +870,9 @@ export function normalizeLiveKitCallPayload(
   const endedAt = asDate(summary.endedAt, null);
   const durationSec =
     asNumber(summary.durationSec) ||
-    (endedAt ? Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)) : 0);
+    (endedAt
+      ? Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000))
+      : 0);
   const inputTokens = Math.max(0, Math.round(asNumber(summary.totals?.inputTokens)));
   const outputTokens = Math.max(0, Math.round(asNumber(summary.totals?.outputTokens)));
   const cachedTokens = Math.max(0, Math.round(asNumber(summary.totals?.cachedTokens)));

@@ -23,11 +23,7 @@ export default function BookCallButton({
 
   return (
     <Button asChild variant={variant} size={size} className={className}>
-      <Link
-        href={SITE_CONFIG.calendarLink}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
+      <Link href={SITE_CONFIG.calendarLink} target="_blank" rel="noopener noreferrer">
         {children}
         {iconVariant !== "none" && <Icon className="h-4 w-4" />}
       </Link>

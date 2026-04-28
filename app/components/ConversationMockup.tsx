@@ -62,8 +62,12 @@ export default function ConversationMockup() {
               <div className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-neutral-900 !leading-tight">Acuity Health AI</p>
-              <p className="text-[11px] text-accent font-medium !leading-tight mt-0.5">Active Call</p>
+              <p className="text-sm font-semibold text-neutral-900 !leading-tight">
+                Acuity Health AI
+              </p>
+              <p className="text-[11px] text-accent font-medium !leading-tight mt-0.5">
+                Active Call
+              </p>
             </div>
             <div className="ml-auto flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -118,8 +122,12 @@ export default function ConversationMockup() {
                 <Check className="w-3 h-3 text-white" strokeWidth={3} />
               </div>
               <div>
-                <p className="text-xs font-semibold text-emerald-800 !leading-tight">Synced to AdvancedMD</p>
-                <p className="text-[11px] text-emerald-600 !leading-tight mt-0.5">Appointment confirmed</p>
+                <p className="text-xs font-semibold text-emerald-800 !leading-tight">
+                  Synced to AdvancedMD
+                </p>
+                <p className="text-[11px] text-emerald-600 !leading-tight mt-0.5">
+                  Appointment confirmed
+                </p>
               </div>
             </div>
           </div>

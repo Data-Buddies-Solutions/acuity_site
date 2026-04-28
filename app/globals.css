@@ -1,29 +1,29 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #FFFFFF;
-  --color-background-alt: #FAFAFA;
-  --color-card: #FFFFFF;
-  --color-card-foreground: #1D1D1D;
-  --color-foreground: #1D1D1D;
-  --color-border: #E5E5E5;
-  --color-input: #E5E5E5;
-  --color-muted: #F7F7F7;
+  --color-background: #ffffff;
+  --color-background-alt: #fafafa;
+  --color-card: #ffffff;
+  --color-card-foreground: #1d1d1d;
+  --color-foreground: #1d1d1d;
+  --color-border: #e5e5e5;
+  --color-input: #e5e5e5;
+  --color-muted: #f7f7f7;
   --color-muted-foreground: #666666;
-  --color-popover: #FFFFFF;
-  --color-popover-foreground: #1D1D1D;
-  --color-primary: #0D7377;
-  --color-primary-foreground: #FFFFFF;
-  --color-secondary: #E8F4F4;
-  --color-secondary-foreground: #10272C;
-  --color-destructive: #DC2626;
-  --color-ring: #0D7377;
-  --color-accent: #0D7377;
-  --color-accent-hover: #0A5C5F;
-  --color-accent-light: #E8F4F4;
-  --color-gold: #C9A227;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1d1d1d;
+  --color-primary: #0d7377;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e8f4f4;
+  --color-secondary-foreground: #10272c;
+  --color-destructive: #dc2626;
+  --color-ring: #0d7377;
+  --color-accent: #0d7377;
+  --color-accent-hover: #0a5c5f;
+  --color-accent-light: #e8f4f4;
+  --color-gold: #c9a227;
   --color-dark: #111111;
-  --color-dark-card: #1A1A1A;
+  --color-dark-card: #1a1a1a;
 
   --radius-lg: 12px;
   --radius-md: 8px;
@@ -40,11 +40,11 @@
 @layer base {
   :root {
     color-scheme: light;
-    --chart-1: #0D7377;
-    --chart-2: #2563EB;
-    --chart-3: #7C3AED;
-    --chart-4: #C9A227;
-    --chart-5: #DC2626;
+    --chart-1: #0d7377;
+    --chart-2: #2563eb;
+    --chart-3: #7c3aed;
+    --chart-4: #c9a227;
+    --chart-5: #dc2626;
   }
 
   * {
@@ -52,7 +52,13 @@
   }
 
   body {
-    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
@@ -102,7 +108,7 @@
 
   /* Gradient text for metrics */
   .text-gradient {
-    background: linear-gradient(135deg, #0D7377 0%, #14919B 50%, #0A5C5F 100%);
+    background: linear-gradient(135deg, #0d7377 0%, #14919b 50%, #0a5c5f 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -118,7 +124,9 @@
   .fade-up {
     opacity: 0;
     transform: translateY(20px);
-    transition: opacity 0.7s ease, transform 0.7s ease;
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
   }
 
   .fade-up.visible {
@@ -145,14 +153,27 @@
 
   /* Typing indicator pulse */
   @keyframes dot-pulse {
-    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-    40% { opacity: 1; transform: scale(1); }
+    0%,
+    80%,
+    100% {
+      opacity: 0.3;
+      transform: scale(0.8);
+    }
+    40% {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   /* Subtle float for hero mockup */
   @keyframes gentle-float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-8px); }
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
   }
 
   .animate-float {
@@ -161,7 +182,7 @@
 
   /* Photo placeholder styling */
   .photo-placeholder {
-    background: linear-gradient(145deg, #E8F4F4 0%, #F0F7F7 50%, #E0EEEE 100%);
+    background: linear-gradient(145deg, #e8f4f4 0%, #f0f7f7 50%, #e0eeee 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -170,9 +191,13 @@
   }
 
   .photo-placeholder::before {
-    content: '';
+    content: "";
     position: absolute;
     inset: 0;
-    background-image: radial-gradient(circle at 50% 50%, rgba(13, 115, 119, 0.05) 0%, transparent 70%);
+    background-image: radial-gradient(
+      circle at 50% 50%,
+      rgba(13, 115, 119, 0.05) 0%,
+      transparent 70%
+    );
   }
 }

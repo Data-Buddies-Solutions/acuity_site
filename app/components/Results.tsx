@@ -20,7 +20,9 @@ export default function Results() {
   return (
     <section className="py-20 md:py-28 bg-muted" id="results">
       <div className="mx-auto max-w-4xl px-4 md:px-6">
-        <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">Impact calculator</p>
+        <p className="text-xs font-medium text-accent uppercase tracking-widest mb-4">
+          Impact calculator
+        </p>
         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-8 md:mb-10">
           Estimate what better patient engagement can unlock
         </h2>
@@ -29,7 +31,9 @@ export default function Results() {
         <div className="mb-10 md:mb-14">
           <div className="flex items-baseline justify-between mb-3">
             <span className="text-sm text-muted-foreground">Calls per day</span>
-            <span className="text-2xl md:text-3xl font-bold text-neutral-900 tabular-nums">{callsPerDay}</span>
+            <span className="text-2xl md:text-3xl font-bold text-neutral-900 tabular-nums">
+              {callsPerDay}
+            </span>
           </div>
           <input
             type="range"
@@ -52,9 +56,12 @@ export default function Results() {
             <p className="text-4xl md:text-5xl font-bold text-accent tracking-tight tabular-nums leading-none">
               ${revenuePerMonth.toLocaleString()}
             </p>
-            <p className="text-sm font-medium text-neutral-900 mt-3">Monthly revenue protected</p>
+            <p className="text-sm font-medium text-neutral-900 mt-3">
+              Monthly revenue protected
+            </p>
             <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-              {missedCalls} missed calls/day &times; 20% booking rate &times; $250 avg visit
+              {missedCalls} missed calls/day &times; 20% booking rate &times; $250 avg
+              visit
             </p>
           </div>
 
@@ -62,7 +69,9 @@ export default function Results() {
             <p className="text-4xl md:text-5xl font-bold text-accent tracking-tight tabular-nums leading-none">
               {hoursSaved}hrs
             </p>
-            <p className="text-sm font-medium text-neutral-900 mt-3">Monthly staff capacity returned</p>
+            <p className="text-sm font-medium text-neutral-900 mt-3">
+              Monthly staff capacity returned
+            </p>
             <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
               65% of calls handled by AI &times; 3 min avg call
             </p>
@@ -72,7 +81,9 @@ export default function Results() {
             <p className="text-4xl md:text-5xl font-bold text-accent tracking-tight leading-none">
               91%
             </p>
-            <p className="text-sm font-medium text-neutral-900 mt-3">Projected patient satisfaction</p>
+            <p className="text-sm font-medium text-neutral-900 mt-3">
+              Projected patient satisfaction
+            </p>
             <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
               Up from ~75% industry avg with hold times and voicemail
             </p>

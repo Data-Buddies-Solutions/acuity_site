@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/app/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/app/components/ui/accordion";
 import { SITE_CONFIG } from "@/lib/config";
 
 const faqs = [

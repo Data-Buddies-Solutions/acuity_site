@@ -68,9 +68,7 @@ export function DocumentSection({
             {title}
           </h3>
           {description ? (
-            <p className="mt-1 text-sm leading-relaxed text-[#718285]">
-              {description}
-            </p>
+            <p className="mt-1 text-sm leading-relaxed text-[#718285]">{description}</p>
           ) : null}
         </div>
         <div className="min-w-0">{children}</div>
@@ -110,8 +108,7 @@ export function DetailItem({
   label: string;
   value?: string | number;
 }>) {
-  const normalizedValue =
-    typeof value === "number" ? String(value) : value?.trim();
+  const normalizedValue = typeof value === "number" ? String(value) : value?.trim();
 
   return (
     <div className="min-w-0 rounded-2xl border border-black/6 bg-[#f7fbfa] px-4 py-3">

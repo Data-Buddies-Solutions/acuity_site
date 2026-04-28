@@ -38,18 +38,24 @@ export default function Differentiation() {
             Why Acuity feels different
           </p>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight">
-            Built for ophthalmology communication complexity, not generic patient messaging.
+            Built for ophthalmology communication complexity, not generic patient
+            messaging.
           </h2>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mt-12">
           {pillars.map(({ icon: Icon, title, description }) => (
-            <div key={title} className="rounded-3xl border border-neutral-200 bg-white p-8 shadow-sm">
+            <div
+              key={title}
+              className="rounded-3xl border border-neutral-200 bg-white p-8 shadow-sm"
+            >
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-accent/10">
                 <Icon className="h-5 w-5 text-accent" />
               </div>
               <h3 className="mt-5 text-xl font-semibold tracking-tight">{title}</h3>
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{description}</p>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                {description}
+              </p>
             </div>
           ))}
         </div>

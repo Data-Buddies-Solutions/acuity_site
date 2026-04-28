@@ -16,9 +16,7 @@ function formatToolLabel(name: string): string {
     case "transfer_call":
       return "Transfer";
     default:
-      return name
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (char) => char.toUpperCase());
+      return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
   }
 }
 
@@ -101,9 +99,7 @@ function ToolBlock({ tc }: { tc: ToolCallRecord }) {
       </div>
 
       {/* Request (tool args) */}
-      {tc.args && (
-        <CollapsibleJson label="Request" content={tc.args} />
-      )}
+      {tc.args && <CollapsibleJson label="Request" content={tc.args} />}
 
       {/* Response (tool result) */}
       {tc.result && (

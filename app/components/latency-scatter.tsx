@@ -102,7 +102,10 @@ function ContextGrowthChart({ turns }: { turns: TurnRecord[] }) {
   const peak = Math.max(...data.map((d) => d.total));
   const avgCacheRate =
     data.reduce((s, d) => s + d.cached, 0) /
-    Math.max(1, data.reduce((s, d) => s + d.total, 0));
+    Math.max(
+      1,
+      data.reduce((s, d) => s + d.total, 0),
+    );
 
   return (
     <div className="rounded-xl border border-white/60 bg-white/50 backdrop-blur-lg p-4 dark:border-white/10 dark:bg-white/5">
@@ -136,8 +139,13 @@ function ContextGrowthChart({ turns }: { turns: TurnRecord[] }) {
                 <div className="rounded-md border bg-background px-3 py-1.5 text-xs shadow-sm space-y-0.5">
                   <p className="font-medium">Turn {d.turn}</p>
                   <p style={{ color: "#10b981" }}>Cached: {d.cached.toLocaleString()}</p>
-                  <p style={{ color: "#6366f1" }}>Non-cached: {d.nonCached.toLocaleString()}</p>
-                  <p className="text-muted-foreground">Total input: {d.total.toLocaleString()} ({cacheRate.toFixed(0)}% cached)</p>
+                  <p style={{ color: "#6366f1" }}>
+                    Non-cached: {d.nonCached.toLocaleString()}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Total input: {d.total.toLocaleString()} ({cacheRate.toFixed(0)}%
+                    cached)
+                  </p>
                   <p style={{ color: "#f59e0b" }}>Output: {d.output.toLocaleString()}</p>
                 </div>
               );
@@ -209,7 +217,11 @@ export function LatencyScatterCharts({ turns }: { turns: TurnRecord[] }) {
             <LatencyChart title="STT Latency by Turn" data={sttData} color="#f59e0b" />
           )}
           {totalData.length > 0 && (
-            <LatencyChart title="Total Latency by Turn" data={totalData} color="#10b981" />
+            <LatencyChart
+              title="Total Latency by Turn"
+              data={totalData}
+              color="#10b981"
+            />
           )}
         </div>
       )}

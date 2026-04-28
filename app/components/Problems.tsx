@@ -29,14 +29,20 @@ export default function Problems() {
     <section className="border-b py-20 md:py-32 bg-muted/50" id="problems">
       <div className="mx-auto max-w-7xl px-6 md:px-10">
         <div className="mx-auto mb-16 md:mb-20 max-w-3xl space-y-6 text-center">
-          <Badge variant="outline" className="backdrop-blur-sm bg-background/60 border-border text-sm font-medium uppercase tracking-tight">
+          <Badge
+            variant="outline"
+            className="backdrop-blur-sm bg-background/60 border-border text-sm font-medium uppercase tracking-tight"
+          >
             Sound familiar?
           </Badge>
           <h2 className="text-4xl font-bold tracking-tighter md:text-5xl lg:text-6xl">
-            Does This Sound Like<br />Your <span className="text-accent">Day-to-Day</span>?
+            Does This Sound Like
+            <br />
+            Your <span className="text-accent">Day-to-Day</span>?
           </h2>
           <p className="text-xl text-muted-foreground md:text-2xl">
-            You&apos;re not alone. These are the exact problems we help small businesses solve with AI
+            You&apos;re not alone. These are the exact problems we help small businesses
+            solve with AI
           </p>
         </div>
         <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-3 lg:gap-16">

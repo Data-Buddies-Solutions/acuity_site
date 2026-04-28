@@ -39,7 +39,7 @@ export default async function PortalPage({
   if (session) {
     redirect(
       getSafeNextPath(params.next) ||
-        (isAdminEmail(session.user.email) ? "/admin/practices" : "/portal/app")
+        (isAdminEmail(session.user.email) ? "/admin/practices" : "/portal/app"),
     );
   }
 
@@ -53,18 +53,20 @@ export default async function PortalPage({
         <div className="mb-8 flex w-full justify-start md:mb-10">
           <Link href="/" className="inline-flex items-center gap-3 text-[#10272c]">
             <Logo className="shrink-0" />
-            <span className="text-lg font-semibold tracking-[-0.03em]">Acuity Health</span>
+            <span className="text-lg font-semibold tracking-[-0.03em]">
+              Acuity Health
+            </span>
           </Link>
         </div>
 
         <div className="flex flex-1 items-center">
           <div className="grid w-full gap-6 lg:grid-cols-[420px_minmax(0,1fr)]">
             <div className="relative overflow-hidden rounded-[2.5rem] border border-black/8 bg-white/86 p-6 shadow-[0_28px_80px_rgba(16,39,44,0.12)] backdrop-blur md:p-8">
-            <div className="absolute inset-x-0 top-0 h-28 bg-[linear-gradient(180deg,rgba(13,115,119,0.09),transparent)]" />
-            <div className="absolute inset-x-8 top-0 h-px bg-white/80" />
+              <div className="absolute inset-x-0 top-0 h-28 bg-[linear-gradient(180deg,rgba(13,115,119,0.09),transparent)]" />
+              <div className="absolute inset-x-8 top-0 h-px bg-white/80" />
 
-            <div className="relative">
-              <div className="flex items-center justify-between gap-4">
+              <div className="relative">
+                <div className="flex items-center justify-between gap-4">
                   <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#5c7477]">
                     Practice Portal
                   </p>
@@ -114,7 +116,10 @@ export default async function PortalPage({
                 <div className="relative overflow-hidden rounded-[2rem] bg-[#0d7377] p-5">
                   <div className="grid grid-cols-3 gap-3">
                     {Array.from({ length: 9 }).map((_, index) => (
-                      <div key={index} className="aspect-square rounded-full bg-white/88" />
+                      <div
+                        key={index}
+                        className="aspect-square rounded-full bg-white/88"
+                      />
                     ))}
                   </div>
                 </div>
@@ -170,7 +175,10 @@ export default async function PortalPage({
                 <div className="relative overflow-hidden rounded-[2rem] bg-[#e5f3f2] p-5">
                   <div className="grid grid-cols-3 gap-3">
                     {Array.from({ length: 6 }).map((_, index) => (
-                      <div key={index} className="aspect-square rounded-full bg-white/88" />
+                      <div
+                        key={index}
+                        className="aspect-square rounded-full bg-white/88"
+                      />
                     ))}
                   </div>
                 </div>

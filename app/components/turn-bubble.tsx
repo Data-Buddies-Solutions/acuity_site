@@ -5,7 +5,8 @@ import { ToolTurnDetail } from "@/app/components/tool-turn-detail";
 import { CopyButton } from "@/app/components/copy-button";
 
 function AgentMetrics({ turn }: { turn: TurnRecord }) {
-  const hasMetrics = turn.ttftMs > 0 || turn.promptTokens > 0 || turn.toolCalls.length > 0;
+  const hasMetrics =
+    turn.ttftMs > 0 || turn.promptTokens > 0 || turn.toolCalls.length > 0;
   if (!hasMetrics) return null;
 
   return (
@@ -22,7 +23,8 @@ function AgentMetrics({ turn }: { turn: TurnRecord }) {
       )}
       {turn.promptTokens > 0 && (
         <Badge variant="outline" className="text-[10px] font-mono">
-          {turn.promptTokens.toLocaleString()} in / {turn.completionTokens.toLocaleString()} out
+          {turn.promptTokens.toLocaleString()} in /{" "}
+          {turn.completionTokens.toLocaleString()} out
         </Badge>
       )}
       {turn.cachedTokens > 0 && (
@@ -61,7 +63,9 @@ export function TranscriptTimeline({ turns }: { turns: TurnRecord[] }) {
           <div key={i}>
             <div className="flex justify-end">
               <div className="max-w-full rounded-2xl rounded-br-md bg-primary px-4 py-2.5 sm:max-w-[80%]">
-                <p className="text-[10px] font-medium text-primary-foreground/70 mb-1">User</p>
+                <p className="text-[10px] font-medium text-primary-foreground/70 mb-1">
+                  User
+                </p>
                 <p className="text-sm text-primary-foreground">{msg.text}</p>
               </div>
             </div>
@@ -78,7 +82,9 @@ export function TranscriptTimeline({ turns }: { turns: TurnRecord[] }) {
             {msg.text ? (
               <div className="flex justify-start">
                 <div className="max-w-full rounded-2xl rounded-bl-md bg-muted px-4 py-2.5 sm:max-w-[80%]">
-                  <p className="text-[10px] font-medium text-muted-foreground mb-1">Agent</p>
+                  <p className="text-[10px] font-medium text-muted-foreground mb-1">
+                    Agent
+                  </p>
                   <p className="text-sm text-foreground">{msg.text}</p>
                 </div>
               </div>
@@ -86,7 +92,7 @@ export function TranscriptTimeline({ turns }: { turns: TurnRecord[] }) {
             <AgentMetrics turn={msg.turn} />
             <ToolTurnDetail toolCalls={msg.turn.toolCalls} />
           </div>
-        )
+        ),
       )}
     </div>
   );
@@ -97,7 +103,7 @@ export function TranscriptTimeline({ turns }: { turns: TurnRecord[] }) {
 function extractText(content?: ChatHistoryItem["content"]): string {
   if (!content) return "";
   return content
-    .map((c) => (typeof c === "string" ? c : c.transcript ?? ""))
+    .map((c) => (typeof c === "string" ? c : (c.transcript ?? "")))
     .filter(Boolean)
     .join(" ");
 }
@@ -112,7 +118,12 @@ function formatJson(value: string): string {
 
 function formatTimestamp(ms?: number): string | null {
   if (!ms) return null;
-  return new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(ms).toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] }) {
@@ -137,12 +148,21 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
               <div className="flex justify-end">
                 <div className="max-w-full rounded-2xl rounded-br-md bg-primary px-4 py-2.5 sm:max-w-[80%]">
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="text-[10px] font-medium text-primary-foreground/70">User</p>
-                    {ts && <p className="text-[9px] text-primary-foreground/50 font-mono">{ts}</p>}
+                    <p className="text-[10px] font-medium text-primary-foreground/70">
+                      User
+                    </p>
+                    {ts && (
+                      <p className="text-[9px] text-primary-foreground/50 font-mono">
+                        {ts}
+                      </p>
+                    )}
                   </div>
                   <p className="text-sm text-primary-foreground">{text}</p>
                   {item.interrupted && (
-                    <Badge variant="outline" className="mt-1 text-[9px] border-primary-foreground/30 text-primary-foreground/60">
+                    <Badge
+                      variant="outline"
+                      className="mt-1 text-[9px] border-primary-foreground/30 text-primary-foreground/60"
+                    >
                       interrupted
                     </Badge>
                   )}
@@ -174,13 +194,21 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
                 <div className="max-w-full rounded-2xl rounded-bl-md bg-muted px-4 py-2.5 sm:max-w-[80%]">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
                     <p className="text-[10px] font-medium text-muted-foreground">Agent</p>
-                    {ts && <p className="text-[9px] text-muted-foreground/50 font-mono">{ts}</p>}
+                    {ts && (
+                      <p className="text-[9px] text-muted-foreground/50 font-mono">
+                        {ts}
+                      </p>
+                    )}
                   </div>
-                  <p className={`text-sm text-foreground ${item.interrupted ? "line-through opacity-60" : ""}`}>
+                  <p
+                    className={`text-sm text-foreground ${item.interrupted ? "line-through opacity-60" : ""}`}
+                  >
                     {text}
                   </p>
                   {item.interrupted && (
-                    <Badge variant="outline" className="mt-1 text-[9px]">interrupted</Badge>
+                    <Badge variant="outline" className="mt-1 text-[9px]">
+                      interrupted
+                    </Badge>
                   )}
                 </div>
               </div>
@@ -204,21 +232,33 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
 
         if (item.type === "function_call") {
           const output = item.callId ? outputsByCallId.get(item.callId) : undefined;
-          const execMs = output?.createdAt && item.createdAt ? output.createdAt - item.createdAt : 0;
+          const execMs =
+            output?.createdAt && item.createdAt ? output.createdAt - item.createdAt : 0;
           return (
-            <details key={item.id ?? i} className="my-1 max-w-full rounded-md bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 px-3 py-2 group sm:max-w-[80%]">
+            <details
+              key={item.id ?? i}
+              className="my-1 max-w-full rounded-md bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 px-3 py-2 group sm:max-w-[80%]"
+            >
               <summary className="flex flex-wrap items-center gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                <span className="text-[10px] text-muted-foreground/50 transition-transform group-open:rotate-90">&#9654;</span>
+                <span className="text-[10px] text-muted-foreground/50 transition-transform group-open:rotate-90">
+                  &#9654;
+                </span>
                 <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                   {item.name}
                 </span>
-                {ts && <span className="text-[9px] text-muted-foreground/50 font-mono">{ts}</span>}
+                {ts && (
+                  <span className="text-[9px] text-muted-foreground/50 font-mono">
+                    {ts}
+                  </span>
+                )}
                 {execMs > 0 && (
                   <span className="rounded border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 font-mono">
                     Exec {formatLatencyMs(execMs)}
                   </span>
                 )}
-                <span className="text-[9px] text-muted-foreground/40 sm:ml-auto">input</span>
+                <span className="text-[9px] text-muted-foreground/40 sm:ml-auto">
+                  input
+                </span>
               </summary>
               {item.args && (
                 <>
@@ -236,13 +276,22 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
 
         if (item.type === "function_call_output") {
           return (
-            <details key={item.id ?? i} className="my-1 max-w-full rounded-md bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 px-3 py-2 group sm:max-w-[80%]">
+            <details
+              key={item.id ?? i}
+              className="my-1 max-w-full rounded-md bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 px-3 py-2 group sm:max-w-[80%]"
+            >
               <summary className="flex flex-wrap items-center gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                <span className="text-[10px] text-muted-foreground/50 transition-transform group-open:rotate-90">&#9654;</span>
-                <span className={`text-xs font-semibold ${item.isError ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
+                <span className="text-[10px] text-muted-foreground/50 transition-transform group-open:rotate-90">
+                  &#9654;
+                </span>
+                <span
+                  className={`text-xs font-semibold ${item.isError ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}
+                >
                   {item.isError ? "\u2717" : "\u2713"} {item.name ?? "tool result"}
                 </span>
-                <span className="text-[9px] text-muted-foreground/40 sm:ml-auto">output</span>
+                <span className="text-[9px] text-muted-foreground/40 sm:ml-auto">
+                  output
+                </span>
               </summary>
               {item.output && (
                 <>

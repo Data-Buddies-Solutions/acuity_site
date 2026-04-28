@@ -13,10 +13,7 @@ import { ToolsTab } from "@/app/components/analytics/tools-tab";
 import { CallsTable } from "@/app/components/calls-table";
 import { HealthKPIs } from "@/app/components/health-kpis";
 import { TimeRangeTabs } from "@/app/components/time-range-tabs";
-import {
-  getAdminPracticeDetail,
-  type AdminPracticeRange,
-} from "@/lib/admin-analytics";
+import { getAdminPracticeDetail, type AdminPracticeRange } from "@/lib/admin-analytics";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";

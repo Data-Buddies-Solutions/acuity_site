@@ -37,9 +37,7 @@ export interface LatencyPercentiles {
 }
 
 export function computePercentiles(values: number[]): LatencyPercentiles {
-  const sorted = values
-    .filter((value) => Number.isFinite(value))
-    .sort((a, b) => a - b);
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
 
   return {
     p50: percentile(sorted, 50),
@@ -55,7 +53,9 @@ function percentile(sorted: number[], p: number): number {
   const lower = Math.floor(index);
   const upper = Math.ceil(index);
   if (lower === upper) return sorted[lower] ?? 0;
-  return (sorted[lower] ?? 0) + ((sorted[upper] ?? 0) - (sorted[lower] ?? 0)) * (index - lower);
+  return (
+    (sorted[lower] ?? 0) + ((sorted[upper] ?? 0) - (sorted[lower] ?? 0)) * (index - lower)
+  );
 }
 
 export function deriveTotalLatency(turn: {

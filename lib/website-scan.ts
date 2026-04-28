@@ -61,18 +61,16 @@ function stripHtml(html: string) {
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
         .replace(/<style[\s\S]*?<\/style>/gi, " ")
         .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
-    )
+        .replace(/<[^>]+>/g, " "),
+    ),
   );
 }
 
 function unique(values: Array<string | undefined | null>) {
   return Array.from(
     new Set(
-      values
-        .map((value) => cleanupWhitespace(String(value || "")))
-        .filter(Boolean)
-    )
+      values.map((value) => cleanupWhitespace(String(value || ""))).filter(Boolean),
+    ),
   );
 }
 
@@ -90,11 +88,11 @@ function extractMetaContent(html: string, names: string[]) {
     const patterns = [
       new RegExp(
         `<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']+)["'][^>]*>`,
-        "i"
+        "i",
       ),
       new RegExp(
         `<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${name}["'][^>]*>`,
-        "i"
+        "i",
       ),
     ];
 
@@ -113,9 +111,9 @@ function extractMetaContent(html: string, names: string[]) {
 function extractJsonLdBlocks(html: string) {
   const blocks = Array.from(
     html.matchAll(
-      /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+      /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
     ),
-    (match) => match[1]
+    (match) => match[1],
   );
 
   const parsed: unknown[] = [];
@@ -154,9 +152,7 @@ function readType(node: Record<string, unknown>) {
   const rawType = node["@type"];
   const values = Array.isArray(rawType) ? rawType : [rawType];
 
-  return values
-    .map((value) => String(value || "").toLowerCase())
-    .filter(Boolean);
+  return values.map((value) => String(value || "").toLowerCase()).filter(Boolean);
 }
 
 function readString(value: unknown) {
@@ -174,7 +170,9 @@ function readAddress(value: unknown) {
   const state = readString(record.addressRegion);
   const postalCode = readString(record.postalCode);
 
-  return unique([street, city && state ? `${city}, ${state}` : city, postalCode]).join(" ");
+  return unique([street, city && state ? `${city}, ${state}` : city, postalCode]).join(
+    " ",
+  );
 }
 
 function readOpeningHours(value: unknown) {
@@ -188,15 +186,19 @@ function readOpeningHours(value: unknown) {
 
           const record = entry as Record<string, unknown>;
           const day = Array.isArray(record.dayOfWeek)
-            ? record.dayOfWeek.map((item) => String(item).replace("https://schema.org/", "")).join(", ")
+            ? record.dayOfWeek
+                .map((item) => String(item).replace("https://schema.org/", ""))
+                .join(", ")
             : String(record.dayOfWeek || "").replace("https://schema.org/", "");
 
           return cleanupWhitespace(
-            [day, readString(record.opens), readString(record.closes)].filter(Boolean).join(" ")
+            [day, readString(record.opens), readString(record.closes)]
+              .filter(Boolean)
+              .join(" "),
           );
         })
         .filter(Boolean)
-        .join("; ")
+        .join("; "),
     );
   }
 
@@ -224,7 +226,9 @@ function pickPracticeType(text: string): PracticeTypeValue {
 }
 
 function extractPhones(text: string) {
-  return unique(matchAll(text, /(?:\+?1[-.\s]*)?(?:\(\d{3}\)|\d{3})[-.\s]*\d{3}[-.\s]*\d{4}/g));
+  return unique(
+    matchAll(text, /(?:\+?1[-.\s]*)?(?:\(\d{3}\)|\d{3})[-.\s]*\d{3}[-.\s]*\d{4}/g),
+  );
 }
 
 function extractEmails(text: string) {
@@ -235,8 +239,8 @@ function extractAddresses(text: string) {
   return unique(
     matchAll(
       text,
-      /\d{1,6}\s+[A-Za-z0-9.'# -]+,\s*[A-Za-z .'-]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?/g
-    )
+      /\d{1,6}\s+[A-Za-z0-9.'# -]+,\s*[A-Za-z .'-]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?/g,
+    ),
   );
 }
 
@@ -244,15 +248,15 @@ function extractHours(text: string) {
   return unique(
     matchAll(
       text,
-      /(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^.!?]{0,80}(?:AM|PM|am|pm)/g
-    )
+      /(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^.!?]{0,80}(?:AM|PM|am|pm)/g,
+    ),
   );
 }
 
 function extractProviderNames(text: string) {
-  return unique(matchAll(text, /(?:Dr\.?|Doctor)\s+[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,2}/g)).map(
-    (value) => value.replace(/^Dr\.?\s+/i, "Dr. ")
-  );
+  return unique(
+    matchAll(text, /(?:Dr\.?|Doctor)\s+[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,2}/g),
+  ).map((value) => value.replace(/^Dr\.?\s+/i, "Dr. "));
 }
 
 function extractNpiNumbers(text: string) {
@@ -265,7 +269,10 @@ function extractSpecialties(text: string) {
   return SPECIALTY_KEYWORDS.filter((keyword) => lower.includes(keyword));
 }
 
-function extractKnowledgeHints(text: string, practiceType: PracticeTypeValue): PracticeWebsiteScanKnowledgeHints {
+function extractKnowledgeHints(
+  text: string,
+  practiceType: PracticeTypeValue,
+): PracticeWebsiteScanKnowledgeHints {
   const lower = text.toLowerCase();
   const excludedServices = [];
 
@@ -278,16 +285,17 @@ function extractKnowledgeHints(text: string, practiceType: PracticeTypeValue): P
   }
 
   const whatToBring = WHAT_TO_BRING_KEYWORDS.filter((keyword) =>
-    lower.includes(keyword)
+    lower.includes(keyword),
   ).map((keyword) => keyword.replace(/\b\w/g, (letter) => letter.toUpperCase()));
 
   const appointmentExpectations = APPOINTMENT_EXPECTATION_KEYWORDS.filter((keyword) =>
-    lower.includes(keyword)
+    lower.includes(keyword),
   );
 
-  const emergencyNotice = lower.includes("dial 911") || lower.includes("nearest emergency room")
-    ? "If this is a medical emergency, call 911 or go to the nearest emergency room immediately."
-    : undefined;
+  const emergencyNotice =
+    lower.includes("dial 911") || lower.includes("nearest emergency room")
+      ? "If this is a medical emergency, call 911 or go to the nearest emergency room immediately."
+      : undefined;
 
   const specialties = extractSpecialties(text);
   const scopeSummary = specialties.length
@@ -306,14 +314,16 @@ function extractKnowledgeHints(text: string, practiceType: PracticeTypeValue): P
 function buildProviderRecords(
   providerNames: string[],
   specialtySummary?: string,
-  npiNumbers: string[] = []
+  npiNumbers: string[] = [],
 ) {
-  return providerNames.slice(0, 4).map<PracticeWebsiteScanProvider>((displayName, index) => ({
-    displayName,
-    npi: npiNumbers[index],
-    specialtySummary,
-    speechAliases: [],
-  }));
+  return providerNames
+    .slice(0, 4)
+    .map<PracticeWebsiteScanProvider>((displayName, index) => ({
+      displayName,
+      npi: npiNumbers[index],
+      specialtySummary,
+      speechAliases: [],
+    }));
 }
 
 function extractLocationFromJsonLd(nodes: Record<string, unknown>[]) {
@@ -321,7 +331,9 @@ function extractLocationFromJsonLd(nodes: Record<string, unknown>[]) {
     nodes.find((node) => {
       const types = readType(node);
       return types.some((type) =>
-        ["medicalbusiness", "medicalclinic", "localbusiness", "organization"].includes(type)
+        ["medicalbusiness", "medicalclinic", "localbusiness", "organization"].includes(
+          type,
+        ),
       );
     }) || nodes[0];
 
@@ -334,7 +346,7 @@ function extractLocationFromJsonLd(nodes: Record<string, unknown>[]) {
   const fax = readString(organizationNode.faxNumber);
   const email = readString(organizationNode.email);
   const hoursSummary = readOpeningHours(
-    organizationNode.openingHoursSpecification || organizationNode.openingHours
+    organizationNode.openingHoursSpecification || organizationNode.openingHours,
   );
   const name = readString(organizationNode.name);
 
@@ -355,18 +367,20 @@ function extractLocationFromJsonLd(nodes: Record<string, unknown>[]) {
 function extractPracticeName(
   nodes: Record<string, unknown>[],
   title: string | undefined,
-  sourceUrl: string
+  sourceUrl: string,
 ) {
   const candidate =
-    nodes
-      .map((node) => readString(node.name))
-      .find(Boolean) ||
+    nodes.map((node) => readString(node.name)).find(Boolean) ||
     title?.split("|")[0]?.split("-")[0];
 
-  return candidate ? cleanupWhitespace(candidate) : guessPracticeNameFromWebsite(sourceUrl);
+  return candidate
+    ? cleanupWhitespace(candidate)
+    : guessPracticeNameFromWebsite(sourceUrl);
 }
 
-export async function scanPracticeWebsite(url: string): Promise<PracticeWebsiteScanResult> {
+export async function scanPracticeWebsite(
+  url: string,
+): Promise<PracticeWebsiteScanResult> {
   const sourceUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
 
   try {
@@ -400,7 +414,7 @@ export async function scanPracticeWebsite(url: string): Promise<PracticeWebsiteS
     const hours = unique([
       ...extractHours(text),
       ...nodes.map((node) =>
-        readOpeningHours(node.openingHoursSpecification || node.openingHours)
+        readOpeningHours(node.openingHoursSpecification || node.openingHours),
       ),
     ]);
     const providerNames = unique([
@@ -415,7 +429,7 @@ export async function scanPracticeWebsite(url: string): Promise<PracticeWebsiteS
     ]);
     const npiNumbers = extractNpiNumbers(text);
     const practiceType = pickPracticeType(
-      [title, metaDescription, specialties.join(" "), text.slice(0, 4000)].join(" ")
+      [title, metaDescription, specialties.join(" "), text.slice(0, 4000)].join(" "),
     );
     const practiceName = extractPracticeName(nodes, title, sourceUrl);
     const primaryLocation =
@@ -430,7 +444,11 @@ export async function scanPracticeWebsite(url: string): Promise<PracticeWebsiteS
             phone: phones[0],
           }
         : undefined);
-    const providers = buildProviderRecords(providerNames, specialties.join(", "), npiNumbers);
+    const providers = buildProviderRecords(
+      providerNames,
+      specialties.join(", "),
+      npiNumbers,
+    );
 
     return {
       extractedSignals: {
@@ -458,7 +476,8 @@ export async function scanPracticeWebsite(url: string): Promise<PracticeWebsiteS
     };
   } catch (error) {
     return {
-      errorMessage: error instanceof Error ? error.message : "Unable to scan that website.",
+      errorMessage:
+        error instanceof Error ? error.message : "Unable to scan that website.",
       extractedSignals: {
         addresses: [],
         emails: [],
