@@ -22,6 +22,7 @@ export function OfficeFilterTabs({ offices, selectedOfficeId }: OfficeFilterTabs
   }
 
   const current = selectedOfficeId ?? "all";
+  const items = [{ id: "all", label: "All Offices" }, ...offices];
 
   return (
     <div className={`transition-opacity ${isPending ? "opacity-50" : ""}`}>
@@ -46,10 +47,9 @@ export function OfficeFilterTabs({ offices, selectedOfficeId }: OfficeFilterTabs
         }}
       >
         <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
-          <TabsTrigger value="all">All Offices</TabsTrigger>
-          {offices.map((office) => (
-            <TabsTrigger key={office.id} value={office.id}>
-              {office.label}
+          {items.map((item) => (
+            <TabsTrigger key={item.id} value={item.id}>
+              {item.label}
             </TabsTrigger>
           ))}
         </TabsList>
