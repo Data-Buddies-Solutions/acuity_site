@@ -328,32 +328,36 @@ export async function hasPracticeWorkspaceTables() {
 }
 
 async function ensurePracticeForUser(user: PracticeWorkspaceUser) {
-  const membership = await prisma.practiceMembership.findFirst({
-    include: {
-      practice: true,
-    },
-    orderBy: {
-      createdAt: "asc",
-    },
-    where: {
-      userId: user.id,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "user" WHERE id = ${user.id} FOR UPDATE`;
 
-  if (membership?.practice) {
-    return membership.practice;
-  }
-
-  return prisma.practice.create({
-    data: {
-      memberships: {
-        create: {
-          role: "OWNER",
-          userId: user.id,
-        },
+    const membership = await tx.practiceMembership.findFirst({
+      include: {
+        practice: true,
       },
-      name: inferPracticeNameFromUser(user),
-    },
+      orderBy: {
+        createdAt: "asc",
+      },
+      where: {
+        userId: user.id,
+      },
+    });
+
+    if (membership?.practice) {
+      return membership.practice;
+    }
+
+    return tx.practice.create({
+      data: {
+        memberships: {
+          create: {
+            role: "OWNER",
+            userId: user.id,
+          },
+        },
+        name: inferPracticeNameFromUser(user),
+      },
+    });
   });
 }
 

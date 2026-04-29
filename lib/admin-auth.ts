@@ -29,6 +29,22 @@ export function isAdminEmail(email: string | null | undefined) {
   return normalizedEmail.endsWith("@acuityhealth.io");
 }
 
+export function isExplicitAdminEmail(email: string | null | undefined) {
+  const normalizedEmail = email?.trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    return false;
+  }
+
+  const configuredEmails = getConfiguredAdminEmails();
+
+  if (configuredEmails.length > 0) {
+    return configuredEmails.includes(normalizedEmail);
+  }
+
+  return normalizedEmail.endsWith("@acuityhealth.io");
+}
+
 export async function requireAdminSession() {
   const session = await getAuthSession();
 
