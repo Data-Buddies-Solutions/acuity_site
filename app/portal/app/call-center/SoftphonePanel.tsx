@@ -105,9 +105,11 @@ function isInboundDirection(direction: unknown) {
 export default function SoftphonePanel({
   callerNumber,
   enabled,
+  seedNumber,
 }: {
   callerNumber: string;
   enabled: boolean;
+  seedNumber?: { value: string; token: number } | null;
 }) {
   const clientRef = useRef<TelnyxRTC | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -126,6 +128,13 @@ export default function SoftphonePanel({
   const [showKeypad, setShowKeypad] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!seedNumber || !seedNumber.value) {
+      return;
+    }
+    setDraftNumber(seedNumber.value);
+  }, [seedNumber]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -301,6 +310,67 @@ export default function SoftphonePanel({
       clientRef.current = null;
     };
   }, [attachAudio, clearTimer, detachAudio, enabled, resetCall, startTimer]);
+
+  useEffect(() => {
+    if (!incomingCall || activeCall) {
+      return;
+    }
+
+    const AudioCtxCtor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtxCtor) {
+      return;
+    }
+
+    const ctx = new AudioCtxCtor();
+    let cancelled = false;
+    let scheduleHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const playRingCycle = () => {
+      if (cancelled) return;
+      const now = ctx.currentTime;
+      const ringDuration = 2;
+      const silenceDuration = 4;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.frequency.value = 440;
+      osc2.frequency.value = 480;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.12, now + 0.05);
+      gain.gain.setValueAtTime(0.12, now + ringDuration - 0.05);
+      gain.gain.linearRampToValueAtTime(0, now + ringDuration);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + ringDuration);
+      osc2.stop(now + ringDuration);
+
+      scheduleHandle = setTimeout(playRingCycle, (ringDuration + silenceDuration) * 1000);
+    };
+
+    if (ctx.state === "suspended") {
+      ctx
+        .resume()
+        .then(playRingCycle)
+        .catch(() => {});
+    } else {
+      playRingCycle();
+    }
+
+    return () => {
+      cancelled = true;
+      if (scheduleHandle) clearTimeout(scheduleHandle);
+      ctx.close().catch(() => {});
+    };
+  }, [activeCall, incomingCall]);
 
   const makeCall = useCallback(() => {
     const to = normalizeToE164(draftNumber);
