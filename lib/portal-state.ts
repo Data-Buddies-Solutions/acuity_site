@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
+import { isExplicitAdminEmail } from "./admin-auth";
 import { getAuthSession } from "./auth";
 import { emptyPracticeBranding, type PracticeBranding } from "./practice-branding";
 import {
@@ -401,6 +403,10 @@ async function getPortalWorkspaceStateFromDatabase() {
 
   if (!session) {
     return null;
+  }
+
+  if (isExplicitAdminEmail(session.user.email)) {
+    redirect("/admin/practices");
   }
 
   const workspaceSnapshot = await getPracticeWorkspaceSnapshotForUser({
