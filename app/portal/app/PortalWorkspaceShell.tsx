@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   BookOpenCheck,
   Building2,
+  CalendarCheck,
   ChevronDown,
   ClipboardList,
   FolderOpen,
@@ -35,6 +36,7 @@ const setupNavItems = [
 const livePrimaryNavItems = [
   { href: "/portal/app/overview", icon: LayoutDashboard, label: "Overview" },
   { href: "/portal/app/call-center", icon: PhoneCall, label: "Call Center" },
+  { href: "/portal/app/bookings", icon: CalendarCheck, label: "Bookings" },
   {
     href: "/portal/app/two-way-texting",
     icon: MessageSquareText,
@@ -122,8 +124,8 @@ export default function PortalWorkspaceShell({
 
   if (isFocusedSetup) {
     return (
-      <section className="min-h-screen bg-[linear-gradient(180deg,#f7fbfa_0%,#eef5f3_42%,#ffffff_100%)]">
-        <header className="border-b border-black/6 bg-white/78 backdrop-blur">
+      <section className="min-h-screen bg-[#f6f8f8]">
+        <header className="border-b border-black/6 bg-white">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 md:px-6">
             <Link
               href="/"
@@ -151,9 +153,9 @@ export default function PortalWorkspaceShell({
   }
 
   return (
-    <section className="bg-[linear-gradient(180deg,#f7fbfa_0%,#eef5f3_42%,#ffffff_100%)]">
+    <section className="bg-[#f6f8f8]">
       <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col xl:grid xl:grid-cols-[288px_minmax(0,1fr)] xl:gap-6 xl:px-4">
-        <aside className="border-b border-black/6 bg-white/75 backdrop-blur xl:sticky xl:top-4 xl:my-4 xl:h-[calc(100vh-2rem)] xl:self-start xl:overflow-hidden xl:rounded-2xl xl:border xl:border-black/8 xl:bg-white/82 xl:shadow-[0_18px_70px_rgba(16,39,44,0.08)]">
+        <aside className="border-b border-black/6 bg-white xl:sticky xl:top-4 xl:my-4 xl:h-[calc(100vh-2rem)] xl:self-start xl:overflow-hidden xl:rounded-2xl xl:border xl:border-black/6 xl:bg-white xl:shadow-[0_1px_2px_rgba(16,39,44,0.04),0_8px_24px_rgba(16,39,44,0.04)]">
           <div className="flex h-full flex-col p-4 md:p-6">
             <div className="flex items-center gap-3">
               <Logo />

@@ -205,7 +205,20 @@ export function resolveTelnyxRuntimeSettings(settings: {
   };
 }
 
-export async function getPortalCallCenterData() {
+export type PortalCallActivityKind = "missed" | "voicemail";
+
+export type PortalCallActivityItem = {
+  callerName: string | null;
+  createdAt: Date;
+  durationSec: number | null;
+  fromPhone: string | null;
+  id: string;
+  kind: PortalCallActivityKind;
+  recordingId: string | null;
+  resolved: boolean;
+};
+
+export async function getPortalCallCenterData(options?: { officeNumbers?: string[] }) {
   const context = await getCurrentPracticeCallCenterContext();
 
   if (!context) {
@@ -213,76 +226,115 @@ export async function getPortalCallCenterData() {
   }
 
   const { practice } = context;
-  const missedCallWhere = {
-    calledBack: false,
-    practiceId: practice.id,
-    resolvedAt: null,
-  } satisfies Prisma.CallCenterMissedCallWhereInput;
-  const voicemailWhere = {
-    practiceId: practice.id,
-    resolvedAt: null,
-  } satisfies Prisma.CallCenterVoicemailWhereInput;
+  const officePhoneVariants = options?.officeNumbers?.length
+    ? Array.from(
+        new Set(options.officeNumbers.flatMap((number) => phoneLookupVariants(number))),
+      )
+    : null;
+  const fromPhoneFilter: { fromPhone?: { in: string[] } } = officePhoneVariants?.length
+    ? { fromPhone: { in: officePhoneVariants } }
+    : {};
 
-  const [activeSessionCount, missedCallCount, voicemailCount, missedCalls, voicemails] =
-    await Promise.all([
-      prisma.callCenterSession.count({
-        where: {
-          practiceId: practice.id,
-          status: {
-            in: ["RINGING", "ACTIVE"],
+  const [missedCallCount, voicemailCount, missedCalls, voicemails] = await Promise.all([
+    prisma.callCenterMissedCall.count({
+      where: {
+        calledBack: false,
+        practiceId: practice.id,
+        resolvedAt: null,
+        ...fromPhoneFilter,
+      },
+    }),
+    prisma.callCenterVoicemail.count({
+      where: {
+        practiceId: practice.id,
+        resolvedAt: null,
+        ...fromPhoneFilter,
+      },
+    }),
+    prisma.callCenterMissedCall.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        calledBack: true,
+        callerName: true,
+        createdAt: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
           },
         },
-      }),
-      prisma.callCenterMissedCall.count({
-        where: missedCallWhere,
-      }),
-      prisma.callCenterVoicemail.count({
-        where: voicemailWhere,
-      }),
-      prisma.callCenterMissedCall.findMany({
-        orderBy: {
-          createdAt: "desc",
-        },
-        select: {
-          calledBack: true,
-          callerName: true,
-          createdAt: true,
-          fromPhone: true,
-          id: true,
-          location: {
-            select: {
-              name: true,
-            },
+        resolvedAt: true,
+      },
+      take: 30,
+      where: {
+        calledBack: false,
+        practiceId: practice.id,
+        resolvedAt: null,
+        ...fromPhoneFilter,
+      },
+    }),
+    prisma.callCenterVoicemail.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        callerName: true,
+        createdAt: true,
+        durationSec: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
           },
-          resolvedAt: true,
         },
-        take: 20,
-        where: missedCallWhere,
-      }),
-      prisma.callCenterVoicemail.findMany({
-        orderBy: {
-          createdAt: "desc",
-        },
-        select: {
-          callerName: true,
-          createdAt: true,
-          durationSec: true,
-          fromPhone: true,
-          id: true,
-          location: {
-            select: {
-              name: true,
-            },
-          },
-          recordingId: true,
-          resolvedAt: true,
-        },
-        take: 20,
-        where: voicemailWhere,
-      }),
-    ]);
+        recordingId: true,
+        resolvedAt: true,
+      },
+      take: 30,
+      where: {
+        practiceId: practice.id,
+        resolvedAt: null,
+        ...fromPhoneFilter,
+      },
+    }),
+  ]);
+
+  const activity: PortalCallActivityItem[] = [];
+
+  for (const missed of missedCalls) {
+    activity.push({
+      callerName: missed.callerName,
+      createdAt: missed.createdAt,
+      durationSec: null,
+      fromPhone: missed.fromPhone,
+      id: `missed:${missed.id}`,
+      kind: "missed",
+      recordingId: null,
+      resolved: false,
+    });
+  }
+
+  for (const voicemail of voicemails) {
+    activity.push({
+      callerName: voicemail.callerName,
+      createdAt: voicemail.createdAt,
+      durationSec: voicemail.durationSec,
+      fromPhone: voicemail.fromPhone,
+      id: `voicemail:${voicemail.id}`,
+      kind: "voicemail",
+      recordingId: voicemail.recordingId,
+      resolved: false,
+    });
+  }
+
+  activity.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
   return {
+    activity: activity.slice(0, 60),
     branding: getPracticeBranding(practice),
     missedCalls,
     phoneNumbers: practice.phoneNumbers,
@@ -290,7 +342,6 @@ export async function getPortalCallCenterData() {
     practiceName: practice.name,
     settings: practice.callCenterSettings,
     totals: {
-      activeSessions: activeSessionCount,
       missedCalls: missedCallCount,
       voicemails: voicemailCount,
     },

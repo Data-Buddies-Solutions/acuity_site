@@ -10,8 +10,23 @@ export type PortalBookedAppointment = {
   callStartedAt: Date;
   callerPhone: string;
   locationName: string | null;
+  patientName: string | null;
   providerName: string | null;
   summary: string | null;
+};
+
+export type PortalOverviewRange = "24h" | "7d" | "30d";
+
+export type PortalCallVolumePoint = {
+  bucket: string;
+  count: number;
+  label: string;
+};
+
+export type PortalTimeSavedBucket = {
+  key: "scheduling" | "after_hours";
+  label: string;
+  seconds: number;
 };
 
 export type PortalOverviewMetrics = {
@@ -21,30 +36,135 @@ export type PortalOverviewMetrics = {
     confirmed: number;
   };
   averageCallDurationSec: number;
-  bookedAppointments: PortalBookedAppointment[];
   branding: PracticeBranding;
+  callVolume: PortalCallVolumePoint[];
   practiceName: string;
+  previousTotalCalls: number;
   range: PortalOverviewRange;
+  staffTimeSaved: {
+    buckets: PortalTimeSavedBucket[];
+    totalSeconds: number;
+  };
   totalCallMinutes: number;
   totalCalls: number;
   transferRate: number;
   transferredCalls: number;
 };
 
-export type PortalOverviewRange = "24h" | "7d" | "30d" | "all";
+export type PortalBookingsResult = {
+  bookings: PortalBookedAppointment[];
+  branding: PracticeBranding;
+  practiceName: string;
+  range: PortalOverviewRange;
+};
 
-const rangeDays: Record<Exclude<PortalOverviewRange, "all">, number> = {
+const rangeDays: Record<PortalOverviewRange, number> = {
   "24h": 1,
   "7d": 7,
   "30d": 30,
 };
 
+const PRACTICE_TIMEZONE = "America/New_York";
+const AFTER_HOURS_START = 18;
+const AFTER_HOURS_END = 8;
+
 function getRangeStart(range: PortalOverviewRange) {
-  if (range === "all") {
-    return null;
+  return new Date(Date.now() - rangeDays[range] * 24 * 60 * 60 * 1000);
+}
+
+function getPreviousRangeWindow(range: PortalOverviewRange) {
+  const days = rangeDays[range];
+  const now = Date.now();
+  return {
+    end: new Date(now - days * 24 * 60 * 60 * 1000),
+    start: new Date(now - 2 * days * 24 * 60 * 60 * 1000),
+  };
+}
+
+const dayBucketFormatter = new Intl.DateTimeFormat("en-CA", {
+  day: "2-digit",
+  month: "2-digit",
+  timeZone: PRACTICE_TIMEZONE,
+  year: "numeric",
+});
+
+const dayLabelFormatter = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  month: "short",
+  timeZone: PRACTICE_TIMEZONE,
+});
+
+const hourBucketFormatter = new Intl.DateTimeFormat("en-CA", {
+  day: "2-digit",
+  hour: "2-digit",
+  hour12: false,
+  month: "2-digit",
+  timeZone: PRACTICE_TIMEZONE,
+  year: "numeric",
+});
+
+const hourLabelFormatter = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  hour12: true,
+  timeZone: PRACTICE_TIMEZONE,
+});
+
+function bucketCallVolume(
+  startedAtList: Date[],
+  range: PortalOverviewRange,
+): PortalCallVolumePoint[] {
+  const now = new Date();
+  const points: PortalCallVolumePoint[] = [];
+  const counts = new Map<string, number>();
+
+  if (range === "24h") {
+    for (const at of startedAtList) {
+      const key = hourBucketFormatter.format(at);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    for (let offset = 23; offset >= 0; offset--) {
+      const slot = new Date(now.getTime() - offset * 60 * 60 * 1000);
+      const key = hourBucketFormatter.format(slot);
+      points.push({
+        bucket: key,
+        count: counts.get(key) ?? 0,
+        label: hourLabelFormatter.format(slot),
+      });
+    }
+    return points;
   }
 
-  return new Date(Date.now() - rangeDays[range] * 24 * 60 * 60 * 1000);
+  for (const at of startedAtList) {
+    const key = dayBucketFormatter.format(at);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const days = rangeDays[range];
+  for (let offset = days - 1; offset >= 0; offset--) {
+    const slot = new Date(now.getTime() - offset * 24 * 60 * 60 * 1000);
+    const key = dayBucketFormatter.format(slot);
+    points.push({
+      bucket: key,
+      count: counts.get(key) ?? 0,
+      label: dayLabelFormatter.format(slot),
+    });
+  }
+  return points;
+}
+
+function getLocalHour(date: Date) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    hour12: false,
+    timeZone: PRACTICE_TIMEZONE,
+  });
+  return Number(formatter.format(date));
+}
+
+function isAfterHours(date: Date) {
+  const hour = getLocalHour(date);
+  return hour >= AFTER_HOURS_START || hour < AFTER_HOURS_END;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -210,6 +330,7 @@ function extractBookedAppointment(call: {
     callStartedAt: call.startedAt,
     callerPhone: call.callerPhone,
     locationName: matchedAvailability?.locationName ?? null,
+    patientName: extractPatientName(booking?.args ?? null),
     providerName: matchedAvailability?.providerName ?? null,
     summary:
       call.outcomeSummary ??
@@ -217,6 +338,21 @@ function extractBookedAppointment(call: {
       fallbackAgentSummary(turns) ??
       "Appointment booked by the AI receptionist.",
   };
+}
+
+function extractPatientName(args: Record<string, unknown> | null) {
+  if (!args) return null;
+  const direct =
+    asString(args.patientName) ??
+    asString(args.fullName) ??
+    asString(args.name) ??
+    asString(args.callerName);
+  if (direct) return direct;
+
+  const first = asString(args.firstName) ?? asString(args.first_name);
+  const last = asString(args.lastName) ?? asString(args.last_name);
+  const combined = [first, last].filter(Boolean).join(" ").trim();
+  return combined || null;
 }
 
 export async function getPortalOverviewMetrics(
@@ -253,73 +389,66 @@ export async function getPortalOverviewMetrics(
   }
 
   const rangeStart = getRangeStart(range);
+  const previousWindow = getPreviousRangeWindow(range);
   const callWhere = {
     practiceId: membership.practiceId,
-    ...(rangeStart ? { startedAt: { gte: rangeStart } } : {}),
+    startedAt: { gte: rangeStart },
   };
 
-  const [
-    callCount,
-    transferredCalls,
-    durationAggregate,
-    bookedActionCount,
-    confirmedActionCount,
-    cancelledActionCount,
-    bookedCalls,
-  ] = await Promise.all([
-    prisma.agentCall.count({
-      where: callWhere,
-    }),
-    prisma.agentCall.count({
-      where: {
-        ...callWhere,
-        transferred: true,
-      },
-    }),
-    prisma.agentCall.aggregate({
-      _sum: {
-        durationSec: true,
-      },
-      where: callWhere,
-    }),
-    prisma.agentCall.count({
-      where: {
-        ...callWhere,
-        bookedAppointment: true,
-      },
-    }),
-    prisma.agentCall.count({
-      where: {
-        ...callWhere,
-        confirmedAppointment: true,
-      },
-    }),
-    prisma.agentCall.count({
-      where: {
-        ...callWhere,
-        cancelledAppointment: true,
-      },
-    }),
+  const [callRows, previousTotalCalls] = await Promise.all([
     prisma.agentCall.findMany({
       orderBy: {
         startedAt: "desc",
       },
       select: {
-        callerPhone: true,
-        data: true,
-        id: true,
-        outcomeSummary: true,
-        startedAt: true,
-      },
-      take: 8,
-      where: {
-        ...callWhere,
         bookedAppointment: true,
+        cancelledAppointment: true,
+        confirmedAppointment: true,
+        durationSec: true,
+        startedAt: true,
+        transferred: true,
+      },
+      where: callWhere,
+    }),
+    prisma.agentCall.count({
+      where: {
+        practiceId: membership.practiceId,
+        startedAt: { gte: previousWindow.start, lt: previousWindow.end },
       },
     }),
   ]);
 
-  const totalDurationSec = durationAggregate._sum.durationSec ?? 0;
+  const callCount = callRows.length;
+  let transferredCalls = 0;
+  let totalDurationSec = 0;
+  let bookedActionCount = 0;
+  let confirmedActionCount = 0;
+  let cancelledActionCount = 0;
+  let schedulingSeconds = 0;
+  let afterHoursSeconds = 0;
+
+  for (const call of callRows) {
+    totalDurationSec += call.durationSec;
+    if (call.transferred) transferredCalls += 1;
+    if (call.bookedAppointment) bookedActionCount += 1;
+    if (call.confirmedAppointment) confirmedActionCount += 1;
+    if (call.cancelledAppointment) cancelledActionCount += 1;
+    if (
+      call.bookedAppointment ||
+      call.confirmedAppointment ||
+      call.cancelledAppointment
+    ) {
+      schedulingSeconds += call.durationSec;
+    }
+    if (isAfterHours(call.startedAt)) {
+      afterHoursSeconds += call.durationSec;
+    }
+  }
+
+  const callVolume = bucketCallVolume(
+    callRows.map((call) => call.startedAt),
+    range,
+  );
 
   return {
     appointmentActions: {
@@ -328,13 +457,90 @@ export async function getPortalOverviewMetrics(
       confirmed: confirmedActionCount,
     },
     averageCallDurationSec: callCount > 0 ? totalDurationSec / callCount : 0,
-    bookedAppointments: bookedCalls.map(extractBookedAppointment),
     branding: getPracticeBranding(membership.practice),
+    callVolume,
     practiceName: membership.practice.name,
+    previousTotalCalls,
     range,
+    staffTimeSaved: {
+      buckets: [
+        {
+          key: "scheduling",
+          label: "Scheduling",
+          seconds: schedulingSeconds,
+        },
+        {
+          key: "after_hours",
+          label: "After-Hours",
+          seconds: afterHoursSeconds,
+        },
+      ],
+      totalSeconds: schedulingSeconds + afterHoursSeconds,
+    },
     totalCallMinutes: totalDurationSec / 60,
     totalCalls: callCount,
     transferRate: callCount > 0 ? transferredCalls / callCount : 0,
     transferredCalls,
+  };
+}
+
+export async function getPortalBookings(
+  range: PortalOverviewRange = "7d",
+  limit = 50,
+): Promise<PortalBookingsResult | null> {
+  const session = await getAuthSession();
+
+  if (!session) {
+    return null;
+  }
+
+  const membership = await prisma.practiceMembership.findFirst({
+    include: {
+      practice: {
+        select: {
+          brandAccentColor: true,
+          brandLogoAlt: true,
+          brandLogoUrl: true,
+          brandMarkUrl: true,
+          brandPrimaryColor: true,
+          id: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    where: {
+      userId: session.user.id,
+    },
+  });
+
+  if (!membership) {
+    return null;
+  }
+
+  const bookedCalls = await prisma.agentCall.findMany({
+    orderBy: {
+      startedAt: "desc",
+    },
+    select: {
+      callerPhone: true,
+      data: true,
+      id: true,
+      outcomeSummary: true,
+      startedAt: true,
+    },
+    take: limit,
+    where: {
+      bookedAppointment: true,
+      practiceId: membership.practiceId,
+      startedAt: { gte: getRangeStart(range) },
+    },
+  });
+
+  return {
+    bookings: bookedCalls.map(extractBookedAppointment),
+    branding: getPracticeBranding(membership.practice),
+    practiceName: membership.practice.name,
+    range,
   };
 }
