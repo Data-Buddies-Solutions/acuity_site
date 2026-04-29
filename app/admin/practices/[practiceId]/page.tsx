@@ -12,6 +12,7 @@ import { TokensTab } from "@/app/components/analytics/tokens-tab";
 import { ToolsTab } from "@/app/components/analytics/tools-tab";
 import { CallsTable } from "@/app/components/calls-table";
 import { HealthKPIs } from "@/app/components/health-kpis";
+import { OfficeFilterTabs } from "@/app/components/office-filter-tabs";
 import { TimeRangeTabs } from "@/app/components/time-range-tabs";
 import { getAdminPracticeDetail, type AdminPracticeRange } from "@/lib/admin-analytics";
 import { cn } from "@/lib/utils";
@@ -54,9 +55,18 @@ function parseView(value: string | string[] | undefined): PracticeView {
   return value === "analytics" ? "analytics" : "command";
 }
 
+function parseOfficeFilter(value: string | string[] | undefined) {
+  return typeof value === "string" ? value : null;
+}
+
 function hrefWithParams(
   practiceId: string,
-  params: { range: AdminPracticeRange; tab?: AdminPracticeTab; view: PracticeView },
+  params: {
+    office?: string | null;
+    range: AdminPracticeRange;
+    tab?: AdminPracticeTab;
+    view: PracticeView;
+  },
 ) {
   const searchParams = new URLSearchParams();
 
@@ -72,6 +82,10 @@ function hrefWithParams(
     searchParams.set("tab", params.tab);
   }
 
+  if (params.office) {
+    searchParams.set("office", params.office);
+  }
+
   const query = searchParams.toString();
   return `/admin/practices/${practiceId}${query ? `?${query}` : ""}`;
 }
@@ -79,8 +93,10 @@ function hrefWithParams(
 function PracticeViewTabs({
   practiceId,
   range,
+  office,
   view,
 }: {
+  office: string | null;
   practiceId: string;
   range: AdminPracticeRange;
   view: PracticeView;
@@ -96,6 +112,7 @@ function PracticeViewTabs({
         <Link
           key={item.view}
           href={hrefWithParams(practiceId, {
+            office,
             range,
             view: item.view,
           })}
@@ -127,13 +144,16 @@ export default async function AdminPracticeDetailPage({
   const range = parseRange(resolvedSearchParams.range);
   const tab = parseTab(resolvedSearchParams.tab);
   const view = parseView(resolvedSearchParams.view);
-  const detail = await getAdminPracticeDetail(practiceId, range);
+  const office = parseOfficeFilter(resolvedSearchParams.office);
+  const detail = await getAdminPracticeDetail(practiceId, range, office);
 
   if (!detail) {
     notFound();
   }
 
   const data = detail.analyticsData;
+  const selectedOffice =
+    detail.officeFilters.find((office) => office.id === detail.selectedOfficeId) ?? null;
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
@@ -151,19 +171,32 @@ export default async function AdminPracticeDetailPage({
         </h1>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <Suspense>
+            <OfficeFilterTabs
+              offices={detail.officeFilters}
+              selectedOfficeId={detail.selectedOfficeId}
+            />
+          </Suspense>
+          <Suspense>
             <TimeRangeTabs />
           </Suspense>
         </div>
       </div>
 
-      <PracticeViewTabs practiceId={practiceId} range={range} view={view} />
+      <PracticeViewTabs
+        office={detail.selectedOfficeId}
+        practiceId={practiceId}
+        range={range}
+        view={view}
+      />
 
       {view === "command" ? (
         <>
           <HealthKPIs data={detail.dashboardData} />
 
           <section>
-            <h2 className="mb-3 text-lg font-semibold text-foreground">All Calls</h2>
+            <h2 className="mb-3 text-lg font-semibold text-foreground">
+              {selectedOffice ? `${selectedOffice.label} Calls` : "All Calls"}
+            </h2>
             <CallsTable calls={detail.callRows} practiceId={practiceId} />
           </section>
         </>

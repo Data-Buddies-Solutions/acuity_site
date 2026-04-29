@@ -28,6 +28,7 @@ type QuickFilter =
 type SortKey =
   | "actions"
   | "durationSec"
+  | "office"
   | "review"
   | "startedAt"
   | "totalLatency"
@@ -66,6 +67,14 @@ function formatLocalTime(value: string) {
 
 function formatReviewScore(score: number | null): string {
   return score === null ? "--" : `${score.toFixed(1)}/5`;
+}
+
+function getOfficeLabel(call: AdminCallTableRow) {
+  return call.officeName || formatPhone(call.officePhone) || "Unknown office";
+}
+
+function getOfficeSubLabel(call: AdminCallTableRow) {
+  return call.officeName && call.officePhone ? formatPhone(call.officePhone) : "";
 }
 
 function getReviewBadge(call: AdminCallTableRow) {
@@ -138,6 +147,8 @@ function getSortValue(call: AdminCallTableRow, key: SortKey) {
       return call.toolActions.length;
     case "durationSec":
       return call.durationSec;
+    case "office":
+      return getOfficeLabel(call);
     case "review":
       return call.reviewNeedsAttention ? 1 : (call.reviewAverageScore ?? -1);
     case "startedAt":
@@ -152,6 +163,11 @@ function getSortValue(call: AdminCallTableRow, key: SortKey) {
 function compareCalls(a: AdminCallTableRow, b: AdminCallTableRow, sort: SortState) {
   const aValue = getSortValue(a, sort.key);
   const bValue = getSortValue(b, sort.key);
+  if (typeof aValue === "string" || typeof bValue === "string") {
+    const direction = sort.direction === "asc" ? 1 : -1;
+    return String(aValue).localeCompare(String(bValue)) * direction;
+  }
+
   const delta = aValue - bValue;
 
   return sort.direction === "asc" ? delta : -delta;
@@ -217,6 +233,7 @@ export function CallsTable({
           call.llmModel,
           call.officePhone,
           formatPhone(call.officePhone),
+          getOfficeLabel(call),
           call.toolActions.join(" "),
           call.transcriptText,
         ];
@@ -258,6 +275,7 @@ export function CallsTable({
     pageIndex * pageSize,
     pageIndex * pageSize + pageSize,
   );
+  const tableColumnCount = 10 + (showToolErrors ? 1 : 0) + (showFallback ? 1 : 0);
 
   function handleSort(key: SortKey) {
     setSortState((current) =>
@@ -312,6 +330,10 @@ export function CallsTable({
                     <p className="text-sm text-muted-foreground">
                       {formatPhone(call.callerPhone)}
                     </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {getOfficeLabel(call)}
+                      {getOfficeSubLabel(call) ? ` - ${getOfficeSubLabel(call)}` : ""}
+                    </p>
                   </div>
                   <div className="text-right text-sm">
                     <p className="font-medium">{formatDuration(call.durationSec)}</p>
@@ -362,7 +384,7 @@ export function CallsTable({
         </div>
 
         <div className="hidden md:block">
-          <Table className="min-w-[980px]">
+          <Table className="min-w-[1080px]">
             <TableHeader>
               <TableRow>
                 <TableHead>
@@ -375,6 +397,11 @@ export function CallsTable({
                   </SortButton>
                 </TableHead>
                 <TableHead>Caller</TableHead>
+                <TableHead>
+                  <SortButton sortKey="office" sortState={sortState} onSort={handleSort}>
+                    Office
+                  </SortButton>
+                </TableHead>
                 <TableHead>
                   <SortButton
                     sortKey="durationSec"
@@ -431,6 +458,16 @@ export function CallsTable({
                       </Link>
                     </TableCell>
                     <TableCell>{formatPhone(call.callerPhone)}</TableCell>
+                    <TableCell>
+                      <div className="max-w-40">
+                        <p className="truncate font-medium">{getOfficeLabel(call)}</p>
+                        {getOfficeSubLabel(call) && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {getOfficeSubLabel(call)}
+                          </p>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>{formatDuration(call.durationSec)}</TableCell>
                     <TableCell>
                       <div className="space-y-1">
@@ -501,7 +538,7 @@ export function CallsTable({
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={12} className="h-24 text-center">
+                  <TableCell colSpan={tableColumnCount} className="h-24 text-center">
                     No results.
                   </TableCell>
                 </TableRow>
