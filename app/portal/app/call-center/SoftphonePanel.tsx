@@ -353,14 +353,14 @@ export default function SoftphonePanel({
       osc1.stop(now + ringDuration);
       osc2.stop(now + ringDuration);
 
-      scheduleHandle = setTimeout(
-        playRingCycle,
-        (ringDuration + silenceDuration) * 1000,
-      );
+      scheduleHandle = setTimeout(playRingCycle, (ringDuration + silenceDuration) * 1000);
     };
 
     if (ctx.state === "suspended") {
-      ctx.resume().then(playRingCycle).catch(() => {});
+      ctx
+        .resume()
+        .then(playRingCycle)
+        .catch(() => {});
     } else {
       playRingCycle();
     }

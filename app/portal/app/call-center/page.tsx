@@ -8,10 +8,7 @@ import MetricCard from "../overview/MetricCard";
 
 import CallCenterWorkspace from "./CallCenterWorkspace";
 import LocationPicker from "./LocationPicker";
-import {
-  CALL_CENTER_LOCATIONS,
-  resolveCallCenterLocation,
-} from "./locations";
+import { CALL_CENTER_LOCATIONS, resolveCallCenterLocation } from "./locations";
 import { enableCallCenterAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -45,9 +42,9 @@ export default async function PortalCallCenterPage({
   const runtimeSettings = settings ? resolveTelnyxRuntimeSettings(settings) : null;
   const configured = Boolean(
     enabled &&
-      runtimeSettings?.connectionId &&
-      runtimeSettings.credentialId &&
-      office.outboundNumber,
+    runtimeSettings?.connectionId &&
+    runtimeSettings.credentialId &&
+    office.outboundNumber,
   );
 
   return (

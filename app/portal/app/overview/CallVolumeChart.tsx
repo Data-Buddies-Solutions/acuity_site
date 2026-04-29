@@ -52,10 +52,7 @@ export default function CallVolumeChart({ points }: { points: PortalCallVolumePo
       </div>
       <div className="mt-4 h-64">
         <ResponsiveContainer height="100%" width="100%">
-          <BarChart
-            data={points}
-            margin={{ bottom: 0, left: -16, right: 8, top: 8 }}
-          >
+          <BarChart data={points} margin={{ bottom: 0, left: -16, right: 8, top: 8 }}>
             <CartesianGrid stroke="#eef2f2" strokeDasharray="3 3" vertical={false} />
             <XAxis
               axisLine={false}
@@ -77,11 +74,7 @@ export default function CallVolumeChart({ points }: { points: PortalCallVolumePo
               content={<ChartTooltip />}
               cursor={{ fill: "rgba(13, 115, 119, 0.06)" }}
             />
-            <Bar
-              dataKey="count"
-              fill="var(--color-accent)"
-              radius={[6, 6, 0, 0]}
-            />
+            <Bar dataKey="count" fill="var(--color-accent)" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

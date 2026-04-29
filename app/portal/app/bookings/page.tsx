@@ -95,15 +95,11 @@ function BookingRow({ booking }: { booking: PortalBookedAppointment }) {
       <td className="px-5 py-4 text-sm font-medium text-[#10272c]">
         {formatPhone(booking.callerPhone)}
       </td>
-      <td className="px-5 py-4 text-sm text-[#10272c]">
-        {booking.patientName ?? "—"}
-      </td>
+      <td className="px-5 py-4 text-sm text-[#10272c]">{booking.patientName ?? "—"}</td>
       <td className="px-5 py-4 text-sm text-[#10272c]">
         {formatAppointment(booking.appointmentStart)}
       </td>
-      <td className="px-5 py-4 text-sm text-[#10272c]">
-        {booking.providerName ?? "—"}
-      </td>
+      <td className="px-5 py-4 text-sm text-[#10272c]">{booking.providerName ?? "—"}</td>
       <td className="px-5 py-4 text-sm text-[#617477]">
         {formatCallDate(booking.callStartedAt)}
       </td>
