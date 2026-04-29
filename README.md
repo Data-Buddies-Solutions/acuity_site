@@ -27,9 +27,12 @@ Telnyx call-center state should live in this database.
 - `/portal/app/onboarding`: setup flow for practice basics, locations, providers, insurance, and knowledge base.
 - `/portal/app/overview`: customer-facing operational call summary.
 - `/portal/app/call-center`: opt-in Telnyx browser softphone, active-session count, missed callbacks, and voicemail inbox.
-- `/portal/app/practice-information`, `/knowledge-base`, `/insurance-crosswalk`: launched-practice document views with edit mode.
+- `/portal/app/knowledge-base`: launched-practice markdown knowledge bases, split by location, with admin-reviewed edits.
+- `/portal/app/insurance-crosswalk`: launched-practice Insurance Rules, split by location, with structured JSON edits and admin review.
 - `/admin/practices`: internal practice command center and analytics.
 - `/admin/practices/[practiceId]/calls/[callId]`: technical call detail, transcript, review, audio, costs, latency, tokens, and tool diagnostics.
+- `/admin/knowledge-base`: review queue for practice-submitted knowledge-base drafts.
+- `/admin/insurance-rules`: review queue for practice-submitted Insurance Rules drafts.
 
 ## Data Model
 
@@ -40,8 +43,13 @@ Core practice/workspace tables:
 - `PracticeLocation`
 - `PracticeProvider`
 - `PracticeKnowledgeBase`
+- `PracticeKnowledgeDocument`
+- `PracticeKnowledgeDocumentRevision`
 - `PracticeInsuranceCrosswalk`
+- `PracticeInsuranceRuleSet`
+- `PracticeInsuranceRuleRevision`
 - `PracticeWebsiteScan`
+- `AdminAlert`
 
 Call analytics tables:
 
@@ -85,7 +93,16 @@ webhook must be resolved to a practice by phone number. Prefer explicit
 1. The user captures practice basics, locations, providers, insurance rules, and knowledge-base rules.
 2. `lib/practice-workspace.ts` persists structured records to the practice-owned tables.
 3. Launch readiness is derived from stored records, not from local UI state.
-4. Launched practices can still edit documents through route-backed edit mode.
+4. Launched practices can still edit Knowledge Base and Insurance Rules documents through route-backed edit mode.
+
+### Practice Documents And Admin Review
+
+1. Knowledge Base documents are stored as markdown revisions in `PracticeKnowledgeDocument`.
+2. Insurance Rules are stored as structured JSON revisions in `PracticeInsuranceRuleSet`.
+3. Multi-location practices get one active document/rule set per location.
+4. Practice-submitted edits create pending revisions and `AdminAlert` rows.
+5. The currently published revision remains live until admin approval.
+6. Admins approve or reject drafts from `/admin/knowledge-base` and `/admin/insurance-rules`.
 
 ### LiveKit Call Ingestion
 
@@ -127,7 +144,7 @@ Use the script for one-off updates:
 bun scripts/set-practice-branding.mjs demo@acuity.local https://example.com/logo.png "Practice logo" "#009ec3" "#123f7a"
 ```
 
-The portal shell, overview, and call center render the practice logo when
+The portal shell, overview, call center, and bookings pages render the practice logo when
 `brandLogoUrl` is set.
 
 ## Environment

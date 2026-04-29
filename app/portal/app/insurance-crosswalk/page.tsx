@@ -1,176 +1,249 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { redirect } from "next/navigation";
+import { Clock3 } from "lucide-react";
 
+import { InsuranceRulesView } from "@/app/components/InsuranceRulesView";
 import { Button } from "@/app/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/app/components/ui/card";
-import {
-  DocumentPageHeader,
-  DocumentPanel,
-  DocumentSection,
-  DocumentText,
-} from "@/app/portal/app/DocumentView";
+import { DocumentPanel } from "@/app/portal/app/DocumentView";
+import { PracticePageHeader } from "@/app/portal/app/PracticePageHeader";
+import { getPortalInsuranceRuleState } from "@/lib/insurance-rules";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
+import { cn } from "@/lib/utils";
 
-import { PortalTextareaField } from "../PortalFields";
-import { saveInsuranceCrosswalkAction } from "../actions";
-import LocationRuleScopeFields from "../onboarding/LocationRuleScopeFields";
+import { InsuranceRulesEditor } from "./InsuranceRulesEditor";
 
 type SearchParamsInput =
   | Promise<Record<string, string | string[] | undefined>>
   | undefined;
 
-async function isEditMode(searchParams: SearchParamsInput) {
+async function getPageParams(searchParams: SearchParamsInput) {
   const resolved = (await searchParams) || {};
   const rawMode = Array.isArray(resolved.mode) ? resolved.mode[0] : resolved.mode;
+  const rawRules = Array.isArray(resolved.rules) ? resolved.rules[0] : resolved.rules;
 
-  return rawMode === "edit";
+  return {
+    editing: rawMode === "edit",
+    invalid: resolved.invalid === "1",
+    selectedSlug: typeof rawRules === "string" ? rawRules : undefined,
+    submitted: resolved.submitted === "1",
+    unchanged: resolved.unchanged === "1",
+  };
 }
 
-export default async function PortalInsuranceCrosswalkPage({
+function formatDate(date: Date | null) {
+  if (!date) {
+    return "Not published yet";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    timeZone: "America/New_York",
+    year: "numeric",
+  }).format(date);
+}
+
+function ruleSetLabel(ruleSet: {
+  locationName: string | null;
+  slug: string;
+  title: string;
+}) {
+  if (ruleSet.locationName) {
+    return ruleSet.locationName;
+  }
+  if (ruleSet.slug.includes("crystal")) {
+    return "Crystal River";
+  }
+  if (ruleSet.slug.includes("spring")) {
+    return "Spring Hill";
+  }
+  return ruleSet.title.replace(/^Insurance Rules:\s*/i, "");
+}
+
+function InsuranceRuleSetSelector({
+  ruleSets,
+  selectedId,
+}: {
+  ruleSets: Array<{
+    id: string;
+    locationName: string | null;
+    slug: string;
+    title: string;
+  }>;
+  selectedId: string;
+}) {
+  if (ruleSets.length <= 1) {
+    return null;
+  }
+
+  return (
+    <section className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#748588]">
+        Location
+      </p>
+      <nav aria-label="Insurance rules location" className="flex gap-2 overflow-x-auto">
+        {ruleSets.map((ruleSet) => (
+          <Link
+            key={ruleSet.id}
+            className={cn(
+              "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
+              ruleSet.id === selectedId
+                ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
+                : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
+            )}
+            href={`/portal/app/insurance-crosswalk?rules=${encodeURIComponent(
+              ruleSet.slug,
+            )}`}
+          >
+            {ruleSetLabel(ruleSet)}
+          </Link>
+        ))}
+      </nav>
+    </section>
+  );
+}
+
+export default async function PortalInsuranceRulesPage({
   searchParams,
 }: Readonly<{
   searchParams?: SearchParamsInput;
 }>) {
   const portalState = await getPortalWorkspaceState();
-  const editing = await isEditMode(searchParams);
-  const insuranceUsesLocationRules = portalState.draft.locations.some(
-    (location) => location.insuranceVaries || location.insuranceNotes,
-  );
-  const isReviewed = portalState.sections.find(
-    (section) => section.key === "insuranceCrosswalk",
-  )?.complete;
-  const shouldShowDocument = portalState.launched && !editing;
-  const primaryLabel = portalState.launched ? "Save changes" : "Save and continue";
-  const returnHref = portalState.launched
-    ? "/portal/app/insurance-crosswalk"
-    : "/portal/app/onboarding";
-  const returnLabel = portalState.launched ? "Back to document" : "Back to onboarding";
 
-  if (shouldShowDocument) {
-    const locationRules = portalState.draft.locations.filter(
-      (location) => location.insuranceVaries || location.insuranceNotes,
-    );
+  if (!portalState.launched) {
+    redirect("/portal/app/onboarding?step=insuranceCrosswalk");
+  }
 
+  const { editing, invalid, selectedSlug, submitted, unchanged } =
+    await getPageParams(searchParams);
+  const insuranceRuleState = await getPortalInsuranceRuleState(selectedSlug);
+
+  if (!insuranceRuleState) {
+    redirect("/portal");
+  }
+
+  const selectedRuleSet = insuranceRuleState.selectedRuleSet;
+  const practiceName = portalState.draft.practiceName || "Practice";
+
+  if (!selectedRuleSet?.publishedRevision) {
     return (
       <div className="space-y-6">
-        <DocumentPageHeader
-          actionHref="/portal/app/insurance-crosswalk?mode=edit"
-          description="A structured crosswalk for what coverage guidance the AI receptionist can give and what should be escalated."
-          eyebrow="Documents"
-          title="Insurance crosswalk"
+        <PracticePageHeader
+          branding={portalState.branding}
+          practiceName={practiceName}
+          title="Insurance Rules"
+        />
+        <DocumentPanel>
+          <div className="px-5 py-10 text-sm text-[#617477] md:px-7">
+            No insurance rules have been created yet.
+          </div>
+        </DocumentPanel>
+      </div>
+    );
+  }
+
+  const editHref = `/portal/app/insurance-crosswalk?rules=${encodeURIComponent(
+    selectedRuleSet.slug,
+  )}&mode=edit`;
+  const viewHref = `/portal/app/insurance-crosswalk?rules=${encodeURIComponent(
+    selectedRuleSet.slug,
+  )}`;
+  const pendingRevision = selectedRuleSet.pendingRevision;
+  const currentRulesJson =
+    pendingRevision?.rulesJson ?? selectedRuleSet.publishedRevision.rulesJson;
+
+  if (editing) {
+    return (
+      <div className="space-y-6">
+        <PracticePageHeader
+          branding={portalState.branding}
+          practiceName={practiceName}
+          title="Insurance Rules"
+        >
+          <Button asChild variant="secondary">
+            <Link href={viewHref}>Back to rules</Link>
+          </Button>
+        </PracticePageHeader>
+
+        <InsuranceRuleSetSelector
+          ruleSets={insuranceRuleState.ruleSets}
+          selectedId={selectedRuleSet.id}
         />
 
-        <DocumentPanel>
-          <DocumentSection
-            description="Plans the practice is comfortable listing as accepted."
-            title="Accepted plans"
-          >
-            <DocumentText value={portalState.draft.insuranceAcceptedPlans} />
-          </DocumentSection>
+        {invalid ? (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            The submitted JSON could not be saved. Review the structure and try again.
+          </div>
+        ) : null}
 
-          <DocumentSection
-            description="Plan caveats, authorization notes, and cases that need careful handling."
-            title="Exceptions"
-          >
-            <DocumentText value={portalState.draft.insuranceExceptions} />
-          </DocumentSection>
+        {pendingRevision ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            This location already has a draft waiting for admin review. Saving again
+            creates a newer pending draft.
+          </div>
+        ) : null}
 
-          <DocumentSection
-            description="Location-specific plan acceptance or coverage rules."
-            title="Location rules"
-          >
-            {locationRules.length ? (
-              <div className="space-y-3">
-                {locationRules.map((location, index) => (
-                  <div
-                    key={location.id || `${location.locationName}-${index}`}
-                    className="rounded-2xl border border-black/6 bg-[#f7fbfa] px-4 py-4"
-                  >
-                    <p className="text-sm font-semibold text-[#10272c]">
-                      {location.locationName || `Location ${index + 1}`}
-                    </p>
-                    <div className="mt-2">
-                      <DocumentText value={location.insuranceNotes} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <DocumentText value="" empty="Same insurance rules for all locations." />
-            )}
-          </DocumentSection>
-        </DocumentPanel>
+        <InsuranceRulesEditor
+          defaultRulesJson={currentRulesJson}
+          ruleSetId={selectedRuleSet.id}
+          viewHref={viewHref}
+        />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <section className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.16em] text-[#6a7b7e]">
-          Insurance Crosswalk
-        </p>
-        <h2 className="text-3xl font-semibold tracking-[-0.05em] text-[#10272c]">
-          {portalState.launched ? "Edit insurance crosswalk" : "Insurance rules"}
-        </h2>
-        <p className="max-w-2xl text-base leading-relaxed text-[#617477]">
-          Keep this structured around coverage guidance and plan exceptions.
-        </p>
-      </section>
+      <PracticePageHeader
+        branding={portalState.branding}
+        practiceName={practiceName}
+        title="Insurance Rules"
+      >
+        <Button asChild variant="secondary">
+          <Link href={editHref}>Edit JSON</Link>
+        </Button>
+      </PracticePageHeader>
 
-      <Card className="rounded-[1.8rem] border-black/6 bg-white">
-        <CardHeader>
-          <CardTitle>{isReviewed ? "Insurance saved" : "Finish this step"}</CardTitle>
-          <CardDescription>Accepted plans and exceptions.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action={saveInsuranceCrosswalkAction} className="grid gap-4">
-            <PortalTextareaField
-              defaultValue={portalState.draft.insuranceAcceptedPlans}
-              label="Accepted plans"
-              name="insuranceAcceptedPlans"
-              placeholder="Aetna, Blue Cross Blue Shield, Medicare, VSP"
-              rows={3}
-            />
-            <PortalTextareaField
-              defaultValue={portalState.draft.insuranceExceptions}
-              label="Exceptions"
-              name="insuranceExceptions"
-              placeholder="No Medicaid at surgery center. Vision plans only at main office."
-              rows={3}
-            />
-            <LocationRuleScopeFields
-              byLocationLabel="Insurance rules differ by location"
-              defaultByLocation={insuranceUsesLocationRules}
-              locationNotesKey="insuranceNotes"
-              locations={portalState.draft.locations}
-              placeholder="Plans, exceptions, authorizations, or coverage notes that only apply to this location."
-              scopeName="insuranceRulesScope"
-              sectionTitle="Insurance rule scope"
-              sharedLabel="Same insurance rules for all locations"
-              variesKey="insuranceVaries"
-            />
+      <InsuranceRuleSetSelector
+        ruleSets={insuranceRuleState.ruleSets}
+        selectedId={selectedRuleSet.id}
+      />
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button type="submit" variant="primary">
-                {primaryLabel}
-                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              {isReviewed ? (
-                <Button asChild variant="secondary">
-                  <Link href={returnHref}>{returnLabel}</Link>
-                </Button>
-              ) : null}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      {submitted ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Draft saved. Acuity admin will review it before publishing.
+        </div>
+      ) : null}
+
+      {unchanged ? (
+        <div className="rounded-lg border border-black/8 bg-white px-4 py-3 text-sm text-[#617477]">
+          No changes were submitted.
+        </div>
+      ) : null}
+
+      {pendingRevision ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <Clock3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="font-semibold">Draft waiting for admin review</p>
+            <p className="mt-1">
+              The published rules below stay live until Acuity admin approves the pending
+              draft from {formatDate(pendingRevision.createdAt)}.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      <DocumentPanel>
+        <div className="border-b border-black/6 px-5 py-4 text-xs font-medium uppercase tracking-[0.16em] text-[#7f9093] md:px-7">
+          Published {formatDate(selectedRuleSet.publishedRevision.publishedAt)}
+        </div>
+        <div className="px-5 py-6 md:px-7">
+          <InsuranceRulesView rules={selectedRuleSet.publishedRevision.rules} />
+        </div>
+      </DocumentPanel>
     </div>
   );
 }

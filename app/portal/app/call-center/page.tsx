@@ -4,6 +4,7 @@ import { Button } from "@/app/components/ui/button";
 import { getPortalCallCenterData, resolveTelnyxRuntimeSettings } from "@/lib/call-center";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
+import { PracticePageHeader } from "../PracticePageHeader";
 import MetricCard from "../overview/MetricCard";
 
 import CallCenterWorkspace from "./CallCenterWorkspace";
@@ -57,12 +58,11 @@ export default async function PortalCallCenterPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#10272c] md:text-4xl">
-            {selectedLocation ? `${selectedLocation.label} Call Center` : "Call Center"}
-          </h1>
-        </div>
+      <PracticePageHeader
+        branding={data.branding}
+        practiceName={data.practiceName}
+        title="Call Center"
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           {selectedLocation ? (
             <LocationPicker currentId={selectedLocation.id} locations={data.locations} />
@@ -73,7 +73,7 @@ export default async function PortalCallCenterPage({
             </form>
           ) : null}
         </div>
-      </section>
+      </PracticePageHeader>
 
       <section className="grid gap-4 sm:grid-cols-2">
         <MetricCard label="Missed" value={String(data.totals.missedCalls)} />

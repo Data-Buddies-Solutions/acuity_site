@@ -2,12 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Activity,
+  BookOpenCheck,
   Building2,
   LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
+  ShieldAlert,
 } from "lucide-react";
 
 import Logo from "@/app/components/VisionOpsLogo";
@@ -31,7 +34,11 @@ function NavLabel({
 
 export function AdminShell({ children, userEmail }: AdminShellProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const pathname = usePathname();
   const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
+  const practicesActive = pathname.startsWith("/admin/practices");
+  const knowledgeActive = pathname.startsWith("/admin/knowledge-base");
+  const insuranceActive = pathname.startsWith("/admin/insurance-rules");
 
   return (
     <section className="min-h-screen bg-[#f6f8f7]">
@@ -79,13 +86,44 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               <Link
                 href="/admin/practices"
                 className={cn(
-                  "inline-flex min-w-fit items-center gap-3 rounded-lg bg-[#e8f4f4] px-3 py-2.5 text-sm font-semibold text-[#0d7377]",
+                  "inline-flex min-w-fit items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition",
+                  practicesActive
+                    ? "bg-[#e8f4f4] text-[#0d7377]"
+                    : "text-[#617477] hover:bg-[#eef5f3] hover:text-[#10272c]",
                   collapsed && "lg:justify-center lg:px-2.5",
                 )}
                 title="Practices"
               >
                 <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <NavLabel collapsed={collapsed}>Practices</NavLabel>
+              </Link>
+              <Link
+                href="/admin/knowledge-base"
+                className={cn(
+                  "inline-flex min-w-fit items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition",
+                  knowledgeActive
+                    ? "bg-[#e8f4f4] text-[#0d7377]"
+                    : "text-[#617477] hover:bg-[#eef5f3] hover:text-[#10272c]",
+                  collapsed && "lg:justify-center lg:px-2.5",
+                )}
+                title="Knowledge Reviews"
+              >
+                <BookOpenCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <NavLabel collapsed={collapsed}>Knowledge Reviews</NavLabel>
+              </Link>
+              <Link
+                href="/admin/insurance-rules"
+                className={cn(
+                  "inline-flex min-w-fit items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition",
+                  insuranceActive
+                    ? "bg-[#e8f4f4] text-[#0d7377]"
+                    : "text-[#617477] hover:bg-[#eef5f3] hover:text-[#10272c]",
+                  collapsed && "lg:justify-center lg:px-2.5",
+                )}
+                title="Insurance Reviews"
+              >
+                <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <NavLabel collapsed={collapsed}>Insurance Reviews</NavLabel>
               </Link>
               <div
                 className={cn(

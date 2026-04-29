@@ -2,8 +2,6 @@ import { redirect } from "next/navigation";
 
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
-import PortalModulePlaceholder from "../PortalModulePlaceholder";
-
 export default async function PortalTwoWayTextingPage() {
   const portalState = await getPortalWorkspaceState();
 
@@ -12,32 +10,17 @@ export default async function PortalTwoWayTextingPage() {
   }
 
   return (
-    <PortalModulePlaceholder
-      description="Two-way texting should become the review surface for patient replies, follow-ups, and conversations the agent could not close automatically."
-      eyebrow="Two-way Texting"
-      primaryActionHref="/portal/app/overview"
-      primaryActionLabel="Back to overview"
-      queueDescription="The next implementation work for this module."
-      queueItems={[
-        {
-          label: "Inbox view",
-          description:
-            "Group unread patient replies, pending responses, and threads that need escalation.",
-        },
-        {
-          label: "Conversation history",
-          description:
-            "Show the full message timeline with delivery state and handoff context.",
-        },
-        {
-          label: "Staff actions",
-          description:
-            "Allow reply, assign, snooze, or escalate actions without leaving the thread.",
-        },
-      ]}
-      statusDescription="The route exists and the portal recognizes it as a live module, but messaging data is not connected yet."
-      statusTitle="Texting foundation is in place"
-      title="Handle patient message follow-up"
-    />
+    <div className="mx-auto max-w-4xl space-y-4">
+      <p className="text-sm font-medium uppercase tracking-[0.16em] text-[#6a7b7e]">
+        Coming soon
+      </p>
+      <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#10272c] md:text-4xl">
+        Patient Engagement
+      </h1>
+      <p className="max-w-2xl text-base leading-7 text-[#617477]">
+        Two-way texting and patient engagement workflows are coming soon, giving staff a
+        simple place to review replies, follow-ups, and conversations that need attention.
+      </p>
+    </div>
   );
 }

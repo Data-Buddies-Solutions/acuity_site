@@ -144,6 +144,55 @@ enum WebsiteScanStatus {
   FAILED
 }
 
+enum KnowledgeDocumentType {
+  KNOWLEDGE_BASE
+}
+
+enum KnowledgeDocumentStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum KnowledgeDocumentRevisionSource {
+  ADMIN
+  PRACTICE
+  IMPORT
+}
+
+enum KnowledgeDocumentRevisionStatus {
+  PENDING_APPROVAL
+  PUBLISHED
+  REJECTED
+}
+
+enum InsuranceRuleSetStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum InsuranceRuleRevisionSource {
+  ADMIN
+  PRACTICE
+  IMPORT
+}
+
+enum InsuranceRuleRevisionStatus {
+  PENDING_APPROVAL
+  PUBLISHED
+  REJECTED
+}
+
+enum AdminAlertType {
+  KNOWLEDGE_BASE_EDITED
+  INSURANCE_RULES_EDITED
+}
+
+enum AdminAlertStatus {
+  UNREAD
+  REVIEWING
+  RESOLVED
+}
+
 model Practice {
   id                   String                      @id @default(cuid())
   name                 String
@@ -166,8 +215,11 @@ model Practice {
   callCenterSettings   PracticeCallCenterSettings?
   callCenterVoicemails CallCenterVoicemail[]
   costLineItems        UsageCostLineItem[]
+  adminAlerts          AdminAlert[]
   insuranceCrosswalk   PracticeInsuranceCrosswalk?
+  insuranceRuleSets    PracticeInsuranceRuleSet[]
   knowledgeBase        PracticeKnowledgeBase?
+  knowledgeDocuments   PracticeKnowledgeDocument[]
   locations            PracticeLocation[]
   memberships          PracticeMembership[]
   phoneNumbers         PracticePhoneNumber[]
@@ -313,7 +365,7 @@ model PracticeMembership {
 }
 
 model PracticeLocation {
-  id                   String                 @id @default(cuid())
+  id                   String                      @id @default(cuid())
   practiceId           String
   name                 String
   address              String?
@@ -321,15 +373,17 @@ model PracticeLocation {
   fax                  String?
   email                String?
   hoursSummary         String?
-  isPrimary            Boolean                @default(false)
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  isPrimary            Boolean                     @default(false)
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
   agentCalls           AgentCall[]
   callCenterMissed     CallCenterMissedCall[]
   callCenterSessions   CallCenterSession[]
   callCenterVoicemails CallCenterVoicemail[]
+  insuranceRuleSets    PracticeInsuranceRuleSet[]
+  knowledgeDocuments   PracticeKnowledgeDocument[]
   phoneNumbers         PracticePhoneNumber[]
-  practice             Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  practice             Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   providers            PracticeProvider[]
 
   @@index([practiceId])
@@ -377,6 +431,118 @@ model PracticeKnowledgeBase {
   practice                  Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
 
   @@map("practice_knowledge_base")
+}
+
+model PracticeKnowledgeDocument {
+  id           String                              @id @default(cuid())
+  practiceId   String
+  locationId   String?
+  title        String
+  slug         String
+  documentType KnowledgeDocumentType               @default(KNOWLEDGE_BASE)
+  status       KnowledgeDocumentStatus             @default(ACTIVE)
+  createdAt    DateTime                            @default(now())
+  updatedAt    DateTime                            @updatedAt
+  alerts       AdminAlert[]
+  location     PracticeLocation?                   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice     Practice                            @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  revisions    PracticeKnowledgeDocumentRevision[]
+
+  @@unique([practiceId, slug])
+  @@index([practiceId])
+  @@index([locationId])
+  @@map("practice_knowledge_document")
+}
+
+model PracticeKnowledgeDocumentRevision {
+  id               String                          @id @default(cuid())
+  documentId       String
+  markdown         String
+  source           KnowledgeDocumentRevisionSource @default(PRACTICE)
+  status           KnowledgeDocumentRevisionStatus @default(PENDING_APPROVAL)
+  editedByUserId   String?
+  reviewedByUserId String?
+  reviewNote       String?
+  createdAt        DateTime                        @default(now())
+  reviewedAt       DateTime?
+  publishedAt      DateTime?
+  alerts           AdminAlert[]
+  document         PracticeKnowledgeDocument       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("practice_knowledge_document_revision")
+}
+
+model PracticeInsuranceRuleSet {
+  id         String                          @id @default(cuid())
+  practiceId String
+  locationId String?
+  title      String
+  slug       String
+  status     InsuranceRuleSetStatus          @default(ACTIVE)
+  createdAt  DateTime                        @default(now())
+  updatedAt  DateTime                        @updatedAt
+  alerts     AdminAlert[]
+  location   PracticeLocation?               @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice   Practice                        @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  revisions  PracticeInsuranceRuleRevision[]
+
+  @@unique([practiceId, slug])
+  @@index([practiceId])
+  @@index([locationId])
+  @@map("practice_insurance_rule_set")
+}
+
+model PracticeInsuranceRuleRevision {
+  id               String                      @id @default(cuid())
+  ruleSetId        String
+  rules            Json
+  source           InsuranceRuleRevisionSource @default(PRACTICE)
+  status           InsuranceRuleRevisionStatus @default(PENDING_APPROVAL)
+  editedByUserId   String?
+  reviewedByUserId String?
+  reviewNote       String?
+  createdAt        DateTime                    @default(now())
+  reviewedAt       DateTime?
+  publishedAt      DateTime?
+  alerts           AdminAlert[]
+  ruleSet          PracticeInsuranceRuleSet    @relation(fields: [ruleSetId], references: [id], onDelete: Cascade)
+
+  @@index([ruleSetId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("practice_insurance_rule_revision")
+}
+
+model AdminAlert {
+  id                      String                             @id @default(cuid())
+  practiceId              String
+  documentId              String?
+  revisionId              String?
+  insuranceRuleSetId      String?
+  insuranceRuleRevisionId String?
+  type                    AdminAlertType
+  status                  AdminAlertStatus                   @default(UNREAD)
+  message                 String
+  createdAt               DateTime                           @default(now())
+  updatedAt               DateTime                           @updatedAt
+  resolvedAt              DateTime?
+  document                PracticeKnowledgeDocument?         @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  insuranceRuleRevision   PracticeInsuranceRuleRevision?     @relation(fields: [insuranceRuleRevisionId], references: [id], onDelete: SetNull)
+  insuranceRuleSet        PracticeInsuranceRuleSet?          @relation(fields: [insuranceRuleSetId], references: [id], onDelete: SetNull)
+  practice                Practice                           @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  revision                PracticeKnowledgeDocumentRevision? @relation(fields: [revisionId], references: [id], onDelete: SetNull)
+
+  @@index([practiceId])
+  @@index([documentId])
+  @@index([revisionId])
+  @@index([insuranceRuleSetId])
+  @@index([insuranceRuleRevisionId])
+  @@index([status])
+  @@index([type])
+  @@map("admin_alert")
 }
 
 model PracticeInsuranceCrosswalk {

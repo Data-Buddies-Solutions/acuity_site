@@ -303,7 +303,7 @@ export default async function PortalOnboardingPage({
           <CardHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Insurance crosswalk</CardTitle>
+                <CardTitle>Insurance rules</CardTitle>
                 <CardDescription>
                   Capture accepted plans, exceptions, and staff handoff rules.
                 </CardDescription>
@@ -446,8 +446,7 @@ export default async function PortalOnboardingPage({
               <div>
                 <CardTitle>Review info</CardTitle>
                 <CardDescription>
-                  You can edit the knowledge base and insurance crosswalk after
-                  submitting.
+                  You can edit the knowledge base and insurance rules after submitting.
                 </CardDescription>
               </div>
             </div>
