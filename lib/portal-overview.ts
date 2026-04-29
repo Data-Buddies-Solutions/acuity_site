@@ -426,6 +426,7 @@ export async function getPortalOverviewMetrics(
   let cancelledActionCount = 0;
   let schedulingSeconds = 0;
   let afterHoursSeconds = 0;
+  let staffTimeSavedSeconds = 0;
 
   for (const call of callRows) {
     totalDurationSec += call.durationSec;
@@ -433,15 +434,18 @@ export async function getPortalOverviewMetrics(
     if (call.bookedAppointment) bookedActionCount += 1;
     if (call.confirmedAppointment) confirmedActionCount += 1;
     if (call.cancelledAppointment) cancelledActionCount += 1;
-    if (
-      call.bookedAppointment ||
-      call.confirmedAppointment ||
-      call.cancelledAppointment
-    ) {
+    const isSchedulingCall =
+      call.bookedAppointment || call.confirmedAppointment || call.cancelledAppointment;
+    const isAfterHoursCall = isAfterHours(call.startedAt);
+
+    if (isSchedulingCall) {
       schedulingSeconds += call.durationSec;
     }
-    if (isAfterHours(call.startedAt)) {
+    if (isAfterHoursCall) {
       afterHoursSeconds += call.durationSec;
+    }
+    if (isSchedulingCall || isAfterHoursCall) {
+      staffTimeSavedSeconds += call.durationSec;
     }
   }
 
@@ -475,7 +479,7 @@ export async function getPortalOverviewMetrics(
           seconds: afterHoursSeconds,
         },
       ],
-      totalSeconds: schedulingSeconds + afterHoursSeconds,
+      totalSeconds: staffTimeSavedSeconds,
     },
     totalCallMinutes: totalDurationSec / 60,
     totalCalls: callCount,

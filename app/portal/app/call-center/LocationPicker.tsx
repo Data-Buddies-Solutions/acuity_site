@@ -4,14 +4,14 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { ChevronDown } from "lucide-react";
 
-import type { CallCenterLocation } from "./locations";
+import type { PortalCallCenterLocation } from "@/lib/call-center";
 
 export default function LocationPicker({
   currentId,
   locations,
 }: {
   currentId: string;
-  locations: ReadonlyArray<CallCenterLocation>;
+  locations: ReadonlyArray<PortalCallCenterLocation>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -30,7 +30,7 @@ export default function LocationPicker({
           onChange={(event) => {
             const next = event.target.value;
             startTransition(() => {
-              router.push(`/portal/app/call-center?office=${next}`);
+              router.push(`/portal/app/call-center?office=${encodeURIComponent(next)}`);
             });
           }}
           value={currentId}

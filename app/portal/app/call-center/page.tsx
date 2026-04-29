@@ -8,7 +8,6 @@ import MetricCard from "../overview/MetricCard";
 
 import CallCenterWorkspace from "./CallCenterWorkspace";
 import LocationPicker from "./LocationPicker";
-import { CALL_CENTER_LOCATIONS, resolveCallCenterLocation } from "./locations";
 import { enableCallCenterAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +26,12 @@ export default async function PortalCallCenterPage({
   }
 
   const params = searchParams ? await searchParams : {};
-  const office = resolveCallCenterLocation(params.office);
+  const selectedLocationId = Array.isArray(params.office)
+    ? params.office[0]
+    : params.office;
 
   const data = await getPortalCallCenterData({
-    officeNumbers: [office.inboundNumber, office.outboundNumber],
+    locationId: selectedLocationId,
   });
 
   if (!data) {
@@ -40,11 +41,18 @@ export default async function PortalCallCenterPage({
   const settings = data.settings;
   const enabled = settings?.enabled === true;
   const runtimeSettings = settings ? resolveTelnyxRuntimeSettings(settings) : null;
+  const selectedLocation = data.selectedLocation;
+  const outboundCallerNumber =
+    selectedLocation?.outboundNumber ||
+    runtimeSettings?.outboundCallerNumber ||
+    data.phoneNumbers.find((phone) => phone.isPrimary)?.phoneNumber ||
+    data.phoneNumbers[0]?.phoneNumber ||
+    "";
   const configured = Boolean(
     enabled &&
     runtimeSettings?.connectionId &&
     runtimeSettings.credentialId &&
-    office.outboundNumber,
+    outboundCallerNumber,
   );
 
   return (
@@ -52,11 +60,13 @@ export default async function PortalCallCenterPage({
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#10272c] md:text-4xl">
-            {office.label} Call Center
+            {selectedLocation ? `${selectedLocation.label} Call Center` : "Call Center"}
           </h1>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <LocationPicker currentId={office.id} locations={CALL_CENTER_LOCATIONS} />
+          {selectedLocation ? (
+            <LocationPicker currentId={selectedLocation.id} locations={data.locations} />
+          ) : null}
           {!enabled ? (
             <form action={enableCallCenterAction}>
               <Button variant="primary">Enable</Button>
@@ -74,7 +84,7 @@ export default async function PortalCallCenterPage({
         activity={data.activity}
         configured={configured}
         enabled={enabled}
-        outboundCallerNumber={office.outboundNumber}
+        outboundCallerNumber={outboundCallerNumber}
       />
     </div>
   );

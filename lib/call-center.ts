@@ -214,11 +214,83 @@ export type PortalCallActivityItem = {
   fromPhone: string | null;
   id: string;
   kind: PortalCallActivityKind;
+  locationName: string | null;
   recordingId: string | null;
+  recordId: string;
   resolved: boolean;
 };
 
-export async function getPortalCallCenterData(options?: { officeNumbers?: string[] }) {
+export type PortalCallCenterLocation = {
+  id: string;
+  label: string;
+  locationId: string | null;
+  outboundNumber: string;
+};
+
+function getPortalCallCenterLocations(practice: {
+  locations: Array<{
+    id: string;
+    isPrimary: boolean;
+    name: string;
+    phone: string | null;
+  }>;
+  phoneNumbers: Array<{
+    id: string;
+    isPrimary: boolean;
+    label: string | null;
+    locationId: string | null;
+    phoneNumber: string;
+  }>;
+}): PortalCallCenterLocation[] {
+  const locations: PortalCallCenterLocation[] = [];
+
+  for (const location of practice.locations) {
+    const phone =
+      practice.phoneNumbers.find(
+        (number) => number.locationId === location.id && number.isPrimary,
+      ) ??
+      practice.phoneNumbers.find((number) => number.locationId === location.id) ??
+      null;
+
+    locations.push({
+      id: location.id,
+      label: location.name,
+      locationId: location.id,
+      outboundNumber: phone?.phoneNumber ?? "",
+    });
+  }
+
+  for (const phone of practice.phoneNumbers) {
+    if (phone.locationId) {
+      continue;
+    }
+
+    locations.push({
+      id: `phone:${phone.id}`,
+      label: phone.label || phone.phoneNumber,
+      locationId: null,
+      outboundNumber: phone.phoneNumber,
+    });
+  }
+
+  if (!locations.length) {
+    const primaryPhone =
+      practice.phoneNumbers.find((phone) => phone.isPrimary) ??
+      practice.phoneNumbers[0] ??
+      null;
+
+    locations.push({
+      id: "practice",
+      label: "Practice",
+      locationId: null,
+      outboundNumber: primaryPhone?.phoneNumber ?? "",
+    });
+  }
+
+  return locations;
+}
+
+export async function getPortalCallCenterData(options?: { locationId?: string }) {
   const context = await getCurrentPracticeCallCenterContext();
 
   if (!context) {
@@ -226,13 +298,13 @@ export async function getPortalCallCenterData(options?: { officeNumbers?: string
   }
 
   const { practice } = context;
-  const officePhoneVariants = options?.officeNumbers?.length
-    ? Array.from(
-        new Set(options.officeNumbers.flatMap((number) => phoneLookupVariants(number))),
-      )
-    : null;
-  const fromPhoneFilter: { fromPhone?: { in: string[] } } = officePhoneVariants?.length
-    ? { fromPhone: { in: officePhoneVariants } }
+  const locations = getPortalCallCenterLocations(practice);
+  const selectedLocation =
+    locations.find((location) => location.id === options?.locationId) ??
+    locations[0] ??
+    null;
+  const locationFilter: { locationId?: string | null } = selectedLocation
+    ? { locationId: selectedLocation.locationId }
     : {};
 
   const [missedCallCount, voicemailCount, missedCalls, voicemails] = await Promise.all([
@@ -241,14 +313,14 @@ export async function getPortalCallCenterData(options?: { officeNumbers?: string
         calledBack: false,
         practiceId: practice.id,
         resolvedAt: null,
-        ...fromPhoneFilter,
+        ...locationFilter,
       },
     }),
     prisma.callCenterVoicemail.count({
       where: {
         practiceId: practice.id,
         resolvedAt: null,
-        ...fromPhoneFilter,
+        ...locationFilter,
       },
     }),
     prisma.callCenterMissedCall.findMany({
@@ -273,7 +345,7 @@ export async function getPortalCallCenterData(options?: { officeNumbers?: string
         calledBack: false,
         practiceId: practice.id,
         resolvedAt: null,
-        ...fromPhoneFilter,
+        ...locationFilter,
       },
     }),
     prisma.callCenterVoicemail.findMany({
@@ -298,7 +370,7 @@ export async function getPortalCallCenterData(options?: { officeNumbers?: string
       where: {
         practiceId: practice.id,
         resolvedAt: null,
-        ...fromPhoneFilter,
+        ...locationFilter,
       },
     }),
   ]);
@@ -313,7 +385,9 @@ export async function getPortalCallCenterData(options?: { officeNumbers?: string
       fromPhone: missed.fromPhone,
       id: `missed:${missed.id}`,
       kind: "missed",
+      locationName: missed.location?.name ?? null,
       recordingId: null,
+      recordId: missed.id,
       resolved: false,
     });
   }
@@ -326,7 +400,9 @@ export async function getPortalCallCenterData(options?: { officeNumbers?: string
       fromPhone: voicemail.fromPhone,
       id: `voicemail:${voicemail.id}`,
       kind: "voicemail",
+      locationName: voicemail.location?.name ?? null,
       recordingId: voicemail.recordingId,
+      recordId: voicemail.id,
       resolved: false,
     });
   }
@@ -336,10 +412,12 @@ export async function getPortalCallCenterData(options?: { officeNumbers?: string
   return {
     activity: activity.slice(0, 60),
     branding: getPracticeBranding(practice),
+    locations,
     missedCalls,
     phoneNumbers: practice.phoneNumbers,
     practiceId: practice.id,
     practiceName: practice.name,
+    selectedLocation,
     settings: practice.callCenterSettings,
     totals: {
       missedCalls: missedCallCount,

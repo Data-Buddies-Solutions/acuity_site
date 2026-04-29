@@ -1,10 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { PhoneMissed, Voicemail as VoicemailIcon } from "lucide-react";
+import {
+  CheckCircle2,
+  PhoneCall,
+  PhoneMissed,
+  Voicemail as VoicemailIcon,
+} from "lucide-react";
 
+import { Button } from "@/app/components/ui/button";
 import type { PortalCallActivityItem, PortalCallActivityKind } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
+
+import { resolveMissedCallAction, resolveVoicemailAction } from "./actions";
 
 type Filter = "all" | PortalCallActivityKind;
 
@@ -134,52 +142,86 @@ export default function ActivityRail({
             const callbackTarget = item.fromPhone || "";
             const duration = formatDuration(item.durationSec);
             const isSelected = selectedId === item.id;
+            const resolveAction =
+              item.kind === "missed" ? resolveMissedCallAction : resolveVoicemailAction;
             return (
               <li key={item.id}>
-                <button
+                <article
                   className={cn(
-                    "flex w-full items-center gap-4 px-5 py-3.5 text-left transition",
+                    "px-5 py-3.5 transition",
                     isSelected ? "bg-[#f1f5f5]" : "hover:bg-[#fafbfb]",
                   )}
-                  onClick={() => {
-                    setSelectedId(item.id);
-                    if (callbackTarget) {
-                      onCallback(callbackTarget);
-                    }
-                  }}
-                  type="button"
                 >
-                  <span
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f1f5f5]",
-                      className,
-                    )}
-                  >
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-sm font-semibold text-[#10272c]">
-                        {item.callerName || formatPhone(phone)}
-                      </span>
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a999b]">
-                        {kindLabel(item.kind)}
-                      </span>
+                  <div className="flex items-start gap-4">
+                    <span
+                      className={cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f1f5f5]",
+                        className,
+                      )}
+                    >
+                      <Icon className="h-4 w-4" aria-hidden="true" />
                     </span>
-                    <span className="mt-0.5 flex items-center gap-2 text-xs text-[#617477]">
-                      <span>{formatPhone(phone)}</span>
-                      {duration ? (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span>{duration}</span>
-                        </>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-[#10272c]">
+                          {item.callerName || formatPhone(phone)}
+                        </span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a999b]">
+                          {kindLabel(item.kind)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[#617477]">
+                        <span>{formatPhone(phone)}</span>
+                        {item.locationName ? (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span>{item.locationName}</span>
+                          </>
+                        ) : null}
+                        {duration ? (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span>{duration}</span>
+                          </>
+                        ) : null}
+                        <span aria-hidden="true">·</span>
+                        <span>{formatRelative(item.createdAt)}</span>
+                      </div>
+                      {item.kind === "voicemail" && item.recordingId ? (
+                        <audio
+                          className="mt-3 w-full max-w-xl"
+                          controls
+                          preload="none"
+                          src={`/api/portal/call-center/voicemails/${item.recordingId}`}
+                        />
                       ) : null}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-xs text-[#8a999b]">
-                    {formatRelative(item.createdAt)}
-                  </span>
-                </button>
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                      <Button
+                        disabled={!callbackTarget}
+                        onClick={() => {
+                          setSelectedId(item.id);
+                          if (callbackTarget) {
+                            onCallback(callbackTarget);
+                          }
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="secondary"
+                      >
+                        <PhoneCall className="h-4 w-4" aria-hidden="true" />
+                        Call
+                      </Button>
+                      <form action={resolveAction}>
+                        <input type="hidden" name="id" value={item.recordId} />
+                        <Button size="sm" type="submit" variant="secondary">
+                          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                          Done
+                        </Button>
+                      </form>
+                    </div>
+                  </div>
+                </article>
               </li>
             );
           })}
