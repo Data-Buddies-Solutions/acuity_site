@@ -195,6 +195,7 @@ export interface AdminCallTableRow {
   id: string;
   interruptionCount: number;
   llmModel: string;
+  officeName: string | null;
   officePhone: string;
   p50TotalLatency: number;
   p50Ttft: number;
@@ -211,6 +212,12 @@ export interface AdminCallTableRow {
   totalTurns: number;
   transcriptText: string;
   transferred: boolean;
+}
+
+export interface AdminPracticeOfficeFilterOption {
+  id: string;
+  label: string;
+  phones: string[];
 }
 
 const partsFormatter = new Intl.DateTimeFormat("en-US", {
@@ -1311,7 +1318,116 @@ function buildRecentCall(call: AdminCallRecord) {
   };
 }
 
-function buildCallTableRow(call: AdminCallRecord): AdminCallTableRow {
+function normalizePhoneKey(phone: string | null | undefined) {
+  return phone?.replace(/\D/g, "") ?? "";
+}
+
+function phoneLookupVariants(phone: string | null | undefined) {
+  const variants = new Set<string>();
+  const trimmed = phone?.trim() ?? "";
+  const digits = normalizePhoneKey(trimmed);
+
+  if (trimmed) variants.add(trimmed);
+
+  if (digits) {
+    variants.add(digits);
+    variants.add(`+${digits}`);
+  }
+
+  if (digits.length === 10) {
+    variants.add(`+1${digits}`);
+    variants.add(`1${digits}`);
+  }
+
+  if (digits.length === 11 && digits.startsWith("1")) {
+    variants.add(digits.slice(1));
+  }
+
+  return [...variants].filter(Boolean);
+}
+
+function buildOfficeFilterOptions(
+  phoneNumbers: Array<{
+    label: string | null;
+    locationId: string | null;
+    location: { name: string } | null;
+    phoneNumber: string;
+  }>,
+): AdminPracticeOfficeFilterOption[] {
+  const optionsById = new Map<string, AdminPracticeOfficeFilterOption>();
+
+  for (const phone of phoneNumbers) {
+    const key = normalizePhoneKey(phone.phoneNumber);
+
+    if (!key) {
+      continue;
+    }
+
+    const id = phone.locationId ? `location:${phone.locationId}` : `phone:${key}`;
+    const existing = optionsById.get(id);
+
+    if (existing) {
+      if (!existing.phones.some((item) => normalizePhoneKey(item) === key)) {
+        existing.phones.push(phone.phoneNumber);
+      }
+
+      continue;
+    }
+
+    optionsById.set(id, {
+      id,
+      label: phone.location?.name ?? phone.label ?? phone.phoneNumber,
+      phones: [phone.phoneNumber],
+    });
+  }
+
+  return [...optionsById.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function resolveOfficeFilter(
+  officeFilter: string | null | undefined,
+  options: AdminPracticeOfficeFilterOption[],
+) {
+  const key = normalizePhoneKey(officeFilter);
+
+  if (!officeFilter) {
+    return null;
+  }
+
+  return (
+    options.find(
+      (option) =>
+        option.id === officeFilter ||
+        (key && option.phones.some((phone) => normalizePhoneKey(phone) === key)),
+    ) ?? null
+  );
+}
+
+function buildOfficeNameByPhone(
+  phoneNumbers: Array<{
+    label: string | null;
+    location: { name: string } | null;
+    phoneNumber: string;
+  }>,
+) {
+  const officeNameByPhone = new Map<string, string>();
+
+  for (const phone of phoneNumbers) {
+    const key = normalizePhoneKey(phone.phoneNumber);
+    const name = phone.location?.name ?? phone.label;
+
+    if (key && name) {
+      officeNameByPhone.set(key, name);
+    }
+  }
+
+  return officeNameByPhone;
+}
+
+function buildCallTableRow(
+  call: AdminCallRecord,
+  officeNameByPhone: Map<string, string>,
+): AdminCallTableRow {
   const latency = getLatencyArrays(call);
   const tools = getToolCalls(call.data);
   const toolActions = new Set<string>();
@@ -1337,6 +1453,10 @@ function buildCallTableRow(call: AdminCallRecord): AdminCallTableRow {
     id: call.id,
     interruptionCount: call.interruptionCount,
     llmModel: call.llmModel ?? "",
+    officeName:
+      call.location?.name ??
+      officeNameByPhone.get(normalizePhoneKey(call.officePhone)) ??
+      null,
     officePhone: call.officePhone,
     p50TotalLatency: median(latency.total),
     p50Ttft: median(latency.ttft),
@@ -1360,8 +1480,29 @@ function buildCallTableRow(call: AdminCallRecord): AdminCallTableRow {
   };
 }
 
-async function loadPracticeCalls(practiceId: string, range: AdminPracticeRange) {
+async function loadPracticeCalls(
+  practiceId: string,
+  range: AdminPracticeRange,
+  officeFilter?: AdminPracticeOfficeFilterOption | null,
+) {
   const rangeStart = getRangeStart(range);
+  const officeLocationId = officeFilter?.id.startsWith("location:")
+    ? officeFilter.id.replace("location:", "")
+    : null;
+  const officePhoneVariants = [
+    ...new Set((officeFilter?.phones ?? []).flatMap(phoneLookupVariants)),
+  ];
+  const officeWhere =
+    officeLocationId || officePhoneVariants.length > 0
+      ? {
+          OR: [
+            ...(officeLocationId ? [{ locationId: officeLocationId }] : []),
+            ...(officePhoneVariants.length > 0
+              ? [{ officePhone: { in: officePhoneVariants } }]
+              : []),
+          ],
+        }
+      : {};
 
   return prisma.agentCall.findMany({
     orderBy: {
@@ -1387,6 +1528,11 @@ async function loadPracticeCalls(practiceId: string, range: AdminPracticeRange) 
       interruptionCount: true,
       latencyValues: true,
       llmModel: true,
+      location: {
+        select: {
+          name: true,
+        },
+      },
       needsReview: true,
       officePhone: true,
       outcomeSummary: true,
@@ -1407,6 +1553,7 @@ async function loadPracticeCalls(practiceId: string, range: AdminPracticeRange) 
     where: {
       practiceId,
       ...(rangeStart ? { startedAt: { gte: rangeStart } } : {}),
+      ...officeWhere,
     },
   });
 }
@@ -1489,40 +1636,49 @@ export async function getAdminPracticeSummaries() {
 export async function getAdminPracticeDetail(
   practiceId: string,
   range: AdminPracticeRange = "7d",
+  office?: string | null,
 ) {
   const rangeStart = getRangeStart(range);
 
-  const [practice, calls, costLineItems] = await Promise.all([
-    prisma.practice.findUnique({
-      include: {
-        agents: {
-          orderBy: {
-            createdAt: "desc",
-          },
-        },
-        locations: {
-          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-        },
-        memberships: {
-          include: {
-            user: true,
-          },
-          orderBy: {
-            createdAt: "asc",
-          },
-        },
-        phoneNumbers: {
-          include: {
-            location: true,
-          },
-          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+  const practice = await prisma.practice.findUnique({
+    include: {
+      agents: {
+        orderBy: {
+          createdAt: "desc",
         },
       },
-      where: {
-        id: practiceId,
+      locations: {
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
       },
-    }),
-    loadPracticeCalls(practiceId, range),
+      memberships: {
+        include: {
+          user: true,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
+      phoneNumbers: {
+        include: {
+          location: true,
+        },
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+      },
+    },
+    where: {
+      id: practiceId,
+    },
+  });
+
+  if (!practice) {
+    return null;
+  }
+
+  const officeFilters = buildOfficeFilterOptions(practice.phoneNumbers);
+  const selectedOffice = resolveOfficeFilter(office, officeFilters);
+
+  const [calls, costLineItems] = await Promise.all([
+    loadPracticeCalls(practiceId, range, selectedOffice),
     prisma.usageCostLineItem.findMany({
       orderBy: {
         occurredAt: "desc",
@@ -1538,10 +1694,6 @@ export async function getAdminPracticeDetail(
       },
     }),
   ]);
-
-  if (!practice) {
-    return null;
-  }
 
   const costByCategory = new Map<CostCategory, number>();
   const latency = {
@@ -1604,6 +1756,7 @@ export async function getAdminPracticeDetail(
     0,
   );
   const appointments = bookedAppointments + confirmedAppointments + cancelledAppointments;
+  const officeNameByPhone = buildOfficeNameByPhone(practice.phoneNumbers);
 
   return {
     agentStatus: getAgentStatus(practice.agents),
@@ -1633,11 +1786,13 @@ export async function getAdminPracticeDetail(
       trendBuckets: buildTrendBuckets(calls, range),
     },
     analyticsData: buildPracticeAnalyticsData(calls, range),
-    callRows: calls.map(buildCallTableRow),
+    callRows: calls.map((call) => buildCallTableRow(call, officeNameByPhone)),
     dashboardData: buildPracticeDashboardData(calls),
+    officeFilters,
     practice,
     range,
     recentCalls: calls.slice(0, 30).map(buildRecentCall),
+    selectedOfficeId: selectedOffice?.id ?? null,
     stats: {
       appointments,
       avgCacheHitRate: calls.length > 0 ? totalCacheHitRate / calls.length : 0,

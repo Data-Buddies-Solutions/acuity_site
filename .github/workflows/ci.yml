@@ -14,10 +14,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Verify
+  checks:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Prisma
+            command: bun run prisma:validate
+            generate_prisma: false
+          - name: Format
+            command: bun run format:check
+            generate_prisma: false
+          - name: Lint
+            command: bun run lint
+            generate_prisma: true
+          - name: Typecheck
+            command: bun run typecheck
+            generate_prisma: true
+          - name: Test
+            command: bun test
+            generate_prisma: true
+          - name: Build
+            command: bun run build
+            generate_prisma: false
 
     env:
       BETTER_AUTH_SECRET: ci-better-auth-secret
@@ -41,25 +63,11 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Generate Prisma client
+        if: matrix.generate_prisma
         run: bun run prisma:generate
 
-      - name: Validate Prisma schema
-        run: bun run prisma:validate
-
-      - name: Check formatting
+      - name: Run ${{ matrix.name }}
         env:
           PRETTIER_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           PRETTIER_HEAD_SHA: ${{ github.sha }}
-        run: bun run format:check
-
-      - name: Lint
-        run: bun run lint
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Test
-        run: bun test
-
-      - name: Build
-        run: bun run build
+        run: ${{ matrix.command }}
