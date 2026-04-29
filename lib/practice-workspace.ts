@@ -91,7 +91,7 @@ const practiceWorkspaceInclude = {
     },
     take: 1,
   },
-} as const;
+} satisfies Prisma.PracticeInclude;
 
 type LoadedPractice = Prisma.PracticeGetPayload<{
   include: typeof practiceWorkspaceInclude;

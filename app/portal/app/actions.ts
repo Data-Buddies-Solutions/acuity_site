@@ -282,7 +282,7 @@ export async function savePracticeBasicsAction(formData: FormData) {
 
   redirect(
     portalState.launched
-      ? "/portal/app/practice-information"
+      ? "/portal/app/overview"
       : "/portal/app/onboarding?step=providerRouting",
   );
 }
@@ -315,7 +315,7 @@ export async function saveProviderSetupAction(formData: FormData) {
 
   redirect(
     portalState.launched
-      ? "/portal/app/practice-information"
+      ? "/portal/app/overview"
       : providers.some((provider) => provider.providerName)
         ? "/portal/app/onboarding?step=insuranceCrosswalk"
         : "/portal/app/onboarding?step=providerRouting",

@@ -63,7 +63,7 @@ export const portalSectionDefinitions = [
   },
   {
     key: "insuranceCrosswalk",
-    label: "Insurance crosswalk",
+    label: "Insurance rules",
     description: "Accepted plans, exceptions, and when to transfer to staff.",
     href: "/portal/app/insurance-crosswalk",
   },

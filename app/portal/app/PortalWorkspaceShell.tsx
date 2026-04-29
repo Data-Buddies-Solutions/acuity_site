@@ -5,13 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BookOpenCheck,
-  Building2,
   CalendarCheck,
   ChevronDown,
   ClipboardList,
   FolderOpen,
   LayoutDashboard,
-  LineChart,
   MessageSquareText,
   PhoneCall,
   ShieldAlert,
@@ -42,25 +40,15 @@ const livePrimaryNavItems = [
     icon: MessageSquareText,
     label: "Two-way Texting",
   },
-  { href: "/portal/app/tasking", icon: ClipboardList, label: "Tasking" },
-  {
-    href: "/portal/app/post-call-analytics",
-    icon: LineChart,
-    label: "Outcomes",
-  },
+  { href: "/portal/app/tasking", icon: ClipboardList, label: "Tasks" },
 ] satisfies NavItem[];
 
 const liveDocumentNavItems = [
-  {
-    href: "/portal/app/practice-information",
-    icon: Building2,
-    label: "Practice Information",
-  },
   { href: "/portal/app/knowledge-base", icon: BookOpenCheck, label: "Knowledge Base" },
   {
     href: "/portal/app/insurance-crosswalk",
     icon: ShieldAlert,
-    label: "Insurance Crosswalk",
+    label: "Insurance Rules",
   },
 ] satisfies NavItem[];
 

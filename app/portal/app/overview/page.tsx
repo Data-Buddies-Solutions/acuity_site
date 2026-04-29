@@ -8,6 +8,7 @@ import {
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
 
+import { PracticePageHeader } from "../PracticePageHeader";
 import CallVolumeChart from "./CallVolumeChart";
 import MetricCard from "./MetricCard";
 import StaffTimeSavedCard from "./StaffTimeSavedCard";
@@ -16,6 +17,7 @@ const rangeOptions = [
   { href: "/portal/app/overview?range=24h", label: "24 Hours", value: "24h" },
   { href: "/portal/app/overview?range=7d", label: "7 Days", value: "7d" },
   { href: "/portal/app/overview?range=30d", label: "30 Days", value: "30d" },
+  { href: "/portal/app/overview?range=all", label: "All Time", value: "all" },
 ] as const satisfies ReadonlyArray<{
   href: string;
   label: string;
@@ -26,12 +28,13 @@ const previousLabel: Record<PortalOverviewRange, string> = {
   "24h": "vs prior day",
   "30d": "vs last month",
   "7d": "vs last week",
+  all: "",
 };
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 
 function parseRange(value: string | string[] | undefined): PortalOverviewRange {
-  if (value === "24h" || value === "7d" || value === "30d") {
+  if (value === "24h" || value === "7d" || value === "30d" || value === "all") {
     return value;
   }
   return "24h";
@@ -97,18 +100,20 @@ export default async function PortalOverviewPage({
     redirect("/portal");
   }
 
-  const callsDelta = buildDelta(metrics.totalCalls, metrics.previousTotalCalls);
+  const callsDelta =
+    metrics.range === "all"
+      ? null
+      : buildDelta(metrics.totalCalls, metrics.previousTotalCalls);
   const periodNote = previousLabel[range];
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#10272c] md:text-4xl">
-            Executive Overview
-          </h1>
-          <p className="mt-1 text-sm text-[#617477]">Today — {formatTodayLabel()}</p>
-        </div>
+      <PracticePageHeader
+        branding={metrics.branding}
+        logoMeta={formatTodayLabel()}
+        practiceName={metrics.practiceName}
+        title="Overview"
+      >
         <nav
           aria-label="Overview range"
           className="inline-flex w-full rounded-lg border border-black/8 bg-white p-1 sm:w-fit"
@@ -132,7 +137,7 @@ export default async function PortalOverviewPage({
             );
           })}
         </nav>
-      </section>
+      </PracticePageHeader>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -144,7 +149,7 @@ export default async function PortalOverviewPage({
                 }
               : null
           }
-          label="Calls Handled"
+          label="Call Volume"
           value={formatInteger(metrics.totalCalls)}
         />
         <MetricCard
@@ -153,11 +158,11 @@ export default async function PortalOverviewPage({
           value={formatRate(metrics.transferRate)}
         />
         <MetricCard
-          label="Booked by AI"
+          label="Bookings"
           value={formatInteger(metrics.appointmentActions.booked)}
         />
         <MetricCard
-          label="Avg Call"
+          label="Average Call Duration"
           value={formatCallDuration(metrics.averageCallDurationSec)}
         />
       </section>

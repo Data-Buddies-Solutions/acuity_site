@@ -9,6 +9,8 @@ import {
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
 
+import { PracticePageHeader } from "../PracticePageHeader";
+
 const rangeOptions = [
   { href: "/portal/app/bookings?range=24h", label: "24 Hours", value: "24h" },
   { href: "/portal/app/bookings?range=7d", label: "7 Days", value: "7d" },
@@ -128,15 +130,14 @@ export default async function PortalBookingsPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#10272c] md:text-4xl">
-            Bookings
-          </h1>
-          <p className="mt-1 text-sm text-[#617477]">
-            {result.bookings.length} appointment{result.bookings.length === 1 ? "" : "s"}
-          </p>
-        </div>
+      <PracticePageHeader
+        branding={result.branding}
+        logoMeta={`${result.bookings.length} appointment${
+          result.bookings.length === 1 ? "" : "s"
+        }`}
+        practiceName={result.practiceName}
+        title="Bookings"
+      >
         <nav
           aria-label="Bookings range"
           className="inline-flex w-full rounded-lg border border-black/8 bg-white p-1 sm:w-fit"
@@ -160,7 +161,7 @@ export default async function PortalBookingsPage({
             );
           })}
         </nav>
-      </section>
+      </PracticePageHeader>
 
       <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
         {result.bookings.length === 0 ? (

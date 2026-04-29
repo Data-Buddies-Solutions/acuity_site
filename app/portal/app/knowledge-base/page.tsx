@@ -1,35 +1,107 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { redirect } from "next/navigation";
+import { ArrowUpRight, Clock3 } from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/app/components/ui/card";
-import {
-  DocumentPageHeader,
-  DocumentPanel,
-  DocumentSection,
-  DocumentText,
-} from "@/app/portal/app/DocumentView";
+import { MarkdownDocument } from "@/app/components/MarkdownDocument";
+import { DocumentPanel } from "@/app/portal/app/DocumentView";
+import { PracticePageHeader } from "@/app/portal/app/PracticePageHeader";
+import { getPortalKnowledgeDocumentState } from "@/lib/knowledge-documents";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
+import { cn } from "@/lib/utils";
 
-import { PortalTextareaField } from "../PortalFields";
-import { saveKnowledgeBaseAction } from "../actions";
-import LocationRuleScopeFields from "../onboarding/LocationRuleScopeFields";
+import { saveKnowledgeDocumentDraftAction } from "./actions";
 
 type SearchParamsInput =
   | Promise<Record<string, string | string[] | undefined>>
   | undefined;
 
-async function isEditMode(searchParams: SearchParamsInput) {
+async function getPageParams(searchParams: SearchParamsInput) {
   const resolved = (await searchParams) || {};
   const rawMode = Array.isArray(resolved.mode) ? resolved.mode[0] : resolved.mode;
+  const rawDoc = Array.isArray(resolved.doc) ? resolved.doc[0] : resolved.doc;
+  const submitted = resolved.submitted === "1";
+  const unchanged = resolved.unchanged === "1";
 
-  return rawMode === "edit";
+  return {
+    editing: rawMode === "edit",
+    selectedSlug: typeof rawDoc === "string" ? rawDoc : undefined,
+    submitted,
+    unchanged,
+  };
+}
+
+function formatDate(date: Date | null) {
+  if (!date) {
+    return "Not published yet";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    timeZone: "America/New_York",
+    year: "numeric",
+  }).format(date);
+}
+
+function documentLabel(document: {
+  locationName: string | null;
+  slug: string;
+  title: string;
+}) {
+  if (document.locationName) {
+    return document.locationName;
+  }
+  if (document.slug.includes("crystal")) {
+    return "Crystal River";
+  }
+  if (document.slug.includes("spring")) {
+    return "Spring Hill";
+  }
+  return document.title.replace(/^Knowledge Base:\s*/i, "");
+}
+
+function KnowledgeDocumentSelector({
+  documents,
+  selectedId,
+}: {
+  documents: Array<{
+    id: string;
+    locationName: string | null;
+    slug: string;
+    title: string;
+  }>;
+  selectedId: string;
+}) {
+  if (documents.length <= 1) {
+    return null;
+  }
+
+  return (
+    <section className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#748588]">
+        Location
+      </p>
+      <nav aria-label="Knowledge base location" className="flex gap-2 overflow-x-auto">
+        {documents.map((document) => (
+          <Link
+            key={document.id}
+            className={cn(
+              "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
+              document.id === selectedId
+                ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
+                : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
+            )}
+            href={`/portal/app/knowledge-base?doc=${encodeURIComponent(document.slug)}`}
+          >
+            {documentLabel(document)}
+          </Link>
+        ))}
+      </nav>
+    </section>
+  );
 }
 
 export default async function PortalKnowledgeBasePage({
@@ -38,201 +110,151 @@ export default async function PortalKnowledgeBasePage({
   searchParams?: SearchParamsInput;
 }>) {
   const portalState = await getPortalWorkspaceState();
-  const editing = await isEditMode(searchParams);
-  const knowledgeUsesLocationRules = portalState.draft.locations.some(
-    (location) => location.knowledgeVaries || location.knowledgeNotes,
-  );
-  const isReviewed = portalState.sections.find(
-    (section) => section.key === "knowledgeBase",
-  )?.complete;
-  const shouldShowDocument = portalState.launched && !editing;
-  const primaryLabel = portalState.launched ? "Save changes" : "Save and continue";
-  const returnHref = portalState.launched
-    ? "/portal/app/knowledge-base"
-    : "/portal/app/onboarding";
-  const returnLabel = portalState.launched ? "Back to document" : "Back to onboarding";
 
-  if (shouldShowDocument) {
-    const locationRules = portalState.draft.locations.filter(
-      (location) => location.knowledgeVaries || location.knowledgeNotes,
-    );
+  if (!portalState.launched) {
+    redirect("/portal/app/onboarding?step=knowledgeBase");
+  }
 
+  const { editing, selectedSlug, submitted, unchanged } =
+    await getPageParams(searchParams);
+  const documentState = await getPortalKnowledgeDocumentState(selectedSlug);
+
+  if (!documentState) {
+    redirect("/portal");
+  }
+
+  const selectedDocument = documentState.selectedDocument;
+  const practiceName = portalState.draft.practiceName || "Practice";
+
+  if (!selectedDocument?.publishedRevision) {
     return (
       <div className="space-y-6">
-        <DocumentPageHeader
-          actionHref="/portal/app/knowledge-base?mode=edit"
-          description="A structured playbook for what the AI receptionist should say, avoid, and hand off to staff."
-          eyebrow="Documents"
-          title="Knowledge base"
+        <PracticePageHeader
+          branding={portalState.branding}
+          practiceName={practiceName}
+          title="Knowledge Base"
+        />
+        <DocumentPanel>
+          <div className="px-5 py-10 text-sm text-[#617477] md:px-7">
+            No knowledge base document has been created yet.
+          </div>
+        </DocumentPanel>
+      </div>
+    );
+  }
+
+  const editHref = `/portal/app/knowledge-base?doc=${encodeURIComponent(
+    selectedDocument.slug,
+  )}&mode=edit`;
+  const viewHref = `/portal/app/knowledge-base?doc=${encodeURIComponent(
+    selectedDocument.slug,
+  )}`;
+  const pendingRevision = selectedDocument.pendingRevision;
+  const currentMarkdown =
+    pendingRevision?.markdown ?? selectedDocument.publishedRevision.markdown;
+
+  if (editing) {
+    return (
+      <div className="space-y-6">
+        <PracticePageHeader
+          branding={portalState.branding}
+          practiceName={practiceName}
+          title="Knowledge Base"
+        >
+          <Button asChild variant="secondary">
+            <Link href={viewHref}>Back to document</Link>
+          </Button>
+        </PracticePageHeader>
+
+        <KnowledgeDocumentSelector
+          documents={documentState.documents}
+          selectedId={selectedDocument.id}
         />
 
-        <DocumentPanel>
-          <DocumentSection
-            description="High-frequency patient questions and approved answers."
-            title="Common questions"
-          >
-            <DocumentText value={portalState.draft.knowledgeCommonQuestions} />
-          </DocumentSection>
+        {pendingRevision ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            This document already has a draft waiting for admin review. Saving again
+            creates a newer pending draft.
+          </div>
+        ) : null}
 
-          <DocumentSection
-            description="What callers should know before an appointment."
-            title="Appointment prep"
-          >
-            <DocumentText value={portalState.draft.knowledgeAppointmentPrep} />
-          </DocumentSection>
-
-          <DocumentSection
-            description="Office rules the receptionist can repeat."
-            title="Office policies"
-          >
-            <DocumentText value={portalState.draft.knowledgeOfficePolicies} />
-          </DocumentSection>
-
-          <DocumentSection
-            description="How to handle urgent or after-hours conversations."
-            title="After-hours rules"
-          >
-            <DocumentText value={portalState.draft.knowledgeAfterHours} />
-          </DocumentSection>
-
-          <DocumentSection
-            description="Escalation criteria for a human handoff."
-            title="Transfer to staff when"
-          >
-            <DocumentText value={portalState.draft.insuranceTransferRules} />
-          </DocumentSection>
-
-          <DocumentSection
-            description="Approved phrasing guardrails."
-            title="Always say / never say"
-          >
-            <DocumentText value={portalState.draft.knowledgePhrases} />
-          </DocumentSection>
-
-          <DocumentSection
-            description="Location-specific scripts, policies, or routing notes."
-            title="Location notes"
-          >
-            {locationRules.length ? (
-              <div className="space-y-3">
-                {locationRules.map((location, index) => (
-                  <div
-                    key={location.id || `${location.locationName}-${index}`}
-                    className="rounded-2xl border border-black/6 bg-[#f7fbfa] px-4 py-4"
-                  >
-                    <p className="text-sm font-semibold text-[#10272c]">
-                      {location.locationName || `Location ${index + 1}`}
-                    </p>
-                    <div className="mt-2">
-                      <DocumentText value={location.knowledgeNotes} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <DocumentText
-                value=""
-                empty="Same knowledge and scripts for all locations."
-              />
-            )}
-          </DocumentSection>
-        </DocumentPanel>
+        <form action={saveKnowledgeDocumentDraftAction} className="space-y-4">
+          <input type="hidden" name="documentId" value={selectedDocument.id} />
+          <label className="block space-y-2">
+            <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#6a7b7e]">
+              Markdown
+            </span>
+            <textarea
+              className="min-h-[620px] w-full rounded-[1.15rem] border border-black/8 bg-[#fbfdfc] px-4 py-3 font-mono text-sm leading-6 text-[#10272c] outline-none transition placeholder:text-[#90a0a2] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/12"
+              defaultValue={currentMarkdown}
+              name="markdown"
+              required
+            />
+          </label>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button type="submit" variant="primary">
+              Send for admin review
+              <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button asChild variant="secondary">
+              <Link href={viewHref}>Cancel</Link>
+            </Button>
+          </div>
+        </form>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <section className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.16em] text-[#6a7b7e]">
-          Knowledge Base
-        </p>
-        <h2 className="text-3xl font-semibold tracking-[-0.05em] text-[#10272c]">
-          {portalState.launched ? "Edit knowledge base" : "Practice knowledge"}
-        </h2>
-        <p className="max-w-2xl text-base leading-relaxed text-[#617477]">
-          Keep this short and structured. Add what the practice wants said, skipped, or
-          escalated.
-        </p>
-      </section>
+      <PracticePageHeader
+        branding={portalState.branding}
+        practiceName={practiceName}
+        title="Knowledge Base"
+      >
+        <Button asChild variant="secondary">
+          <Link href={editHref}>Edit markdown</Link>
+        </Button>
+      </PracticePageHeader>
 
-      <Card className="rounded-[1.8rem] border-black/6 bg-white">
-        <CardHeader>
-          <CardTitle>{isReviewed ? "Knowledge saved" : "Finish this step"}</CardTitle>
-          <CardDescription>
-            FAQs, prep, policies, after-hours, escalation rules, and required phrases.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action={saveKnowledgeBaseAction} className="grid gap-4">
-            <PortalTextareaField
-              defaultValue={portalState.draft.knowledgeCommonQuestions}
-              label="Common questions"
-              name="knowledgeCommonQuestions"
-              placeholder="Do you take walk-ins? How do I send a referral?"
-              rows={3}
-            />
-            <PortalTextareaField
-              defaultValue={portalState.draft.knowledgeAppointmentPrep}
-              label="Appointment prep"
-              name="knowledgeAppointmentPrep"
-              placeholder="Dilated exam patients should bring sunglasses and arrive 15 minutes early."
-              rows={3}
-            />
-            <PortalTextareaField
-              defaultValue={portalState.draft.knowledgeOfficePolicies}
-              label="Office policies"
-              name="knowledgeOfficePolicies"
-              placeholder="Late arrivals over 15 minutes may need rescheduling."
-              rows={3}
-            />
-            <PortalTextareaField
-              defaultValue={portalState.draft.knowledgeAfterHours}
-              label="After-hours rules"
-              name="knowledgeAfterHours"
-              placeholder="Urgent flashes, floaters, or vision loss should be transferred immediately."
-              rows={3}
-            />
-            <PortalTextareaField
-              defaultValue={portalState.draft.insuranceTransferRules}
-              label="Transfer to staff when"
-              name="insuranceTransferRules"
-              placeholder="A caller is upset, symptoms sound urgent, coverage is unclear, or the request falls outside approved scripts."
-              rows={3}
-            />
-            <PortalTextareaField
-              defaultValue={portalState.draft.knowledgePhrases}
-              label="Always say / never say"
-              name="knowledgePhrases"
-              placeholder="Always confirm callback timing. Never promise same-day availability."
-              rows={3}
-            />
-            <LocationRuleScopeFields
-              byLocationLabel="Knowledge or scripts differ by location"
-              defaultByLocation={knowledgeUsesLocationRules}
-              locationNotesKey="knowledgeNotes"
-              locations={portalState.draft.locations}
-              placeholder="Location-specific hours, policies, scripts, prep, parking, routing, or escalation notes."
-              scopeName="knowledgeRulesScope"
-              sectionTitle="Knowledge scope"
-              sharedLabel="Same knowledge and scripts for all locations"
-              variesKey="knowledgeVaries"
-            />
+      <KnowledgeDocumentSelector
+        documents={documentState.documents}
+        selectedId={selectedDocument.id}
+      />
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button type="submit" variant="primary">
-                {primaryLabel}
-                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              {isReviewed ? (
-                <Button asChild variant="secondary">
-                  <Link href={returnHref}>{returnLabel}</Link>
-                </Button>
-              ) : null}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      {submitted ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Draft saved. Acuity admin will review it before publishing.
+        </div>
+      ) : null}
+
+      {unchanged ? (
+        <div className="rounded-lg border border-black/8 bg-white px-4 py-3 text-sm text-[#617477]">
+          No changes were submitted.
+        </div>
+      ) : null}
+
+      {pendingRevision ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <Clock3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="font-semibold">Draft waiting for admin review</p>
+            <p className="mt-1">
+              The published document below is still live until Acuity admin approves the
+              pending draft from {formatDate(pendingRevision.createdAt)}.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      <DocumentPanel>
+        <div className="border-b border-black/6 px-5 py-4 text-xs font-medium uppercase tracking-[0.16em] text-[#7f9093] md:px-7">
+          Published {formatDate(selectedDocument.publishedRevision.publishedAt)}
+        </div>
+        <div className="px-5 py-6 md:px-7">
+          <MarkdownDocument markdown={selectedDocument.publishedRevision.markdown} />
+        </div>
+      </DocumentPanel>
     </div>
   );
 }
