@@ -179,6 +179,10 @@ function slugify(value: string) {
   return slug || "knowledge-base";
 }
 
+function locationSlugSuffix(location: { id: string; name: string }, index: number) {
+  return slugify(`${location.name}-${location.id || index + 1}`);
+}
+
 function jsonStringList(value: unknown) {
   return Array.isArray(value)
     ? value.filter(
@@ -195,38 +199,50 @@ function formatListSection(title: string, items: string[]) {
   return [`## ${title}`, "", ...items.map((item) => `- ${item}`)].join("\n");
 }
 
-function buildLegacyMarkdown(practice: {
-  insuranceCrosswalk: {
-    transferRules: string | null;
-  } | null;
-  knowledgeBase: {
-    appointmentExpectations: unknown;
-    appointmentPrep: string | null;
-    commonQuestions: string | null;
-    emergencyNotice: string | null;
-    excludedServices: unknown;
-    officePolicies: string | null;
-    scopeSummary: string | null;
-    urgencyDisposition: string | null;
-    urgencyScreeningQuestions: unknown;
-    whatToBring: unknown;
-    afterHoursRules: string | null;
-    phrasingRules: string | null;
-  } | null;
-  locations: Array<{
+function buildLegacyMarkdown(
+  practice: {
+    insuranceCrosswalk: {
+      transferRules: string | null;
+    } | null;
+    knowledgeBase: {
+      appointmentExpectations: unknown;
+      appointmentPrep: string | null;
+      commonQuestions: string | null;
+      emergencyNotice: string | null;
+      excludedServices: unknown;
+      officePolicies: string | null;
+      scopeSummary: string | null;
+      urgencyDisposition: string | null;
+      urgencyScreeningQuestions: unknown;
+      whatToBring: unknown;
+      afterHoursRules: string | null;
+      phrasingRules: string | null;
+    } | null;
+    locations: Array<{
+      address: string | null;
+      email: string | null;
+      fax: string | null;
+      hoursSummary: string | null;
+      name: string;
+      phone: string | null;
+    }>;
+    name: string;
+  },
+  locationOverride?: {
     address: string | null;
     email: string | null;
     fax: string | null;
     hoursSummary: string | null;
     name: string;
     phone: string | null;
-  }>;
-  name: string;
-}) {
+  },
+) {
   const knowledgeBase = practice.knowledgeBase;
-  const primaryLocation = practice.locations[0] ?? null;
+  const primaryLocation = locationOverride ?? practice.locations[0] ?? null;
   const sections = [
-    `# Knowledge Base: ${practice.name}`,
+    primaryLocation
+      ? `# Knowledge Base: ${practice.name}, ${primaryLocation.name}`
+      : `# Knowledge Base: ${practice.name}`,
     "",
     "## Emergency Notice",
     "",
@@ -361,22 +377,31 @@ function getSeedDocumentsForPractice(practice: {
     ];
   }
 
-  const primaryLocation =
-    practice.locations.find((location) => location.isPrimary) ??
-    practice.locations[0] ??
-    null;
-  const title = primaryLocation
-    ? `Knowledge Base: ${practice.name}, ${primaryLocation.name}`
-    : `Knowledge Base: ${practice.name}`;
+  const locations = practice.locations.length
+    ? practice.locations
+    : [
+        {
+          address: null,
+          email: null,
+          fax: null,
+          hoursSummary: null,
+          id: "",
+          isPrimary: true,
+          name: practice.name,
+          phone: null,
+        },
+      ];
 
-  return [
-    {
-      locationId: primaryLocation?.id ?? null,
-      markdown: buildLegacyMarkdown(practice),
-      slug: slugify(title),
+  return locations.map((location, index) => {
+    const title = `Knowledge Base: ${practice.name}, ${location.name}`;
+
+    return {
+      locationId: location.id || null,
+      markdown: buildLegacyMarkdown(practice, location),
+      slug: slugify(`${title}-${locationSlugSuffix(location, index)}`),
       title,
-    },
-  ];
+    };
+  });
 }
 
 async function loadKnowledgeDocumentsForPractice(practiceId: string) {
@@ -440,6 +465,7 @@ function summarizeDocument(document: RawKnowledgeDocument): KnowledgeDocumentSum
 async function ensureDefaultKnowledgeDocument(practiceId: string) {
   const existingDocuments = await prisma.practiceKnowledgeDocument.findMany({
     select: {
+      locationId: true,
       slug: true,
     },
     where: {
@@ -448,6 +474,11 @@ async function ensureDefaultKnowledgeDocument(practiceId: string) {
     },
   });
   const existingSlugs = new Set(existingDocuments.map((document) => document.slug));
+  const existingLocationIds = new Set(
+    existingDocuments
+      .map((document) => document.locationId)
+      .filter((locationId): locationId is string => Boolean(locationId)),
+  );
 
   const practice = await prisma.practice.findUnique({
     include: {
@@ -466,9 +497,12 @@ async function ensureDefaultKnowledgeDocument(practiceId: string) {
     return;
   }
 
-  const seedDocuments = getSeedDocumentsForPractice(practice).filter(
-    (document) => !existingSlugs.has(document.slug),
-  );
+  const seedDocuments = getSeedDocumentsForPractice(practice).filter((document) => {
+    if (existingSlugs.has(document.slug)) {
+      return false;
+    }
+    return !document.locationId || !existingLocationIds.has(document.locationId);
+  });
 
   for (const seedDocument of seedDocuments) {
     await prisma.practiceKnowledgeDocument.create({
@@ -584,24 +618,54 @@ export async function submitKnowledgeDocumentDraftForReview({
     };
   }
 
-  const revision = await prisma.practiceKnowledgeDocumentRevision.create({
-    data: {
-      documentId: document.id,
-      editedByUserId: session.user.id,
-      markdown: normalizedMarkdown,
-      source: "PRACTICE",
-      status: "PENDING_APPROVAL",
-    },
-  });
+  await prisma.$transaction(async (tx) => {
+    const now = new Date();
 
-  await prisma.adminAlert.create({
-    data: {
-      documentId: document.id,
-      message: `${document.practice.name} edited ${document.title}.`,
-      practiceId: document.practiceId,
-      revisionId: revision.id,
-      type: "KNOWLEDGE_BASE_EDITED",
-    },
+    await tx.practiceKnowledgeDocumentRevision.updateMany({
+      data: {
+        reviewNote: "Superseded by a newer practice draft.",
+        reviewedAt: now,
+        status: "REJECTED",
+      },
+      where: {
+        documentId: document.id,
+        status: "PENDING_APPROVAL",
+      },
+    });
+
+    await tx.adminAlert.updateMany({
+      data: {
+        resolvedAt: now,
+        status: "RESOLVED",
+      },
+      where: {
+        documentId: document.id,
+        status: {
+          in: ["UNREAD", "REVIEWING"],
+        },
+        type: "KNOWLEDGE_BASE_EDITED",
+      },
+    });
+
+    const revision = await tx.practiceKnowledgeDocumentRevision.create({
+      data: {
+        documentId: document.id,
+        editedByUserId: session.user.id,
+        markdown: normalizedMarkdown,
+        source: "PRACTICE",
+        status: "PENDING_APPROVAL",
+      },
+    });
+
+    await tx.adminAlert.create({
+      data: {
+        documentId: document.id,
+        message: `${document.practice.name} edited ${document.title}.`,
+        practiceId: document.practiceId,
+        revisionId: revision.id,
+        type: "KNOWLEDGE_BASE_EDITED",
+      },
+    });
   });
 
   revalidatePath("/portal/app/knowledge-base");
@@ -669,13 +733,19 @@ export async function approveKnowledgeDocumentRevision(alertId: string) {
       },
     });
 
-    if (!alert?.document || !alert.revision) {
+    if (
+      !alert?.document ||
+      !alert.revision ||
+      alert.type !== "KNOWLEDGE_BASE_EDITED" ||
+      !["UNREAD", "REVIEWING"].includes(alert.status) ||
+      alert.revision.status !== "PENDING_APPROVAL"
+    ) {
       return;
     }
 
     const now = new Date();
 
-    await tx.practiceKnowledgeDocumentRevision.update({
+    const updatedRevision = await tx.practiceKnowledgeDocumentRevision.updateMany({
       data: {
         publishedAt: now,
         reviewedAt: now,
@@ -684,6 +754,27 @@ export async function approveKnowledgeDocumentRevision(alertId: string) {
       },
       where: {
         id: alert.revision.id,
+        status: "PENDING_APPROVAL",
+      },
+    });
+
+    if (updatedRevision.count === 0) {
+      return;
+    }
+
+    await tx.practiceKnowledgeDocumentRevision.updateMany({
+      data: {
+        reviewNote: "Superseded by a newer approved draft.",
+        reviewedAt: now,
+        reviewedByUserId: session.user.id,
+        status: "REJECTED",
+      },
+      where: {
+        documentId: alert.document.id,
+        id: {
+          not: alert.revision.id,
+        },
+        status: "PENDING_APPROVAL",
       },
     });
 
@@ -702,7 +793,11 @@ export async function approveKnowledgeDocumentRevision(alertId: string) {
         status: "RESOLVED",
       },
       where: {
-        revisionId: alert.revision.id,
+        documentId: alert.document.id,
+        status: {
+          in: ["UNREAD", "REVIEWING"],
+        },
+        type: "KNOWLEDGE_BASE_EDITED",
       },
     });
   });
@@ -727,13 +822,18 @@ export async function rejectKnowledgeDocumentRevision(
       },
     });
 
-    if (!alert?.revision) {
+    if (
+      !alert?.revision ||
+      alert.type !== "KNOWLEDGE_BASE_EDITED" ||
+      !["UNREAD", "REVIEWING"].includes(alert.status) ||
+      alert.revision.status !== "PENDING_APPROVAL"
+    ) {
       return;
     }
 
     const now = new Date();
 
-    await tx.practiceKnowledgeDocumentRevision.update({
+    const updatedRevision = await tx.practiceKnowledgeDocumentRevision.updateMany({
       data: {
         reviewNote: reviewNote.trim() || null,
         reviewedAt: now,
@@ -742,8 +842,13 @@ export async function rejectKnowledgeDocumentRevision(
       },
       where: {
         id: alert.revision.id,
+        status: "PENDING_APPROVAL",
       },
     });
+
+    if (updatedRevision.count === 0) {
+      return;
+    }
 
     await tx.adminAlert.updateMany({
       data: {

@@ -332,6 +332,10 @@ function slugify(value: string) {
   return slug || "insurance-rules";
 }
 
+function locationSlugSuffix(location: { id: string; name: string }, index: number) {
+  return slugify(`${location.name}-${location.id || index + 1}`);
+}
+
 function isRuleStatus(value: unknown): value is InsuranceAliasRuleStatus {
   return (
     value === "accepted" || value === "needs_clarification" || value === "not_accepted"
@@ -560,13 +564,15 @@ function getSeedRuleSetsForPractice(practice: {
     ? practice.locations
     : [{ address: null, id: "", isPrimary: true, name: practice.name }];
 
-  return locations.map((location) => {
+  return locations.map((location, index) => {
     const officeLabel = location.name || practice.name;
 
     return {
       locationId: location.id || null,
       rules: buildLegacyRules(practice, officeLabel),
-      slug: slugify(`${officeLabel} insurance rules`),
+      slug: slugify(
+        `${officeLabel} ${locationSlugSuffix(location, index)} insurance rules`,
+      ),
       title: `Insurance Rules: ${officeLabel}`,
     };
   });
@@ -639,6 +645,7 @@ function summarizeRuleSet(ruleSet: RawInsuranceRuleSet): InsuranceRuleSetSummary
 async function ensureDefaultInsuranceRuleSets(practiceId: string) {
   const existingRuleSets = await prisma.practiceInsuranceRuleSet.findMany({
     select: {
+      locationId: true,
       slug: true,
     },
     where: {
@@ -647,6 +654,11 @@ async function ensureDefaultInsuranceRuleSets(practiceId: string) {
     },
   });
   const existingSlugs = new Set(existingRuleSets.map((ruleSet) => ruleSet.slug));
+  const existingLocationIds = new Set(
+    existingRuleSets
+      .map((ruleSet) => ruleSet.locationId)
+      .filter((locationId): locationId is string => Boolean(locationId)),
+  );
 
   const practice = await prisma.practice.findUnique({
     include: {
@@ -664,9 +676,12 @@ async function ensureDefaultInsuranceRuleSets(practiceId: string) {
     return;
   }
 
-  const seedRuleSets = getSeedRuleSetsForPractice(practice).filter(
-    (ruleSet) => !existingSlugs.has(ruleSet.slug),
-  );
+  const seedRuleSets = getSeedRuleSetsForPractice(practice).filter((ruleSet) => {
+    if (existingSlugs.has(ruleSet.slug)) {
+      return false;
+    }
+    return !ruleSet.locationId || !existingLocationIds.has(ruleSet.locationId);
+  });
 
   for (const seedRuleSet of seedRuleSets) {
     await prisma.practiceInsuranceRuleSet.create({
@@ -797,24 +812,54 @@ export async function submitInsuranceRuleDraftForReview({
     };
   }
 
-  const revision = await prisma.practiceInsuranceRuleRevision.create({
-    data: {
-      editedByUserId: session.user.id,
-      ruleSetId: ruleSet.id,
-      rules: jsonInput(parsed.rules),
-      source: "PRACTICE",
-      status: "PENDING_APPROVAL",
-    },
-  });
+  await prisma.$transaction(async (tx) => {
+    const now = new Date();
 
-  await prisma.adminAlert.create({
-    data: {
-      insuranceRuleRevisionId: revision.id,
-      insuranceRuleSetId: ruleSet.id,
-      message: `${ruleSet.practice.name} edited ${ruleSet.title}.`,
-      practiceId: ruleSet.practiceId,
-      type: "INSURANCE_RULES_EDITED",
-    },
+    await tx.practiceInsuranceRuleRevision.updateMany({
+      data: {
+        reviewNote: "Superseded by a newer practice draft.",
+        reviewedAt: now,
+        status: "REJECTED",
+      },
+      where: {
+        ruleSetId: ruleSet.id,
+        status: "PENDING_APPROVAL",
+      },
+    });
+
+    await tx.adminAlert.updateMany({
+      data: {
+        resolvedAt: now,
+        status: "RESOLVED",
+      },
+      where: {
+        insuranceRuleSetId: ruleSet.id,
+        status: {
+          in: ["UNREAD", "REVIEWING"],
+        },
+        type: "INSURANCE_RULES_EDITED",
+      },
+    });
+
+    const revision = await tx.practiceInsuranceRuleRevision.create({
+      data: {
+        editedByUserId: session.user.id,
+        ruleSetId: ruleSet.id,
+        rules: jsonInput(parsed.rules),
+        source: "PRACTICE",
+        status: "PENDING_APPROVAL",
+      },
+    });
+
+    await tx.adminAlert.create({
+      data: {
+        insuranceRuleRevisionId: revision.id,
+        insuranceRuleSetId: ruleSet.id,
+        message: `${ruleSet.practice.name} edited ${ruleSet.title}.`,
+        practiceId: ruleSet.practiceId,
+        type: "INSURANCE_RULES_EDITED",
+      },
+    });
   });
 
   revalidatePath("/portal/app/insurance-crosswalk");
@@ -882,13 +927,19 @@ export async function approveInsuranceRuleRevision(alertId: string) {
       },
     });
 
-    if (!alert?.insuranceRuleRevision || !alert.insuranceRuleSet) {
+    if (
+      !alert?.insuranceRuleRevision ||
+      !alert.insuranceRuleSet ||
+      alert.type !== "INSURANCE_RULES_EDITED" ||
+      !["UNREAD", "REVIEWING"].includes(alert.status) ||
+      alert.insuranceRuleRevision.status !== "PENDING_APPROVAL"
+    ) {
       return;
     }
 
     const now = new Date();
 
-    await tx.practiceInsuranceRuleRevision.update({
+    const updatedRevision = await tx.practiceInsuranceRuleRevision.updateMany({
       data: {
         publishedAt: now,
         reviewedAt: now,
@@ -897,6 +948,27 @@ export async function approveInsuranceRuleRevision(alertId: string) {
       },
       where: {
         id: alert.insuranceRuleRevision.id,
+        status: "PENDING_APPROVAL",
+      },
+    });
+
+    if (updatedRevision.count === 0) {
+      return;
+    }
+
+    await tx.practiceInsuranceRuleRevision.updateMany({
+      data: {
+        reviewNote: "Superseded by a newer approved draft.",
+        reviewedAt: now,
+        reviewedByUserId: session.user.id,
+        status: "REJECTED",
+      },
+      where: {
+        id: {
+          not: alert.insuranceRuleRevision.id,
+        },
+        ruleSetId: alert.insuranceRuleSet.id,
+        status: "PENDING_APPROVAL",
       },
     });
 
@@ -915,7 +987,11 @@ export async function approveInsuranceRuleRevision(alertId: string) {
         status: "RESOLVED",
       },
       where: {
-        insuranceRuleRevisionId: alert.insuranceRuleRevision.id,
+        insuranceRuleSetId: alert.insuranceRuleSet.id,
+        status: {
+          in: ["UNREAD", "REVIEWING"],
+        },
+        type: "INSURANCE_RULES_EDITED",
       },
     });
   });
@@ -937,13 +1013,18 @@ export async function rejectInsuranceRuleRevision(alertId: string, reviewNote: s
       },
     });
 
-    if (!alert?.insuranceRuleRevision) {
+    if (
+      !alert?.insuranceRuleRevision ||
+      alert.type !== "INSURANCE_RULES_EDITED" ||
+      !["UNREAD", "REVIEWING"].includes(alert.status) ||
+      alert.insuranceRuleRevision.status !== "PENDING_APPROVAL"
+    ) {
       return;
     }
 
     const now = new Date();
 
-    await tx.practiceInsuranceRuleRevision.update({
+    const updatedRevision = await tx.practiceInsuranceRuleRevision.updateMany({
       data: {
         reviewNote: reviewNote.trim() || null,
         reviewedAt: now,
@@ -952,8 +1033,13 @@ export async function rejectInsuranceRuleRevision(alertId: string, reviewNote: s
       },
       where: {
         id: alert.insuranceRuleRevision.id,
+        status: "PENDING_APPROVAL",
       },
     });
+
+    if (updatedRevision.count === 0) {
+      return;
+    }
 
     await tx.adminAlert.updateMany({
       data: {
