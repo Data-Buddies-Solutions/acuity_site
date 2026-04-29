@@ -30,6 +30,17 @@ type CallDirection = "inbound" | "outbound" | null;
 
 type TelnyxCall = Call;
 
+type TelnyxTokenResponse =
+  | {
+      callerNumber?: string;
+      login: string;
+      password: string;
+    }
+  | {
+      callerNumber?: string;
+      token: string;
+    };
+
 const keypadRows = [
   ["1", "2", "3"],
   ["4", "5", "6"],
@@ -88,7 +99,7 @@ function statusLabel(status: TelnyxStatus) {
 }
 
 function isInboundDirection(direction: unknown) {
-  return direction === "inbound" || direction === "incoming";
+  return direction === "inbound";
 }
 
 export default function SoftphonePanel({
@@ -193,7 +204,11 @@ export default function SoftphonePanel({
           return;
         }
 
-        const client = new TelnyxRTC({ login_token: data.token });
+        const auth = data as TelnyxTokenResponse;
+        const client =
+          "login" in auth && auth.login && auth.password
+            ? new TelnyxRTC({ login: auth.login, password: auth.password })
+            : new TelnyxRTC({ login_token: (auth as { token: string }).token });
 
         client.on("telnyx.ready", () => {
           if (!cancelled) {
