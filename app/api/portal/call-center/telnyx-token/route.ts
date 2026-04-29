@@ -8,6 +8,10 @@ import { createTelnyxLoginToken, TelnyxError } from "@/lib/telnyx";
 
 export const dynamic = "force-dynamic";
 
+function env(name: string) {
+  return process.env[name]?.trim() || "";
+}
+
 export async function GET() {
   const context = await getCurrentPracticeCallCenterContext();
 
@@ -25,10 +29,20 @@ export async function GET() {
   }
 
   const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
+  const sipUsername = env("TELNYX_SIP_USERNAME");
+  const sipPassword = env("TELNYX_SIP_PASSWORD");
+
+  if (sipUsername && sipPassword) {
+    return NextResponse.json({
+      callerNumber: runtimeSettings.outboundCallerNumber,
+      login: sipUsername,
+      password: sipPassword,
+    });
+  }
 
   if (!runtimeSettings.credentialId) {
     return NextResponse.json(
-      { error: "Telnyx credential ID is not configured" },
+      { error: "Telnyx WebRTC credentials are not configured" },
       { status: 422 },
     );
   }
