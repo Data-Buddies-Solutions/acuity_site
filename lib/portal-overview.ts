@@ -1,9 +1,5 @@
 import { getAuthSession } from "@/lib/auth";
-import type {
-  CallSummaryData,
-  ChatHistoryItem,
-  TurnRecord,
-} from "@/lib/call-types";
+import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
 

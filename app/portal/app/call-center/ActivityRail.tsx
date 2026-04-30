@@ -179,9 +179,7 @@ export default function ActivityRail({
                           aria-label="Play voicemail"
                           aria-pressed={isAudioOpen}
                           className="h-8 w-8 p-0"
-                          onClick={() =>
-                            setExpandedAudioId(isAudioOpen ? null : item.id)
-                          }
+                          onClick={() => setExpandedAudioId(isAudioOpen ? null : item.id)}
                           size="sm"
                           title="Play voicemail"
                           type="button"
