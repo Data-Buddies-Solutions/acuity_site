@@ -759,12 +759,22 @@ async function recordVoicemail({
     });
   }
 
+  const durationMillis =
+    typeof payload.recording_duration_millis === "number"
+      ? payload.recording_duration_millis
+      : typeof payload.recording_duration_ms === "number"
+        ? payload.recording_duration_ms
+        : null;
+  const durationSeconds =
+    typeof payload.recording_duration_sec === "number"
+      ? payload.recording_duration_sec
+      : isRecord(payload.duration) && typeof payload.duration.seconds === "number"
+        ? payload.duration.seconds
+        : typeof payload.duration === "number"
+          ? payload.duration
+          : null;
   const duration =
-    isRecord(payload.duration) && typeof payload.duration.seconds === "number"
-      ? payload.duration.seconds
-      : typeof payload.duration === "number"
-        ? payload.duration
-        : 0;
+    durationSeconds ?? (durationMillis != null ? durationMillis / 1000 : 0);
 
   return prisma.callCenterVoicemail.upsert({
     create: {

@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import {
-  CheckCircle2,
   PhoneCall,
   PhoneMissed,
+  Play,
+  Trash2,
   Voicemail as VoicemailIcon,
 } from "lucide-react";
 
@@ -15,12 +16,6 @@ import { cn } from "@/lib/utils";
 import { resolveMissedCallAction, resolveVoicemailAction } from "./actions";
 
 type Filter = "all" | PortalCallActivityKind;
-
-const filters: ReadonlyArray<{ label: string; value: Filter }> = [
-  { label: "All", value: "all" },
-  { label: "Missed", value: "missed" },
-  { label: "Voicemail", value: "voicemail" },
-];
 
 function formatPhone(phone: string | null) {
   const digits = (phone || "").replace(/\D/g, "");
@@ -68,42 +63,36 @@ function kindIcon(kind: PortalCallActivityKind) {
   }
 }
 
-function kindLabel(kind: PortalCallActivityKind) {
-  switch (kind) {
-    case "voicemail":
-      return "Voicemail";
-    case "missed":
-    default:
-      return "Missed";
-  }
-}
-
 export default function ActivityRail({
   activity,
   onCallback,
+  totals,
 }: {
   activity: PortalCallActivityItem[];
   onCallback: (number: string) => void;
+  totals: { missedCalls: number; voicemails: number };
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedAudioId, setExpandedAudioId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (filter === "all") return activity;
     return activity.filter((item) => item.kind === filter);
   }, [activity, filter]);
 
+  const filters: ReadonlyArray<{ count: number; label: string; value: Filter }> = [
+    { count: activity.length, label: "All", value: "all" },
+    { count: totals.missedCalls, label: "Missed", value: "missed" },
+    { count: totals.voicemails, label: "Voicemail", value: "voicemail" },
+  ];
+
   return (
     <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
-      <header className="flex flex-col gap-3 border-b border-black/6 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
-            Activity
-          </h3>
-          <p className="mt-0.5 text-xs text-[#617477]">
-            {filtered.length} {filtered.length === 1 ? "event" : "events"}
-          </p>
-        </div>
+      <header className="flex items-center justify-between border-b border-black/6 px-4 py-3">
+        <h3 className="text-sm font-semibold tracking-[-0.01em] text-[#10272c]">
+          Activity
+        </h3>
         <nav
           aria-label="Activity filter"
           className="inline-flex rounded-lg border border-black/8 bg-[#fafbfb] p-1"
@@ -115,7 +104,7 @@ export default function ActivityRail({
                 key={option.value}
                 aria-pressed={isActive}
                 className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition",
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition",
                   isActive
                     ? "bg-white text-[#10272c] shadow-sm"
                     : "text-[#617477] hover:text-[#10272c]",
@@ -124,6 +113,14 @@ export default function ActivityRail({
                 type="button"
               >
                 {option.label}
+                <span
+                  className={cn(
+                    "ml-1.5 tabular-nums",
+                    isActive ? "text-[#617477]" : "text-[#8a999b]",
+                  )}
+                >
+                  {option.count}
+                </span>
               </button>
             );
           })}
@@ -138,66 +135,64 @@ export default function ActivityRail({
         <ul className="divide-y divide-black/5">
           {filtered.map((item) => {
             const { Icon, className } = kindIcon(item.kind);
-            const phone = item.fromPhone;
             const callbackTarget = item.fromPhone || "";
             const duration = formatDuration(item.durationSec);
             const isSelected = selectedId === item.id;
+            const isAudioOpen = expandedAudioId === item.id;
             const resolveAction =
               item.kind === "missed" ? resolveMissedCallAction : resolveVoicemailAction;
+            const title = item.callerName || formatPhone(item.fromPhone);
             return (
               <li key={item.id}>
                 <article
                   className={cn(
-                    "px-5 py-3.5 transition",
+                    "px-4 py-2.5 transition",
                     isSelected ? "bg-[#f1f5f5]" : "hover:bg-[#fafbfb]",
                   )}
                 >
-                  <div className="flex items-start gap-4">
-                    <span
-                      className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f1f5f5]",
-                        className,
-                      )}
-                    >
-                      <Icon className="h-4 w-4" aria-hidden="true" />
-                    </span>
+                  <div className="flex items-center gap-3">
+                    <Icon
+                      aria-hidden="true"
+                      className={cn("h-4 w-4 shrink-0", className)}
+                    />
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-[#10272c]">
-                          {item.callerName || formatPhone(phone)}
-                        </span>
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a999b]">
-                          {kindLabel(item.kind)}
-                        </span>
+                      <div className="truncate text-sm font-medium text-[#10272c]">
+                        {title}
                       </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[#617477]">
-                        <span>{formatPhone(phone)}</span>
-                        {item.locationName ? (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span>{item.locationName}</span>
-                          </>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
+                        {item.locationName ? <span>{item.locationName}</span> : null}
+                        {item.locationName && (duration || true) ? (
+                          <span aria-hidden="true">·</span>
                         ) : null}
                         {duration ? (
                           <>
-                            <span aria-hidden="true">·</span>
                             <span>{duration}</span>
+                            <span aria-hidden="true">·</span>
                           </>
                         ) : null}
-                        <span aria-hidden="true">·</span>
                         <span>{formatRelative(item.createdAt)}</span>
                       </div>
-                      {item.kind === "voicemail" && item.recordingId ? (
-                        <audio
-                          className="mt-3 w-full max-w-xl"
-                          controls
-                          preload="none"
-                          src={`/api/portal/call-center/voicemails/${item.recordingId}`}
-                        />
-                      ) : null}
                     </div>
-                    <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                    <div className="flex shrink-0 items-center gap-1">
+                      {item.kind === "voicemail" && item.recordingId ? (
+                        <Button
+                          aria-label="Play voicemail"
+                          aria-pressed={isAudioOpen}
+                          className="h-8 w-8 p-0"
+                          onClick={() =>
+                            setExpandedAudioId(isAudioOpen ? null : item.id)
+                          }
+                          size="sm"
+                          title="Play voicemail"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Play className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      ) : null}
                       <Button
+                        aria-label={`Call back ${title}`}
+                        className="h-8 w-8 p-0"
                         disabled={!callbackTarget}
                         onClick={() => {
                           setSelectedId(item.id);
@@ -206,21 +201,36 @@ export default function ActivityRail({
                           }
                         }}
                         size="sm"
+                        title="Call back"
                         type="button"
-                        variant="secondary"
+                        variant="ghost"
                       >
                         <PhoneCall className="h-4 w-4" aria-hidden="true" />
-                        Call
                       </Button>
                       <form action={resolveAction}>
                         <input type="hidden" name="id" value={item.recordId} />
-                        <Button size="sm" type="submit" variant="secondary">
-                          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                          Done
+                        <Button
+                          aria-label="Dismiss"
+                          className="h-8 w-8 p-0 text-[#617477] hover:text-red-600"
+                          size="sm"
+                          title="Dismiss"
+                          type="submit"
+                          variant="ghost"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
                         </Button>
                       </form>
                     </div>
                   </div>
+                  {item.kind === "voicemail" && item.recordingId && isAudioOpen ? (
+                    <audio
+                      autoPlay
+                      className="mt-2 h-8 w-full max-w-xl"
+                      controls
+                      preload="none"
+                      src={`/api/portal/call-center/voicemails/${item.recordingId}`}
+                    />
+                  ) : null}
                 </article>
               </li>
             );

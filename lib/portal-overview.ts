@@ -1,4 +1,9 @@
 import { getAuthSession } from "@/lib/auth";
+import type {
+  CallSummaryData,
+  ChatHistoryItem,
+  TurnRecord,
+} from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
 
@@ -787,5 +792,82 @@ export async function getPortalBookings(
     branding: getPracticeBranding(membership.practice),
     practiceName: membership.practice.name,
     range,
+  };
+}
+
+export type PortalCallTranscript = {
+  branding: PracticeBranding;
+  callerPhone: string;
+  callId: string;
+  practiceName: string;
+  sessionItems: ChatHistoryItem[];
+  startedAt: Date;
+  turns: TurnRecord[];
+};
+
+export async function getPortalCallTranscript(
+  callId: string,
+): Promise<PortalCallTranscript | null> {
+  const session = await getAuthSession();
+
+  if (!session) {
+    return null;
+  }
+
+  const membership = await prisma.practiceMembership.findFirst({
+    include: {
+      practice: {
+        select: {
+          brandAccentColor: true,
+          brandLogoAlt: true,
+          brandLogoUrl: true,
+          brandMarkUrl: true,
+          brandPrimaryColor: true,
+          id: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    where: {
+      userId: session.user.id,
+    },
+  });
+
+  if (!membership) {
+    return null;
+  }
+
+  const call = await prisma.agentCall.findFirst({
+    select: {
+      callerPhone: true,
+      data: true,
+      id: true,
+      startedAt: true,
+    },
+    where: {
+      id: callId,
+      practiceId: membership.practiceId,
+    },
+  });
+
+  if (!call) {
+    return null;
+  }
+
+  const data = (isRecord(call.data) ? (call.data as CallSummaryData) : null) ?? null;
+  const turns = Array.isArray(data?.turns) ? (data?.turns as TurnRecord[]) : [];
+  const sessionItems = Array.isArray(data?.sessionReport?.chat_history?.items)
+    ? (data?.sessionReport?.chat_history?.items as ChatHistoryItem[])
+    : [];
+
+  return {
+    branding: getPracticeBranding(membership.practice),
+    callerPhone: call.callerPhone,
+    callId: call.id,
+    practiceName: membership.practice.name,
+    sessionItems,
+    startedAt: call.startedAt,
+    turns,
   };
 }
