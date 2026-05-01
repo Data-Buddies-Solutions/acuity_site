@@ -81,8 +81,15 @@ export default function ActivityRail({
     return activity.filter((item) => item.kind === filter);
   }, [activity, filter]);
 
+  const totalActivityCount = totals.missedCalls + totals.voicemails;
+  const selectedTotal =
+    filter === "all"
+      ? totalActivityCount
+      : filter === "missed"
+        ? totals.missedCalls
+        : totals.voicemails;
   const filters: ReadonlyArray<{ count: number; label: string; value: Filter }> = [
-    { count: activity.length, label: "All", value: "all" },
+    { count: totalActivityCount, label: "All", value: "all" },
     { count: totals.missedCalls, label: "Missed", value: "missed" },
     { count: totals.voicemails, label: "Voicemail", value: "voicemail" },
   ];
@@ -126,6 +133,12 @@ export default function ActivityRail({
           })}
         </nav>
       </header>
+
+      {selectedTotal > filtered.length ? (
+        <div className="border-b border-black/5 px-4 py-2 text-xs text-[#617477]">
+          Showing latest {filtered.length} of {selectedTotal}
+        </div>
+      ) : null}
 
       {filtered.length === 0 ? (
         <div className="px-5 py-12 text-center text-sm text-[#617477]">

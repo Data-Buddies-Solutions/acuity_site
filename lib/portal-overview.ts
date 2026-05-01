@@ -795,11 +795,91 @@ export type PortalCallTranscript = {
   branding: PracticeBranding;
   callerPhone: string;
   callId: string;
+  messages: PortalCallTranscriptMessage[];
   practiceName: string;
-  sessionItems: ChatHistoryItem[];
   startedAt: Date;
-  turns: TurnRecord[];
 };
+
+export type PortalCallTranscriptMessage = {
+  role: "agent" | "caller";
+  text: string;
+  timestamp: number | null;
+};
+
+function extractChatText(content?: ChatHistoryItem["content"]) {
+  if (!content) {
+    return "";
+  }
+
+  return content
+    .map((part) => (typeof part === "string" ? part : (part.transcript ?? "")))
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function transcriptMessagesFromSessionItems(
+  items: ChatHistoryItem[],
+): PortalCallTranscriptMessage[] {
+  const messages: PortalCallTranscriptMessage[] = [];
+
+  for (const item of items) {
+    if (item.type !== "message") {
+      continue;
+    }
+
+    const role =
+      item.role === "user" ? "caller" : item.role === "assistant" ? "agent" : null;
+    const text = extractChatText(item.content);
+
+    if (!role || !text) {
+      continue;
+    }
+
+    messages.push({
+      role,
+      text,
+      timestamp: typeof item.createdAt === "number" ? item.createdAt : null,
+    });
+  }
+
+  return messages;
+}
+
+function transcriptMessagesFromTurns(turns: TurnRecord[]): PortalCallTranscriptMessage[] {
+  const messages: PortalCallTranscriptMessage[] = [];
+
+  for (const turn of turns) {
+    if (turn.callerText) {
+      messages.push({
+        role: "caller",
+        text: turn.callerText,
+        timestamp: null,
+      });
+    }
+
+    if (turn.agentText) {
+      messages.push({
+        role: "agent",
+        text: turn.agentText,
+        timestamp: null,
+      });
+    }
+  }
+
+  return messages;
+}
+
+export function buildPortalCallTranscriptMessages({
+  sessionItems,
+  turns,
+}: {
+  sessionItems: ChatHistoryItem[];
+  turns: TurnRecord[];
+}) {
+  const sessionMessages = transcriptMessagesFromSessionItems(sessionItems);
+  return sessionMessages.length ? sessionMessages : transcriptMessagesFromTurns(turns);
+}
 
 export async function getPortalCallTranscript(
   callId: string,
@@ -861,9 +941,8 @@ export async function getPortalCallTranscript(
     branding: getPracticeBranding(membership.practice),
     callerPhone: call.callerPhone,
     callId: call.id,
+    messages: buildPortalCallTranscriptMessages({ sessionItems, turns }),
     practiceName: membership.practice.name,
-    sessionItems,
     startedAt: call.startedAt,
-    turns,
   };
 }
