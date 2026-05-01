@@ -1,4 +1,5 @@
 import { getAuthSession } from "@/lib/auth";
+import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
 
@@ -787,5 +788,161 @@ export async function getPortalBookings(
     branding: getPracticeBranding(membership.practice),
     practiceName: membership.practice.name,
     range,
+  };
+}
+
+export type PortalCallTranscript = {
+  branding: PracticeBranding;
+  callerPhone: string;
+  callId: string;
+  messages: PortalCallTranscriptMessage[];
+  practiceName: string;
+  startedAt: Date;
+};
+
+export type PortalCallTranscriptMessage = {
+  role: "agent" | "caller";
+  text: string;
+  timestamp: number | null;
+};
+
+function extractChatText(content?: ChatHistoryItem["content"]) {
+  if (!content) {
+    return "";
+  }
+
+  return content
+    .map((part) => (typeof part === "string" ? part : (part.transcript ?? "")))
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function transcriptMessagesFromSessionItems(
+  items: ChatHistoryItem[],
+): PortalCallTranscriptMessage[] {
+  const messages: PortalCallTranscriptMessage[] = [];
+
+  for (const item of items) {
+    if (item.type !== "message") {
+      continue;
+    }
+
+    const role =
+      item.role === "user" ? "caller" : item.role === "assistant" ? "agent" : null;
+    const text = extractChatText(item.content);
+
+    if (!role || !text) {
+      continue;
+    }
+
+    messages.push({
+      role,
+      text,
+      timestamp: typeof item.createdAt === "number" ? item.createdAt : null,
+    });
+  }
+
+  return messages;
+}
+
+function transcriptMessagesFromTurns(turns: TurnRecord[]): PortalCallTranscriptMessage[] {
+  const messages: PortalCallTranscriptMessage[] = [];
+
+  for (const turn of turns) {
+    if (turn.callerText) {
+      messages.push({
+        role: "caller",
+        text: turn.callerText,
+        timestamp: null,
+      });
+    }
+
+    if (turn.agentText) {
+      messages.push({
+        role: "agent",
+        text: turn.agentText,
+        timestamp: null,
+      });
+    }
+  }
+
+  return messages;
+}
+
+export function buildPortalCallTranscriptMessages({
+  sessionItems,
+  turns,
+}: {
+  sessionItems: ChatHistoryItem[];
+  turns: TurnRecord[];
+}) {
+  const sessionMessages = transcriptMessagesFromSessionItems(sessionItems);
+  return sessionMessages.length ? sessionMessages : transcriptMessagesFromTurns(turns);
+}
+
+export async function getPortalCallTranscript(
+  callId: string,
+): Promise<PortalCallTranscript | null> {
+  const session = await getAuthSession();
+
+  if (!session) {
+    return null;
+  }
+
+  const membership = await prisma.practiceMembership.findFirst({
+    include: {
+      practice: {
+        select: {
+          brandAccentColor: true,
+          brandLogoAlt: true,
+          brandLogoUrl: true,
+          brandMarkUrl: true,
+          brandPrimaryColor: true,
+          id: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    where: {
+      userId: session.user.id,
+    },
+  });
+
+  if (!membership) {
+    return null;
+  }
+
+  const call = await prisma.agentCall.findFirst({
+    select: {
+      callerPhone: true,
+      data: true,
+      id: true,
+      startedAt: true,
+    },
+    where: {
+      id: callId,
+      practiceId: membership.practiceId,
+    },
+  });
+
+  if (!call) {
+    return null;
+  }
+
+  const data = (isRecord(call.data) ? (call.data as CallSummaryData) : null) ?? null;
+  const turns = Array.isArray(data?.turns) ? (data?.turns as TurnRecord[]) : [];
+  const sessionItems = Array.isArray(data?.sessionReport?.chat_history?.items)
+    ? (data?.sessionReport?.chat_history?.items as ChatHistoryItem[])
+    : [];
+
+  return {
+    branding: getPracticeBranding(membership.practice),
+    callerPhone: call.callerPhone,
+    callId: call.id,
+    messages: buildPortalCallTranscriptMessages({ sessionItems, turns }),
+    practiceName: membership.practice.name,
+    startedAt: call.startedAt,
   };
 }

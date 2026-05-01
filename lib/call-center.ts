@@ -80,6 +80,101 @@ function asDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function asFiniteNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function firstFiniteNumber(...values: unknown[]) {
+  for (const value of values) {
+    const parsed = asFiniteNumber(value);
+    if (parsed != null) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function secondsBetween(startValue: unknown, endValue: unknown) {
+  const startedAt = asDate(startValue);
+  const endedAt = asDate(endValue);
+
+  if (!startedAt || !endedAt) {
+    return null;
+  }
+
+  const seconds = (endedAt.getTime() - startedAt.getTime()) / 1000;
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
+export function extractTelnyxRecordingDurationSec(payload: Record<string, unknown>) {
+  const directSeconds = firstFiniteNumber(
+    payload.recording_duration_sec,
+    payload.recording_duration_secs,
+    payload.recording_duration_seconds,
+    payload.duration_sec,
+    payload.duration_secs,
+    payload.duration_seconds,
+    payload.RecordingDuration,
+  );
+
+  if (directSeconds != null) {
+    return directSeconds;
+  }
+
+  const directMillis = firstFiniteNumber(
+    payload.recording_duration_millis,
+    payload.recording_duration_ms,
+    payload.duration_millis,
+    payload.duration_ms,
+  );
+
+  if (directMillis != null) {
+    return directMillis / 1000;
+  }
+
+  if (isRecord(payload.duration)) {
+    const nestedSeconds = firstFiniteNumber(
+      payload.duration.seconds,
+      payload.duration.sec,
+    );
+
+    if (nestedSeconds != null) {
+      return nestedSeconds;
+    }
+
+    const nestedMillis = firstFiniteNumber(
+      payload.duration.milliseconds,
+      payload.duration.millis,
+      payload.duration.ms,
+    );
+
+    if (nestedMillis != null) {
+      return nestedMillis / 1000;
+    }
+  }
+
+  const scalarDuration = asFiniteNumber(payload.duration);
+  if (scalarDuration != null) {
+    return scalarDuration;
+  }
+
+  return (
+    secondsBetween(payload.recording_started_at, payload.recording_ended_at) ??
+    secondsBetween(payload.start_time, payload.end_time) ??
+    0
+  );
+}
+
 function jsonInput(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
@@ -759,12 +854,7 @@ async function recordVoicemail({
     });
   }
 
-  const duration =
-    isRecord(payload.duration) && typeof payload.duration.seconds === "number"
-      ? payload.duration.seconds
-      : typeof payload.duration === "number"
-        ? payload.duration
-        : 0;
+  const duration = extractTelnyxRecordingDurationSec(payload);
 
   return prisma.callCenterVoicemail.upsert({
     create: {

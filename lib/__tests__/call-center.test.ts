@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import {
+  extractTelnyxRecordingDurationSec,
   normalizePhone,
   phoneLookupVariants,
   resolveTelnyxRuntimeSettings,
@@ -85,5 +86,51 @@ describe("call-center phone helpers", () => {
       inboundPhoneNumber: "+15550000001",
       outboundCallerNumber: "+15550000002",
     });
+  });
+});
+
+describe("Telnyx voicemail duration parsing", () => {
+  it("reads direct numeric and string second values", () => {
+    expect(
+      extractTelnyxRecordingDurationSec({
+        recording_duration_sec: 12,
+      }),
+    ).toBe(12);
+    expect(
+      extractTelnyxRecordingDurationSec({
+        RecordingDuration: "17",
+      }),
+    ).toBe(17);
+  });
+
+  it("converts millisecond values to seconds", () => {
+    expect(
+      extractTelnyxRecordingDurationSec({
+        duration_millis: "12345",
+      }),
+    ).toBe(12.345);
+  });
+
+  it("reads nested duration objects", () => {
+    expect(
+      extractTelnyxRecordingDurationSec({
+        duration: {
+          seconds: "9",
+        },
+      }),
+    ).toBe(9);
+  });
+
+  it("derives duration from Telnyx recording timestamps", () => {
+    expect(
+      extractTelnyxRecordingDurationSec({
+        recording_ended_at: "2026-05-01T13:00:14.500Z",
+        recording_started_at: "2026-05-01T13:00:08.000Z",
+      }),
+    ).toBe(6.5);
+  });
+
+  it("returns zero when the payload has no duration signal", () => {
+    expect(extractTelnyxRecordingDurationSec({})).toBe(0);
   });
 });

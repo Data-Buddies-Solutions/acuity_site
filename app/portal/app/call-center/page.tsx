@@ -5,8 +5,8 @@ import { getPortalCallCenterData, resolveTelnyxRuntimeSettings } from "@/lib/cal
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import { PracticePageHeader } from "../PracticePageHeader";
-import MetricCard from "../overview/MetricCard";
 
+import AutoRefresh from "./AutoRefresh";
 import CallCenterWorkspace from "./CallCenterWorkspace";
 import LocationPicker from "./LocationPicker";
 import { enableCallCenterAction } from "./actions";
@@ -58,6 +58,7 @@ export default async function PortalCallCenterPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      <AutoRefresh />
       <PracticePageHeader
         branding={data.branding}
         practiceName={data.practiceName}
@@ -75,16 +76,12 @@ export default async function PortalCallCenterPage({
         </div>
       </PracticePageHeader>
 
-      <section className="grid gap-4 sm:grid-cols-2">
-        <MetricCard label="Missed" value={String(data.totals.missedCalls)} />
-        <MetricCard label="Voicemails" value={String(data.totals.voicemails)} />
-      </section>
-
       <CallCenterWorkspace
         activity={data.activity}
         configured={configured}
         enabled={enabled}
         outboundCallerNumber={outboundCallerNumber}
+        totals={data.totals}
       />
     </div>
   );

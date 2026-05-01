@@ -105,6 +105,14 @@ function BookingRow({ booking }: { booking: PortalBookedAppointment }) {
       <td className="px-5 py-4 text-sm text-[#617477]">
         {formatCallDate(booking.callStartedAt)}
       </td>
+      <td className="px-5 py-4 text-right">
+        <Link
+          className="inline-flex items-center rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-[#10272c] transition hover:bg-[#f1f5f5]"
+          href={`/portal/app/calls/${booking.callId}`}
+        >
+          Transcript
+        </Link>
+      </td>
     </tr>
   );
 }
@@ -187,6 +195,9 @@ export default async function PortalBookingsPage({
                   </th>
                   <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
                     Booked
+                  </th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                    <span className="sr-only">Transcript</span>
                   </th>
                 </tr>
               </thead>
