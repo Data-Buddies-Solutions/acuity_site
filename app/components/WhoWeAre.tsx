@@ -86,6 +86,7 @@ export default function WhoWeAre() {
                 width={80}
                 height={36}
                 className="opacity-70"
+                style={{ height: "auto", width: 80 }}
               />
               <div className="w-px h-6 bg-neutral-200" />
               <p className="text-xs text-muted-foreground">

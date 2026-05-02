@@ -34,7 +34,7 @@ export function PracticePageHeader({
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#10272c] md:text-4xl">
+          <h1 className="break-words text-2xl font-semibold tracking-normal text-[#10272c] sm:text-3xl md:text-4xl">
             {title}
           </h1>
         </div>

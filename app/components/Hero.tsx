@@ -133,6 +133,7 @@ export default function Hero() {
                 width={72}
                 height={32}
                 className="opacity-60"
+                style={{ height: "auto", width: 72 }}
               />
               <div className="w-px h-6 bg-neutral-200" />
               <p className="text-xs text-muted-foreground">
@@ -180,6 +181,7 @@ export default function Hero() {
                       src={partner.logo}
                       alt={partner.name}
                       fill
+                      sizes="(max-width: 768px) 112px, 160px"
                       className="object-contain grayscale opacity-35 hover:grayscale-0 hover:opacity-100 transition-all duration-300"
                     />
                   </div>

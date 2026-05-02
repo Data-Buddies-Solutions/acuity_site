@@ -34,7 +34,7 @@ export default function MetricCard({
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
         {label}
       </p>
-      <p className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-[#10272c]">
+      <p className="mt-3 text-3xl font-semibold tracking-normal text-[#10272c] sm:text-4xl">
         {value}
       </p>
       {delta && DeltaIcon ? (

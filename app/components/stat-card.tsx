@@ -19,17 +19,15 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "group relative rounded-xl border border-white/60 bg-white/70 backdrop-blur-lg px-4 transition-all duration-300 hover:bg-white hover:border-gray-200/60 hover:shadow-[0_0_24px_-4px_rgba(0,0,0,0.1)] hover:-translate-y-[1px]",
-        size === "hero" ? "py-4" : "py-3",
+        "group relative rounded-lg border border-white/60 bg-white/70 px-3 transition-all duration-300 hover:border-gray-200/60 hover:bg-white hover:shadow-[0_0_24px_-4px_rgba(0,0,0,0.1)] sm:px-4",
+        size === "hero" ? "py-3 sm:py-4" : "py-3",
       )}
     >
-      <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500">
-        {label}
-      </p>
+      <p className="text-[10px] font-medium uppercase text-gray-500">{label}</p>
       <p
         className={cn(
-          "mt-1 font-mono font-semibold leading-none tabular-nums tracking-tight text-[#10272c]",
-          size === "hero" ? "text-2xl" : "text-lg",
+          "mt-1 font-mono font-semibold leading-none tabular-nums tracking-normal text-[#10272c]",
+          size === "hero" ? "text-xl sm:text-2xl" : "text-lg",
           color,
         )}
       >

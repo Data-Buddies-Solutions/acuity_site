@@ -115,6 +115,131 @@ function getReviewBadge(call: AdminCallTableRow) {
   );
 }
 
+function formatLatencyValue(value: number) {
+  return value > 0 ? formatLatencyMs(value) : "--";
+}
+
+function MobileField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border/70 bg-background/70 px-3 py-2">
+      <p className="text-[10px] font-medium uppercase text-muted-foreground">{label}</p>
+      <div className="mt-1 min-w-0 text-sm font-medium text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function MobileCallCard({
+  call,
+  practiceId,
+  showFallback,
+  showToolErrors,
+}: {
+  call: AdminCallTableRow;
+  practiceId: string;
+  showFallback: boolean;
+  showToolErrors: boolean;
+}) {
+  const actionBadges =
+    call.toolActions.length > 0 ? (
+      call.toolActions.map((action) => (
+        <Badge key={action} variant="secondary" className="text-[10px]">
+          {action}
+        </Badge>
+      ))
+    ) : (
+      <span className="text-sm text-muted-foreground">No actions</span>
+    );
+
+  return (
+    <article className="space-y-3 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Link
+            href={`/admin/practices/${practiceId}/calls/${call.id}`}
+            className="font-medium hover:underline"
+          >
+            {formatLocalTime(call.startedAt)}
+          </Link>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {formatPhone(call.callerPhone)}
+          </p>
+        </div>
+        <div className="shrink-0 text-right text-sm">
+          <p className="font-medium">{formatDuration(call.durationSec)}</p>
+          <p className="text-muted-foreground">
+            {formatLatencyValue(call.p50TotalLatency)} total
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <MobileField
+          label="Office"
+          value={
+            <div className="min-w-0">
+              <p className="truncate">{getOfficeLabel(call)}</p>
+              {getOfficeSubLabel(call) ? (
+                <p className="truncate text-xs font-normal text-muted-foreground">
+                  {getOfficeSubLabel(call)}
+                </p>
+              ) : null}
+            </div>
+          }
+        />
+        <MobileField label="Duration" value={formatDuration(call.durationSec)} />
+        <MobileField label="P50 TTFT" value={formatLatencyValue(call.p50Ttft)} />
+        <MobileField label="P50 TTS" value={formatLatencyValue(call.p50Ttsttfb)} />
+        <MobileField label="P50 Total" value={formatLatencyValue(call.p50TotalLatency)} />
+        <MobileField label="Transfer" value={call.transferred ? "Yes" : "No"} />
+        {showToolErrors ? (
+          <MobileField
+            label="Tool Errors"
+            value={
+              call.toolErrors > 0 ? (
+                <Badge variant="destructive" className="text-xs">
+                  {call.toolErrors}
+                </Badge>
+              ) : (
+                "0"
+              )
+            }
+          />
+        ) : null}
+        {showFallback ? (
+          <MobileField label="Fallback" value={call.fallbackUsed ? "Used" : "No"} />
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-1.5">
+          {getReviewBadge(call)}
+          {call.reviewStatus === "completed" && (
+            <Badge variant="outline" className="text-[10px]">
+              Score {formatReviewScore(call.reviewAverageScore)}
+            </Badge>
+          )}
+          {call.transferred && (
+            <Badge variant="outline" className="text-[10px]">
+              Transfer
+            </Badge>
+          )}
+          {call.fallbackUsed && (
+            <Badge variant="destructive" className="text-[10px]">
+              Fallback
+            </Badge>
+          )}
+          {call.toolErrors > 0 && (
+            <Badge variant="destructive" className="text-[10px]">
+              {call.toolErrors} error{call.toolErrors === 1 ? "" : "s"}
+            </Badge>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">{actionBadges}</div>
+      </div>
+    </article>
+  );
+}
+
 function SortButton({
   children,
   sortKey,
@@ -318,63 +443,13 @@ export function CallsTable({
         <div className="divide-y md:hidden">
           {pageRows.length > 0 ? (
             pageRows.map((call) => (
-              <div key={call.id} className="space-y-3 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <Link
-                      href={`/admin/practices/${practiceId}/calls/${call.id}`}
-                      className="font-medium hover:underline"
-                    >
-                      {formatLocalTime(call.startedAt)}
-                    </Link>
-                    <p className="text-sm text-muted-foreground">
-                      {formatPhone(call.callerPhone)}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {getOfficeLabel(call)}
-                      {getOfficeSubLabel(call) ? ` - ${getOfficeSubLabel(call)}` : ""}
-                    </p>
-                  </div>
-                  <div className="text-right text-sm">
-                    <p className="font-medium">{formatDuration(call.durationSec)}</p>
-                    <p className="text-muted-foreground">
-                      {call.p50TotalLatency > 0
-                        ? formatLatencyMs(call.p50TotalLatency)
-                        : "--"}{" "}
-                      total
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-1">
-                  {getReviewBadge(call)}
-                  {call.reviewStatus === "completed" && (
-                    <Badge variant="outline" className="text-[10px]">
-                      Score {formatReviewScore(call.reviewAverageScore)}
-                    </Badge>
-                  )}
-                  {call.toolActions.map((action) => (
-                    <Badge key={action} variant="secondary" className="text-[10px]">
-                      {action}
-                    </Badge>
-                  ))}
-                  {call.transferred && (
-                    <Badge variant="outline" className="text-[10px]">
-                      Transfer
-                    </Badge>
-                  )}
-                  {call.fallbackUsed && (
-                    <Badge variant="destructive" className="text-[10px]">
-                      Fallback
-                    </Badge>
-                  )}
-                  {call.toolErrors > 0 && (
-                    <Badge variant="destructive" className="text-[10px]">
-                      {call.toolErrors} error{call.toolErrors === 1 ? "" : "s"}
-                    </Badge>
-                  )}
-                </div>
-              </div>
+              <MobileCallCard
+                key={call.id}
+                call={call}
+                practiceId={practiceId}
+                showFallback={showFallback}
+                showToolErrors={showToolErrors}
+              />
             ))
           ) : (
             <div className="p-6 text-center text-sm text-muted-foreground">

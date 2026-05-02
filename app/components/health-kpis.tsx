@@ -89,9 +89,7 @@ function InlineMetric({
 }) {
   return (
     <div className="rounded-lg border border-border/70 bg-background/70 px-3 py-2.5">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
+      <p className="text-[10px] font-medium uppercase text-muted-foreground">{label}</p>
       <p
         className={cn(
           "mt-1 font-mono text-lg font-semibold tracking-tight text-foreground",
@@ -108,9 +106,7 @@ function InlineMetric({
 function SectionHeading({ description, title }: { description?: string; title: string }) {
   return (
     <div className="mb-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        {title}
-      </p>
+      <p className="text-[11px] font-semibold uppercase text-muted-foreground">{title}</p>
       {description ? (
         <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       ) : null}
@@ -133,10 +129,10 @@ export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
   const showToolFailures = data.toolFailureCount > 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div>
         <SectionHeading title="Operational Snapshot" />
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <StatCard
             label="Call Volume"
             value={String(data.totalCalls)}
@@ -172,15 +168,15 @@ export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr] xl:gap-6">
         <Card className="border-border/70 bg-card/80 shadow-sm">
-          <CardHeader>
+          <CardHeader className="px-4 py-4 sm:px-6">
             <CardTitle>Appointment Actions</CardTitle>
             <CardDescription>
               What actually happened inside appointment flows.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3">
+          <CardContent className="grid grid-cols-3 gap-2 px-4 pb-4 sm:gap-3 sm:px-6">
             <InlineMetric
               label="Booked"
               value={String(data.bookApptSuccesses)}
@@ -200,13 +196,13 @@ export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
         </Card>
 
         <Card className="border-border/70 bg-card/80 shadow-sm">
-          <CardHeader>
+          <CardHeader className="px-4 py-4 sm:px-6">
             <CardTitle>Prompt Footprint</CardTitle>
             <CardDescription>
               Input, output, cache reuse, and context shape.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <CardContent className="grid grid-cols-2 gap-2 px-4 pb-4 sm:gap-3 sm:px-6 xl:grid-cols-3">
             <InlineMetric
               label="Total Input Tokens"
               value={

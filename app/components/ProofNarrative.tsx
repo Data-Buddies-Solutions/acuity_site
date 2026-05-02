@@ -150,6 +150,7 @@ export default function ProofNarrative() {
                       src={logo.logo}
                       alt={logo.name}
                       fill
+                      sizes="112px"
                       className="object-contain grayscale opacity-60"
                     />
                   </div>

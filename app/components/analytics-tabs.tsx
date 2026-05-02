@@ -21,7 +21,11 @@ export function AnalyticsTabs() {
   const current = searchParams.get("tab") || "overview";
 
   return (
-    <div className={`transition-opacity ${isPending ? "opacity-50" : ""}`}>
+    <div
+      className={`max-w-full overflow-x-auto pb-1 transition-opacity ${
+        isPending ? "opacity-50" : ""
+      }`}
+    >
       <Tabs
         value={current}
         onValueChange={(value) => {
@@ -37,9 +41,9 @@ export function AnalyticsTabs() {
           });
         }}
       >
-        <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
+        <TabsList className="h-9 w-full min-w-max justify-start">
           {tabs.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>
+            <TabsTrigger key={t.value} value={t.value} className="min-w-fit px-3">
               {t.label}
             </TabsTrigger>
           ))}

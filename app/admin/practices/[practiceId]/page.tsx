@@ -107,7 +107,7 @@ function PracticeViewTabs({
   ] as const;
 
   return (
-    <nav className="flex flex-wrap gap-1">
+    <nav className="grid grid-cols-2 rounded-lg bg-muted p-1 sm:inline-grid sm:w-fit">
       {items.map((item) => (
         <Link
           key={item.view}
@@ -117,10 +117,10 @@ function PracticeViewTabs({
             view: item.view,
           })}
           className={cn(
-            "flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+            "flex min-h-8 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
             view === item.view
-              ? "bg-gray-900 text-white"
-              : "text-gray-500 hover:bg-gray-100 hover:text-gray-900",
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
           {item.label}
@@ -156,7 +156,7 @@ export default async function AdminPracticeDetailPage({
     detail.officeFilters.find((office) => office.id === detail.selectedOfficeId) ?? null;
 
   return (
-    <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+    <main className="mx-auto max-w-6xl space-y-4 px-3 py-4 sm:px-4 md:space-y-6 md:py-8">
       <Link
         href="/admin/practices"
         className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -165,36 +165,43 @@ export default async function AdminPracticeDetailPage({
         Practices
       </Link>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          {detail.practice.name}
-        </h1>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-          <Suspense>
-            <OfficeFilterTabs
-              offices={detail.officeFilters}
-              selectedOfficeId={detail.selectedOfficeId}
-            />
-          </Suspense>
-          <Suspense>
-            <TimeRangeTabs />
-          </Suspense>
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              Practice
+            </p>
+            <h1 className="mt-1 break-words text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
+              {detail.practice.name}
+            </h1>
+          </div>
+          <div className="grid w-full gap-2 lg:w-auto lg:min-w-[360px] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+            <Suspense>
+              <OfficeFilterTabs
+                offices={detail.officeFilters}
+                selectedOfficeId={detail.selectedOfficeId}
+              />
+            </Suspense>
+            <Suspense>
+              <TimeRangeTabs />
+            </Suspense>
+          </div>
         </div>
-      </div>
 
-      <PracticeViewTabs
-        office={detail.selectedOfficeId}
-        practiceId={practiceId}
-        range={range}
-        view={view}
-      />
+        <PracticeViewTabs
+          office={detail.selectedOfficeId}
+          practiceId={practiceId}
+          range={range}
+          view={view}
+        />
+      </div>
 
       {view === "command" ? (
         <>
           <HealthKPIs data={detail.dashboardData} />
 
-          <section>
-            <h2 className="mb-3 text-lg font-semibold text-foreground">
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-foreground">
               {selectedOffice ? `${selectedOffice.label} Calls` : "All Calls"}
             </h2>
             <CallsTable calls={detail.callRows} practiceId={practiceId} />
