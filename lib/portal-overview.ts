@@ -2,14 +2,17 @@ import { getAuthSession } from "@/lib/auth";
 import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
+import { isSuccessfulBookAppointmentTool } from "@/lib/tool-action-status";
 
 export type PortalBookedAppointment = {
   appointmentId: string | null;
   appointmentStart: string | null;
   appointmentStatus: string;
+  appointmentTypeName: string | null;
   callId: string;
   callStartedAt: Date;
   callerPhone: string;
+  duration: number | null;
   locationName: string | null;
   patientName: string | null;
   providerName: string | null;
@@ -380,6 +383,19 @@ function asString(value: unknown) {
   return null;
 }
 
+function asNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 function parseToolPayload(value: unknown) {
   if (isRecord(value)) {
     return value;
@@ -471,7 +487,7 @@ function fallbackAgentSummary(turns: Record<string, unknown>[]) {
   return null;
 }
 
-function extractBookedAppointment(call: {
+export function extractBookedAppointment(call: {
   callerPhone: string;
   data: unknown;
   id: string;
@@ -501,7 +517,14 @@ function extractBookedAppointment(call: {
         availabilityMatches.push(...getAvailabilityMatches(result));
       }
 
-      if (name === "book_appt" && rawTool.isError !== true) {
+      if (
+        name === "book_appt" &&
+        isSuccessfulBookAppointmentTool({
+          isError: rawTool.isError === true,
+          name,
+          result: rawTool.result,
+        })
+      ) {
         booking = {
           args: parseToolPayload(rawTool.args),
           result,
@@ -515,26 +538,44 @@ function extractBookedAppointment(call: {
     booking?.args ?? null,
     availabilityMatches,
   );
+  const appointmentId =
+    asString(booking?.result?.appointmentId) ?? asString(booking?.result?.id);
 
   return {
-    appointmentId: asString(booking?.result?.appointmentId),
+    appointmentId,
     appointmentStart:
+      asString(booking?.result?.startDatetime) ??
       asString(booking?.args?.startDatetime) ??
       asString(booking?.args?.startDateTime) ??
       asString(booking?.args?.datetime),
-    appointmentStatus: asString(booking?.result?.status) ?? "booked",
+    appointmentStatus:
+      asString(booking?.result?.status) ?? (appointmentId ? "booked" : "unknown"),
+    appointmentTypeName: asString(booking?.result?.appointmentTypeName),
     callId: call.id,
     callStartedAt: call.startedAt,
     callerPhone: call.callerPhone,
-    locationName: matchedAvailability?.locationName ?? null,
-    patientName: extractPatientName(booking?.args ?? null),
-    providerName: matchedAvailability?.providerName ?? null,
+    duration: asNumber(booking?.result?.duration) ?? asNumber(booking?.args?.duration),
+    locationName:
+      asString(booking?.result?.locationName) ??
+      matchedAvailability?.locationName ??
+      null,
+    patientName:
+      normalizeDisplayName(asString(booking?.result?.patientName)) ??
+      extractPatientName(booking?.args ?? null),
+    providerName:
+      asString(booking?.result?.providerName) ??
+      matchedAvailability?.providerName ??
+      null,
     summary:
       call.outcomeSummary ??
       booking?.turnAgentText ??
       fallbackAgentSummary(turns) ??
       "Appointment booked by the AI receptionist.",
   };
+}
+
+function isRenderableBooking(booking: PortalBookedAppointment) {
+  return booking.appointmentStatus !== "error" && Boolean(booking.appointmentId);
 }
 
 function extractPatientName(args: Record<string, unknown> | null) {
@@ -544,12 +585,36 @@ function extractPatientName(args: Record<string, unknown> | null) {
     asString(args.fullName) ??
     asString(args.name) ??
     asString(args.callerName);
-  if (direct) return direct;
+  if (direct) return normalizeDisplayName(direct);
 
   const first = asString(args.firstName) ?? asString(args.first_name);
   const last = asString(args.lastName) ?? asString(args.last_name);
   const combined = [first, last].filter(Boolean).join(" ").trim();
-  return combined || null;
+  return normalizeDisplayName(combined);
+}
+
+function normalizeDisplayName(value: string | null) {
+  if (!value) return null;
+  let name = value.trim();
+  if (!name) return null;
+
+  const commaParts = name.split(",");
+  if (commaParts.length === 2) {
+    name = [commaParts[1], commaParts[0]]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (name === name.toUpperCase() || name === name.toLowerCase()) {
+    return name
+      .toLowerCase()
+      .split(/\s+/)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  return name;
 }
 
 export async function getPortalOverviewMetrics(
@@ -784,7 +849,7 @@ export async function getPortalBookings(
   });
 
   return {
-    bookings: bookedCalls.map(extractBookedAppointment),
+    bookings: bookedCalls.map(extractBookedAppointment).filter(isRenderableBooking),
     branding: getPracticeBranding(membership.practice),
     practiceName: membership.practice.name,
     range,
