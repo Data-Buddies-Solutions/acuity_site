@@ -23,7 +23,6 @@ export default function Hero() {
       className="relative overflow-hidden bg-white pb-12 pt-6 md:pt-10 lg:pt-12"
       id="top"
     >
-
       <div className="relative z-10 mx-auto max-w-7xl px-4 md:px-6">
         <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.3fr)] lg:gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] xl:gap-10">
           {/* Left: copy */}
@@ -86,7 +85,6 @@ export default function Hero() {
             </div>
           </div>
         </div>
-
       </div>
 
       {/* Logo Marquee */}

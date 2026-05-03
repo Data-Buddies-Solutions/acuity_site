@@ -13,8 +13,7 @@ const spokes = [
   {
     id: "tasking",
     label: "Tasking",
-    description:
-      "Every call generates structured follow-up, routed to the right person.",
+    description: "Every call generates structured follow-up, routed to the right person.",
   },
   {
     id: "texting",
@@ -169,9 +168,7 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Inbound
         </p>
-        <p className="mt-2 text-base font-semibold text-neutral-900">
-          Patient calls
-        </p>
+        <p className="mt-2 text-base font-semibold text-neutral-900">Patient calls</p>
         <p className="mt-1 text-xs text-muted-foreground">Any hour, any language</p>
       </motion.div>
 
