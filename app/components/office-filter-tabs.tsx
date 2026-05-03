@@ -25,7 +25,11 @@ export function OfficeFilterTabs({ offices, selectedOfficeId }: OfficeFilterTabs
   const items = [{ id: "all", label: "All Offices" }, ...offices];
 
   return (
-    <div className={`transition-opacity ${isPending ? "opacity-50" : ""}`}>
+    <div
+      className={`max-w-full overflow-x-auto pb-1 transition-opacity ${
+        isPending ? "opacity-50" : ""
+      }`}
+    >
       <Tabs
         value={current}
         onValueChange={(value) => {
@@ -46,10 +50,10 @@ export function OfficeFilterTabs({ offices, selectedOfficeId }: OfficeFilterTabs
           });
         }}
       >
-        <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
+        <TabsList className="h-9 w-full min-w-max justify-start">
           {items.map((item) => (
-            <TabsTrigger key={item.id} value={item.id}>
-              {item.label}
+            <TabsTrigger key={item.id} value={item.id} className="min-w-fit px-3">
+              <span className="max-w-40 truncate">{item.label}</span>
             </TabsTrigger>
           ))}
         </TabsList>

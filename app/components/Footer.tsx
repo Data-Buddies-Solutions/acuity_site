@@ -28,6 +28,7 @@ export default function Footer() {
               width={120}
               height={48}
               className="opacity-70"
+              style={{ height: "auto", width: 120 }}
             />
           </div>
 

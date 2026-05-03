@@ -19,7 +19,9 @@ export function TimeRangeTabs() {
   const current = searchParams.get("range") || "24h";
 
   return (
-    <div className={`transition-opacity ${isPending ? "opacity-50" : ""}`}>
+    <div
+      className={`w-full transition-opacity sm:w-auto ${isPending ? "opacity-50" : ""}`}
+    >
       <Tabs
         value={current}
         onValueChange={(value) => {
@@ -30,9 +32,9 @@ export function TimeRangeTabs() {
           });
         }}
       >
-        <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
+        <TabsList className="h-9 w-full justify-start sm:w-auto">
           {ranges.map((r) => (
-            <TabsTrigger key={r.value} value={r.value}>
+            <TabsTrigger key={r.value} value={r.value} className="px-3">
               {r.label}
             </TabsTrigger>
           ))}

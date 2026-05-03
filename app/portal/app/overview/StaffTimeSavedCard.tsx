@@ -25,7 +25,7 @@ export default function StaffTimeSavedCard({
         <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
           Staff Time Saved
         </h3>
-        <p className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-[#10272c]">
+        <p className="mt-3 text-3xl font-semibold tracking-normal text-[#10272c] sm:text-4xl">
           {formatHoursMinutes(totalSeconds)}
         </p>
         <p className="mt-1 text-sm text-[#617477]">Protected across all locations</p>

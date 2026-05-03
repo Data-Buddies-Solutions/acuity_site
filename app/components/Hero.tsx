@@ -29,9 +29,7 @@ export default function Hero() {
           <div className="relative z-20 text-center lg:text-left">
             <h1 className="text-[2.75rem] font-semibold tracking-[-0.04em] leading-[1.05] antialiased subpixel-antialiased md:text-[3.25rem] lg:text-[2.5rem] xl:text-[3rem] 2xl:text-[3.5rem]">
               <span className="block">The</span>
-              <span className="block whitespace-nowrap text-accent">
-                patient engagement
-              </span>
+              <span className="block text-accent">patient engagement</span>
               <span className="block">platform for</span>
               <span className="block">ophthalmology.</span>
             </h1>
@@ -110,6 +108,7 @@ export default function Hero() {
                       alt={partner.name}
                       className="object-contain opacity-35 grayscale transition-all duration-300 hover:opacity-100 hover:grayscale-0"
                       fill
+                      sizes="(max-width: 768px) 112px, 160px"
                       src={partner.logo}
                     />
                   </div>

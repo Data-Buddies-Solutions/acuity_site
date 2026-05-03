@@ -241,4 +241,41 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(data.turns?.length).toBe(1);
     expect(JSON.stringify(normalized.dataPayload)).not.toContain("audioBase64");
   });
+
+  it("does not mark failed booking tool responses as booked appointments", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_failed_booking",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      sessionReport: {
+        chat_history: {
+          items: [
+            {
+              args: JSON.stringify({ startDatetime: "2026-05-01T14:00:00" }),
+              callId: "tool_1",
+              createdAt: 1,
+              id: "tool_call_1",
+              name: "book_appt",
+              type: "function_call",
+            },
+            {
+              callId: "tool_1",
+              createdAt: 2,
+              id: "tool_output_1",
+              isError: false,
+              name: "book_appt",
+              output: JSON.stringify({
+                message: "This time slot is no longer available.",
+                status: "error",
+              }),
+              type: "function_call_output",
+            },
+          ],
+        },
+      },
+      startedAt: "2026-04-27T16:00:00.000Z",
+    });
+
+    expect(normalized.toolActions.bookedAppointment).toBe(false);
+  });
 });

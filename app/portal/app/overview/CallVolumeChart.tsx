@@ -50,8 +50,8 @@ export default function CallVolumeChart({ points }: { points: PortalCallVolumePo
           Call Volume
         </h3>
       </div>
-      <div className="mt-4 h-64">
-        <ResponsiveContainer height="100%" width="100%">
+      <div className="mt-4 h-64 min-w-0">
+        <ResponsiveContainer height="100%" minWidth={0} width="100%">
           <BarChart data={points} margin={{ bottom: 0, left: -16, right: 8, top: 8 }}>
             <CartesianGrid stroke="#eef2f2" strokeDasharray="3 3" vertical={false} />
             <XAxis

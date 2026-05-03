@@ -14,6 +14,7 @@ import type {
   TurnRecord,
 } from "@/lib/call-types";
 import { estimateUsageCostLineItems } from "@/lib/pricing";
+import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
 const LLM_METRIC_TYPES = new Set(["llm_metrics", "realtime_model_metrics"]);
 const FALLBACK_MODEL = "MiniMaxAI/MiniMax-M2.5";
@@ -627,7 +628,7 @@ export function getToolActions(
 
   for (const turn of turns) {
     for (const tool of turn.toolCalls ?? []) {
-      if (tool.isError) {
+      if (!isSuccessfulToolAction(tool)) {
         continue;
       }
 

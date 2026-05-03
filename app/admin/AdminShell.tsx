@@ -29,7 +29,9 @@ function NavLabel({
   children: React.ReactNode;
   collapsed: boolean;
 }) {
-  return <span className={cn(collapsed && "lg:hidden")}>{children}</span>;
+  return (
+    <span className={cn("min-w-0 truncate", collapsed && "lg:hidden")}>{children}</span>
+  );
 }
 
 export function AdminShell({ children, userEmail }: AdminShellProps) {
@@ -51,7 +53,7 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
         )}
       >
         <aside className="border-b border-black/8 bg-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
-          <div className="flex h-full flex-col gap-6 p-5">
+          <div className="flex h-full flex-col gap-3 p-3 sm:p-5 lg:gap-6">
             <div className="flex items-center justify-between gap-3">
               <Link
                 href="/admin/practices"
@@ -63,12 +65,10 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               >
                 <Logo />
                 <div className={cn("min-w-0", collapsed && "lg:hidden")}>
-                  <p className="truncate text-base font-semibold tracking-[-0.03em] text-[#10272c]">
+                  <p className="truncate text-base font-semibold tracking-normal text-[#10272c]">
                     Acuity Health
                   </p>
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#6c7d80]">
-                    Admin
-                  </p>
+                  <p className="text-xs font-medium uppercase text-[#6c7d80]">Admin</p>
                 </div>
               </Link>
 
@@ -82,11 +82,11 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               </button>
             </div>
 
-            <nav className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+            <nav className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:flex-col lg:flex-nowrap">
               <Link
                 href="/admin/practices"
                 className={cn(
-                  "inline-flex min-w-fit items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition",
+                  "inline-flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition sm:gap-3 sm:py-2.5",
                   practicesActive
                     ? "bg-[#e8f4f4] text-[#0d7377]"
                     : "text-[#617477] hover:bg-[#eef5f3] hover:text-[#10272c]",
@@ -100,7 +100,7 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               <Link
                 href="/admin/knowledge-base"
                 className={cn(
-                  "inline-flex min-w-fit items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition",
+                  "inline-flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition sm:gap-3 sm:py-2.5",
                   knowledgeActive
                     ? "bg-[#e8f4f4] text-[#0d7377]"
                     : "text-[#617477] hover:bg-[#eef5f3] hover:text-[#10272c]",
@@ -114,7 +114,7 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               <Link
                 href="/admin/insurance-rules"
                 className={cn(
-                  "inline-flex min-w-fit items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition",
+                  "inline-flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition sm:gap-3 sm:py-2.5",
                   insuranceActive
                     ? "bg-[#e8f4f4] text-[#0d7377]"
                     : "text-[#617477] hover:bg-[#eef5f3] hover:text-[#10272c]",
@@ -127,7 +127,7 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               </Link>
               <div
                 className={cn(
-                  "inline-flex min-w-fit items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[#8a9a9d]",
+                  "inline-flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[#8a9a9d] sm:gap-3 sm:py-2.5",
                   collapsed && "lg:justify-center lg:px-2.5",
                 )}
                 title="Agents"
@@ -137,7 +137,7 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               </div>
               <div
                 className={cn(
-                  "inline-flex min-w-fit items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[#8a9a9d]",
+                  "inline-flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[#8a9a9d] sm:gap-3 sm:py-2.5",
                   collapsed && "lg:justify-center lg:px-2.5",
                 )}
                 title="Analytics"
@@ -154,9 +154,7 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               )}
             >
               <div className={cn(collapsed && "lg:hidden")}>
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#8a9a9d]">
-                  Signed in
-                </p>
+                <p className="text-xs font-medium uppercase text-[#8a9a9d]">Signed in</p>
                 <p className="mt-2 truncate text-sm font-semibold text-[#10272c]">
                   {userEmail}
                 </p>

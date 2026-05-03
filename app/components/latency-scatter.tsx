@@ -34,7 +34,7 @@ function LatencyChart({
   const p = computePercentiles(data.map((d) => d.value));
 
   return (
-    <div className="rounded-xl border border-white/60 bg-white/50 backdrop-blur-lg p-4 dark:border-white/10 dark:bg-white/5">
+    <div className="min-w-0 rounded-xl border border-white/60 bg-white/50 p-4 backdrop-blur-lg dark:border-white/10 dark:bg-white/5">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-xs font-semibold text-foreground">{title}</h3>
         <div className="flex flex-wrap gap-1.5">
@@ -44,7 +44,7 @@ function LatencyChart({
           <PercentileBadge label="P99" value={p.p99} />
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={220} minWidth={0}>
         <ScatterChart margin={{ top: 8, right: 8, bottom: 20, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
           <XAxis
@@ -108,7 +108,7 @@ function ContextGrowthChart({ turns }: { turns: TurnRecord[] }) {
     );
 
   return (
-    <div className="rounded-xl border border-white/60 bg-white/50 backdrop-blur-lg p-4 dark:border-white/10 dark:bg-white/5">
+    <div className="min-w-0 rounded-xl border border-white/60 bg-white/50 p-4 backdrop-blur-lg dark:border-white/10 dark:bg-white/5">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-xs font-semibold text-foreground">Context Window Growth</h3>
         <div className="flex flex-wrap gap-1.5">
@@ -120,7 +120,7 @@ function ContextGrowthChart({ turns }: { turns: TurnRecord[] }) {
           </span>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={220} minWidth={0}>
         <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 20, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
           <XAxis

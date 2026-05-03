@@ -105,7 +105,67 @@ function BookingRow({ booking }: { booking: PortalBookedAppointment }) {
       <td className="px-5 py-4 text-sm text-[#617477]">
         {formatCallDate(booking.callStartedAt)}
       </td>
+      <td className="px-5 py-4 text-right">
+        <Link
+          className="inline-flex items-center rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-[#10272c] transition hover:bg-[#f1f5f5]"
+          href={`/portal/app/calls/${booking.callId}`}
+        >
+          Transcript
+        </Link>
+      </td>
     </tr>
+  );
+}
+
+function BookingCard({ booking }: { booking: PortalBookedAppointment }) {
+  return (
+    <article className="space-y-4 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-medium text-[#10272c]">
+            {booking.patientName ?? "Unknown patient"}
+          </p>
+          <p className="mt-0.5 text-sm text-[#617477]">
+            {formatPhone(booking.callerPhone)}
+          </p>
+        </div>
+        <Link
+          className="inline-flex shrink-0 items-center rounded-md border border-black/10 bg-white px-3 py-2 text-xs font-medium text-[#10272c] transition hover:bg-[#f1f5f5]"
+          href={`/portal/app/calls/${booking.callId}`}
+        >
+          Transcript
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase text-[#6f8083]">
+            Appointment
+          </p>
+          <p className="mt-1 text-sm font-medium text-[#10272c]">
+            {formatAppointment(booking.appointmentStart)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase text-[#6f8083]">Doctor</p>
+          <p className="mt-1 truncate text-sm font-medium text-[#10272c]">
+            {booking.providerName ?? "—"}
+          </p>
+        </div>
+        <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase text-[#6f8083]">Booked</p>
+          <p className="mt-1 text-sm font-medium text-[#10272c]">
+            {formatCallDate(booking.callStartedAt)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase text-[#6f8083]">Phone</p>
+          <p className="mt-1 truncate text-sm font-medium text-[#10272c]">
+            {formatPhone(booking.callerPhone)}
+          </p>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -169,34 +229,44 @@ export default async function PortalBookingsPage({
             No bookings in this range yet.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-black/6 bg-[#fafbfb]">
-                  <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
-                    Phone
-                  </th>
-                  <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
-                    Name
-                  </th>
-                  <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
-                    Appointment
-                  </th>
-                  <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
-                    Doctor
-                  </th>
-                  <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
-                    Booked
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.bookings.map((booking) => (
-                  <BookingRow key={booking.callId} booking={booking} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="divide-y divide-black/6 md:hidden">
+              {result.bookings.map((booking) => (
+                <BookingCard key={booking.callId} booking={booking} />
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-black/6 bg-[#fafbfb]">
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                      Phone
+                    </th>
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                      Name
+                    </th>
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                      Appointment
+                    </th>
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                      Doctor
+                    </th>
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                      Booked
+                    </th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                      <span className="sr-only">Transcript</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.bookings.map((booking) => (
+                    <BookingRow key={booking.callId} booking={booking} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>

@@ -12,11 +12,13 @@ export default function CallCenterWorkspace({
   configured,
   enabled,
   outboundCallerNumber,
+  totals,
 }: {
   activity: PortalCallActivityItem[];
   configured: boolean;
   enabled: boolean;
   outboundCallerNumber: string;
+  totals: { missedCalls: number; voicemails: number };
 }) {
   const [seed, setSeed] = useState<{ value: string; token: number } | null>(null);
 
@@ -27,7 +29,7 @@ export default function CallCenterWorkspace({
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <div className="lg:col-span-2">
-        <ActivityRail activity={activity} onCallback={handleCallback} />
+        <ActivityRail activity={activity} onCallback={handleCallback} totals={totals} />
       </div>
       <div>
         {enabled && configured ? (

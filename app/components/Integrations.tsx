@@ -74,6 +74,7 @@ export default function Integrations() {
                   src={partner.logo}
                   alt={partner.name}
                   fill
+                  sizes={partner.width === "w-52" ? "208px" : "176px"}
                   className="object-contain transition-all duration-300 grayscale opacity-60 hover:grayscale-0 hover:opacity-100"
                 />
               </div>
