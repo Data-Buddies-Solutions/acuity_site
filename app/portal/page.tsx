@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LockKeyhole } from "lucide-react";
@@ -44,11 +43,7 @@ export default async function PortalPage({
   }
 
   return (
-    <section className="relative overflow-hidden bg-[#f5f6f4]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(118,180,176,0.18),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(194,209,223,0.22),transparent_24%),linear-gradient(180deg,#f8f9f7_0%,#f1f3f1_55%,#ffffff_100%)]" />
-      <div className="absolute left-[8%] top-16 h-72 w-72 rounded-full bg-[#d8efea] blur-3xl" />
-      <div className="absolute bottom-8 right-[10%] h-80 w-80 rounded-full bg-[#dbeceb] blur-3xl" />
-
+    <section className="relative overflow-hidden bg-[#f6f8f6]">
       <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-8 md:px-6 md:py-10">
         <div className="mb-8 flex w-full justify-start md:mb-10">
           <Link href="/" className="inline-flex items-center gap-3 text-[#10272c]">
@@ -62,7 +57,6 @@ export default async function PortalPage({
         <div className="flex flex-1 items-center">
           <div className="grid w-full gap-6 lg:grid-cols-[420px_minmax(0,1fr)]">
             <div className="relative overflow-hidden rounded-[2.5rem] border border-black/8 bg-white/86 p-6 shadow-[0_28px_80px_rgba(16,39,44,0.12)] backdrop-blur md:p-8">
-              <div className="absolute inset-x-0 top-0 h-28 bg-[linear-gradient(180deg,rgba(13,115,119,0.09),transparent)]" />
               <div className="absolute inset-x-8 top-0 h-px bg-white/80" />
 
               <div className="relative">
@@ -106,7 +100,7 @@ export default async function PortalPage({
                   <div className="absolute inset-x-8 top-10 h-24 rounded-full border-4 border-white/75" />
                   <div className="absolute inset-x-11 top-13 h-18 rounded-full border-4 border-[#7fd2c8]" />
                   <div className="absolute inset-x-0 bottom-6 text-center">
-                    <p className="text-2xl font-semibold tracking-[-0.05em]">2870</p>
+                    <p className="text-2xl font-semibold tracking-[-0.05em]">5281</p>
                     <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-white/68">
                       Total Calls
                     </p>
@@ -142,17 +136,23 @@ export default async function PortalPage({
                   <div className="absolute -right-5 bottom-0 h-24 w-24 rounded-full bg-[#9fd8d1]" />
                 </div>
 
-                <div className="relative col-span-2 row-span-2 overflow-hidden rounded-[2rem] bg-white p-3 shadow-[0_16px_40px_rgba(16,39,44,0.05)]">
-                  <div className="h-full rounded-[1.4rem] bg-[linear-gradient(180deg,#f9fcfb_0%,#eef6f6_100%)] p-2">
-                    <Image
-                      src="/value-dashboard.png"
-                      alt="Acuity practice dashboard preview"
-                      width={1536}
-                      height={1024}
-                      className="h-full w-full rounded-[1.15rem] object-cover"
-                      priority
-                    />
+                <div className="relative col-span-2 row-span-2 overflow-hidden rounded-[2rem] bg-[#f6fbfa] shadow-[0_16px_40px_rgba(16,39,44,0.05)]">
+                  <div className="absolute -left-6 top-8 h-28 w-28 rounded-full bg-[#d8efea]" />
+                  <div className="absolute left-10 top-10 h-20 w-20 rounded-full border-[14px] border-[#0d7377]/22" />
+                  <div className="absolute right-8 top-8 grid grid-cols-3 gap-2">
+                    {Array.from({ length: 9 }).map((_, index) => (
+                      <div key={index} className="h-5 w-5 rounded-full bg-[#0d7377]/18" />
+                    ))}
                   </div>
+                  <div className="absolute left-[42%] top-[28%] h-24 w-24 rotate-12 rounded-[2rem] bg-[#c9a227]/20" />
+                  <div className="absolute left-[40%] top-[43%] h-5 w-40 rounded-full bg-[#0d7377]/20" />
+                  <div className="absolute left-[48%] top-[55%] h-5 w-28 rounded-full bg-[#0d7377]/14" />
+                  <div className="absolute bottom-7 left-8 h-12 w-36 rounded-[1.5rem] bg-[#0f3f45]">
+                    <div className="absolute left-5 top-4 h-4 w-16 rounded-full bg-white/70" />
+                  </div>
+                  <div className="absolute bottom-7 right-9 h-28 w-28 rounded-full bg-[#0d7377]/14" />
+                  <div className="absolute bottom-11 right-13 h-20 w-20 rounded-full bg-white/76" />
+                  <div className="absolute bottom-15 right-17 h-12 w-12 rounded-full bg-[#7fd2c8]/65" />
                 </div>
 
                 <div className="relative overflow-hidden rounded-[2rem] bg-[#dff2f1]">
