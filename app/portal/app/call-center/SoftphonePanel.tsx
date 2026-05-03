@@ -102,6 +102,10 @@ function isInboundDirection(direction: unknown) {
   return direction === "inbound";
 }
 
+function callerNumberFor(call: TelnyxCall) {
+  return call.options?.remoteCallerNumber || call.options?.callerNumber || "Unknown";
+}
+
 export default function SoftphonePanel({
   callerNumber,
   enabled,
@@ -119,6 +123,8 @@ export default function SoftphonePanel({
   );
   const [activeCall, setActiveCall] = useState<TelnyxCall | null>(null);
   const [incomingCall, setIncomingCall] = useState<TelnyxCall | null>(null);
+  const [queuedCalls, setQueuedCalls] = useState<TelnyxCall[]>([]);
+  const [heldCalls, setHeldCalls] = useState<TelnyxCall[]>([]);
   const [incomingFrom, setIncomingFrom] = useState("");
   const [dialedNumber, setDialedNumber] = useState("");
   const [draftNumber, setDraftNumber] = useState("");
@@ -128,6 +134,16 @@ export default function SoftphonePanel({
   const [showKeypad, setShowKeypad] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  // Refs mirror state so the Telnyx notification handler (created once) can read latest values
+  const activeCallRef = useRef<TelnyxCall | null>(null);
+  const incomingCallRef = useRef<TelnyxCall | null>(null);
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+  useEffect(() => {
+    incomingCallRef.current = incomingCall;
+  }, [incomingCall]);
 
   useEffect(() => {
     if (!seedNumber || !seedNumber.value) {
@@ -177,19 +193,16 @@ export default function SoftphonePanel({
     [detachAudio],
   );
 
-  const resetCall = useCallback(() => {
+  const resetActiveCallUi = useCallback(() => {
     clearTimer();
     detachAudio();
     setActiveCall(null);
-    setIncomingCall(null);
-    setIncomingFrom("");
     setDialedNumber("");
     setDirection(null);
     setMuted(false);
     setHeld(false);
     setShowKeypad(false);
     setCallDuration(0);
-    setStatus("ready");
   }, [clearTimer, detachAudio]);
 
   useEffect(() => {
@@ -250,24 +263,28 @@ export default function SoftphonePanel({
           }
 
           const inbound = isInboundDirection(call.direction);
+          const ringingStates = ["new", "trying", "requesting", "ringing", "early"];
 
-          if (
-            ["new", "trying", "requesting", "ringing", "early"].includes(call.state || "")
-          ) {
+          if (ringingStates.includes(call.state || "")) {
             if (inbound) {
+              const hasActiveOrIncoming =
+                activeCallRef.current || incomingCallRef.current;
+              if (hasActiveOrIncoming) {
+                // Second+ inbound call — queue it
+                setQueuedCalls((current) =>
+                  current.some((c) => c.id === call.id) ? current : [...current, call],
+                );
+                return;
+              }
               setIncomingCall(call);
-              setActiveCall(null);
-              setIncomingFrom(
-                call.options?.remoteCallerNumber ||
-                  call.options?.callerNumber ||
-                  "Unknown",
-              );
+              setIncomingFrom(callerNumberFor(call));
               setDirection("inbound");
+              setStatus("ringing");
             } else {
               setActiveCall(call);
               setDirection("outbound");
+              setStatus("ringing");
             }
-            setStatus("ringing");
             return;
           }
 
@@ -275,14 +292,36 @@ export default function SoftphonePanel({
             attachAudio(call);
             startTimer();
             setActiveCall(call);
-            setIncomingCall(null);
+            setIncomingCall((current) => (current?.id === call.id ? null : current));
+            setQueuedCalls((current) => current.filter((c) => c.id !== call.id));
+            setHeldCalls((current) => current.filter((c) => c.id !== call.id));
+            setHeld(false);
+            setMuted(false);
             setDirection((current) => current || (inbound ? "inbound" : "outbound"));
             setStatus("on-call");
             return;
           }
 
           if (call.state === "hangup" || call.state === "destroy") {
-            resetCall();
+            setQueuedCalls((current) => current.filter((c) => c.id !== call.id));
+            setHeldCalls((current) => current.filter((c) => c.id !== call.id));
+
+            if (incomingCallRef.current?.id === call.id) {
+              setIncomingCall(null);
+              setIncomingFrom("");
+              if (!activeCallRef.current) {
+                setDirection(null);
+                setStatus("ready");
+              }
+            }
+
+            if (activeCallRef.current?.id === call.id) {
+              resetActiveCallUi();
+              // After clearing active, settle status based on what's left
+              setStatus((s) =>
+                incomingCallRef.current ? "ringing" : s === "error" ? s : "ready",
+              );
+            }
           }
         });
 
@@ -309,8 +348,9 @@ export default function SoftphonePanel({
       clientRef.current?.disconnect();
       clientRef.current = null;
     };
-  }, [attachAudio, clearTimer, detachAudio, enabled, resetCall, startTimer]);
+  }, [attachAudio, clearTimer, detachAudio, enabled, resetActiveCallUi, startTimer]);
 
+  // Ringtone for primary incoming (only when nothing else is active)
   useEffect(() => {
     if (!incomingCall || activeCall) {
       return;
@@ -372,6 +412,36 @@ export default function SoftphonePanel({
     };
   }, [activeCall, incomingCall]);
 
+  // Subtle "call waiting" beep when a queued call is added during an active call
+  useEffect(() => {
+    if (queuedCalls.length === 0 || !activeCall) return;
+
+    const AudioCtxCtor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtxCtor) return;
+
+    const ctx = new AudioCtxCtor();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = 880;
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.06, now + 0.02);
+    gain.gain.setValueAtTime(0.06, now + 0.18);
+    gain.gain.linearRampToValueAtTime(0, now + 0.22);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.25);
+
+    const closeHandle = setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 400);
+    return () => clearTimeout(closeHandle);
+  }, [queuedCalls.length, activeCall]);
+
   const makeCall = useCallback(() => {
     const to = normalizeToE164(draftNumber);
     const client = clientRef.current;
@@ -400,6 +470,86 @@ export default function SoftphonePanel({
     incomingCall?.answer();
   }, [incomingCall]);
 
+  const answerQueued = useCallback(
+    (callId: string) => {
+      const queued = queuedCalls.find((c) => c.id === callId);
+      if (!queued) return;
+
+      // Put current active on hold (if any), move it to held list
+      if (activeCall) {
+        try {
+          activeCall.hold();
+        } catch {
+          // ignore — Telnyx will reject if not in a holdable state
+        }
+        setHeldCalls((current) =>
+          current.some((c) => c.id === activeCall.id)
+            ? current
+            : [...current, activeCall],
+        );
+      }
+      // The queued call answering will trigger an "active" notification, which
+      // promotes it to activeCall and removes it from queuedCalls.
+      queued.answer();
+    },
+    [activeCall, queuedCalls],
+  );
+
+  const declineQueued = useCallback(
+    (callId: string) => {
+      const queued = queuedCalls.find((c) => c.id === callId);
+      if (!queued) return;
+      try {
+        queued.hangup();
+      } catch {
+        // ignore
+      }
+      setQueuedCalls((current) => current.filter((c) => c.id !== callId));
+    },
+    [queuedCalls],
+  );
+
+  const resumeHeld = useCallback(
+    (callId: string) => {
+      const held = heldCalls.find((c) => c.id === callId);
+      if (!held) return;
+
+      // Hold current active if any, then unhold the selected
+      if (activeCall && activeCall.id !== callId) {
+        try {
+          activeCall.hold();
+        } catch {
+          // ignore
+        }
+        setHeldCalls((current) =>
+          current.some((c) => c.id === activeCall.id)
+            ? current
+            : [...current, activeCall],
+        );
+      }
+      try {
+        held.unhold();
+      } catch {
+        // ignore
+      }
+    },
+    [activeCall, heldCalls],
+  );
+
+  const endHeld = useCallback(
+    (callId: string) => {
+      const held = heldCalls.find((c) => c.id === callId);
+      if (!held) return;
+      try {
+        held.hangup();
+      } catch {
+        // ignore
+      }
+      setHeldCalls((current) => current.filter((c) => c.id !== callId));
+    },
+    [heldCalls],
+  );
+
   const hangUp = useCallback(() => {
     if (activeCall) {
       activeCall.hangup();
@@ -408,9 +558,12 @@ export default function SoftphonePanel({
 
     if (incomingCall) {
       incomingCall.hangup();
-      resetCall();
+      setIncomingCall(null);
+      setIncomingFrom("");
+      setDirection(null);
+      setStatus("ready");
     }
-  }, [activeCall, incomingCall, resetCall]);
+  }, [activeCall, incomingCall]);
 
   const toggleMute = useCallback(() => {
     if (!activeCall) return;
@@ -550,6 +703,101 @@ export default function SoftphonePanel({
                 ))}
               </div>
             ) : null}
+          </div>
+        ) : null}
+
+        {queuedCalls.length > 0 ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+            <div className="flex items-center gap-2 text-amber-800">
+              <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
+              <p className="text-xs font-semibold uppercase tracking-[0.14em]">
+                In queue · {queuedCalls.length}
+              </p>
+            </div>
+            <ul className="mt-2 space-y-2">
+              {queuedCalls.map((call) => (
+                <li
+                  key={call.id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-amber-100 bg-white px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-[#10272c]">
+                      {formatPhone(callerNumberFor(call))}
+                    </p>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#8a999b]">
+                      Ringing
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      aria-label="Answer queued call"
+                      className="h-8 px-2"
+                      onClick={() => answerQueued(call.id)}
+                      size="sm"
+                      variant="primary"
+                    >
+                      <Phone className="h-4 w-4" aria-hidden="true" />
+                      Answer
+                    </Button>
+                    <Button
+                      aria-label="Decline queued call"
+                      className="h-8 w-8 p-0 text-[#617477] hover:text-red-600"
+                      onClick={() => declineQueued(call.id)}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {heldCalls.length > 0 ? (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+              On hold · {heldCalls.length}
+            </p>
+            <ul className="mt-2 space-y-2">
+              {heldCalls.map((call) => (
+                <li
+                  key={call.id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-[#10272c]">
+                      {formatPhone(callerNumberFor(call))}
+                    </p>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#8a999b]">
+                      Holding
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      aria-label="Resume held call"
+                      className="h-8 px-2"
+                      onClick={() => resumeHeld(call.id)}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      <Play className="h-4 w-4" aria-hidden="true" />
+                      Resume
+                    </Button>
+                    <Button
+                      aria-label="End held call"
+                      className="h-8 w-8 p-0 text-[#617477] hover:text-red-600"
+                      onClick={() => endHeld(call.id)}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <PhoneOff className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
 

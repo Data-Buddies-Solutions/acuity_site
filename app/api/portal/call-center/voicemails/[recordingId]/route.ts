@@ -25,7 +25,7 @@ async function fetchRecordingDownloadUrl(recordingId: string) {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ recordingId: string }> },
 ) {
   const context = await getCurrentPracticeCallCenterContext();
@@ -57,29 +57,42 @@ export async function GET(
     return NextResponse.json({ error: "No recording URL available" }, { status: 404 });
   }
 
-  const audioResponse = await fetch(recordingUrl, {
-    headers: process.env.TELNYX_API_KEY
-      ? { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` }
-      : undefined,
-  });
+  const upstreamHeaders: Record<string, string> = {};
+  const rangeHeader = request.headers.get("range");
+  if (rangeHeader) {
+    upstreamHeaders.Range = rangeHeader;
+  }
+  if (process.env.TELNYX_API_KEY) {
+    upstreamHeaders.Authorization = `Bearer ${process.env.TELNYX_API_KEY}`;
+  }
+
+  const audioResponse = await fetch(recordingUrl, { headers: upstreamHeaders });
 
   if (!audioResponse.ok || !audioResponse.body) {
     return NextResponse.json({ error: "Failed to fetch recording" }, { status: 502 });
   }
 
-  await prisma.callCenterVoicemail.update({
-    data: {
-      listenedAt: new Date(),
-    },
-    where: {
-      id: voicemail.id,
-    },
+  if (!rangeHeader) {
+    await prisma.callCenterVoicemail.update({
+      data: { listenedAt: new Date() },
+      where: { id: voicemail.id },
+    });
+  }
+
+  const responseHeaders = new Headers({
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, max-age=3600",
+    "Content-Type": audioResponse.headers.get("content-type") || "audio/mpeg",
   });
 
+  const contentLength = audioResponse.headers.get("content-length");
+  if (contentLength) responseHeaders.set("Content-Length", contentLength);
+
+  const contentRange = audioResponse.headers.get("content-range");
+  if (contentRange) responseHeaders.set("Content-Range", contentRange);
+
   return new NextResponse(audioResponse.body, {
-    headers: {
-      "Cache-Control": "private, max-age=3600",
-      "Content-Type": audioResponse.headers.get("content-type") || "audio/mpeg",
-    },
+    headers: responseHeaders,
+    status: audioResponse.status, // 200 or 206
   });
 }
