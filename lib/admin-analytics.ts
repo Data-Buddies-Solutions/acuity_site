@@ -1,5 +1,6 @@
 import type { ToolCallRecord, TurnRecord } from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
+import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
 type AgentStatus = "SETUP" | "ACTIVE" | "PAUSED" | "ERROR";
 type CostCategory =
@@ -520,7 +521,7 @@ function getToolActionLabels(call: {
   if (call.transferred) actions.add("Transferred");
 
   for (const tool of getToolCalls(call.data)) {
-    if (tool.isError) {
+    if (!isSuccessfulToolAction(tool)) {
       continue;
     }
 
@@ -1021,6 +1022,9 @@ function buildPracticeAnalyticsData(
         toolErrors.set(tool.name, (toolErrors.get(tool.name) ?? 0) + 1);
         continue;
       }
+      if (!isSuccessfulToolAction(tool)) {
+        continue;
+      }
 
       if (tool.name === "transfer_call") transferred = true;
       if (tool.name === "book_appt") booked = Math.max(booked, 1);
@@ -1235,6 +1239,9 @@ function buildPracticeDashboardData(
 
     for (const tool of tools) {
       if (tool.isError) {
+        continue;
+      }
+      if (!isSuccessfulToolAction(tool)) {
         continue;
       }
 

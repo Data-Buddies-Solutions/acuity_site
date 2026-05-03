@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import { buildPortalCallTranscriptMessages } from "@/lib/portal-overview";
+import {
+  buildPortalCallTranscriptMessages,
+  extractBookedAppointment,
+} from "@/lib/portal-overview";
 
 describe("portal transcript messages", () => {
   it("keeps only caller and agent text from session transcripts", () => {
@@ -87,5 +90,125 @@ describe("portal transcript messages", () => {
         timestamp: null,
       },
     ]);
+  });
+});
+
+describe("portal booking extraction", () => {
+  it("prefers canonical booking result fields for portal booking rows", () => {
+    const startedAt = new Date("2026-05-03T13:00:00.000Z");
+
+    const booking = extractBookedAppointment({
+      callerPhone: "+17275551212",
+      data: {
+        turns: [
+          {
+            agentText: "I found one opening.",
+            toolCalls: [
+              {
+                args: JSON.stringify({ date: "2026-05-12" }),
+                isError: false,
+                name: "get_availability",
+                result: JSON.stringify({
+                  location: "Old Location",
+                  providers: [
+                    {
+                      columnId: 1513,
+                      facility: "Old Facility",
+                      name: "Old Provider",
+                      profileId: 620,
+                    },
+                  ],
+                }),
+              },
+              {
+                args: JSON.stringify({
+                  columnId: 1513,
+                  duration: 30,
+                  profileId: 620,
+                  startDatetime: "2026-05-12T10:30",
+                }),
+                isError: false,
+                name: "book_appt",
+                result: JSON.stringify({
+                  appointmentId: 98765,
+                  appointmentTypeName: "Established Adult",
+                  duration: 30,
+                  locationName: "Spring Hill",
+                  patientName: "SMITH,JANE",
+                  providerName: "Dr. Austin Bach",
+                  startDatetime: "2026-05-12T11:00",
+                  status: "booked",
+                }),
+              },
+            ],
+          },
+        ],
+      },
+      id: "call-1",
+      outcomeSummary: null,
+      startedAt,
+    });
+
+    expect(booking).toMatchObject({
+      appointmentId: "98765",
+      appointmentStart: "2026-05-12T11:00",
+      appointmentStatus: "booked",
+      appointmentTypeName: "Established Adult",
+      callId: "call-1",
+      callerPhone: "+17275551212",
+      duration: 30,
+      locationName: "Spring Hill",
+      patientName: "Jane Smith",
+      providerName: "Dr. Austin Bach",
+    });
+  });
+
+  it("falls back to availability matches for old booking payloads", () => {
+    const booking = extractBookedAppointment({
+      callerPhone: "+17275551212",
+      data: {
+        turns: [
+          {
+            toolCalls: [
+              {
+                isError: false,
+                name: "get_availability",
+                result: JSON.stringify({
+                  providers: [
+                    {
+                      columnId: 1513,
+                      facility: "ABITA EYE GROUP SPRING HILL",
+                      name: "Dr. Austin Bach",
+                      profileId: 620,
+                    },
+                  ],
+                }),
+              },
+              {
+                args: JSON.stringify({
+                  columnId: 1513,
+                  patientName: "Jane Smith",
+                  profileId: 620,
+                  startDatetime: "2026-05-12T11:00",
+                }),
+                isError: false,
+                name: "book_appt",
+                result: JSON.stringify({
+                  appointmentId: 98765,
+                  status: "booked",
+                }),
+              },
+            ],
+          },
+        ],
+      },
+      id: "call-1",
+      outcomeSummary: null,
+      startedAt: new Date("2026-05-03T13:00:00.000Z"),
+    });
+
+    expect(booking.providerName).toBe("Dr. Austin Bach");
+    expect(booking.locationName).toBe("ABITA EYE GROUP SPRING HILL");
+    expect(booking.patientName).toBe("Jane Smith");
   });
 });
