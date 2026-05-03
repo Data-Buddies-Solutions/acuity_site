@@ -1,123 +1,52 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { motion, useInView } from "framer-motion";
+import { useRef } from "react";
+
+const stats = [
+  { number: "23%", label: "of patient calls go to voicemail" },
+  { number: "15%", label: "of demand comes in after hours" },
+  { number: "25+", label: "front-desk hours a week on the phone" },
+];
 
 export default function Problem() {
-  const [isVisible, setIsVisible] = useState(false);
-  const sectionRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setIsVisible(true);
-      },
-      { threshold: 0.15 },
-    );
-    if (sectionRef.current) observer.observe(sectionRef.current);
-    return () => observer.disconnect();
-  }, []);
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { amount: 0.2, once: true });
 
   return (
-    <section ref={sectionRef} className="py-20 md:py-28 bg-white" id="problem">
-      <div className="mx-auto max-w-6xl px-4 md:px-6">
-        <div
-          className={`transition-all duration-700 ${
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
-          }`}
-        >
-          <p className="text-xs font-medium text-accent uppercase tracking-widest mb-5">
+    <section className="bg-[#0a1c20] py-24 text-white md:py-32" id="problem">
+      <div ref={ref} className="mx-auto max-w-6xl px-4 md:px-6">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-accent">
             Why this matters
           </p>
+          <h2 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[-0.025em] text-white md:text-5xl lg:text-[3.5rem] [text-wrap:balance]">
+            A more responsive front desk is a better patient experience.
+          </h2>
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-white/85 md:text-lg">
+            Missed calls, voicemail, and after-hours dead ends do more than create
+            friction. They slow booking, pile on repetitive phone work, and make the
+            practice feel harder to reach.
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-10 lg:gap-16 items-start">
-          <div
-            className={`transition-all duration-700 ${
-              isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
-            }`}
-          >
-            <h2 className="text-3xl md:text-4xl lg:text-[3.1rem] font-semibold tracking-tight leading-[1.05]">
-              A more responsive front desk improves patient experience.
-            </h2>
-            <p className="mt-6 max-w-2xl text-base md:text-lg leading-relaxed text-muted-foreground">
-              Missed calls, voicemail, and after-hours dead ends do more than create
-              friction. They slow booking, increase repetitive phone work, and make the
-              practice feel harder to reach.
-            </p>
-          </div>
-
-          <div
-            className={`transition-all duration-700 delay-150 ${
-              isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
-            }`}
-          >
-            <p className="text-xs font-medium uppercase tracking-widest text-accent">
-              What a responsive front desk changes
-            </p>
-            <div className="mt-5 space-y-4">
-              {[
-                "More inbound demand turns into booked appointments.",
-                "After-hours demand gets captured instead of falling into voicemail.",
-                "Staff spend less time on repetitive phone work.",
-                "Patients reach the practice with less friction and more confidence.",
-              ].map((item) => (
-                <p
-                  key={item}
-                  className="text-sm md:text-base leading-relaxed text-muted-foreground border-l-2 border-accent/25 pl-4"
-                >
-                  {item}
-                </p>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-14">
-          {[
-            {
-              number: "23%",
-              label: "of patient calls go to voicemail",
-              detail:
-                "Missed calls weaken engagement and create lost appointment opportunities.",
-            },
-            {
-              number: "15%",
-              label: "of calls come in after hours",
-              detail: "Demand does not stop when the front desk goes home for the day.",
-            },
-            {
-              number: "25+",
-              label: "hours per week on the phone",
-              detail:
-                "Staff get pulled into repetitive scheduling and confirmation work instead of patient-facing care.",
-            },
-          ].map((item, i) => (
-            <div
+        <div className="mt-16 grid grid-cols-1 gap-12 md:mt-24 md:grid-cols-3 md:gap-8">
+          {stats.map((item, i) => (
+            <motion.div
+              animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 16 }}
+              className="text-center md:border-l md:border-white/10 md:px-6 md:first:border-l-0"
+              initial={{ opacity: 0, y: 16 }}
               key={item.label}
-              className={`rounded-[1.75rem] bg-muted/35 p-7 transition-all duration-700 ${
-                isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
-              }`}
-              style={{ transitionDelay: `${300 + i * 100}ms` }}
+              transition={{ delay: 0.15 + i * 0.12, duration: 0.5, ease: "easeOut" }}
             >
-              <p className="text-4xl md:text-5xl font-semibold tracking-tight text-gradient">
+              <p className="text-6xl font-semibold tracking-[-0.045em] tabular-nums text-white md:text-7xl lg:text-[5.5rem]">
                 {item.number}
               </p>
-              <p className="mt-3 text-sm font-semibold text-neutral-900">{item.label}</p>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {item.detail}
+              <p className="mx-auto mt-4 max-w-[20ch] text-sm leading-relaxed text-white/85 md:text-base">
+                {item.label}
               </p>
-            </div>
+            </motion.div>
           ))}
-        </div>
-
-        <div
-          className={`mt-14 text-center transition-all duration-700 delay-500 ${
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"
-          }`}
-        >
-          <p className="text-sm md:text-base text-muted-foreground uppercase tracking-[0.16em]">
-            Acuity makes the front desk more responsive.
-          </p>
         </div>
       </div>
     </section>
