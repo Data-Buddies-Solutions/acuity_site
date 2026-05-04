@@ -28,7 +28,7 @@ export type PortalCallVolumePoint = {
 };
 
 export type PortalTimeSavedBucket = {
-  key: "scheduling" | "after_hours";
+  key: "scheduling" | "after_hours" | "faq";
   label: string;
   seconds: number;
 };
@@ -87,6 +87,31 @@ type OverviewAggregate = {
 };
 
 type RawOverviewAggregate = Record<keyof OverviewAggregate, bigint | number | null>;
+
+function buildStaffTimeSaved(totalSeconds: number, schedulingSeconds: number, afterHoursSeconds: number) {
+  const faqSeconds = Math.max(0, totalSeconds - schedulingSeconds - afterHoursSeconds);
+
+  return {
+    buckets: [
+      {
+        key: "scheduling",
+        label: "Scheduling",
+        seconds: schedulingSeconds,
+      },
+      {
+        key: "after_hours",
+        label: "After-Hours",
+        seconds: afterHoursSeconds,
+      },
+      {
+        key: "faq",
+        label: "FAQ",
+        seconds: faqSeconds,
+      },
+    ] satisfies PortalTimeSavedBucket[],
+    totalSeconds,
+  };
+}
 
 function getRangeStart(range: PortalOverviewRange) {
   if (range === "all") {
@@ -178,29 +203,18 @@ async function getAllTimeOverviewAggregate(
         SUM(
           CASE
             WHEN
+              NOT ("bookedAppointment" OR "confirmedAppointment" OR "cancelledAppointment")
+              AND (
               EXTRACT(HOUR FROM timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))) >= ${AFTER_HOURS_START}
               OR EXTRACT(HOUR FROM timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))) < ${AFTER_HOURS_END}
+              )
             THEN "durationSec"
             ELSE 0
           END
         ),
         0
       )::int AS "afterHoursSeconds",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN
-              "bookedAppointment"
-              OR "confirmedAppointment"
-              OR "cancelledAppointment"
-              OR EXTRACT(HOUR FROM timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))) >= ${AFTER_HOURS_START}
-              OR EXTRACT(HOUR FROM timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))) < ${AFTER_HOURS_END}
-            THEN "durationSec"
-            ELSE 0
-          END
-        ),
-        0
-      )::int AS "staffTimeSavedSeconds"
+      COALESCE(SUM("durationSec"), 0)::int AS "staffTimeSavedSeconds"
     FROM "agent_call"
     WHERE "practiceId" = ${practiceId}
   `;
@@ -669,21 +683,11 @@ export async function getPortalOverviewMetrics(
       practiceName: membership.practice.name,
       previousTotalCalls: 0,
       range,
-      staffTimeSaved: {
-        buckets: [
-          {
-            key: "scheduling",
-            label: "Scheduling",
-            seconds: aggregate.schedulingSeconds,
-          },
-          {
-            key: "after_hours",
-            label: "After-Hours",
-            seconds: aggregate.afterHoursSeconds,
-          },
-        ],
-        totalSeconds: aggregate.staffTimeSavedSeconds,
-      },
+      staffTimeSaved: buildStaffTimeSaved(
+        aggregate.staffTimeSavedSeconds,
+        aggregate.schedulingSeconds,
+        aggregate.afterHoursSeconds,
+      ),
       totalCallMinutes: aggregate.totalDurationSec / 60,
       totalCalls: aggregate.callCount,
       transferRate:
@@ -746,13 +750,10 @@ export async function getPortalOverviewMetrics(
 
     if (isSchedulingCall) {
       schedulingSeconds += call.durationSec;
-    }
-    if (isAfterHoursCall) {
+    } else if (isAfterHoursCall) {
       afterHoursSeconds += call.durationSec;
     }
-    if (isSchedulingCall || isAfterHoursCall) {
-      staffTimeSavedSeconds += call.durationSec;
-    }
+    staffTimeSavedSeconds += call.durationSec;
   }
 
   const callVolume = bucketCallVolume(
@@ -772,21 +773,11 @@ export async function getPortalOverviewMetrics(
     practiceName: membership.practice.name,
     previousTotalCalls,
     range,
-    staffTimeSaved: {
-      buckets: [
-        {
-          key: "scheduling",
-          label: "Scheduling",
-          seconds: schedulingSeconds,
-        },
-        {
-          key: "after_hours",
-          label: "After-Hours",
-          seconds: afterHoursSeconds,
-        },
-      ],
-      totalSeconds: staffTimeSavedSeconds,
-    },
+    staffTimeSaved: buildStaffTimeSaved(
+      staffTimeSavedSeconds,
+      schedulingSeconds,
+      afterHoursSeconds,
+    ),
     totalCallMinutes: totalDurationSec / 60,
     totalCalls: callCount,
     transferRate: callCount > 0 ? transferredCalls / callCount : 0,

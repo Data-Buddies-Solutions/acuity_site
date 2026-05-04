@@ -7,7 +7,12 @@ import {
 import { getAuthSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding } from "@/lib/practice-branding";
-import { startTelnyxRecording, speakOnTelnyxCall, TelnyxError } from "@/lib/telnyx";
+import {
+  getTelnyxRecording,
+  startTelnyxRecording,
+  speakOnTelnyxCall,
+  TelnyxError,
+} from "@/lib/telnyx";
 
 const MISSED_CAUSES = new Set([
   "call_rejected",
@@ -173,6 +178,48 @@ export function extractTelnyxRecordingDurationSec(payload: Record<string, unknow
     secondsBetween(payload.start_time, payload.end_time) ??
     0
   );
+}
+
+export function extractTelnyxRecordingUrl(payload: Record<string, unknown>) {
+  const downloadUrls = isRecord(payload.download_urls) ? payload.download_urls : {};
+  const publicRecordingUrls = isRecord(payload.public_recording_urls)
+    ? payload.public_recording_urls
+    : {};
+  const recordingUrls = isRecord(payload.recording_urls) ? payload.recording_urls : {};
+
+  return (
+    asString(downloadUrls.mp3) ||
+    asString(downloadUrls.wav) ||
+    asString(publicRecordingUrls.mp3) ||
+    asString(publicRecordingUrls.wav) ||
+    asString(recordingUrls.mp3) ||
+    asString(recordingUrls.wav) ||
+    asString(payload.recording_url)
+  );
+}
+
+export async function fetchTelnyxRecordingMetadata(recordingId: string) {
+  if (!recordingId) {
+    return null;
+  }
+
+  const response = await getTelnyxRecording(recordingId);
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const body: unknown = await response.json();
+  const data = isRecord(body) && isRecord(body.data) ? body.data : null;
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    durationSec: Math.max(0, Math.round(extractTelnyxRecordingDurationSec(data))),
+    recordingUrl: extractTelnyxRecordingUrl(data),
+  };
 }
 
 function jsonInput(value: unknown): Prisma.InputJsonValue {
@@ -385,6 +432,16 @@ function getPortalCallCenterLocations(practice: {
   return locations;
 }
 
+function getDefaultPortalCallCenterLocation(
+  locations: PortalCallCenterLocation[],
+) {
+  return (
+    locations.find((location) => /spring\s*hill/i.test(location.label)) ??
+    locations[0] ??
+    null
+  );
+}
+
 export async function getPortalCallCenterData(options?: { locationId?: string }) {
   const context = await getCurrentPracticeCallCenterContext();
 
@@ -396,8 +453,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
   const locations = getPortalCallCenterLocations(practice);
   const selectedLocation =
     locations.find((location) => location.id === options?.locationId) ??
-    locations[0] ??
-    null;
+    getDefaultPortalCallCenterLocation(locations);
   const locationFilter: { locationId?: string | null } = selectedLocation
     ? { locationId: selectedLocation.locationId }
     : {};
@@ -825,11 +881,14 @@ async function recordVoicemail({
     asString(payload.recording_id) ||
     asString(payload.call_session_id) ||
     asString(payload.call_control_id);
-  const recordingUrls = isRecord(payload.recording_urls) ? payload.recording_urls : {};
-  const recordingUrl =
-    asString(recordingUrls.mp3) ||
-    asString(recordingUrls.wav) ||
-    asString(payload.recording_url);
+  let recordingUrl = extractTelnyxRecordingUrl(payload);
+  let duration = extractTelnyxRecordingDurationSec(payload);
+
+  if (recordingId && (!recordingUrl || duration <= 0)) {
+    const recordingMetadata = await fetchTelnyxRecordingMetadata(recordingId);
+    recordingUrl = recordingUrl || recordingMetadata?.recordingUrl || "";
+    duration = duration > 0 ? duration : recordingMetadata?.durationSec ?? duration;
+  }
 
   if (!recordingId || !recordingUrl) {
     return null;
@@ -853,8 +912,6 @@ async function recordVoicemail({
       },
     });
   }
-
-  const duration = extractTelnyxRecordingDurationSec(payload);
 
   return prisma.callCenterVoicemail.upsert({
     create: {

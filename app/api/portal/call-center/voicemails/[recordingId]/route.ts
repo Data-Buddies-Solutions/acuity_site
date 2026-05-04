@@ -1,28 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getCurrentPracticeCallCenterContext } from "@/lib/call-center";
+import {
+  fetchTelnyxRecordingMetadata,
+  getCurrentPracticeCallCenterContext,
+} from "@/lib/call-center";
 import { prisma } from "@/lib/prisma";
-import { getTelnyxRecording } from "@/lib/telnyx";
 
 export const dynamic = "force-dynamic";
-
-async function fetchRecordingDownloadUrl(recordingId: string) {
-  const response = await getTelnyxRecording(recordingId);
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const json = await response.json();
-
-  return (
-    json?.data?.download_urls?.mp3 ||
-    json?.data?.download_urls?.wav ||
-    json?.data?.recording_urls?.mp3 ||
-    json?.data?.recording_urls?.wav ||
-    null
-  );
-}
 
 export async function GET(
   request: NextRequest,
@@ -37,6 +21,7 @@ export async function GET(
   const { recordingId } = await params;
   const voicemail = await prisma.callCenterVoicemail.findFirst({
     select: {
+      durationSec: true,
       id: true,
       recordingUrl: true,
     },
@@ -50,10 +35,15 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const recordingUrl =
-    voicemail.recordingUrl || (await fetchRecordingDownloadUrl(recordingId));
+  const recordingMetadata = await fetchTelnyxRecordingMetadata(recordingId);
+  const recordingUrls = [
+    recordingMetadata?.recordingUrl,
+    voicemail.recordingUrl,
+  ].filter((url, index, urls): url is string =>
+    Boolean(url && urls.indexOf(url) === index),
+  );
 
-  if (!recordingUrl) {
+  if (recordingUrls.length === 0) {
     return NextResponse.json({ error: "No recording URL available" }, { status: 404 });
   }
 
@@ -62,19 +52,49 @@ export async function GET(
   if (rangeHeader) {
     upstreamHeaders.Range = rangeHeader;
   }
-  if (process.env.TELNYX_API_KEY) {
-    upstreamHeaders.Authorization = `Bearer ${process.env.TELNYX_API_KEY}`;
+
+  let audioResponse: Response | null = null;
+  for (const recordingUrl of recordingUrls) {
+    try {
+      const response = await fetch(recordingUrl, { headers: upstreamHeaders });
+      if (response.ok && response.body) {
+        audioResponse = response;
+        break;
+      }
+    } catch {
+      // Try the next available Telnyx recording URL.
+    }
   }
 
-  const audioResponse = await fetch(recordingUrl, { headers: upstreamHeaders });
-
-  if (!audioResponse.ok || !audioResponse.body) {
+  if (!audioResponse?.body) {
     return NextResponse.json({ error: "Failed to fetch recording" }, { status: 502 });
   }
 
+  const updateData: {
+    durationSec?: number;
+    listenedAt?: Date;
+    recordingUrl?: string;
+  } = {};
+
   if (!rangeHeader) {
+    updateData.listenedAt = new Date();
+  }
+  if (
+    recordingMetadata?.durationSec &&
+    recordingMetadata.durationSec > voicemail.durationSec
+  ) {
+    updateData.durationSec = recordingMetadata.durationSec;
+  }
+  if (
+    recordingMetadata?.recordingUrl &&
+    recordingMetadata.recordingUrl !== voicemail.recordingUrl
+  ) {
+    updateData.recordingUrl = recordingMetadata.recordingUrl;
+  }
+
+  if (Object.keys(updateData).length > 0) {
     await prisma.callCenterVoicemail.update({
-      data: { listenedAt: new Date() },
+      data: updateData,
       where: { id: voicemail.id },
     });
   }
@@ -82,6 +102,7 @@ export async function GET(
   const responseHeaders = new Headers({
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=3600",
+    "Content-Disposition": "inline",
     "Content-Type": audioResponse.headers.get("content-type") || "audio/mpeg",
   });
 

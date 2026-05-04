@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import {
   extractTelnyxRecordingDurationSec,
+  extractTelnyxRecordingUrl,
   normalizePhone,
   phoneLookupVariants,
   resolveTelnyxRuntimeSettings,
@@ -132,5 +133,36 @@ describe("Telnyx voicemail duration parsing", () => {
 
   it("returns zero when the payload has no duration signal", () => {
     expect(extractTelnyxRecordingDurationSec({})).toBe(0);
+  });
+});
+
+describe("Telnyx voicemail recording URL parsing", () => {
+  it("prefers fresh download URLs over webhook recording URLs", () => {
+    expect(
+      extractTelnyxRecordingUrl({
+        download_urls: {
+          mp3: "https://recordings.example/download.mp3",
+        },
+        public_recording_urls: {
+          mp3: "https://recordings.example/public.mp3",
+        },
+        recording_urls: {
+          mp3: "https://recordings.example/webhook.mp3",
+        },
+      }),
+    ).toBe("https://recordings.example/download.mp3");
+  });
+
+  it("falls back through public and webhook recording URLs", () => {
+    expect(
+      extractTelnyxRecordingUrl({
+        public_recording_urls: {
+          wav: "https://recordings.example/public.wav",
+        },
+        recording_urls: {
+          mp3: "https://recordings.example/webhook.mp3",
+        },
+      }),
+    ).toBe("https://recordings.example/public.wav");
   });
 });
