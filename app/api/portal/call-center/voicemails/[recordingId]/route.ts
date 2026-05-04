@@ -36,11 +36,8 @@ export async function GET(
   }
 
   const recordingMetadata = await fetchTelnyxRecordingMetadata(recordingId);
-  const recordingUrls = [
-    recordingMetadata?.recordingUrl,
-    voicemail.recordingUrl,
-  ].filter((url, index, urls): url is string =>
-    Boolean(url && urls.indexOf(url) === index),
+  const recordingUrls = [recordingMetadata?.recordingUrl, voicemail.recordingUrl].filter(
+    (url, index, urls): url is string => Boolean(url && urls.indexOf(url) === index),
   );
 
   if (recordingUrls.length === 0) {

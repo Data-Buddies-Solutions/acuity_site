@@ -319,11 +319,7 @@ export default function SoftphonePanel({
               resetActiveCallUi();
               // After clearing active, settle status based on what's left
               setStatus((s) =>
-                remainingQueuedCalls.length > 0
-                  ? "ringing"
-                  : s === "error"
-                    ? s
-                    : "ready",
+                remainingQueuedCalls.length > 0 ? "ringing" : s === "error" ? s : "ready",
               );
               return;
             }

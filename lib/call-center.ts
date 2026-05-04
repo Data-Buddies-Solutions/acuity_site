@@ -432,9 +432,7 @@ function getPortalCallCenterLocations(practice: {
   return locations;
 }
 
-function getDefaultPortalCallCenterLocation(
-  locations: PortalCallCenterLocation[],
-) {
+function getDefaultPortalCallCenterLocation(locations: PortalCallCenterLocation[]) {
   return (
     locations.find((location) => /spring\s*hill/i.test(location.label)) ??
     locations[0] ??
@@ -887,7 +885,7 @@ async function recordVoicemail({
   if (recordingId && (!recordingUrl || duration <= 0)) {
     const recordingMetadata = await fetchTelnyxRecordingMetadata(recordingId);
     recordingUrl = recordingUrl || recordingMetadata?.recordingUrl || "";
-    duration = duration > 0 ? duration : recordingMetadata?.durationSec ?? duration;
+    duration = duration > 0 ? duration : (recordingMetadata?.durationSec ?? duration);
   }
 
   if (!recordingId || !recordingUrl) {

@@ -88,7 +88,11 @@ type OverviewAggregate = {
 
 type RawOverviewAggregate = Record<keyof OverviewAggregate, bigint | number | null>;
 
-function buildStaffTimeSaved(totalSeconds: number, schedulingSeconds: number, afterHoursSeconds: number) {
+function buildStaffTimeSaved(
+  totalSeconds: number,
+  schedulingSeconds: number,
+  afterHoursSeconds: number,
+) {
   const faqSeconds = Math.max(0, totalSeconds - schedulingSeconds - afterHoursSeconds);
 
   return {
