@@ -99,7 +99,11 @@ function statusLabel(status: TelnyxStatus) {
 }
 
 function isInboundDirection(direction: unknown) {
-  return direction === "inbound";
+  if (typeof direction !== "string") {
+    return false;
+  }
+
+  return ["inbound", "incoming"].includes(direction.toLowerCase());
 }
 
 function callerNumberFor(call: TelnyxCall) {
@@ -476,6 +480,7 @@ export default function SoftphonePanel({
     (callId: string) => {
       const queued = queuedCalls.find((c) => c.id === callId);
       if (!queued) return;
+      if (answeringInboundCallIdsRef.current.has(callId)) return;
 
       // Put current active on hold (if any), move it to held list
       if (activeCall) {
