@@ -122,10 +122,8 @@ export default function SoftphonePanel({
     enabled ? "initializing" : "offline",
   );
   const [activeCall, setActiveCall] = useState<TelnyxCall | null>(null);
-  const [incomingCall, setIncomingCall] = useState<TelnyxCall | null>(null);
   const [queuedCalls, setQueuedCalls] = useState<TelnyxCall[]>([]);
   const [heldCalls, setHeldCalls] = useState<TelnyxCall[]>([]);
-  const [incomingFrom, setIncomingFrom] = useState("");
   const [dialedNumber, setDialedNumber] = useState("");
   const [draftNumber, setDraftNumber] = useState("");
   const [direction, setDirection] = useState<CallDirection>(null);
@@ -137,13 +135,14 @@ export default function SoftphonePanel({
 
   // Refs mirror state so the Telnyx notification handler (created once) can read latest values
   const activeCallRef = useRef<TelnyxCall | null>(null);
-  const incomingCallRef = useRef<TelnyxCall | null>(null);
+  const queuedCallsRef = useRef<TelnyxCall[]>([]);
+  const answeringInboundCallIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     activeCallRef.current = activeCall;
   }, [activeCall]);
   useEffect(() => {
-    incomingCallRef.current = incomingCall;
-  }, [incomingCall]);
+    queuedCallsRef.current = queuedCalls;
+  }, [queuedCalls]);
 
   useEffect(() => {
     if (!seedNumber || !seedNumber.value) {
@@ -204,6 +203,22 @@ export default function SoftphonePanel({
     setShowKeypad(false);
     setCallDuration(0);
   }, [clearTimer, detachAudio]);
+
+  const promoteToActiveCall = useCallback(
+    (call: TelnyxCall, inbound: boolean) => {
+      answeringInboundCallIdsRef.current.delete(call.id);
+      attachAudio(call);
+      startTimer();
+      setActiveCall(call);
+      setQueuedCalls((current) => current.filter((c) => c.id !== call.id));
+      setHeldCalls((current) => current.filter((c) => c.id !== call.id));
+      setHeld(false);
+      setMuted(false);
+      setDirection(inbound ? "inbound" : "outbound");
+      setStatus("on-call");
+    },
+    [attachAudio, startTimer],
+  );
 
   useEffect(() => {
     if (!enabled) {
@@ -267,18 +282,9 @@ export default function SoftphonePanel({
 
           if (ringingStates.includes(call.state || "")) {
             if (inbound) {
-              const hasActiveOrIncoming =
-                activeCallRef.current || incomingCallRef.current;
-              if (hasActiveOrIncoming) {
-                // Second+ inbound call — queue it
-                setQueuedCalls((current) =>
-                  current.some((c) => c.id === call.id) ? current : [...current, call],
-                );
-                return;
-              }
-              setIncomingCall(call);
-              setIncomingFrom(callerNumberFor(call));
-              setDirection("inbound");
+              setQueuedCalls((current) =>
+                current.some((c) => c.id === call.id) ? current : [...current, call],
+              );
               setStatus("ringing");
             } else {
               setActiveCall(call);
@@ -289,38 +295,38 @@ export default function SoftphonePanel({
           }
 
           if (call.state === "active") {
-            attachAudio(call);
-            startTimer();
-            setActiveCall(call);
-            setIncomingCall((current) => (current?.id === call.id ? null : current));
-            setQueuedCalls((current) => current.filter((c) => c.id !== call.id));
-            setHeldCalls((current) => current.filter((c) => c.id !== call.id));
-            setHeld(false);
-            setMuted(false);
-            setDirection((current) => current || (inbound ? "inbound" : "outbound"));
-            setStatus("on-call");
+            if (inbound && !answeringInboundCallIdsRef.current.has(call.id)) {
+              setQueuedCalls((current) =>
+                current.some((c) => c.id === call.id) ? current : [...current, call],
+              );
+              setStatus("ringing");
+              return;
+            }
+
+            promoteToActiveCall(call, inbound);
             return;
           }
 
           if (call.state === "hangup" || call.state === "destroy") {
-            setQueuedCalls((current) => current.filter((c) => c.id !== call.id));
+            answeringInboundCallIdsRef.current.delete(call.id);
+            const remainingQueuedCalls = queuedCallsRef.current.filter(
+              (c) => c.id !== call.id,
+            );
+            setQueuedCalls(remainingQueuedCalls);
             setHeldCalls((current) => current.filter((c) => c.id !== call.id));
-
-            if (incomingCallRef.current?.id === call.id) {
-              setIncomingCall(null);
-              setIncomingFrom("");
-              if (!activeCallRef.current) {
-                setDirection(null);
-                setStatus("ready");
-              }
-            }
 
             if (activeCallRef.current?.id === call.id) {
               resetActiveCallUi();
               // After clearing active, settle status based on what's left
               setStatus((s) =>
-                incomingCallRef.current ? "ringing" : s === "error" ? s : "ready",
+                remainingQueuedCalls.length > 0 ? "ringing" : s === "error" ? s : "ready",
               );
+              return;
+            }
+
+            if (!activeCallRef.current && remainingQueuedCalls.length === 0) {
+              setDirection(null);
+              setStatus((s) => (s === "error" ? s : "ready"));
             }
           }
         });
@@ -348,11 +354,11 @@ export default function SoftphonePanel({
       clientRef.current?.disconnect();
       clientRef.current = null;
     };
-  }, [attachAudio, clearTimer, detachAudio, enabled, resetActiveCallUi, startTimer]);
+  }, [clearTimer, detachAudio, enabled, promoteToActiveCall, resetActiveCallUi]);
 
-  // Ringtone for primary incoming (only when nothing else is active)
+  // Ringtone for queued incoming calls when nothing else is active.
   useEffect(() => {
-    if (!incomingCall || activeCall) {
+    if (queuedCalls.length === 0 || activeCall) {
       return;
     }
 
@@ -410,7 +416,7 @@ export default function SoftphonePanel({
       if (scheduleHandle) clearTimeout(scheduleHandle);
       ctx.close().catch(() => {});
     };
-  }, [activeCall, incomingCall]);
+  }, [activeCall, queuedCalls.length]);
 
   // Subtle "call waiting" beep when a queued call is added during an active call
   useEffect(() => {
@@ -466,10 +472,6 @@ export default function SoftphonePanel({
     }
   }, [callerNumber, draftNumber, status]);
 
-  const answerCall = useCallback(() => {
-    incomingCall?.answer();
-  }, [incomingCall]);
-
   const answerQueued = useCallback(
     (callId: string) => {
       const queued = queuedCalls.find((c) => c.id === callId);
@@ -490,9 +492,21 @@ export default function SoftphonePanel({
       }
       // The queued call answering will trigger an "active" notification, which
       // promotes it to activeCall and removes it from queuedCalls.
-      queued.answer();
+      answeringInboundCallIdsRef.current.add(callId);
+      try {
+        if (queued.state !== "active") {
+          queued.answer();
+        }
+      } catch {
+        answeringInboundCallIdsRef.current.delete(callId);
+        return;
+      }
+
+      if (queued.state === "active") {
+        promoteToActiveCall(queued, true);
+      }
     },
-    [activeCall, queuedCalls],
+    [activeCall, promoteToActiveCall, queuedCalls],
   );
 
   const declineQueued = useCallback(
@@ -504,9 +518,15 @@ export default function SoftphonePanel({
       } catch {
         // ignore
       }
-      setQueuedCalls((current) => current.filter((c) => c.id !== callId));
+      answeringInboundCallIdsRef.current.delete(callId);
+      const remainingQueuedCalls = queuedCalls.filter((c) => c.id !== callId);
+      setQueuedCalls(remainingQueuedCalls);
+      if (!activeCall && remainingQueuedCalls.length === 0) {
+        setDirection(null);
+        setStatus((s) => (s === "error" ? s : "ready"));
+      }
     },
-    [queuedCalls],
+    [activeCall, queuedCalls],
   );
 
   const resumeHeld = useCallback(
@@ -553,17 +573,8 @@ export default function SoftphonePanel({
   const hangUp = useCallback(() => {
     if (activeCall) {
       activeCall.hangup();
-      return;
     }
-
-    if (incomingCall) {
-      incomingCall.hangup();
-      setIncomingCall(null);
-      setIncomingFrom("");
-      setDirection(null);
-      setStatus("ready");
-    }
-  }, [activeCall, incomingCall]);
+  }, [activeCall]);
 
   const toggleMute = useCallback(() => {
     if (!activeCall) return;
@@ -586,7 +597,10 @@ export default function SoftphonePanel({
     [activeCall],
   );
 
-  const activeNumber = direction === "inbound" ? incomingFrom : dialedNumber;
+  const activeNumber =
+    activeCall && direction === "inbound"
+      ? callerNumberFor(activeCall)
+      : dialedNumber || (activeCall ? callerNumberFor(activeCall) : "");
   const canDial = status === "ready" && Boolean(normalizeToE164(draftNumber));
 
   return (
@@ -619,28 +633,6 @@ export default function SoftphonePanel({
         {error ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
-          </div>
-        ) : null}
-
-        {incomingCall && !activeCall ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-            <div className="flex items-center gap-2 text-emerald-800">
-              <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
-              <p className="text-sm font-semibold">Incoming call</p>
-            </div>
-            <p className="mt-2 text-lg font-semibold text-[#10272c]">
-              {formatPhone(incomingFrom)}
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <Button onClick={answerCall} variant="primary">
-                <Phone className="h-4 w-4" aria-hidden="true" />
-                Accept
-              </Button>
-              <Button onClick={hangUp} variant="secondary">
-                <PhoneOff className="h-4 w-4" aria-hidden="true" />
-                Decline
-              </Button>
-            </div>
           </div>
         ) : null}
 
@@ -801,7 +793,7 @@ export default function SoftphonePanel({
           </div>
         ) : null}
 
-        {!activeCall && !incomingCall ? (
+        {!activeCall && queuedCalls.length === 0 ? (
           <div className="space-y-3">
             <div className="flex gap-2">
               <input
