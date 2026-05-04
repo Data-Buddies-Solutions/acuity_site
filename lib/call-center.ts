@@ -9,7 +9,6 @@ import { prisma } from "@/lib/prisma";
 import { getPracticeBranding } from "@/lib/practice-branding";
 import {
   getTelnyxRecording,
-  getTelnyxCredentialConnection,
   startTelnyxRecording,
   speakOnTelnyxCall,
   TelnyxError,
@@ -195,8 +194,7 @@ export function extractTelnyxRecordingUrl(payload: Record<string, unknown>) {
     asString(publicRecordingUrls.wav) ||
     asString(recordingUrls.mp3) ||
     asString(recordingUrls.wav) ||
-    asString(payload.recording_url) ||
-    asString(payload.RecordingUrl)
+    asString(payload.recording_url)
   );
 }
 
@@ -702,274 +700,6 @@ function getPracticeSidePhone(payload: Record<string, unknown>) {
   return to || from;
 }
 
-function xmlEscape(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function texmlResponse(body: string) {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`;
-}
-
-function texmlHangupResponse() {
-  return texmlResponse("<Hangup />");
-}
-
-function texmlRejectResponse() {
-  return texmlResponse("<Reject />");
-}
-
-function getTexmlRecordingCallbackUrl(baseUrl: string) {
-  return `${baseUrl}/api/telnyx/texml/recording`;
-}
-
-function getTexmlDialCompleteUrl(baseUrl: string) {
-  return `${baseUrl}/api/telnyx/texml/dial-complete`;
-}
-
-async function resolveTelnyxSipUriForSettings(settings: {
-  telnyxConnectionId: string | null;
-}) {
-  const explicitSipUri = env("TELNYX_CALL_CENTER_SIP_URI");
-  if (explicitSipUri) {
-    return explicitSipUri.startsWith("sip:") ? explicitSipUri : `sip:${explicitSipUri}`;
-  }
-
-  const sipUsername = env("TELNYX_SIP_USERNAME");
-  if (sipUsername) {
-    return `sip:${sipUsername}@sip.telnyx.com`;
-  }
-
-  const connectionId = settings.telnyxConnectionId || env("TELNYX_CONNECTION_ID");
-  const body: unknown = await getTelnyxCredentialConnection(connectionId);
-  const data = isRecord(body) && isRecord(body.data) ? body.data : null;
-  const username = asString(data?.user_name);
-
-  if (!username) {
-    throw new TelnyxError("Telnyx SIP username is not configured", 422);
-  }
-
-  return `sip:${username}@sip.telnyx.com`;
-}
-
-function normalizeTexmlPayload(params: Record<string, string>) {
-  return {
-    ...params,
-    call_control_id: params.CallSid,
-    call_session_id: params.CallSessionId,
-    caller_id_name: params.CallerId,
-    direction: "inbound",
-    from: params.From,
-    occurred_at: params.Timestamp || params.OccurredAt || params.CallInitiatedAt,
-    recording_duration_sec: params.RecordingDuration,
-    recording_id: params.RecordingSid,
-    recording_url: params.RecordingUrl,
-    to: params.To,
-  };
-}
-
-async function upsertTexmlSession({
-  eventType,
-  locationId,
-  params,
-  practiceId,
-  status,
-}: {
-  eventType: string;
-  locationId: string | null;
-  params: Record<string, string>;
-  practiceId: string;
-  status: CallCenterSessionStatus;
-}) {
-  const callSid = asString(params.CallSid || params.CallSidLegacy);
-  const now = new Date();
-  const eventAt =
-    asDate(params.Timestamp) ||
-    asDate(params.OccurredAt) ||
-    asDate(params.CallInitiatedAt) ||
-    now;
-  const baseData = {
-    agentCallId: null,
-    callerName: asString(params.CallerId) || null,
-    direction: CallCenterSessionDirection.INBOUND,
-    endedAt:
-      status === "COMPLETED" || status === "MISSED" || status === "FAILED"
-        ? eventAt
-        : undefined,
-    fromPhone: normalizePhone(params.From) || null,
-    locationId,
-    metadata: jsonInput({
-      lastEventType: eventType,
-      payload: normalizeTexmlPayload(params),
-    }),
-    status,
-    telnyxCallSessionId: asString(params.CallSessionId) || null,
-    toPhone: normalizePhone(params.To) || null,
-    ...(status === "ACTIVE" ? { answeredAt: eventAt } : {}),
-  };
-
-  if (callSid) {
-    return prisma.callCenterSession.upsert({
-      create: {
-        ...baseData,
-        practiceId,
-        startedAt: eventAt,
-        telnyxCallControlId: callSid,
-      },
-      update: baseData,
-      where: {
-        telnyxCallControlId: callSid,
-      },
-    });
-  }
-
-  return prisma.callCenterSession.create({
-    data: {
-      ...baseData,
-      practiceId,
-      startedAt: eventAt,
-    },
-  });
-}
-
-async function resolveTexmlContext(params: Record<string, string>) {
-  const settings = await findSettingsByPracticePhone(phoneLookupVariants(params.To));
-
-  if (settings) {
-    const locationId = await resolveLocationIdForPhone(settings.practiceId, params.To);
-    return { locationId, settings };
-  }
-
-  const callSid = asString(params.CallSid || params.CallSidLegacy);
-  const session = callSid
-    ? await prisma.callCenterSession.findUnique({
-        include: {
-          practice: {
-            include: {
-              callCenterSettings: true,
-            },
-          },
-        },
-        where: {
-          telnyxCallControlId: callSid,
-        },
-      })
-    : null;
-
-  if (session?.practice.callCenterSettings) {
-    return {
-      locationId:
-        session.locationId ??
-        (await resolveLocationIdForPhone(
-          session.practiceId,
-          params.To || session.toPhone || "",
-        )),
-      settings: {
-        ...session.practice.callCenterSettings,
-        practice: session.practice,
-      },
-    };
-  }
-
-  return null;
-}
-
-function buildVoicemailTexml(settings: { voicemailGreeting: string }, baseUrl: string) {
-  const greeting = xmlEscape(settings.voicemailGreeting);
-  const recordingCallback = xmlEscape(getTexmlRecordingCallbackUrl(baseUrl));
-
-  return texmlResponse(
-    `<Say>${greeting}</Say><Record playBeep="true" timeout="5" maxLength="120" format="mp3" recordingStatusCallback="${recordingCallback}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed" /><Hangup />`,
-  );
-}
-
-export async function buildInboundCallCenterTexml(
-  params: Record<string, string>,
-  baseUrl: string,
-) {
-  const context = await resolveTexmlContext(params);
-
-  if (!context?.settings.enabled) {
-    return texmlRejectResponse();
-  }
-
-  await upsertTexmlSession({
-    eventType: "texml.inbound",
-    locationId: context.locationId,
-    params,
-    practiceId: context.settings.practiceId,
-    status: "RINGING",
-  });
-
-  const sipUri = xmlEscape(await resolveTelnyxSipUriForSettings(context.settings));
-  const dialAction = xmlEscape(getTexmlDialCompleteUrl(baseUrl));
-  const timeout = Math.max(5, Math.min(120, context.settings.voicemailTimeoutSec || 20));
-
-  return texmlResponse(
-    `<Dial action="${dialAction}" method="POST" timeout="${timeout}" answerOnBridge="true"><Sip>${sipUri}</Sip></Dial>`,
-  );
-}
-
-export async function buildDialCompleteTexml(
-  params: Record<string, string>,
-  baseUrl: string,
-) {
-  const context = await resolveTexmlContext(params);
-
-  if (!context?.settings.enabled) {
-    return texmlHangupResponse();
-  }
-
-  const dialStatus = asString(params.DialCallStatus || params.CallStatus).toLowerCase();
-  const answered = dialStatus === "completed";
-
-  await upsertTexmlSession({
-    eventType: "texml.dial_complete",
-    locationId: context.locationId,
-    params,
-    practiceId: context.settings.practiceId,
-    status: answered ? "COMPLETED" : "MISSED",
-  });
-
-  if (answered) {
-    return texmlHangupResponse();
-  }
-
-  return buildVoicemailTexml(context.settings, baseUrl);
-}
-
-export async function recordTexmlVoicemailCallback(params: Record<string, string>) {
-  const context = await resolveTexmlContext(params);
-
-  if (!context?.settings.enabled) {
-    return null;
-  }
-
-  const session = await upsertTexmlSession({
-    eventType: "texml.recording_completed",
-    locationId: context.locationId,
-    params,
-    practiceId: context.settings.practiceId,
-    status: "VOICEMAIL",
-  });
-  const voicemailParams = {
-    ...params,
-    From: params.From || session.fromPhone || "",
-    To: params.To || session.toPhone || "",
-  };
-
-  return recordVoicemail({
-    locationId: context.locationId,
-    payload: normalizeTexmlPayload(voicemailParams),
-    practiceId: context.settings.practiceId,
-    sessionId: session.id,
-  });
-}
-
 async function resolveAgentCallIdFromPayload(
   practiceId: string,
   payload: Record<string, unknown>,
@@ -1147,7 +877,6 @@ async function recordVoicemail({
 }) {
   const recordingId =
     asString(payload.recording_id) ||
-    asString(payload.RecordingSid) ||
     asString(payload.call_session_id) ||
     asString(payload.call_control_id);
   let recordingUrl = extractTelnyxRecordingUrl(payload);
@@ -1184,10 +913,9 @@ async function recordVoicemail({
 
   return prisma.callCenterVoicemail.upsert({
     create: {
-      callerName: asString(payload.caller_id_name) || asString(payload.CallerId) || null,
+      callerName: asString(payload.caller_id_name) || null,
       durationSec: Math.max(0, Math.round(duration)),
-      fromPhone:
-        normalizePhone(asString(payload.from) || asString(payload.From)) || "Unknown",
+      fromPhone: normalizePhone(asString(payload.from)) || "Unknown",
       locationId,
       missedCallId: missedCall?.id ?? null,
       practiceId,
@@ -1196,10 +924,9 @@ async function recordVoicemail({
       sessionId,
     },
     update: {
-      callerName: asString(payload.caller_id_name) || asString(payload.CallerId) || null,
+      callerName: asString(payload.caller_id_name) || null,
       durationSec: Math.max(0, Math.round(duration)),
-      fromPhone:
-        normalizePhone(asString(payload.from) || asString(payload.From)) || "Unknown",
+      fromPhone: normalizePhone(asString(payload.from)) || "Unknown",
       locationId,
       missedCallId: missedCall?.id ?? null,
       recordingUrl,

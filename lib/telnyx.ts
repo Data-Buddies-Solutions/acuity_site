@@ -68,23 +68,6 @@ export async function createTelnyxLoginToken(credentialId: string) {
   return token;
 }
 
-export async function getTelnyxCredentialConnection(connectionId: string) {
-  if (!connectionId) {
-    throw new TelnyxError("Telnyx connection ID is not configured");
-  }
-
-  const response = await telnyxFetch(`/v2/credential_connections/${connectionId}`);
-
-  if (!response.ok) {
-    throw new TelnyxError(
-      "Failed to retrieve Telnyx credential connection",
-      response.status,
-    );
-  }
-
-  return response.json();
-}
-
 export async function dialTelnyxCall({
   connectionId,
   from,
