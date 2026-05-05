@@ -110,6 +110,18 @@ function callerNumberFor(call: TelnyxCall) {
   return call.options?.remoteCallerNumber || call.options?.callerNumber || "Unknown";
 }
 
+function callerKeyFor(call: TelnyxCall) {
+  return normalizeToE164(callerNumberFor(call)) || callerNumberFor(call);
+}
+
+function isSameCaller(a: TelnyxCall, b: TelnyxCall) {
+  return callerKeyFor(a) === callerKeyFor(b);
+}
+
+function isEndedCall(call: TelnyxCall) {
+  return call.state === "hangup" || call.state === "destroy";
+}
+
 export default function SoftphonePanel({
   callerNumber,
   enabled,
@@ -144,6 +156,7 @@ export default function SoftphonePanel({
   const queuedCallsRef = useRef<TelnyxCall[]>([]);
   const answeringInboundCallIdsRef = useRef<Set<string>>(new Set());
   const outboundCallIdsRef = useRef<Set<string>>(new Set());
+  const incomingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     activeCallRef.current = activeCall;
   }, [activeCall]);
@@ -165,6 +178,13 @@ export default function SoftphonePanel({
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+  }, []);
+
+  const clearIncomingClearTimer = useCallback(() => {
+    if (incomingClearTimerRef.current) {
+      clearTimeout(incomingClearTimerRef.current);
+      incomingClearTimerRef.current = null;
     }
   }, []);
 
@@ -214,21 +234,59 @@ export default function SoftphonePanel({
     setCallDuration(0);
   }, [clearTimer, detachAudio]);
 
-  const setInboundRingingCall = useCallback((call: TelnyxCall) => {
-    if (incomingCallRef.current?.id === call.id) {
-      setIncomingCall(call);
-      return;
-    }
+  const setInboundRingingCall = useCallback(
+    (call: TelnyxCall) => {
+      clearIncomingClearTimer();
 
-    if (!incomingCallRef.current && !activeCallRef.current) {
-      setIncomingCall(call);
-      return;
-    }
+      if (
+        incomingCallRef.current?.id === call.id ||
+        (incomingCallRef.current && isSameCaller(incomingCallRef.current, call))
+      ) {
+        setIncomingCall(call);
+        setQueuedCalls((current) => current.filter((c) => !isSameCaller(c, call)));
+        return;
+      }
 
-    setQueuedCalls((current) =>
-      current.some((c) => c.id === call.id) ? current : [...current, call],
-    );
-  }, []);
+      if (!incomingCallRef.current && !activeCallRef.current) {
+        const queuedSameCaller = queuedCallsRef.current.find((c) =>
+          isSameCaller(c, call),
+        );
+        setIncomingCall(queuedSameCaller ?? call);
+        setQueuedCalls((current) => current.filter((c) => !isSameCaller(c, call)));
+        return;
+      }
+
+      setQueuedCalls((current) => {
+        const existingIndex = current.findIndex(
+          (c) => c.id === call.id || isSameCaller(c, call),
+        );
+
+        if (existingIndex === -1) {
+          return [...current, call];
+        }
+
+        const next = [...current];
+        next[existingIndex] = call;
+        return next;
+      });
+    },
+    [clearIncomingClearTimer],
+  );
+
+  const scheduleIncomingClear = useCallback(
+    (call: TelnyxCall) => {
+      clearIncomingClearTimer();
+      incomingClearTimerRef.current = setTimeout(() => {
+        setIncomingCall((current) => (current?.id === call.id ? null : current));
+        if (!activeCallRef.current && queuedCallsRef.current.length === 0) {
+          setDirection(null);
+          setStatus((s) => (s === "error" ? s : "ready"));
+        }
+        incomingClearTimerRef.current = null;
+      }, 1500);
+    },
+    [clearIncomingClearTimer],
+  );
 
   const promoteToActiveCall = useCallback(
     (call: TelnyxCall, inbound: boolean) => {
@@ -334,11 +392,24 @@ export default function SoftphonePanel({
           if (call.state === "hangup" || call.state === "destroy") {
             answeringInboundCallIdsRef.current.delete(call.id);
             outboundCallIdsRef.current.delete(call.id);
-            const remainingQueuedCalls = queuedCallsRef.current.filter(
+            let remainingQueuedCalls = queuedCallsRef.current.filter(
               (c) => c.id !== call.id,
             );
-            const remainingIncomingCall =
-              incomingCallRef.current?.id === call.id ? null : incomingCallRef.current;
+            let remainingIncomingCall = incomingCallRef.current;
+
+            if (incomingCallRef.current?.id === call.id) {
+              const replacement = remainingQueuedCalls.find((c) => isSameCaller(c, call));
+
+              if (replacement) {
+                remainingIncomingCall = replacement;
+                remainingQueuedCalls = remainingQueuedCalls.filter(
+                  (c) => c.id !== replacement.id,
+                );
+              } else {
+                scheduleIncomingClear(call);
+              }
+            }
+
             setIncomingCall(remainingIncomingCall);
             setQueuedCalls(remainingQueuedCalls);
             setHeldCalls((current) => current.filter((c) => c.id !== call.id));
@@ -386,16 +457,19 @@ export default function SoftphonePanel({
     return () => {
       cancelled = true;
       clearTimer();
+      clearIncomingClearTimer();
       detachAudio();
       clientRef.current?.disconnect();
       clientRef.current = null;
     };
   }, [
     clearTimer,
+    clearIncomingClearTimer,
     detachAudio,
     enabled,
     promoteToActiveCall,
     resetActiveCallUi,
+    scheduleIncomingClear,
     setInboundRingingCall,
   ]);
 
@@ -710,7 +784,10 @@ export default function SoftphonePanel({
                 <Button
                   aria-label="Answer incoming call"
                   className="h-8 px-2"
-                  disabled={answeringInboundCallIdsRef.current.has(incomingCall.id)}
+                  disabled={
+                    answeringInboundCallIdsRef.current.has(incomingCall.id) ||
+                    isEndedCall(incomingCall)
+                  }
                   onClick={() => answerCall(incomingCall.id)}
                   size="sm"
                   variant="primary"
@@ -820,7 +897,10 @@ export default function SoftphonePanel({
                     <Button
                       aria-label="Answer queued call"
                       className="h-8 px-2"
-                      disabled={answeringInboundCallIdsRef.current.has(call.id)}
+                      disabled={
+                        answeringInboundCallIdsRef.current.has(call.id) ||
+                        isEndedCall(call)
+                      }
                       onClick={() => answerCall(call.id)}
                       size="sm"
                       variant="primary"
