@@ -463,7 +463,7 @@ const ABITA_CRYSTAL_RIVER_INSURANCE_RULES = {
   officeLabel: "Crystal River",
   aliasRules: [
     {
-      aliases: ["Florida Blue HMO"],
+      aliases: ["Florida Blue HMO", "Fl Blue HMO"],
       status: "not_accepted",
       family: "Florida Blue HMO",
       callerPlan: "Florida Blue HMO",
