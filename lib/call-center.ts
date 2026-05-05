@@ -852,11 +852,32 @@ async function recordMissedCall({
     }
   }
 
+  const fromPhone = normalizePhone(asString(payload.from)) || "Unknown";
+  const recentDuplicate = await prisma.callCenterMissedCall.findFirst({
+    orderBy: {
+      createdAt: "desc",
+    },
+    where: {
+      calledBack: false,
+      createdAt: {
+        gte: new Date(Date.now() - 90_000),
+      },
+      fromPhone,
+      locationId,
+      practiceId,
+      resolvedAt: null,
+    },
+  });
+
+  if (recentDuplicate) {
+    return recentDuplicate;
+  }
+
   return prisma.callCenterMissedCall.create({
     data: {
       agentCallId,
       callerName: asString(payload.caller_id_name) || null,
-      fromPhone: normalizePhone(asString(payload.from)) || "Unknown",
+      fromPhone,
       locationId,
       practiceId,
       sessionId,
