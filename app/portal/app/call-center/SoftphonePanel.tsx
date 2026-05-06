@@ -41,6 +41,8 @@ type TelnyxTokenResponse =
       token: string;
     };
 
+const CALL_CENTER_DEBUG = process.env.NEXT_PUBLIC_CALL_CENTER_DEBUG === "true";
+
 const keypadRows = [
   ["1", "2", "3"],
   ["4", "5", "6"],
@@ -106,6 +108,14 @@ function isInboundDirection(direction: unknown) {
   return ["inbound", "incoming"].includes(direction.toLowerCase());
 }
 
+function isOutboundDirection(direction: unknown) {
+  if (typeof direction !== "string") {
+    return false;
+  }
+
+  return ["outbound", "outgoing"].includes(direction.toLowerCase());
+}
+
 function callerNumberFor(call: TelnyxCall) {
   return call.options?.remoteCallerNumber || call.options?.callerNumber || "Unknown";
 }
@@ -122,6 +132,32 @@ function isEndedCall(call: TelnyxCall) {
   return call.state === "hangup" || call.state === "destroy";
 }
 
+function callDebugSnapshot(call: TelnyxCall | null | undefined) {
+  if (!call) {
+    return null;
+  }
+
+  const remoteStream = call.remoteStream;
+
+  return {
+    callerNumber: call.options?.callerNumber ?? null,
+    direction: call.direction ?? null,
+    hasRemoteStream: Boolean(remoteStream),
+    id: call.id,
+    remoteCallerNumber: call.options?.remoteCallerNumber ?? null,
+    remoteStreamTracks:
+      remoteStream?.getTracks().map((track) => ({
+        enabled: track.enabled,
+        kind: track.kind,
+        muted: track.muted,
+        readyState: track.readyState,
+      })) ?? [],
+    state: call.state ?? null,
+    telnyxCallControlId: call.telnyxIDs?.telnyxCallControlId ?? null,
+    telnyxSessionId: call.telnyxIDs?.telnyxSessionId ?? null,
+  };
+}
+
 export default function SoftphonePanel({
   callerNumber,
   enabled,
@@ -133,6 +169,9 @@ export default function SoftphonePanel({
 }) {
   const clientRef = useRef<TelnyxRTC | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const debugStartMsRef = useRef<number>(
+    typeof performance === "undefined" ? Date.now() : performance.now(),
+  );
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState<TelnyxStatus>(
     enabled ? "initializing" : "offline",
@@ -149,6 +188,7 @@ export default function SoftphonePanel({
   const [showKeypad, setShowKeypad] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [answeringCallIds, setAnsweringCallIds] = useState<Set<string>>(() => new Set());
 
   // Refs mirror state so the Telnyx notification handler (created once) can read latest values
   const activeCallRef = useRef<TelnyxCall | null>(null);
@@ -157,6 +197,42 @@ export default function SoftphonePanel({
   const answeringInboundCallIdsRef = useRef<Set<string>>(new Set());
   const outboundCallIdsRef = useRef<Set<string>>(new Set());
   const incomingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debugLog = useCallback((event: string, details: Record<string, unknown> = {}) => {
+    if (!CALL_CENTER_DEBUG) {
+      return;
+    }
+
+    const now = typeof performance === "undefined" ? Date.now() : performance.now();
+
+    console.info("[call-center-debug]", {
+      at: new Date().toISOString(),
+      elapsedMs: Math.round(now - debugStartMsRef.current),
+      event,
+      ...details,
+    });
+  }, []);
+
+  const setAnsweringCallPending = useCallback((callId: string, pending: boolean) => {
+    if (pending) {
+      answeringInboundCallIdsRef.current.add(callId);
+    } else {
+      answeringInboundCallIdsRef.current.delete(callId);
+    }
+
+    setAnsweringCallIds((current) => {
+      const next = new Set(current);
+
+      if (pending) {
+        next.add(callId);
+      } else {
+        next.delete(callId);
+      }
+
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     activeCallRef.current = activeCall;
   }, [activeCall]);
@@ -168,11 +244,33 @@ export default function SoftphonePanel({
   }, [queuedCalls]);
 
   useEffect(() => {
+    debugLog("ui-state-changed", {
+      activeCall: callDebugSnapshot(activeCall),
+      answeringCallIds: [...answeringCallIds],
+      direction,
+      heldCallIds: heldCalls.map((call) => call.id),
+      incomingCall: callDebugSnapshot(incomingCall),
+      queuedCallIds: queuedCalls.map((call) => call.id),
+      status,
+    });
+  }, [
+    activeCall,
+    answeringCallIds,
+    debugLog,
+    direction,
+    heldCalls,
+    incomingCall,
+    queuedCalls,
+    status,
+  ]);
+
+  useEffect(() => {
     if (!seedNumber || !seedNumber.value) {
       return;
     }
+    debugLog("callback-seeded", { value: seedNumber.value });
     setDraftNumber(seedNumber.value);
-  }, [seedNumber]);
+  }, [debugLog, seedNumber]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -198,11 +296,12 @@ export default function SoftphonePanel({
 
   const detachAudio = useCallback(() => {
     if (audioRef.current) {
+      debugLog("audio-detached");
       audioRef.current.srcObject = null;
       audioRef.current.remove();
       audioRef.current = null;
     }
-  }, []);
+  }, [debugLog]);
 
   const attachAudio = useCallback(
     (call: TelnyxCall) => {
@@ -210,6 +309,7 @@ export default function SoftphonePanel({
       const stream = call.remoteStream;
 
       if (!stream) {
+        debugLog("audio-attach-skipped", { call: callDebugSnapshot(call) });
         return;
       }
 
@@ -218,11 +318,13 @@ export default function SoftphonePanel({
       audio.srcObject = stream;
       document.body.appendChild(audio);
       audioRef.current = audio;
+      debugLog("audio-attached", { call: callDebugSnapshot(call) });
     },
-    [detachAudio],
+    [debugLog, detachAudio],
   );
 
   const resetActiveCallUi = useCallback(() => {
+    debugLog("active-call-reset", { call: callDebugSnapshot(activeCallRef.current) });
     clearTimer();
     detachAudio();
     setActiveCall(null);
@@ -232,11 +334,17 @@ export default function SoftphonePanel({
     setHeld(false);
     setShowKeypad(false);
     setCallDuration(0);
-  }, [clearTimer, detachAudio]);
+  }, [clearTimer, debugLog, detachAudio]);
 
   const setInboundRingingCall = useCallback(
     (call: TelnyxCall) => {
       clearIncomingClearTimer();
+      debugLog("inbound-ringing-upsert", {
+        activeCallId: activeCallRef.current?.id ?? null,
+        call: callDebugSnapshot(call),
+        incomingCallId: incomingCallRef.current?.id ?? null,
+        queuedCallIds: queuedCallsRef.current.map((queuedCall) => queuedCall.id),
+      });
 
       if (
         incomingCallRef.current?.id === call.id ||
@@ -270,13 +378,15 @@ export default function SoftphonePanel({
         return next;
       });
     },
-    [clearIncomingClearTimer],
+    [clearIncomingClearTimer, debugLog],
   );
 
   const scheduleIncomingClear = useCallback(
     (call: TelnyxCall) => {
       clearIncomingClearTimer();
+      debugLog("incoming-clear-scheduled", { call: callDebugSnapshot(call) });
       incomingClearTimerRef.current = setTimeout(() => {
+        debugLog("incoming-clear-fired", { call: callDebugSnapshot(call) });
         setIncomingCall((current) => (current?.id === call.id ? null : current));
         if (!activeCallRef.current && queuedCallsRef.current.length === 0) {
           setDirection(null);
@@ -285,12 +395,16 @@ export default function SoftphonePanel({
         incomingClearTimerRef.current = null;
       }, 1500);
     },
-    [clearIncomingClearTimer],
+    [clearIncomingClearTimer, debugLog],
   );
 
   const promoteToActiveCall = useCallback(
     (call: TelnyxCall, inbound: boolean) => {
-      answeringInboundCallIdsRef.current.delete(call.id);
+      debugLog("call-promoted-active", {
+        call: callDebugSnapshot(call),
+        inbound,
+      });
+      setAnsweringCallPending(call.id, false);
       attachAudio(call);
       startTimer();
       setActiveCall(call);
@@ -302,11 +416,12 @@ export default function SoftphonePanel({
       setDirection(inbound ? "inbound" : "outbound");
       setStatus("on-call");
     },
-    [attachAudio, startTimer],
+    [attachAudio, debugLog, setAnsweringCallPending, startTimer],
   );
 
   useEffect(() => {
     if (!enabled) {
+      debugLog("softphone-disabled");
       setStatus("offline");
       return;
     }
@@ -315,8 +430,17 @@ export default function SoftphonePanel({
 
     async function connect() {
       try {
+        debugLog("token-request-start");
         const response = await fetch("/api/portal/call-center/telnyx-token");
         const data = await response.json();
+        debugLog("token-request-finished", {
+          ok: response.ok,
+          status: response.status,
+          tokenMode:
+            data && typeof data === "object" && "login" in data
+              ? "login-password"
+              : "login-token",
+        });
 
         if (!response.ok) {
           throw new Error(data.error || "Unable to connect Telnyx");
@@ -334,6 +458,7 @@ export default function SoftphonePanel({
 
         client.on("telnyx.ready", () => {
           if (!cancelled) {
+            debugLog("telnyx-ready");
             setStatus("ready");
             setError(null);
           }
@@ -341,6 +466,9 @@ export default function SoftphonePanel({
 
         client.on("telnyx.error", (event) => {
           if (!cancelled) {
+            debugLog("telnyx-error", {
+              message: event.error?.message ?? null,
+            });
             setStatus("error");
             setError(event.error?.message || "Telnyx connection failed");
           }
@@ -348,6 +476,7 @@ export default function SoftphonePanel({
 
         client.on("telnyx.socket.close", () => {
           if (!cancelled) {
+            debugLog("telnyx-socket-close");
             setStatus("offline");
           }
         });
@@ -362,35 +491,56 @@ export default function SoftphonePanel({
             return;
           }
 
-          const inbound = isInboundDirection(call.direction);
-          const outbound = outboundCallIdsRef.current.has(call.id);
+          const outbound =
+            outboundCallIdsRef.current.has(call.id) ||
+            isOutboundDirection(call.direction);
+          const inbound = !outbound && isInboundDirection(call.direction);
           const ringingStates = ["new", "trying", "requesting", "ringing", "early"];
+          debugLog("call-update", {
+            call: callDebugSnapshot(call),
+            classifiedInbound: inbound,
+            classifiedOutbound: outbound,
+            incomingCallId: incomingCallRef.current?.id ?? null,
+            isAnswerPending: answeringInboundCallIdsRef.current.has(call.id),
+            queuedCallIds: queuedCallsRef.current.map((queuedCall) => queuedCall.id),
+          });
 
           if (ringingStates.includes(call.state || "")) {
             if (outbound) {
+              setIncomingCall((current) => (current?.id === call.id ? null : current));
+              setQueuedCalls((current) =>
+                current.filter((queued) => queued.id !== call.id),
+              );
               setActiveCall(call);
               setDirection("outbound");
               setStatus("ringing");
-            } else {
+            } else if (inbound) {
               setInboundRingingCall(call);
               setStatus("ringing");
+            } else {
+              debugLog("call-update-unclassified-ringing", {
+                call: callDebugSnapshot(call),
+              });
             }
             return;
           }
 
           if (call.state === "active") {
-            if (!outbound && !answeringInboundCallIdsRef.current.has(call.id)) {
+            if (inbound && !answeringInboundCallIdsRef.current.has(call.id)) {
+              debugLog("inbound-active-without-answer-flag", {
+                call: callDebugSnapshot(call),
+              });
               setInboundRingingCall(call);
               setStatus("ringing");
               return;
             }
 
-            promoteToActiveCall(call, inbound || !outbound);
+            promoteToActiveCall(call, inbound);
             return;
           }
 
           if (call.state === "hangup" || call.state === "destroy") {
-            answeringInboundCallIdsRef.current.delete(call.id);
+            setAnsweringCallPending(call.id, false);
             outboundCallIdsRef.current.delete(call.id);
             let remainingQueuedCalls = queuedCallsRef.current.filter(
               (c) => c.id !== call.id,
@@ -438,10 +588,17 @@ export default function SoftphonePanel({
           }
         });
 
+        debugLog("telnyx-connect-start");
         client.connect();
         clientRef.current = client;
       } catch (connectError) {
         if (!cancelled) {
+          debugLog("telnyx-connect-failed", {
+            message:
+              connectError instanceof Error
+                ? connectError.message
+                : "Telnyx connection failed",
+          });
           setStatus("error");
           setError(
             connectError instanceof Error
@@ -456,6 +613,7 @@ export default function SoftphonePanel({
 
     return () => {
       cancelled = true;
+      debugLog("softphone-cleanup");
       clearTimer();
       clearIncomingClearTimer();
       detachAudio();
@@ -465,11 +623,13 @@ export default function SoftphonePanel({
   }, [
     clearTimer,
     clearIncomingClearTimer,
+    debugLog,
     detachAudio,
     enabled,
     promoteToActiveCall,
     resetActiveCallUi,
     scheduleIncomingClear,
+    setAnsweringCallPending,
     setInboundRingingCall,
   ]);
 
@@ -570,9 +730,18 @@ export default function SoftphonePanel({
     const client = clientRef.current;
 
     if (!client || !to || status !== "ready") {
+      debugLog("outbound-call-blocked", {
+        hasClient: Boolean(client),
+        hasDestination: Boolean(to),
+        status,
+      });
       return;
     }
 
+    debugLog("outbound-call-start", {
+      callerNumber,
+      destinationNumber: to,
+    });
     setDialedNumber(to);
     setDirection("outbound");
     setError(null);
@@ -583,27 +752,50 @@ export default function SoftphonePanel({
         destinationNumber: to,
       });
       outboundCallIdsRef.current.add(call.id);
+      debugLog("outbound-call-created", { call: callDebugSnapshot(call) });
       setDraftNumber("");
     } catch (callError) {
+      debugLog("outbound-call-failed", {
+        message: callError instanceof Error ? callError.message : "Unable to start call",
+      });
       setStatus("error");
       setError(callError instanceof Error ? callError.message : "Unable to start call");
     }
-  }, [callerNumber, draftNumber, status]);
+  }, [callerNumber, debugLog, draftNumber, status]);
 
   const answerCall = useCallback(
-    (callId: string) => {
+    async (callId: string) => {
       const queued =
         incomingCall?.id === callId
           ? incomingCall
           : queuedCalls.find((c) => c.id === callId);
-      if (!queued) return;
-      if (answeringInboundCallIdsRef.current.has(callId)) return;
+      if (!queued) {
+        debugLog("answer-click-missing-call", { callId });
+        return;
+      }
+      if (answeringInboundCallIdsRef.current.has(callId)) {
+        debugLog("answer-click-ignored-pending", {
+          call: callDebugSnapshot(queued),
+        });
+        return;
+      }
+
+      debugLog("answer-clicked", {
+        activeCall: callDebugSnapshot(activeCall),
+        call: callDebugSnapshot(queued),
+      });
 
       // Put current active on hold (if any), move it to held list
       if (activeCall) {
         try {
+          debugLog("answer-holding-active-call", {
+            activeCall: callDebugSnapshot(activeCall),
+          });
           activeCall.hold();
         } catch {
+          debugLog("answer-hold-active-call-failed", {
+            activeCall: callDebugSnapshot(activeCall),
+          });
           // ignore — Telnyx will reject if not in a holdable state
         }
         setHeldCalls((current) =>
@@ -614,13 +806,20 @@ export default function SoftphonePanel({
       }
       // The queued call answering will trigger an "active" notification, which
       // promotes it to activeCall and removes it from queuedCalls.
-      answeringInboundCallIdsRef.current.add(callId);
+      setAnsweringCallPending(callId, true);
       try {
         if (queued.state !== "active") {
-          queued.answer();
+          debugLog("answer-request-start", { call: callDebugSnapshot(queued) });
+          await queued.answer();
+          debugLog("answer-request-resolved", { call: callDebugSnapshot(queued) });
         }
-      } catch {
-        answeringInboundCallIdsRef.current.delete(callId);
+      } catch (answerError) {
+        debugLog("answer-request-failed", {
+          call: callDebugSnapshot(queued),
+          message:
+            answerError instanceof Error ? answerError.message : "Unable to answer call",
+        });
+        setAnsweringCallPending(callId, false);
         return;
       }
 
@@ -628,7 +827,14 @@ export default function SoftphonePanel({
         promoteToActiveCall(queued, true);
       }
     },
-    [activeCall, incomingCall, promoteToActiveCall, queuedCalls],
+    [
+      activeCall,
+      debugLog,
+      incomingCall,
+      promoteToActiveCall,
+      queuedCalls,
+      setAnsweringCallPending,
+    ],
   );
 
   const declineCall = useCallback(
@@ -637,13 +843,24 @@ export default function SoftphonePanel({
         incomingCall?.id === callId
           ? incomingCall
           : queuedCalls.find((c) => c.id === callId);
-      if (!queued) return;
+      if (!queued) {
+        debugLog("decline-click-missing-call", { callId });
+        return;
+      }
+      debugLog("decline-clicked", { call: callDebugSnapshot(queued) });
       try {
         queued.hangup();
-      } catch {
+      } catch (declineError) {
+        debugLog("decline-failed", {
+          call: callDebugSnapshot(queued),
+          message:
+            declineError instanceof Error
+              ? declineError.message
+              : "Unable to decline call",
+        });
         // ignore
       }
-      answeringInboundCallIdsRef.current.delete(callId);
+      setAnsweringCallPending(callId, false);
       const remainingIncomingCall = incomingCall?.id === callId ? null : incomingCall;
       const remainingQueuedCalls = queuedCalls.filter((c) => c.id !== callId);
       setIncomingCall(remainingIncomingCall);
@@ -653,7 +870,7 @@ export default function SoftphonePanel({
         setStatus((s) => (s === "error" ? s : "ready"));
       }
     },
-    [activeCall, incomingCall, queuedCalls],
+    [activeCall, debugLog, incomingCall, queuedCalls, setAnsweringCallPending],
   );
 
   const resumeHeld = useCallback(
@@ -699,9 +916,10 @@ export default function SoftphonePanel({
 
   const hangUp = useCallback(() => {
     if (activeCall) {
+      debugLog("hangup-clicked", { call: callDebugSnapshot(activeCall) });
       activeCall.hangup();
     }
-  }, [activeCall]);
+  }, [activeCall, debugLog]);
 
   const toggleMute = useCallback(() => {
     if (!activeCall) return;
@@ -729,6 +947,9 @@ export default function SoftphonePanel({
       ? callerNumberFor(activeCall)
       : dialedNumber || (activeCall ? callerNumberFor(activeCall) : "");
   const canDial = status === "ready" && Boolean(normalizeToE164(draftNumber));
+  const incomingCallAnswering = incomingCall
+    ? answeringCallIds.has(incomingCall.id)
+    : false;
 
   return (
     <section className="rounded-lg border border-black/8 bg-white shadow-[0_14px_40px_rgba(16,39,44,0.04)]">
@@ -782,18 +1003,19 @@ export default function SoftphonePanel({
               </div>
               <div className="flex shrink-0 gap-1">
                 <Button
-                  aria-label="Answer incoming call"
-                  className="h-8 px-2"
-                  disabled={
-                    answeringInboundCallIdsRef.current.has(incomingCall.id) ||
-                    isEndedCall(incomingCall)
+                  aria-label={
+                    incomingCallAnswering
+                      ? "Answering incoming call"
+                      : "Answer incoming call"
                   }
-                  onClick={() => answerCall(incomingCall.id)}
+                  className="h-8 px-2"
+                  disabled={incomingCallAnswering || isEndedCall(incomingCall)}
+                  onClick={() => void answerCall(incomingCall.id)}
                   size="sm"
                   variant="primary"
                 >
                   <Phone className="h-4 w-4" aria-hidden="true" />
-                  Answer
+                  {incomingCallAnswering ? "Answering" : "Answer"}
                 </Button>
                 <Button
                   aria-label="Decline incoming call"
@@ -895,18 +1117,19 @@ export default function SoftphonePanel({
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <Button
-                      aria-label="Answer queued call"
-                      className="h-8 px-2"
-                      disabled={
-                        answeringInboundCallIdsRef.current.has(call.id) ||
-                        isEndedCall(call)
+                      aria-label={
+                        answeringCallIds.has(call.id)
+                          ? "Answering queued call"
+                          : "Answer queued call"
                       }
-                      onClick={() => answerCall(call.id)}
+                      className="h-8 px-2"
+                      disabled={answeringCallIds.has(call.id) || isEndedCall(call)}
+                      onClick={() => void answerCall(call.id)}
                       size="sm"
                       variant="primary"
                     >
                       <Phone className="h-4 w-4" aria-hidden="true" />
-                      Answer
+                      {answeringCallIds.has(call.id) ? "Answering" : "Answer"}
                     </Button>
                     <Button
                       aria-label="Decline queued call"
