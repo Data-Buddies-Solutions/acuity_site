@@ -269,6 +269,7 @@ function callDebugSnapshot(call: TelnyxCall | null | undefined) {
 }
 
 export type SoftphoneHandle = {
+  clearAnswerPending: (ringKey: string) => void;
   markAnswerPending: (ringKey: string) => void;
 };
 
@@ -333,6 +334,9 @@ const SoftphonePanel = forwardRef<
   const queuedCallsRef = useRef<TelnyxCall[]>([]);
   const answeringInboundCallIdsRef = useRef<Set<string>>(new Set());
   const answeringRingKeysRef = useRef<Set<string>>(new Set());
+  const pendingAnswerExpireTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
   const answeredInboundCallIdsRef = useRef<Set<string>>(new Set());
   const inboundCallIdsRef = useRef<Set<string>>(new Set());
   const dismissedRingKeysRef = useRef<Set<string>>(new Set());
@@ -399,6 +403,11 @@ const SoftphonePanel = forwardRef<
       answeringRingKeysRef.current.add(ringKey);
     } else {
       answeringRingKeysRef.current.delete(ringKey);
+      const timer = pendingAnswerExpireTimersRef.current.get(ringKey);
+      if (timer) {
+        clearTimeout(timer);
+        pendingAnswerExpireTimersRef.current.delete(ringKey);
+      }
     }
 
     setAnsweringRingKeys((current) => {
@@ -417,23 +426,81 @@ const SoftphonePanel = forwardRef<
   const setAnsweringPendingForCall = useCallback(
     (call: TelnyxCall, pending: boolean) => {
       setAnsweringCallPending(call.id, pending);
-      setAnsweringRingPending(ringKeyFor(call), pending);
+      const keys = new Set(
+        [ringKeyFor(call), clientStateQueueItemId(call), callerKeyFor(call)].filter(
+          Boolean,
+        ),
+      );
+
+      for (const key of keys) {
+        setAnsweringRingPending(key, pending);
+      }
     },
     [setAnsweringCallPending, setAnsweringRingPending],
+  );
+
+  const scheduleAnswerPendingExpiry = useCallback(
+    (ringKey: string) => {
+      if (!ringKey) {
+        return;
+      }
+
+      const existing = pendingAnswerExpireTimersRef.current.get(ringKey);
+      if (existing) {
+        clearTimeout(existing);
+      }
+
+      const timeoutMs = Math.max(10_000, ringingTimeoutMs + 2_000);
+      const timer = setTimeout(() => {
+        debugLog("pending-answer-expired", { ringKey, timeoutMs });
+        setAnsweringRingPending(ringKey, false);
+      }, timeoutMs);
+      pendingAnswerExpireTimersRef.current.set(ringKey, timer);
+    },
+    [debugLog, ringingTimeoutMs, setAnsweringRingPending],
   );
 
   useImperativeHandle(
     ref,
     () => ({
+      clearAnswerPending: (ringKey: string) => {
+        if (!ringKey) return;
+
+        setAnsweringRingPending(ringKey, false);
+
+        const callMatchesKey = (call: TelnyxCall) =>
+          ringKeyFor(call) === ringKey ||
+          clientStateQueueItemId(call) === ringKey ||
+          callerKeyFor(call) === ringKey;
+        const matches = [
+          ...queuedCallsRef.current.filter(callMatchesKey),
+          ...(incomingCallRef.current && callMatchesKey(incomingCallRef.current)
+            ? [incomingCallRef.current]
+            : []),
+        ];
+        const clearedCallIds = new Set<string>();
+
+        for (const call of matches) {
+          if (clearedCallIds.has(call.id)) {
+            continue;
+          }
+
+          clearedCallIds.add(call.id);
+          setAnsweringPendingForCall(call, false);
+        }
+      },
       markAnswerPending: (ringKey: string) => {
         if (!ringKey) return;
         // If the ring already arrived for this key, answer it now; otherwise
         // arm the auto-answer so the next ringing notification picks it up.
         dismissedRingKeysRef.current.delete(ringKey);
         setAnsweringRingPending(ringKey, true);
+        scheduleAnswerPendingExpiry(ringKey);
 
         const callMatchesKey = (call: TelnyxCall) =>
-          ringKeyFor(call) === ringKey || clientStateQueueItemId(call) === ringKey;
+          ringKeyFor(call) === ringKey ||
+          clientStateQueueItemId(call) === ringKey ||
+          callerKeyFor(call) === ringKey;
         const matchInQueue = queuedCallsRef.current.find(callMatchesKey);
         const matchIncoming =
           incomingCallRef.current && callMatchesKey(incomingCallRef.current)
@@ -450,7 +517,12 @@ const SoftphonePanel = forwardRef<
         }
       },
     }),
-    [setAnsweringCallPending, setAnsweringRingPending],
+    [
+      scheduleAnswerPendingExpiry,
+      setAnsweringCallPending,
+      setAnsweringPendingForCall,
+      setAnsweringRingPending,
+    ],
   );
 
   const isAnsweringCall = useCallback(
@@ -620,6 +692,10 @@ const SoftphonePanel = forwardRef<
       clearTimeout(timer);
     }
     pendingTerminalClearRef.current.clear();
+    for (const timer of pendingAnswerExpireTimersRef.current.values()) {
+      clearTimeout(timer);
+    }
+    pendingAnswerExpireTimersRef.current.clear();
   }, []);
 
   const clearRingingCallUi = useCallback(

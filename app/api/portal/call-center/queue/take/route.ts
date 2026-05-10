@@ -23,18 +23,20 @@ export async function POST(request: Request) {
   }
 
   const input = body as Record<string, unknown>;
+  const browserSessionId = asString(input.browserSessionId);
   const queueItemId = asString(input.queueItemId);
   const seatId = asString(input.seatId);
 
-  if (!queueItemId || !seatId) {
+  if (!browserSessionId || !queueItemId || !seatId) {
     return NextResponse.json(
-      { error: "queueItemId and seatId are required" },
+      { error: "browserSessionId, queueItemId, and seatId are required" },
       { status: 400 },
     );
   }
 
   try {
     const result = await ringStationForQueuedCall({
+      browserSessionId,
       queueItemId,
       seatId,
     });

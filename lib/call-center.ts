@@ -1,6 +1,7 @@
 import {
   CallCenterPresenceStatus,
   type CallCenterQueueStatus,
+  type CallCenterRingAttemptStatus,
   CallCenterSessionDirection,
   type CallCenterSessionStatus,
   type Prisma,
@@ -30,17 +31,50 @@ const MISSED_CAUSES = new Set([
 ]);
 const PRESENCE_EXPIRATION_MS = 45_000;
 const AGENT_RING_TIMEOUT_SEC = 6;
+const RETRYABLE_RING_ATTEMPT_STATUSES = new Set<CallCenterRingAttemptStatus>([
+  "CANCELED",
+  "FAILED",
+  "NO_ANSWER",
+]);
+const LIVE_RING_ATTEMPT_STATUSES: CallCenterRingAttemptStatus[] = [
+  "DIALING",
+  "RINGING",
+  "ANSWERED",
+  "BRIDGED",
+];
+const DEFAULT_QUEUE_WAIT_TIMEOUT_SEC = 10;
+const MAX_QUEUE_WAIT_TIMEOUT_SEC = 120;
 
-// Total length of the ringback playback. When the playback ends naturally
-// (caller hasn't been picked up by anyone), we route the queue item to
-// voicemail. Keep this in sync with the queue-wait timeout the team wants.
-const QUEUE_WAIT_TIMEOUT_SEC = 10;
-const RINGBACK_WAV_BASE64 = createRingbackWavBase64();
+const ringbackWavCache = new Map<number, string>();
 const VOICEMAIL_BEEP_WAV_BASE64 = createVoicemailBeepWavBase64();
 
-function createRingbackWavBase64() {
+function normalizeVoicemailTimeoutSec(timeoutSec: number | null | undefined) {
+  if (!Number.isFinite(timeoutSec)) {
+    return DEFAULT_QUEUE_WAIT_TIMEOUT_SEC;
+  }
+
+  return Math.min(
+    MAX_QUEUE_WAIT_TIMEOUT_SEC,
+    Math.max(1, Math.round(timeoutSec || DEFAULT_QUEUE_WAIT_TIMEOUT_SEC)),
+  );
+}
+
+function ringbackWavBase64For(timeoutSec: number | null | undefined) {
+  const durationSec = normalizeVoicemailTimeoutSec(timeoutSec);
+  const cached = ringbackWavCache.get(durationSec);
+
+  if (cached) {
+    return cached;
+  }
+
+  const wav = createRingbackWavBase64(durationSec);
+  ringbackWavCache.set(durationSec, wav);
+
+  return wav;
+}
+
+function createRingbackWavBase64(durationSec = DEFAULT_QUEUE_WAIT_TIMEOUT_SEC) {
   const sampleRate = 8000;
-  const durationSec = QUEUE_WAIT_TIMEOUT_SEC;
   const toneDurationSec = 2;
   const sampleCount = sampleRate * durationSec;
   const bytesPerSample = 2;
@@ -1397,7 +1431,7 @@ async function ringAvailableSeatsForQueueItem({
 
   const results = await Promise.all(
     availableSeats.map(async (seat) => {
-      let attempt: { id: string };
+      let attempt: { id: string } | null = null;
 
       try {
         attempt = await prisma.callCenterRingAttempt.create({
@@ -1411,16 +1445,53 @@ async function ringAvailableSeatsForQueueItem({
           },
         });
       } catch (error) {
-        if (isUniqueConstraintError(error)) {
-          console.info("[call-center] skipping duplicate station ring", {
+        if (!isUniqueConstraintError(error)) {
+          throw error;
+        }
+
+        const existingAttempt = await prisma.callCenterRingAttempt.findFirst({
+          select: {
+            id: true,
+            status: true,
+          },
+          where: {
+            queueItemId,
+            seatId: seat.id,
+          },
+        });
+
+        if (
+          existingAttempt &&
+          RETRYABLE_RING_ATTEMPT_STATUSES.has(existingAttempt.status)
+        ) {
+          await prisma.callCenterRingAttempt.delete({
+            where: {
+              id: existingAttempt.id,
+            },
+          });
+          attempt = await prisma.callCenterRingAttempt.create({
+            data: {
+              queueItemId,
+              seatId: seat.id,
+              status: "DIALING",
+            },
+            select: {
+              id: true,
+            },
+          });
+        } else {
+          console.info("[call-center] skipping active duplicate station ring", {
             queueItemId,
             seatId: seat.id,
             seatLabel: seat.label,
+            status: existingAttempt?.status ?? null,
           });
           return false;
         }
+      }
 
-        throw error;
+      if (!attempt) {
+        return false;
       }
 
       const to = telnyxSipUri(seat.sipUsername);
@@ -1494,6 +1565,32 @@ async function ringAvailableSeatsForQueueItem({
   return results.filter(Boolean).length;
 }
 
+async function restoreQueueItemAfterFailedStationTake({
+  previousStatus,
+  queueItemId,
+}: {
+  previousStatus: CallCenterQueueStatus;
+  queueItemId: string;
+}) {
+  await prisma.callCenterQueueItem.updateMany({
+    data: {
+      assignedAt: null,
+      status: previousStatus === "ASSIGNED" ? "WAITING" : previousStatus,
+    },
+    where: {
+      id: queueItemId,
+      ringAttempts: {
+        none: {
+          status: {
+            in: LIVE_RING_ATTEMPT_STATUSES,
+          },
+        },
+      },
+      status: "ASSIGNED",
+    },
+  });
+}
+
 async function getQueueItemForStationTake({
   practiceId,
   queueItemId,
@@ -1520,9 +1617,11 @@ async function getQueueItemForStationTake({
 }
 
 export async function ringStationForQueuedCall({
+  browserSessionId,
   queueItemId,
   seatId,
 }: {
+  browserSessionId: string;
   queueItemId: string;
   seatId: string;
 }) {
@@ -1572,15 +1671,38 @@ export async function ringStationForQueuedCall({
     throw new TelnyxError("Station does not belong to this queued call location", 422);
   }
 
-  const availablePresence = await prisma.callCenterPresence.count({
-    where: {
-      lastSeenAt: {
-        gte: getPresenceExpirationCutoff(),
+  const presenceCutoff = getPresenceExpirationCutoff();
+  const [availablePresence, competingPresence] = await Promise.all([
+    prisma.callCenterPresence.count({
+      where: {
+        browserSessionId,
+        lastSeenAt: {
+          gte: presenceCutoff,
+        },
+        seatId: seat.id,
+        status: CallCenterPresenceStatus.AVAILABLE,
+        userId: context.session.user.id,
       },
-      seatId: seat.id,
-      status: CallCenterPresenceStatus.AVAILABLE,
-    },
-  });
+    }),
+    prisma.callCenterPresence.count({
+      where: {
+        browserSessionId: {
+          not: browserSessionId,
+        },
+        lastSeenAt: {
+          gte: presenceCutoff,
+        },
+        seatId: seat.id,
+        status: {
+          not: CallCenterPresenceStatus.OFFLINE,
+        },
+      },
+    }),
+  ]);
+
+  if (competingPresence > 0) {
+    throw new TelnyxError("Station is active in another browser", 409);
+  }
 
   if (availablePresence === 0) {
     throw new TelnyxError("Station is not available", 409);
@@ -1599,6 +1721,8 @@ export async function ringStationForQueuedCall({
     throw new TelnyxError("Queued caller leg is missing Telnyx call control ID", 422);
   }
 
+  const previousStatus = queueItem.status;
+
   await prisma.callCenterQueueItem.update({
     data: {
       assignedAt: new Date(),
@@ -1609,15 +1733,33 @@ export async function ringStationForQueuedCall({
     },
   });
 
-  await ringAvailableSeatsForQueueItem({
-    availableSeats: [seat],
-    callerCallControlId,
-    callerNumber,
-    connectionId: runtimeSettings.connectionId,
-    from: from || "",
-    queueItemId: queueItem.id,
-    timeoutSecs: AGENT_RING_TIMEOUT_SEC,
-  });
+  let dialedAttemptCount = 0;
+
+  try {
+    dialedAttemptCount = await ringAvailableSeatsForQueueItem({
+      availableSeats: [seat],
+      callerCallControlId,
+      callerNumber,
+      connectionId: runtimeSettings.connectionId,
+      from: from || "",
+      queueItemId: queueItem.id,
+      timeoutSecs: AGENT_RING_TIMEOUT_SEC,
+    });
+  } catch (error) {
+    await restoreQueueItemAfterFailedStationTake({
+      previousStatus,
+      queueItemId: queueItem.id,
+    });
+    throw error;
+  }
+
+  if (dialedAttemptCount === 0) {
+    await restoreQueueItemAfterFailedStationTake({
+      previousStatus,
+      queueItemId: queueItem.id,
+    });
+    throw new TelnyxError("No station leg could be dialed", 502);
+  }
 
   return {
     ok: true,
@@ -1644,17 +1786,24 @@ async function markQueueVoicemailError({
   });
 }
 
-async function startCallerRingback(callControlId: string, queueItemId: string) {
-  // The ringback WAV is QUEUE_WAIT_TIMEOUT_SEC seconds long. Looping once
-  // means playback ends exactly when the queue-wait window closes — the
-  // call.playback.ended webhook is then our trigger to route an unanswered
-  // caller to voicemail.
+async function startCallerRingback({
+  callControlId,
+  queueItemId,
+  timeoutSec,
+}: {
+  callControlId: string;
+  queueItemId: string;
+  timeoutSec: number;
+}) {
+  // Looping the generated ringback WAV once makes playback end when the
+  // queue-wait window closes; call.playback.ended then routes unanswered
+  // callers to voicemail.
   try {
     const response = await startTelnyxPlayback({
       callControlId,
       commandId: `ringback-${queueItemId}`,
       loop: 1,
-      playbackContent: RINGBACK_WAV_BASE64,
+      playbackContent: ringbackWavBase64For(timeoutSec),
     });
     console.info("[call-center] ringback started", {
       callControlId,
@@ -1662,12 +1811,14 @@ async function startCallerRingback(callControlId: string, queueItemId: string) {
       queueItemId,
       status: response?.status ?? null,
     });
+    return response?.ok === true;
   } catch (error) {
     console.error("[call-center] ringback start failed", {
       callControlId,
       error,
       queueItemId,
     });
+    return false;
   }
 }
 
@@ -1679,10 +1830,12 @@ async function queueInboundCallForStaff({
   eventType,
   payload,
   session,
+  settings,
 }: {
   eventType: string;
   payload: Record<string, unknown>;
   session: Awaited<ReturnType<typeof upsertSessionFromPayload>>;
+  settings: CallCenterVoicemailSettings;
 }) {
   if (!isInboundSession(session)) {
     return null;
@@ -1723,15 +1876,33 @@ async function queueInboundCallForStaff({
     return null;
   });
 
-  if (answerResponse && !answerResponse.ok) {
+  if (!answerResponse || !answerResponse.ok) {
     console.error("[call-center] Failed to answer inbound caller leg", {
       callControlId: callerCallControlId,
       queueItemId: queueItem.id,
-      status: answerResponse.status,
+      status: answerResponse?.status ?? null,
     });
+    await startQueueVoicemail({
+      queueItemId: queueItem.id,
+      settings,
+    });
+    return queueItem;
   }
 
-  await startCallerRingback(callerCallControlId, queueItem.id);
+  const ringbackStarted = await startCallerRingback({
+    callControlId: callerCallControlId,
+    queueItemId: queueItem.id,
+    timeoutSec: settings.voicemailTimeoutSec,
+  });
+
+  if (!ringbackStarted) {
+    await startQueueVoicemail({
+      queueItemId: queueItem.id,
+      settings,
+    });
+    return queueItem;
+  }
+
   console.info("[call-center] queued inbound caller for manual staff take", {
     queueItemId: queueItem.id,
   });
@@ -2419,6 +2590,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
           eventType,
           payload,
           session,
+          settings,
         });
       }
       await updateRingAttemptFromPayload({
@@ -2523,9 +2695,9 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
     }
 
     case "call.playback.ended": {
-      // The queued-caller ringback playback ends naturally after
-      // QUEUE_WAIT_TIMEOUT_SEC seconds (loop: 1). When that happens we route
-      // the call to voicemail. If the playback ended because an agent
+      // The queued-caller ringback playback ends naturally after the practice's
+      // voicemail timeout (loop: 1). When that happens we route the call to
+      // voicemail. If the playback ended because an agent
       // bridged, the routing helper sees the queue item is no longer
       // pending and skips voicemail.
       //

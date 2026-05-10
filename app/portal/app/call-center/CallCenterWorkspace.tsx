@@ -144,19 +144,33 @@ export default function CallCenterWorkspace({
         softphoneRef.current?.markAnswerPending(callerKey);
       }
 
-      await fetch("/api/portal/call-center/queue/take", {
-        body: JSON.stringify({
-          queueItemId,
-          seatId: selectedSeatId,
-        }),
-        headers: {
-          "Content-Type": "application/json",
-        },
-        method: "POST",
-      });
-      router.refresh();
+      try {
+        const response = await fetch("/api/portal/call-center/queue/take", {
+          body: JSON.stringify({
+            browserSessionId,
+            queueItemId,
+            seatId: selectedSeatId,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        });
+
+        if (!response.ok && callerKey) {
+          softphoneRef.current?.clearAnswerPending(callerKey);
+        }
+      } catch (error) {
+        if (callerKey) {
+          softphoneRef.current?.clearAnswerPending(callerKey);
+        }
+
+        console.error("[call-center] failed to take queued call", error);
+      } finally {
+        router.refresh();
+      }
     },
-    [queue, router, selectedSeat],
+    [browserSessionId, queue, router, selectedSeat],
   );
 
   const hasWaitingCaller = useMemo(
