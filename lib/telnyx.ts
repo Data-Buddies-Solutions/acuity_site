@@ -6,11 +6,13 @@ const WEBHOOK_TOLERANCE_SEC = 5 * 60;
 
 export class TelnyxError extends Error {
   status: number;
+  detail?: string;
 
-  constructor(message: string, status = 500) {
+  constructor(message: string, status = 500, detail?: string) {
     super(message);
     this.name = "TelnyxError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -41,6 +43,34 @@ export async function telnyxFetch(path: string, options: RequestInit = {}) {
   return response;
 }
 
+async function telnyxErrorMessage(response: Response, fallback: string) {
+  const text = await response.text().catch(() => "");
+
+  if (!text) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const errors =
+      parsed &&
+      typeof parsed === "object" &&
+      "errors" in parsed &&
+      Array.isArray((parsed as { errors?: unknown }).errors)
+        ? (parsed as { errors: Array<Record<string, unknown>> }).errors
+        : [];
+    const details = errors
+      .map((error) =>
+        [error.title, error.detail].filter((part) => typeof part === "string").join(": "),
+      )
+      .filter(Boolean);
+
+    return details.length ? details.join("; ") : text;
+  } catch {
+    return text;
+  }
+}
+
 export async function createTelnyxLoginToken(credentialId: string) {
   if (!credentialId) {
     throw new TelnyxError("Telnyx credential ID is not configured");
@@ -69,14 +99,26 @@ export async function createTelnyxLoginToken(credentialId: string) {
 }
 
 export async function dialTelnyxCall({
+  bridgeOnAnswer,
+  bridgeIntent,
+  clientState,
+  commandId,
   connectionId,
   from,
   linkTo,
+  preventDoubleBridge,
+  timeoutSecs,
   to,
 }: {
+  bridgeOnAnswer?: boolean;
+  bridgeIntent?: boolean;
+  clientState?: string;
+  commandId?: string;
   connectionId: string;
   from: string;
   linkTo?: string;
+  preventDoubleBridge?: boolean;
+  timeoutSecs?: number;
   to: string;
 }) {
   if (!connectionId) {
@@ -95,7 +137,21 @@ export async function dialTelnyxCall({
 
   if (linkTo) {
     body.link_to = linkTo;
-    body.bridge_intent = true;
+    body.bridge_intent = bridgeIntent ?? true;
+    body.bridge_on_answer = bridgeOnAnswer ?? true;
+    body.prevent_double_bridge = preventDoubleBridge ?? true;
+  }
+
+  if (clientState) {
+    body.client_state = clientState;
+  }
+
+  if (commandId) {
+    body.command_id = commandId;
+  }
+
+  if (timeoutSecs) {
+    body.timeout_secs = timeoutSecs;
   }
 
   const response = await telnyxFetch("/v2/calls", {
@@ -104,7 +160,11 @@ export async function dialTelnyxCall({
   });
 
   if (!response.ok) {
-    throw new TelnyxError("Failed to place Telnyx call", response.status);
+    throw new TelnyxError(
+      "Failed to place Telnyx call",
+      response.status,
+      await telnyxErrorMessage(response, "Failed to place Telnyx call"),
+    );
   }
 
   return response.json();
@@ -125,6 +185,65 @@ export async function speakOnTelnyxCall({
     body: JSON.stringify({ language, payload, voice }),
     method: "POST",
   });
+}
+
+export async function startTelnyxPlayback({
+  audioType = "wav",
+  callControlId,
+  commandId,
+  loop = 1,
+  playbackContent,
+}: {
+  audioType?: "mp3" | "wav";
+  callControlId: string;
+  commandId?: string;
+  loop?: number | "infinity";
+  playbackContent: string;
+}) {
+  return telnyxFetch(`/v2/calls/${callControlId}/actions/playback_start`, {
+    body: JSON.stringify({
+      audio_type: audioType,
+      cache_audio: true,
+      loop,
+      playback_content: playbackContent,
+      target_legs: "self",
+      ...(commandId ? { command_id: commandId } : {}),
+    }),
+    method: "POST",
+  });
+}
+
+export async function stopTelnyxPlayback(callControlId: string) {
+  return telnyxFetch(`/v2/calls/${callControlId}/actions/playback_stop`, {
+    body: JSON.stringify({
+      stop: "all",
+    }),
+    method: "POST",
+  });
+}
+
+export async function answerTelnyxCall(callControlId: string) {
+  return telnyxFetch(`/v2/calls/${callControlId}/actions/answer`, {
+    body: JSON.stringify({}),
+    method: "POST",
+  });
+}
+
+export async function hangupTelnyxCall(callControlId: string) {
+  const response = await telnyxFetch(`/v2/calls/${callControlId}/actions/hangup`, {
+    body: JSON.stringify({}),
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new TelnyxError(
+      "Failed to hang up Telnyx call",
+      response.status,
+      await telnyxErrorMessage(response, "Failed to hang up Telnyx call"),
+    );
+  }
+
+  return response;
 }
 
 export async function startTelnyxRecording(callControlId: string) {

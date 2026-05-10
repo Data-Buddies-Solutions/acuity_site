@@ -122,7 +122,8 @@ webhook must be resolved to a practice by phone number. Prefer explicit
 5. Webhooks are verified with `TELNYX_PUBLIC_KEY`.
 6. Webhook tenant resolution uses the practice-owned `to` number for inbound events and the practice-owned `from` number for outbound events.
 7. Connection-ID fallback only applies when no usable phone number is present and exactly one enabled settings row matches the connection.
-8. The portal stores active sessions, missed callbacks, and voicemails in call-center tables.
+8. The portal stores active sessions, missed callbacks, voicemails, queue items, station presence, and ring attempts in call-center tables.
+9. Staff stations are practice/location-scoped. Use one Telnyx WebRTC credential per active station.
 
 For practices where the AI agent owns the public inbound line, keep that AI/SIP
 number as `TELNYX_PHONE_NUMBER` so staff outbound calls present the same caller
@@ -130,8 +131,14 @@ ID. Use `TELNYX_INBOUND_NUMBER` for the portal softphone line that the AI
 transfers to when staff should answer in the browser.
 
 Inbound calls only pop in the browser when Telnyx routes the called number to the
-same WebRTC credential/connection used by the signed-in staff browser and the
-deployed webhook route is reachable.
+call-control connection, the deployed webhook route is reachable, and at least
+one location station is Available in the portal.
+
+Use the station script for one-off setup:
+
+```bash
+bun scripts/upsert-call-center-seat.mjs demo@acuity.local "Spring Hill" "Emma" 101 telnyx-credential-id sip-username
+```
 
 ### Practice Branding
 
