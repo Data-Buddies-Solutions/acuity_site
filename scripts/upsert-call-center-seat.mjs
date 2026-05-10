@@ -15,7 +15,14 @@ const [
   enabledInput = "true",
 ] = process.argv.slice(2);
 
-if (!email || !locationName || !label || !extension || !telnyxCredentialId || !sipUsername) {
+if (
+  !email ||
+  !locationName ||
+  !label ||
+  !extension ||
+  !telnyxCredentialId ||
+  !sipUsername
+) {
   console.error(
     "Usage: bun scripts/upsert-call-center-seat.mjs <user-email> <location-name> <seat-label> <extension> <telnyx-credential-id> <sip-username> [enabled]",
   );
@@ -94,13 +101,7 @@ try {
           WHERE id = $1
           RETURNING id, label, extension, "telnyxCredentialId", "sipUsername", enabled
         `,
-        [
-          existing.rows[0].id,
-          label,
-          telnyxCredentialId,
-          sipUsername,
-          enabled,
-        ],
+        [existing.rows[0].id, label, telnyxCredentialId, sipUsername, enabled],
       )
     : await pool.query(
         `

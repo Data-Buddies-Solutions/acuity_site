@@ -2342,9 +2342,7 @@ async function recordVoicemail({
   // session's fromPhone (and locationId) so voicemails are attributable to
   // a specific caller and location.
   const fromPhone =
-    normalizePhone(asString(payload.from)) ||
-    sourceSession?.fromPhone ||
-    "Unknown";
+    normalizePhone(asString(payload.from)) || sourceSession?.fromPhone || "Unknown";
   const resolvedLocationId = locationId ?? sourceSession?.locationId ?? null;
 
   return prisma.callCenterVoicemail.upsert({
@@ -2537,10 +2535,9 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
       const commandId = asString(payload.command_id);
       const callControlId = asString(payload.call_control_id);
 
-      let queueItemId =
-        commandId.startsWith("ringback-")
-          ? commandId.slice("ringback-".length)
-          : "";
+      let queueItemId = commandId.startsWith("ringback-")
+        ? commandId.slice("ringback-".length)
+        : "";
 
       if (!queueItemId && callControlId) {
         const item = await prisma.callCenterQueueItem.findFirst({

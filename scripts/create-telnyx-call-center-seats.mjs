@@ -47,14 +47,18 @@ async function createTelnyxCredential({ connectionId, name }) {
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Failed to create Telnyx credential ${name}: ${response.status} ${body}`);
+    throw new Error(
+      `Failed to create Telnyx credential ${name}: ${response.status} ${body}`,
+    );
   }
 
   const body = await response.json();
   const credential = body?.data;
 
   if (!credential?.id || !credential?.sip_username) {
-    throw new Error(`Telnyx credential response for ${name} was missing id or sip_username.`);
+    throw new Error(
+      `Telnyx credential response for ${name} was missing id or sip_username.`,
+    );
   }
 
   return {
@@ -115,7 +119,9 @@ try {
   const connectionId = settingsResult.rows[0]?.telnyxConnectionId;
 
   if (!connectionId) {
-    console.error(`Enabled call-center settings for ${practice.name} are missing telnyxConnectionId.`);
+    console.error(
+      `Enabled call-center settings for ${practice.name} are missing telnyxConnectionId.`,
+    );
     process.exit(1);
   }
 
