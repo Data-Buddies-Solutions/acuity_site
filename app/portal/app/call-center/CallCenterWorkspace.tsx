@@ -1,43 +1,320 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, CirclePause, MinusCircle, PhoneOutgoing } from "lucide-react";
 
-import type { PortalCallActivityItem } from "@/lib/call-center";
+import { Button } from "@/app/components/ui/button";
+
+import type {
+  PortalCallActivityItem,
+  PortalCallCenterSeat,
+  PortalCallQueueItem,
+} from "@/lib/call-center";
 
 import ActivityRail from "./ActivityRail";
-import SoftphonePanel from "./SoftphonePanel";
+import SoftphonePanel, { type SoftphoneHandle } from "./SoftphonePanel";
+
+type PresenceStatus = "AVAILABLE" | "BUSY" | "PAUSED";
+
+const presenceOptions: Array<{
+  icon: typeof CheckCircle2;
+  label: string;
+  value: PresenceStatus;
+}> = [
+  { icon: CheckCircle2, label: "Available", value: "AVAILABLE" },
+  { icon: MinusCircle, label: "Busy", value: "BUSY" },
+  { icon: CirclePause, label: "Paused", value: "PAUSED" },
+];
 
 export default function CallCenterWorkspace({
   activity,
   configured,
+  configurationMessage,
   enabled,
+  eventLocationId,
   outboundCallerNumber,
+  queue,
+  seats,
   totals,
+  voicemailTimeoutSec,
 }: {
   activity: PortalCallActivityItem[];
   configured: boolean;
+  configurationMessage: string;
   enabled: boolean;
+  eventLocationId: string | null;
   outboundCallerNumber: string;
+  queue: PortalCallQueueItem[];
+  seats: PortalCallCenterSeat[];
   totals: { missedCalls: number; voicemails: number };
+  voicemailTimeoutSec: number;
 }) {
+  const router = useRouter();
+  const [browserSessionId] = useState(getInitialBrowserSessionId);
+  const [presenceStatus, setPresenceStatus] = useState<PresenceStatus>("AVAILABLE");
   const [seed, setSeed] = useState<{ value: string; token: number } | null>(null);
+  const [selectedSeatId, setSelectedSeatId] = useState(() => seats[0]?.id ?? "");
+  const [softphoneBusy, setSoftphoneBusy] = useState(false);
+  const [softphoneEngaged, setSoftphoneEngaged] = useState(false);
+  const softphoneEngagedRef = useRef(false);
+  const softphoneRef = useRef<SoftphoneHandle | null>(null);
+  const selectedSeat = useMemo(
+    () => seats.find((seat) => seat.id === selectedSeatId) ?? seats[0] ?? null,
+    [seats, selectedSeatId],
+  );
+  const effectivePresenceStatus: PresenceStatus = softphoneBusy ? "BUSY" : presenceStatus;
+
+  useEffect(() => {
+    softphoneEngagedRef.current = softphoneEngaged;
+  }, [softphoneEngaged]);
+
+  useEffect(() => {
+    if (!browserSessionId || !selectedSeat?.id) {
+      return;
+    }
+
+    const updatePresence = (status: PresenceStatus | "OFFLINE") =>
+      fetch("/api/portal/call-center/presence", {
+        body: JSON.stringify({
+          browserSessionId,
+          seatId: selectedSeat.id,
+          status,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        keepalive: status === "OFFLINE",
+        method: "POST",
+      }).catch(() => {});
+
+    void updatePresence(effectivePresenceStatus);
+    const heartbeat = setInterval(() => {
+      void updatePresence(effectivePresenceStatus);
+    }, 20_000);
+
+    return () => {
+      clearInterval(heartbeat);
+      void updatePresence("OFFLINE");
+    };
+  }, [browserSessionId, effectivePresenceStatus, selectedSeat?.id]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const locationParam = eventLocationId ?? "__NULL__";
+    const source = new EventSource(
+      `/api/portal/call-center/events?locationId=${encodeURIComponent(locationParam)}`,
+    );
+    const refresh = () => {
+      if (!softphoneEngagedRef.current) {
+        router.refresh();
+      }
+    };
+
+    source.addEventListener("refresh", refresh);
+
+    return () => {
+      source.removeEventListener("refresh", refresh);
+      source.close();
+    };
+  }, [enabled, eventLocationId, router]);
 
   const handleCallback = useCallback((number: string) => {
     setSeed({ token: Date.now(), value: number });
   }, []);
+  const handleTakeQueuedCall = useCallback(
+    async (queueItemId: string) => {
+      const selectedSeatId = selectedSeat?.id;
+
+      if (!selectedSeatId) {
+        return;
+      }
+
+      // Arm the softphone to auto-answer when the SIP INVITE arrives. The
+      // Telnyx Call Control `client_state` we attach on the backend dial does
+      // NOT propagate to the WebRTC SDK's call.options.clientState, so the
+      // softphone's only stable identifier for this call is the caller's
+      // E.164 number (resolved from the INVITE's remoteCallerNumber).
+      const item = queue.find((entry) => entry.id === queueItemId);
+      const callerKey = normalizeQueueCallerKey(item?.fromPhone);
+      if (callerKey) {
+        softphoneRef.current?.markAnswerPending(callerKey);
+      }
+
+      try {
+        const response = await fetch("/api/portal/call-center/queue/take", {
+          body: JSON.stringify({
+            browserSessionId,
+            queueItemId,
+            seatId: selectedSeatId,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        });
+
+        if (!response.ok && callerKey) {
+          softphoneRef.current?.clearAnswerPending(callerKey);
+        }
+      } catch (error) {
+        if (callerKey) {
+          softphoneRef.current?.clearAnswerPending(callerKey);
+        }
+
+        console.error("[call-center] failed to take queued call", error);
+      } finally {
+        router.refresh();
+      }
+    },
+    [browserSessionId, queue, router, selectedSeat],
+  );
+
+  const hasWaitingCaller = useMemo(
+    () =>
+      queue.some(
+        (item) =>
+          ["WAITING", "RINGING", "ASSIGNED"].includes(item.status) &&
+          !item.ringAttempts.some((attempt) =>
+            ["DIALING", "RINGING", "ANSWERED"].includes(attempt.status),
+          ),
+      ),
+    [queue],
+  );
+
+  useEffect(() => {
+    if (!enabled || !hasWaitingCaller || softphoneBusy || softphoneEngaged) {
+      return;
+    }
+
+    const AudioCtxCtor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtxCtor) return;
+
+    const ctx = new AudioCtxCtor();
+    let cancelled = false;
+    let scheduleHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const playTone = (startAt: number, frequency: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.value = frequency;
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(0.14, startAt + 0.02);
+      gain.gain.setValueAtTime(0.14, startAt + duration - 0.03);
+      gain.gain.linearRampToValueAtTime(0, startAt + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(startAt);
+      osc.stop(startAt + duration);
+    };
+
+    const playCycle = () => {
+      if (cancelled) return;
+      const now = ctx.currentTime;
+      playTone(now, 784, 0.16);
+      playTone(now + 0.22, 988, 0.18);
+      scheduleHandle = setTimeout(playCycle, 2400);
+    };
+
+    if (ctx.state === "suspended") {
+      ctx
+        .resume()
+        .then(playCycle)
+        .catch(() => {});
+    } else {
+      playCycle();
+    }
+
+    return () => {
+      cancelled = true;
+      if (scheduleHandle) clearTimeout(scheduleHandle);
+      ctx.close().catch(() => {});
+    };
+  }, [enabled, hasWaitingCaller, softphoneBusy, softphoneEngaged]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
-      <div className="lg:col-span-2">
+      <div className="space-y-4 lg:col-span-2">
+        <QueuePanel
+          canTake={Boolean(selectedSeat)}
+          isAvailable={effectivePresenceStatus === "AVAILABLE"}
+          onCallback={handleCallback}
+          onTake={handleTakeQueuedCall}
+          queue={queue}
+        />
         <ActivityRail activity={activity} onCallback={handleCallback} totals={totals} />
       </div>
       <div>
         {enabled && configured ? (
-          <SoftphonePanel
-            callerNumber={outboundCallerNumber}
-            enabled={enabled}
-            seedNumber={seed}
-          />
+          <div className="space-y-3">
+            {seats.length ? (
+              <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
+                <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
+                  Station
+                  <select
+                    className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377]"
+                    onChange={(event) => setSelectedSeatId(event.target.value)}
+                    value={selectedSeat?.id ?? ""}
+                  >
+                    {seats.map((seat) => (
+                      <option key={seat.id} value={seat.id}>
+                        {seat.extension
+                          ? `${seat.extension} - ${seat.label}`
+                          : seat.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="mt-3 grid grid-cols-3 gap-1.5">
+                  {presenceOptions.map((option) => {
+                    const Icon = option.icon;
+                    const selected = presenceStatus === option.value;
+                    const disabled = softphoneBusy && option.value !== "BUSY";
+
+                    return (
+                      <Button
+                        aria-pressed={selected}
+                        className="px-2"
+                        disabled={disabled}
+                        key={option.value}
+                        onClick={() => setPresenceStatus(option.value)}
+                        size="sm"
+                        variant={
+                          effectivePresenceStatus === option.value
+                            ? "primary"
+                            : "secondary"
+                        }
+                      >
+                        <Icon className="h-4 w-4" aria-hidden="true" />
+                        {option.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
+            <SoftphonePanel
+              browserSessionId={browserSessionId}
+              callerNumber={outboundCallerNumber}
+              enabled={enabled}
+              onActivityChange={setSoftphoneEngaged}
+              onBusyChange={setSoftphoneBusy}
+              ref={softphoneRef}
+              seedNumber={seed}
+              stationLabel={selectedSeat?.label ?? null}
+              stationSeatId={selectedSeat?.id ?? null}
+              voicemailTimeoutSec={voicemailTimeoutSec}
+            />
+          </div>
         ) : (
           <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
             <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
@@ -45,12 +322,175 @@ export default function CallCenterWorkspace({
             </h3>
             <p className="mt-2 text-sm text-[#617477]">
               {enabled
-                ? "Telnyx is missing connection details. Add the connection ID, credential ID, and caller number to start placing calls."
+                ? configurationMessage
                 : "Enable the call center to start placing and receiving calls in the browser."}
             </p>
           </section>
         )}
       </div>
     </div>
+  );
+}
+
+function getInitialBrowserSessionId() {
+  return typeof window === "undefined" ? "" : getBrowserSessionId();
+}
+
+function getBrowserSessionId() {
+  const storageKey = "acuity-call-center-browser-session-id";
+
+  try {
+    const existing = window.localStorage.getItem(storageKey);
+
+    if (existing) {
+      return existing;
+    }
+
+    const generated =
+      window.crypto?.randomUUID?.() ??
+      `browser-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    window.localStorage.setItem(storageKey, generated);
+
+    return generated;
+  } catch {
+    return `browser-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+}
+
+function normalizeQueueCallerKey(phone: string | null | undefined) {
+  // Mirror SoftphonePanel's normalizeToE164 so the armed key matches the
+  // softphone's ringKeyFor(call) = normalizeToE164(remoteCallerNumber).
+  if (!phone) return "";
+  const trimmed = phone.trim();
+  if (trimmed.startsWith("+")) return trimmed;
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return digits ? `+${digits}` : "";
+}
+
+function formatQueuePhone(phone: string | null) {
+  const digits = phone?.replace(/\D/g, "") ?? "";
+
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+
+  return phone || "Unknown caller";
+}
+
+function queueStatusLabel(status: string) {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function hasLiveRingAttempt(item: PortalCallQueueItem) {
+  return item.ringAttempts.some((attempt) =>
+    ["DIALING", "RINGING", "ANSWERED"].includes(attempt.status),
+  );
+}
+
+function QueuePanel({
+  canTake,
+  isAvailable,
+  onCallback,
+  onTake,
+  queue,
+}: {
+  canTake: boolean;
+  isAvailable: boolean;
+  onCallback: (number: string) => void;
+  onTake: (queueItemId: string) => void;
+  queue: PortalCallQueueItem[];
+}) {
+  return (
+    <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
+            Live queue
+          </h3>
+          <p className="mt-1 text-sm text-[#617477]">
+            Inbound callers for this location.
+          </p>
+        </div>
+        <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+          {queue.length}
+        </span>
+      </div>
+
+      {queue.length ? (
+        <ul className="mt-4 divide-y divide-black/6 rounded-lg border border-black/6">
+          {queue.map((item) => (
+            <li
+              className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+              key={item.id}
+            >
+              {(() => {
+                const liveRingAttempt = hasLiveRingAttempt(item);
+                const isTakeableStatus = ["WAITING", "RINGING", "ASSIGNED"].includes(
+                  item.status,
+                );
+                const canManuallyTake = canTake && isTakeableStatus && !liveRingAttempt;
+
+                return (
+                  <>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-[#10272c]">
+                        {formatQueuePhone(item.fromPhone)}
+                      </p>
+                      <p className="mt-1 text-xs text-[#617477]">
+                        {queueStatusLabel(item.status)}
+                        {item.locationName ? ` · ${item.locationName}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {liveRingAttempt ? (
+                        <Button className="w-fit" disabled size="sm" variant="secondary">
+                          Ringing
+                        </Button>
+                      ) : null}
+                      {canManuallyTake ? (
+                        <Button
+                          className="w-fit"
+                          disabled={!isAvailable}
+                          onClick={() => onTake(item.id)}
+                          size="sm"
+                          variant="primary"
+                        >
+                          Take
+                        </Button>
+                      ) : null}
+                      {item.fromPhone ? (
+                        <Button
+                          className="w-fit"
+                          onClick={() => onCallback(item.fromPhone || "")}
+                          size="sm"
+                          variant="secondary"
+                        >
+                          <PhoneOutgoing className="h-4 w-4" aria-hidden="true" />
+                          Call back
+                        </Button>
+                      ) : null}
+                    </div>
+                  </>
+                );
+              })()}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="mt-4 rounded-lg border border-dashed border-black/10 px-3 py-6 text-center text-sm text-[#617477]">
+          No callers waiting.
+        </div>
+      )}
+    </section>
   );
 }

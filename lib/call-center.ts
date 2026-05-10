@@ -1,4 +1,7 @@
 import {
+  CallCenterPresenceStatus,
+  type CallCenterQueueStatus,
+  type CallCenterRingAttemptStatus,
   CallCenterSessionDirection,
   type CallCenterSessionStatus,
   type Prisma,
@@ -8,9 +11,14 @@ import { getAuthSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding } from "@/lib/practice-branding";
 import {
+  answerTelnyxCall,
+  dialTelnyxCall,
   getTelnyxRecording,
+  hangupTelnyxCall,
+  startTelnyxPlayback,
   startTelnyxRecording,
   speakOnTelnyxCall,
+  stopTelnyxPlayback,
   TelnyxError,
 } from "@/lib/telnyx";
 
@@ -21,6 +29,139 @@ const MISSED_CAUSES = new Set([
   "timeout",
   "user_busy",
 ]);
+const PRESENCE_EXPIRATION_MS = 45_000;
+const AGENT_RING_TIMEOUT_SEC = 6;
+const RETRYABLE_RING_ATTEMPT_STATUSES = new Set<CallCenterRingAttemptStatus>([
+  "CANCELED",
+  "FAILED",
+  "NO_ANSWER",
+]);
+const LIVE_RING_ATTEMPT_STATUSES: CallCenterRingAttemptStatus[] = [
+  "DIALING",
+  "RINGING",
+  "ANSWERED",
+  "BRIDGED",
+];
+const DEFAULT_QUEUE_WAIT_TIMEOUT_SEC = 10;
+const MAX_QUEUE_WAIT_TIMEOUT_SEC = 120;
+
+const ringbackWavCache = new Map<number, string>();
+const VOICEMAIL_BEEP_WAV_BASE64 = createVoicemailBeepWavBase64();
+
+function normalizeVoicemailTimeoutSec(timeoutSec: number | null | undefined) {
+  if (!Number.isFinite(timeoutSec)) {
+    return DEFAULT_QUEUE_WAIT_TIMEOUT_SEC;
+  }
+
+  return Math.min(
+    MAX_QUEUE_WAIT_TIMEOUT_SEC,
+    Math.max(1, Math.round(timeoutSec || DEFAULT_QUEUE_WAIT_TIMEOUT_SEC)),
+  );
+}
+
+function ringbackWavBase64For(timeoutSec: number | null | undefined) {
+  const durationSec = normalizeVoicemailTimeoutSec(timeoutSec);
+  const cached = ringbackWavCache.get(durationSec);
+
+  if (cached) {
+    return cached;
+  }
+
+  const wav = createRingbackWavBase64(durationSec);
+  ringbackWavCache.set(durationSec, wav);
+
+  return wav;
+}
+
+function createRingbackWavBase64(durationSec = DEFAULT_QUEUE_WAIT_TIMEOUT_SEC) {
+  const sampleRate = 8000;
+  const toneDurationSec = 2;
+  const sampleCount = sampleRate * durationSec;
+  const bytesPerSample = 2;
+  const dataSize = sampleCount * bytesPerSample;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * bytesPerSample, 28);
+  buffer.writeUInt16LE(bytesPerSample, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  for (let i = 0; i < sampleCount; i += 1) {
+    const t = i / sampleRate;
+    const inTone = t % durationSec < toneDurationSec;
+    const sample = inTone
+      ? Math.round(
+          (9000 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t))) /
+            2,
+        )
+      : 0;
+
+    buffer.writeInt16LE(sample, 44 + i * bytesPerSample);
+  }
+
+  return buffer.toString("base64");
+}
+
+function createVoicemailBeepWavBase64() {
+  const sampleRate = 8000;
+  const durationSec = 0.4;
+  const sampleCount = Math.floor(sampleRate * durationSec);
+  const bytesPerSample = 2;
+  const dataSize = sampleCount * bytesPerSample;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * bytesPerSample, 28);
+  buffer.writeUInt16LE(bytesPerSample, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  // Single 1000Hz tone with ~10ms attack/release so it doesn't click.
+  const attackSamples = Math.floor(sampleRate * 0.01);
+  for (let i = 0; i < sampleCount; i += 1) {
+    const t = i / sampleRate;
+    const envelope =
+      i < attackSamples
+        ? i / attackSamples
+        : i > sampleCount - attackSamples
+          ? (sampleCount - i) / attackSamples
+          : 1;
+    const sample = Math.round(envelope * 12000 * Math.sin(2 * Math.PI * 1000 * t));
+    buffer.writeInt16LE(sample, 44 + i * bytesPerSample);
+  }
+
+  return buffer.toString("base64");
+}
+
+type CallCenterVoicemailSettings = {
+  recordingEnabled: boolean;
+  voicemailGreeting: string;
+  voicemailTimeoutSec: number;
+};
+
+type CallCenterTelnyxRuntimeSettings = {
+  inboundPhoneNumber: string | null;
+  outboundCallerNumber: string | null;
+  telnyxConnectionId: string | null;
+  telnyxCredentialId: string | null;
+};
 
 function env(name: string) {
   return process.env[name]?.trim() || "";
@@ -96,6 +237,10 @@ function asFiniteNumber(value: unknown) {
   }
 
   return null;
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return isRecord(error) && error.code === "P2002";
 }
 
 function firstFiniteNumber(...values: unknown[]) {
@@ -240,6 +385,32 @@ function decodeClientState(value: unknown) {
   }
 }
 
+function encodeClientState(value: Record<string, unknown>) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64");
+}
+
+function telnyxSipUri(sipUsername: string | null) {
+  const username = sipUsername?.trim() ?? "";
+
+  if (!username) {
+    return "";
+  }
+
+  if (username.startsWith("sip:")) {
+    return username;
+  }
+
+  return username.includes("@") ? `sip:${username}` : `sip:${username}@sip.telnyx.com`;
+}
+
+function extractTelnyxCallControlId(result: unknown) {
+  if (!isRecord(result) || !isRecord(result.data)) {
+    return "";
+  }
+
+  return asString(result.data.call_control_id);
+}
+
 function defaultSettingsFromPractice(practice: {
   phoneNumbers: Array<{ isPrimary: boolean; phoneNumber: string }>;
 }) {
@@ -369,6 +540,41 @@ export type PortalCallCenterLocation = {
   outboundNumber: string;
 };
 
+export type PortalCallCenterSeat = {
+  extension: string | null;
+  hasCredential: boolean;
+  id: string;
+  label: string;
+  locationId: string | null;
+  sipUsername: string | null;
+};
+
+export type PortalCallQueueItem = {
+  enteredAt: Date;
+  fromPhone: string | null;
+  id: string;
+  locationName: string | null;
+  ringAttempts: Array<{
+    id: string;
+    seatLabel: string;
+    status: string;
+  }>;
+  status: string;
+  toPhone: string | null;
+};
+
+export type AvailableCallCenterSeat = {
+  extension: string | null;
+  id: string;
+  label: string;
+  sipUsername: string | null;
+  telnyxCredentialId: string | null;
+};
+
+export function getPresenceExpirationCutoff(now = new Date()) {
+  return new Date(now.getTime() - PRESENCE_EXPIRATION_MS);
+}
+
 function getPortalCallCenterLocations(practice: {
   locations: Array<{
     id: string;
@@ -456,73 +662,135 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
     ? { locationId: selectedLocation.locationId }
     : {};
 
-  const [missedCallCount, voicemailCount, missedCalls, voicemails] = await Promise.all([
-    prisma.callCenterMissedCall.count({
-      where: {
-        calledBack: false,
+  const seatWhere = selectedLocation
+    ? {
+        locationId: selectedLocation.locationId,
         practiceId: practice.id,
-        resolvedAt: null,
-        ...locationFilter,
-      },
-    }),
-    prisma.callCenterVoicemail.count({
-      where: {
+      }
+    : {
         practiceId: practice.id,
-        resolvedAt: null,
-        ...locationFilter,
-      },
-    }),
-    prisma.callCenterMissedCall.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
-      select: {
-        calledBack: true,
-        callerName: true,
-        createdAt: true,
-        fromPhone: true,
-        id: true,
-        location: {
-          select: {
-            name: true,
-          },
+      };
+
+  const [missedCallCount, voicemailCount, missedCalls, voicemails, seats, queue] =
+    await Promise.all([
+      prisma.callCenterMissedCall.count({
+        where: {
+          calledBack: false,
+          practiceId: practice.id,
+          resolvedAt: null,
+          ...locationFilter,
         },
-        resolvedAt: true,
-      },
-      take: 30,
-      where: {
-        calledBack: false,
-        practiceId: practice.id,
-        resolvedAt: null,
-        ...locationFilter,
-      },
-    }),
-    prisma.callCenterVoicemail.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
-      select: {
-        callerName: true,
-        createdAt: true,
-        durationSec: true,
-        fromPhone: true,
-        id: true,
-        location: {
-          select: {
-            name: true,
-          },
+      }),
+      prisma.callCenterVoicemail.count({
+        where: {
+          practiceId: practice.id,
+          resolvedAt: null,
+          ...locationFilter,
         },
-        recordingId: true,
-        resolvedAt: true,
-      },
-      take: 30,
-      where: {
-        practiceId: practice.id,
-        resolvedAt: null,
-        ...locationFilter,
-      },
-    }),
-  ]);
+      }),
+      prisma.callCenterMissedCall.findMany({
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: {
+          calledBack: true,
+          callerName: true,
+          createdAt: true,
+          fromPhone: true,
+          id: true,
+          location: {
+            select: {
+              name: true,
+            },
+          },
+          resolvedAt: true,
+        },
+        take: 30,
+        where: {
+          calledBack: false,
+          practiceId: practice.id,
+          resolvedAt: null,
+          ...locationFilter,
+        },
+      }),
+      prisma.callCenterVoicemail.findMany({
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: {
+          callerName: true,
+          createdAt: true,
+          durationSec: true,
+          fromPhone: true,
+          id: true,
+          location: {
+            select: {
+              name: true,
+            },
+          },
+          recordingId: true,
+          resolvedAt: true,
+        },
+        take: 30,
+        where: {
+          practiceId: practice.id,
+          resolvedAt: null,
+          ...locationFilter,
+        },
+      }),
+      prisma.callCenterAgentSeat.findMany({
+        orderBy: [{ extension: "asc" }, { label: "asc" }],
+        select: {
+          extension: true,
+          id: true,
+          label: true,
+          locationId: true,
+          sipUsername: true,
+          telnyxCredentialId: true,
+        },
+        where: {
+          ...seatWhere,
+          enabled: true,
+        },
+      }),
+      prisma.callCenterQueueItem.findMany({
+        orderBy: [{ priority: "desc" }, { enteredAt: "asc" }],
+        select: {
+          enteredAt: true,
+          fromPhone: true,
+          id: true,
+          location: {
+            select: {
+              name: true,
+            },
+          },
+          ringAttempts: {
+            orderBy: {
+              startedAt: "asc",
+            },
+            select: {
+              id: true,
+              seat: {
+                select: {
+                  label: true,
+                },
+              },
+              status: true,
+            },
+          },
+          status: true,
+          toPhone: true,
+        },
+        take: 20,
+        where: {
+          practiceId: practice.id,
+          status: {
+            in: ["RINGING", "WAITING", "ASSIGNED", "ACTIVE"],
+          },
+          ...locationFilter,
+        },
+      }),
+    ]);
 
   const activity: PortalCallActivityItem[] = [];
 
@@ -566,7 +834,28 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
     phoneNumbers: practice.phoneNumbers,
     practiceId: practice.id,
     practiceName: practice.name,
+    queue: queue.map((item) => ({
+      enteredAt: item.enteredAt,
+      fromPhone: item.fromPhone,
+      id: item.id,
+      locationName: item.location?.name ?? null,
+      ringAttempts: item.ringAttempts.map((attempt) => ({
+        id: attempt.id,
+        seatLabel: attempt.seat.label,
+        status: attempt.status,
+      })),
+      status: item.status,
+      toPhone: item.toPhone,
+    })),
     selectedLocation,
+    seats: seats.map((seat) => ({
+      extension: seat.extension,
+      hasCredential: Boolean(seat.telnyxCredentialId),
+      id: seat.id,
+      label: seat.label,
+      locationId: seat.locationId,
+      sipUsername: seat.sipUsername,
+    })),
     settings: practice.callCenterSettings,
     totals: {
       missedCalls: missedCallCount,
@@ -653,10 +942,61 @@ async function findSettingsByConnectionId(connectionId: string) {
 
 async function resolveCallCenterSettingsForWebhook(payload: Record<string, unknown>) {
   const connectionId = asString(payload.connection_id);
-  const practicePhoneVariants = phoneLookupVariants(getPracticeSidePhone(payload));
 
-  if (practicePhoneVariants.length) {
-    return findSettingsByPracticePhone(practicePhoneVariants);
+  // Agent dial legs carry our ringAttemptId / queueItemId in client_state.
+  // Resolve the practice through that linkage — most reliable for outbound legs
+  // where the SIP URI ("to") isn't a phone number we can look up.
+  const clientState = decodeClientState(payload.client_state);
+  const ringAttemptId = asString(clientState?.ringAttemptId);
+  const queueItemId = asString(clientState?.queueItemId);
+
+  if (ringAttemptId || queueItemId) {
+    const queueItem = ringAttemptId
+      ? await prisma.callCenterRingAttempt.findUnique({
+          select: { queueItem: { select: { practiceId: true } } },
+          where: { id: ringAttemptId },
+        })
+      : await prisma.callCenterQueueItem.findUnique({
+          select: { practiceId: true },
+          where: { id: queueItemId },
+        });
+
+    const resolvedPracticeId = ringAttemptId
+      ? (queueItem as { queueItem?: { practiceId?: string } } | null)?.queueItem
+          ?.practiceId
+      : (queueItem as { practiceId?: string } | null)?.practiceId;
+
+    if (resolvedPracticeId) {
+      const settings = await prisma.practiceCallCenterSettings.findFirst({
+        include: { practice: true },
+        where: {
+          enabled: true,
+          practiceId: resolvedPracticeId,
+        },
+      });
+
+      if (settings) {
+        return settings;
+      }
+    }
+  }
+
+  // Try whichever side of the call is a recognized practice phone number.
+  const phoneCandidates = [
+    getPracticeSidePhone(payload),
+    asString(payload.to),
+    asString(payload.from),
+  ].filter(Boolean);
+
+  for (const phone of phoneCandidates) {
+    const variants = phoneLookupVariants(phone);
+    if (!variants.length) {
+      continue;
+    }
+    const settings = await findSettingsByPracticePhone(variants);
+    if (settings) {
+      return settings;
+    }
   }
 
   if (connectionId) {
@@ -747,6 +1087,20 @@ function toSessionDirection(direction: string) {
   return CallCenterSessionDirection.UNKNOWN;
 }
 
+function mergeSessionDirection({
+  existingDirection,
+  payloadDirection,
+}: {
+  existingDirection?: CallCenterSessionDirection | null;
+  payloadDirection: CallCenterSessionDirection;
+}) {
+  if (payloadDirection !== CallCenterSessionDirection.UNKNOWN) {
+    return payloadDirection;
+  }
+
+  return existingDirection ?? CallCenterSessionDirection.UNKNOWN;
+}
+
 async function upsertSessionFromPayload({
   eventType,
   locationId,
@@ -765,23 +1119,58 @@ async function upsertSessionFromPayload({
   const now = new Date();
   const eventAt = asDate(payload.occurred_at) ?? now;
   const agentCallId = await resolveAgentCallIdFromPayload(practiceId, payload);
+  const payloadDirection = toSessionDirection(asString(payload.direction));
+  const existingSession = callControlId
+    ? await prisma.callCenterSession.findUnique({
+        select: {
+          direction: true,
+          fromPhone: true,
+          locationId: true,
+          toPhone: true,
+        },
+        where: {
+          telnyxCallControlId: callControlId,
+        },
+      })
+    : callSessionId
+      ? await prisma.callCenterSession.findFirst({
+          select: {
+            direction: true,
+            fromPhone: true,
+            locationId: true,
+            toPhone: true,
+          },
+          where: {
+            practiceId,
+            telnyxCallSessionId: callSessionId,
+          },
+        })
+      : null;
+  // Some Telnyx event payloads (notably call.recording.saved and
+  // call.playback.ended) don't include from/to/direction. Don't clobber
+  // the values that were already set on the original call.initiated event.
+  const payloadFromPhone = normalizePhone(asString(payload.from)) || null;
+  const payloadToPhone = normalizePhone(asString(payload.to)) || null;
   const baseData = {
     agentCallId,
     callerName: asString(payload.caller_id_name) || null,
-    direction: toSessionDirection(asString(payload.direction)),
+    direction: mergeSessionDirection({
+      existingDirection: existingSession?.direction,
+      payloadDirection,
+    }),
     endedAt:
       status === "COMPLETED" || status === "MISSED" || status === "FAILED"
         ? eventAt
         : undefined,
-    fromPhone: normalizePhone(asString(payload.from)) || null,
-    locationId,
+    fromPhone: payloadFromPhone ?? existingSession?.fromPhone ?? null,
+    locationId: locationId ?? existingSession?.locationId ?? null,
     metadata: jsonInput({
       lastEventType: eventType,
       payload,
     }),
     status,
     telnyxCallSessionId: callSessionId || null,
-    toPhone: normalizePhone(asString(payload.to)) || null,
+    toPhone: payloadToPhone ?? existingSession?.toPhone ?? null,
     ...(status === "ACTIVE" ? { answeredAt: eventAt } : {}),
   };
 
@@ -825,6 +1214,1185 @@ async function upsertSessionFromPayload({
       startedAt: eventAt,
     },
   });
+}
+
+function isInboundSession(session: { direction: CallCenterSessionDirection }) {
+  return session.direction === CallCenterSessionDirection.INBOUND;
+}
+
+async function upsertQueueItemForSession({
+  eventType,
+  payload,
+  session,
+  status,
+}: {
+  eventType: string;
+  payload: Record<string, unknown>;
+  session: Awaited<ReturnType<typeof upsertSessionFromPayload>>;
+  status: CallCenterQueueStatus;
+}) {
+  if (!isInboundSession(session)) {
+    return null;
+  }
+
+  const eventAt = asDate(payload.occurred_at) ?? new Date();
+  const existing = await prisma.callCenterQueueItem.findUnique({
+    select: {
+      status: true,
+    },
+    where: {
+      callerSessionId: session.id,
+    },
+  });
+  const nextStatus = existing ? mergeQueueStatus(existing.status, status) : status;
+  const terminal =
+    nextStatus === "COMPLETED" ||
+    nextStatus === "ABANDONED" ||
+    nextStatus === "VOICEMAIL";
+
+  const data = {
+    fromPhone: session.fromPhone,
+    locationId: session.locationId,
+    metadata: jsonInput({
+      lastEventType: eventType,
+      payload,
+    }),
+    status: nextStatus,
+    toPhone: session.toPhone,
+    ...(nextStatus === "ASSIGNED" ? { assignedAt: eventAt } : {}),
+    ...(nextStatus === "ACTIVE" ? { answeredAt: eventAt } : {}),
+    ...(nextStatus === "VOICEMAIL" ? { voicemailStartedAt: eventAt } : {}),
+    ...(terminal ? { endedAt: eventAt } : {}),
+  };
+
+  return prisma.callCenterQueueItem.upsert({
+    create: {
+      ...data,
+      practiceId: session.practiceId,
+      callerSessionId: session.id,
+      enteredAt: session.startedAt,
+    },
+    update: data,
+    where: {
+      callerSessionId: session.id,
+    },
+  });
+}
+
+function mergeQueueStatus(
+  existing: CallCenterQueueStatus,
+  next: CallCenterQueueStatus,
+): CallCenterQueueStatus {
+  if (existing === "VOICEMAIL" || existing === "COMPLETED" || existing === "ABANDONED") {
+    return existing;
+  }
+
+  if (next === "VOICEMAIL" || next === "COMPLETED" || next === "ABANDONED") {
+    return next;
+  }
+
+  const rank: Record<CallCenterQueueStatus, number> = {
+    WAITING: 1,
+    RINGING: 2,
+    ASSIGNED: 3,
+    ACTIVE: 4,
+    VOICEMAIL: 5,
+    COMPLETED: 5,
+    ABANDONED: 5,
+  };
+
+  return rank[next] >= rank[existing] ? next : existing;
+}
+
+function ringAttemptHangupStatus(hangupCause: string) {
+  if (["no_answer", "timeout", "user_busy"].includes(hangupCause)) {
+    return "NO_ANSWER" as const;
+  }
+
+  if (["call_rejected", "originator_cancel"].includes(hangupCause)) {
+    return "CANCELED" as const;
+  }
+
+  return "FAILED" as const;
+}
+
+async function updateRingAttemptFromPayload({
+  payload,
+  status,
+}: {
+  payload: Record<string, unknown>;
+  status: "ANSWERED" | "BRIDGED" | "CANCELED" | "FAILED" | "NO_ANSWER" | "RINGING";
+}) {
+  const clientState = decodeClientState(payload.client_state);
+  const ringAttemptId = asString(clientState?.ringAttemptId);
+  const callControlId = asString(payload.call_control_id);
+  const eventAt = asDate(payload.occurred_at) ?? new Date();
+
+  if (!ringAttemptId && !callControlId) {
+    return null;
+  }
+
+  const existing = await prisma.callCenterRingAttempt.findFirst({
+    select: {
+      id: true,
+      queueItemId: true,
+      status: true,
+      telnyxCallControlId: true,
+    },
+    where: ringAttemptId
+      ? {
+          id: ringAttemptId,
+        }
+      : {
+          telnyxCallControlId: callControlId,
+        },
+  });
+
+  if (!existing) {
+    return null;
+  }
+
+  const terminal = ["CANCELED", "FAILED", "NO_ANSWER"].includes(status);
+  const previouslyAnswered =
+    existing.status === "ANSWERED" || existing.status === "BRIDGED";
+
+  // Terminal hangup of a connected agent leg → end of call, mark queue COMPLETED.
+  if (terminal && previouslyAnswered) {
+    const attempt = await prisma.callCenterRingAttempt.update({
+      data: {
+        endedAt: eventAt,
+        hangupCause: asString(payload.hangup_cause) || null,
+        status: existing.status,
+        telnyxCallControlId: callControlId || undefined,
+      },
+      where: {
+        id: existing.id,
+      },
+    });
+
+    await prisma.callCenterQueueItem.update({
+      data: {
+        endedAt: eventAt,
+        status: "COMPLETED",
+      },
+      where: {
+        id: existing.queueItemId,
+      },
+    });
+
+    return attempt;
+  }
+
+  // Don't downgrade an attempt's status (e.g., late RINGING after ANSWERED, or
+  // late ANSWERED after BRIDGED). Telnyx sometimes delivers events out of order.
+  let nextStatus: typeof status | typeof existing.status = status;
+  if (previouslyAnswered && (status === "RINGING" || status === "ANSWERED")) {
+    nextStatus = existing.status;
+  }
+
+  return prisma.callCenterRingAttempt.update({
+    data: {
+      status: nextStatus,
+      telnyxCallControlId: callControlId || undefined,
+      ...(status === "ANSWERED" || status === "BRIDGED" ? { answeredAt: eventAt } : {}),
+      ...(terminal
+        ? {
+            endedAt: eventAt,
+            hangupCause: asString(payload.hangup_cause) || null,
+          }
+        : {}),
+    },
+    where: {
+      id: existing.id,
+    },
+  });
+}
+
+async function ringAvailableSeatsForQueueItem({
+  availableSeats,
+  callerCallControlId,
+  connectionId,
+  callerNumber,
+  from,
+  queueItemId,
+  timeoutSecs,
+}: {
+  availableSeats: AvailableCallCenterSeat[];
+  callerCallControlId: string;
+  connectionId: string;
+  callerNumber?: string | null;
+  from: string;
+  queueItemId: string;
+  timeoutSecs?: number;
+}) {
+  if (!availableSeats.length || !callerCallControlId || !connectionId || !from) {
+    return 0;
+  }
+
+  const results = await Promise.all(
+    availableSeats.map(async (seat) => {
+      let attempt: { id: string } | null = null;
+
+      try {
+        attempt = await prisma.callCenterRingAttempt.create({
+          data: {
+            queueItemId,
+            seatId: seat.id,
+            status: "DIALING",
+          },
+          select: {
+            id: true,
+          },
+        });
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) {
+          throw error;
+        }
+
+        const existingAttempt = await prisma.callCenterRingAttempt.findFirst({
+          select: {
+            id: true,
+            status: true,
+          },
+          where: {
+            queueItemId,
+            seatId: seat.id,
+          },
+        });
+
+        if (
+          existingAttempt &&
+          RETRYABLE_RING_ATTEMPT_STATUSES.has(existingAttempt.status)
+        ) {
+          await prisma.callCenterRingAttempt.delete({
+            where: {
+              id: existingAttempt.id,
+            },
+          });
+          attempt = await prisma.callCenterRingAttempt.create({
+            data: {
+              queueItemId,
+              seatId: seat.id,
+              status: "DIALING",
+            },
+            select: {
+              id: true,
+            },
+          });
+        } else {
+          console.info("[call-center] skipping active duplicate station ring", {
+            queueItemId,
+            seatId: seat.id,
+            seatLabel: seat.label,
+            status: existingAttempt?.status ?? null,
+          });
+          return false;
+        }
+      }
+
+      if (!attempt) {
+        return false;
+      }
+
+      const to = telnyxSipUri(seat.sipUsername);
+
+      if (!to) {
+        await prisma.callCenterRingAttempt.update({
+          data: {
+            endedAt: new Date(),
+            hangupCause: "missing_sip_username",
+            status: "FAILED",
+          },
+          where: {
+            id: attempt.id,
+          },
+        });
+        return false;
+      }
+
+      try {
+        const result = await dialTelnyxCall({
+          bridgeIntent: true,
+          bridgeOnAnswer: true,
+          clientState: encodeClientState({
+            callerNumber: callerNumber || undefined,
+            queueItemId,
+            ringAttemptId: attempt.id,
+            seatId: seat.id,
+          }),
+          commandId: `ring-${queueItemId}-${seat.id}`,
+          connectionId,
+          from,
+          linkTo: callerCallControlId,
+          preventDoubleBridge: true,
+          timeoutSecs,
+          to,
+        });
+        const telnyxCallControlId = extractTelnyxCallControlId(result);
+
+        await prisma.callCenterRingAttempt.update({
+          data: {
+            status: "RINGING",
+            telnyxCallControlId: telnyxCallControlId || undefined,
+          },
+          where: {
+            id: attempt.id,
+          },
+        });
+        return true;
+      } catch (error) {
+        const telnyxDetail =
+          error instanceof TelnyxError && error.detail
+            ? `${error.message}: ${error.detail}`
+            : null;
+        await prisma.callCenterRingAttempt.update({
+          data: {
+            endedAt: new Date(),
+            hangupCause:
+              telnyxDetail ??
+              (error instanceof Error ? error.message : "failed_to_dial_station"),
+            status: "FAILED",
+          },
+          where: {
+            id: attempt.id,
+          },
+        });
+        return false;
+      }
+    }),
+  );
+
+  return results.filter(Boolean).length;
+}
+
+async function restoreQueueItemAfterFailedStationTake({
+  previousStatus,
+  queueItemId,
+}: {
+  previousStatus: CallCenterQueueStatus;
+  queueItemId: string;
+}) {
+  await prisma.callCenterQueueItem.updateMany({
+    data: {
+      assignedAt: null,
+      status: previousStatus === "ASSIGNED" ? "WAITING" : previousStatus,
+    },
+    where: {
+      id: queueItemId,
+      ringAttempts: {
+        none: {
+          status: {
+            in: LIVE_RING_ATTEMPT_STATUSES,
+          },
+        },
+      },
+      status: "ASSIGNED",
+    },
+  });
+}
+
+async function getQueueItemForStationTake({
+  practiceId,
+  queueItemId,
+}: {
+  practiceId: string;
+  queueItemId: string;
+}) {
+  return prisma.callCenterQueueItem.findFirst({
+    include: {
+      callerSession: {
+        select: {
+          telnyxCallControlId: true,
+        },
+      },
+    },
+    where: {
+      id: queueItemId,
+      practiceId,
+      status: {
+        in: ["RINGING", "WAITING", "ASSIGNED"],
+      },
+    },
+  });
+}
+
+export async function ringStationForQueuedCall({
+  browserSessionId,
+  queueItemId,
+  seatId,
+}: {
+  browserSessionId: string;
+  queueItemId: string;
+  seatId: string;
+}) {
+  const context = await getCurrentPracticeCallCenterContext();
+
+  if (!context) {
+    throw new TelnyxError("Unauthorized", 401);
+  }
+
+  const settings = context.practice.callCenterSettings;
+
+  if (!settings?.enabled) {
+    throw new TelnyxError("Call center is not enabled for this practice", 403);
+  }
+
+  const [queueItem, seat] = await Promise.all([
+    getQueueItemForStationTake({
+      practiceId: context.practice.id,
+      queueItemId,
+    }),
+    prisma.callCenterAgentSeat.findFirst({
+      select: {
+        extension: true,
+        id: true,
+        label: true,
+        locationId: true,
+        sipUsername: true,
+        telnyxCredentialId: true,
+      },
+      where: {
+        enabled: true,
+        id: seatId,
+        practiceId: context.practice.id,
+      },
+    }),
+  ]);
+
+  if (!queueItem) {
+    throw new TelnyxError("Queued call is not available", 404);
+  }
+
+  if (!seat) {
+    throw new TelnyxError("Call center station not found", 404);
+  }
+
+  if (queueItem.locationId !== seat.locationId) {
+    throw new TelnyxError("Station does not belong to this queued call location", 422);
+  }
+
+  const presenceCutoff = getPresenceExpirationCutoff();
+  const [availablePresence, competingPresence] = await Promise.all([
+    prisma.callCenterPresence.count({
+      where: {
+        browserSessionId,
+        lastSeenAt: {
+          gte: presenceCutoff,
+        },
+        seatId: seat.id,
+        status: CallCenterPresenceStatus.AVAILABLE,
+        userId: context.session.user.id,
+      },
+    }),
+    prisma.callCenterPresence.count({
+      where: {
+        browserSessionId: {
+          not: browserSessionId,
+        },
+        lastSeenAt: {
+          gte: presenceCutoff,
+        },
+        seatId: seat.id,
+        status: {
+          not: CallCenterPresenceStatus.OFFLINE,
+        },
+      },
+    }),
+  ]);
+
+  if (competingPresence > 0) {
+    throw new TelnyxError("Station is active in another browser", 409);
+  }
+
+  if (availablePresence === 0) {
+    throw new TelnyxError("Station is not available", 409);
+  }
+
+  const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
+  const callerCallControlId = queueItem.callerSession?.telnyxCallControlId || "";
+  const callerNumber = normalizePhone(queueItem.fromPhone);
+  // Show the caller's number as the SIP From on the agent's leg.
+  const from =
+    callerNumber ||
+    normalizePhone(queueItem.toPhone) ||
+    normalizePhone(runtimeSettings.outboundCallerNumber);
+
+  if (!callerCallControlId) {
+    throw new TelnyxError("Queued caller leg is missing Telnyx call control ID", 422);
+  }
+
+  const previousStatus = queueItem.status;
+
+  await prisma.callCenterQueueItem.update({
+    data: {
+      assignedAt: new Date(),
+      status: "ASSIGNED",
+    },
+    where: {
+      id: queueItem.id,
+    },
+  });
+
+  let dialedAttemptCount = 0;
+
+  try {
+    dialedAttemptCount = await ringAvailableSeatsForQueueItem({
+      availableSeats: [seat],
+      callerCallControlId,
+      callerNumber,
+      connectionId: runtimeSettings.connectionId,
+      from: from || "",
+      queueItemId: queueItem.id,
+      timeoutSecs: AGENT_RING_TIMEOUT_SEC,
+    });
+  } catch (error) {
+    await restoreQueueItemAfterFailedStationTake({
+      previousStatus,
+      queueItemId: queueItem.id,
+    });
+    throw error;
+  }
+
+  if (dialedAttemptCount === 0) {
+    await restoreQueueItemAfterFailedStationTake({
+      previousStatus,
+      queueItemId: queueItem.id,
+    });
+    throw new TelnyxError("No station leg could be dialed", 502);
+  }
+
+  return {
+    ok: true,
+  };
+}
+
+async function markQueueVoicemailError({
+  error,
+  queueItemId,
+}: {
+  error: unknown;
+  queueItemId: string;
+}) {
+  await prisma.callCenterQueueItem.update({
+    data: {
+      metadata: jsonInput({
+        voicemailError:
+          error instanceof Error ? error.message : "failed_to_start_voicemail",
+      }),
+    },
+    where: {
+      id: queueItemId,
+    },
+  });
+}
+
+async function startCallerRingback({
+  callControlId,
+  queueItemId,
+  timeoutSec,
+}: {
+  callControlId: string;
+  queueItemId: string;
+  timeoutSec: number;
+}) {
+  // Looping the generated ringback WAV once makes playback end when the
+  // queue-wait window closes; call.playback.ended then routes unanswered
+  // callers to voicemail.
+  try {
+    const response = await startTelnyxPlayback({
+      callControlId,
+      commandId: `ringback-${queueItemId}`,
+      loop: 1,
+      playbackContent: ringbackWavBase64For(timeoutSec),
+    });
+    console.info("[call-center] ringback started", {
+      callControlId,
+      ok: response?.ok ?? null,
+      queueItemId,
+      status: response?.status ?? null,
+    });
+    return response?.ok === true;
+  } catch (error) {
+    console.error("[call-center] ringback start failed", {
+      callControlId,
+      error,
+      queueItemId,
+    });
+    return false;
+  }
+}
+
+async function stopCallerRingback(callControlId: string) {
+  await stopTelnyxPlayback(callControlId).catch(() => null);
+}
+
+async function queueInboundCallForStaff({
+  eventType,
+  payload,
+  session,
+  settings,
+}: {
+  eventType: string;
+  payload: Record<string, unknown>;
+  session: Awaited<ReturnType<typeof upsertSessionFromPayload>>;
+  settings: CallCenterVoicemailSettings;
+}) {
+  if (!isInboundSession(session)) {
+    return null;
+  }
+
+  const callerCallControlId =
+    asString(payload.call_control_id) || session.telnyxCallControlId || "";
+
+  if (!callerCallControlId) {
+    return null;
+  }
+
+  const queueItem = await upsertQueueItemForSession({
+    eventType,
+    payload,
+    session,
+    status: "WAITING",
+  });
+
+  if (!queueItem) {
+    return null;
+  }
+
+  if (queueItem.status !== "WAITING") {
+    console.info("[call-center] inbound queue item already routed, skipping ring", {
+      queueItemId: queueItem.id,
+      status: queueItem.status,
+    });
+    return queueItem;
+  }
+
+  const answerResponse = await answerTelnyxCall(callerCallControlId).catch((error) => {
+    console.error("[call-center] Failed to answer inbound caller leg", {
+      callControlId: callerCallControlId,
+      error,
+      queueItemId: queueItem.id,
+    });
+    return null;
+  });
+
+  if (!answerResponse || !answerResponse.ok) {
+    console.error("[call-center] Failed to answer inbound caller leg", {
+      callControlId: callerCallControlId,
+      queueItemId: queueItem.id,
+      status: answerResponse?.status ?? null,
+    });
+    await startQueueVoicemail({
+      queueItemId: queueItem.id,
+      settings,
+    });
+    return queueItem;
+  }
+
+  const ringbackStarted = await startCallerRingback({
+    callControlId: callerCallControlId,
+    queueItemId: queueItem.id,
+    timeoutSec: settings.voicemailTimeoutSec,
+  });
+
+  if (!ringbackStarted) {
+    await startQueueVoicemail({
+      queueItemId: queueItem.id,
+      settings,
+    });
+    return queueItem;
+  }
+
+  console.info("[call-center] queued inbound caller for manual staff take", {
+    queueItemId: queueItem.id,
+  });
+
+  return queueItem;
+}
+
+async function onAgentBridgeWon({
+  queueItemId,
+  winnerAttemptId,
+}: {
+  queueItemId: string;
+  winnerAttemptId: string;
+}) {
+  const eventAt = new Date();
+
+  await prisma.callCenterQueueItem.updateMany({
+    data: {
+      answeredAt: eventAt,
+      assignedAt: eventAt,
+      status: "ACTIVE",
+    },
+    where: {
+      id: queueItemId,
+      status: {
+        in: ["RINGING", "WAITING", "ASSIGNED"],
+      },
+    },
+  });
+
+  const losing = await prisma.callCenterRingAttempt.findMany({
+    select: {
+      id: true,
+      telnyxCallControlId: true,
+    },
+    where: {
+      id: {
+        not: winnerAttemptId,
+      },
+      queueItemId,
+      status: {
+        in: ["DIALING", "RINGING", "ANSWERED"],
+      },
+    },
+  });
+
+  if (losing.length) {
+    await prisma.callCenterRingAttempt.updateMany({
+      data: {
+        endedAt: eventAt,
+        hangupCause: "answered_elsewhere",
+        status: "CANCELED",
+      },
+      where: {
+        id: {
+          in: losing.map((attempt) => attempt.id),
+        },
+      },
+    });
+
+    await Promise.all(
+      losing
+        .map((attempt) => attempt.telnyxCallControlId)
+        .filter((cc): cc is string => Boolean(cc))
+        .map((cc) =>
+          hangupTelnyxCall(cc).catch((hangupError) => {
+            console.error(
+              "[call-center] Failed to hang up losing agent leg",
+              cc,
+              hangupError,
+            );
+            return null;
+          }),
+        ),
+    );
+  }
+
+  const queueItem = await prisma.callCenterQueueItem.findUnique({
+    select: {
+      callerSession: {
+        select: {
+          telnyxCallControlId: true,
+        },
+      },
+    },
+    where: {
+      id: queueItemId,
+    },
+  });
+
+  const callerCallControlId = queueItem?.callerSession?.telnyxCallControlId;
+
+  if (callerCallControlId) {
+    await stopCallerRingback(callerCallControlId);
+  }
+}
+
+async function cancelPendingRingAttempts({
+  cause,
+  eventAt,
+  queueItemId,
+}: {
+  cause: string;
+  eventAt: Date;
+  queueItemId: string;
+}) {
+  const pending = await prisma.callCenterRingAttempt.findMany({
+    select: {
+      id: true,
+      telnyxCallControlId: true,
+    },
+    where: {
+      queueItemId,
+      status: {
+        in: ["DIALING", "RINGING"],
+      },
+    },
+  });
+
+  if (!pending.length) {
+    return;
+  }
+
+  await prisma.callCenterRingAttempt.updateMany({
+    data: {
+      endedAt: eventAt,
+      hangupCause: cause,
+      status: "CANCELED",
+    },
+    where: {
+      id: {
+        in: pending.map((attempt) => attempt.id),
+      },
+    },
+  });
+
+  await Promise.all(
+    pending
+      .map((attempt) => attempt.telnyxCallControlId)
+      .filter((cc): cc is string => Boolean(cc))
+      .map((cc) =>
+        hangupTelnyxCall(cc).catch((hangupError) => {
+          console.error(
+            "[call-center] Failed to hang up pending ring attempt leg",
+            cc,
+            hangupError,
+          );
+          return null;
+        }),
+      ),
+  );
+}
+
+async function startQueueVoicemail({
+  queueItemId,
+  settings,
+}: {
+  queueItemId: string;
+  settings: CallCenterVoicemailSettings;
+}) {
+  const queueItem = await prisma.callCenterQueueItem.findUnique({
+    include: {
+      callerSession: {
+        select: {
+          telnyxCallControlId: true,
+        },
+      },
+      ringAttempts: {
+        select: {
+          id: true,
+          status: true,
+          telnyxCallControlId: true,
+        },
+      },
+    },
+    where: {
+      id: queueItemId,
+    },
+  });
+
+  if (!queueItem) {
+    return null;
+  }
+
+  const callerCallControlId = queueItem.callerSession?.telnyxCallControlId;
+
+  if (!callerCallControlId) {
+    return null;
+  }
+
+  const claimed = await prisma.callCenterQueueItem.updateMany({
+    data: {
+      status: "VOICEMAIL",
+      voicemailStartedAt: new Date(),
+    },
+    where: {
+      id: queueItemId,
+      status: {
+        in: ["WAITING", "RINGING", "ASSIGNED"],
+      },
+    },
+  });
+
+  if (claimed.count === 0) {
+    return null;
+  }
+
+  const liveAttempts = queueItem.ringAttempts.filter((attempt) =>
+    ["DIALING", "RINGING", "ANSWERED", "BRIDGED"].includes(attempt.status),
+  );
+
+  if (liveAttempts.length) {
+    await prisma.callCenterRingAttempt.updateMany({
+      data: {
+        endedAt: new Date(),
+        hangupCause: "voicemail_started",
+        status: "CANCELED",
+      },
+      where: {
+        id: {
+          in: liveAttempts.map((attempt) => attempt.id),
+        },
+      },
+    });
+
+    await Promise.all(
+      liveAttempts
+        .map((attempt) => attempt.telnyxCallControlId)
+        .filter((cc): cc is string => Boolean(cc))
+        .map((cc) =>
+          hangupTelnyxCall(cc).catch((hangupError) => {
+            console.error(
+              "[call-center] Failed to hang up agent leg before voicemail",
+              cc,
+              hangupError,
+            );
+            return null;
+          }),
+        ),
+    );
+  }
+
+  try {
+    await answerTelnyxCall(callerCallControlId).catch(() => null);
+    await stopCallerRingback(callerCallControlId);
+    await triggerTelnyxVoicemailPrompt(settings, callerCallControlId);
+  } catch (error) {
+    await markQueueVoicemailError({
+      error,
+      queueItemId,
+    });
+  }
+
+  return queueItemId;
+}
+
+async function routeUnansweredQueueItemToVoicemail({
+  queueItemId,
+  settings,
+}: {
+  queueItemId: string;
+  settings: CallCenterVoicemailSettings;
+}) {
+  // When an agent ring attempt finishes without being answered, check whether
+  // the queue item is still waiting on someone. If there are no other live
+  // attempts and it hasn't been answered/abandoned yet, hand the caller leg
+  // off to voicemail. Otherwise leave it alone (a parallel ring may still be
+  // alive, or the caller already moved on).
+  const queueItem = await prisma.callCenterQueueItem.findUnique({
+    select: {
+      id: true,
+      ringAttempts: {
+        select: {
+          status: true,
+        },
+      },
+      status: true,
+    },
+    where: {
+      id: queueItemId,
+    },
+  });
+
+  if (!queueItem || !["WAITING", "RINGING", "ASSIGNED"].includes(queueItem.status)) {
+    return;
+  }
+
+  const hasLiveAttempt = queueItem.ringAttempts.some((attempt) =>
+    ["DIALING", "RINGING", "ANSWERED", "BRIDGED"].includes(attempt.status),
+  );
+
+  if (hasLiveAttempt) {
+    return;
+  }
+
+  await startQueueVoicemail({ queueItemId, settings });
+}
+
+async function releaseQueueItemAfterNoAnswer({ queueItemId }: { queueItemId: string }) {
+  const queueItem = await prisma.callCenterQueueItem.findUnique({
+    select: {
+      id: true,
+      ringAttempts: {
+        select: {
+          status: true,
+        },
+      },
+      status: true,
+    },
+    where: {
+      id: queueItemId,
+    },
+  });
+
+  if (!queueItem || !["WAITING", "RINGING", "ASSIGNED"].includes(queueItem.status)) {
+    return;
+  }
+
+  const hasLiveAttempt = queueItem.ringAttempts.some((attempt) =>
+    ["DIALING", "RINGING", "ANSWERED", "BRIDGED"].includes(attempt.status),
+  );
+
+  if (hasLiveAttempt || queueItem.ringAttempts.length === 0) {
+    return;
+  }
+
+  await prisma.callCenterQueueItem.updateMany({
+    data: {
+      assignedAt: null,
+      status: "WAITING",
+    },
+    where: {
+      id: queueItemId,
+      status: {
+        in: ["RINGING", "ASSIGNED"],
+      },
+    },
+  });
+}
+
+export async function getPortalCallCenterOperationalState(options?: {
+  locationId?: string | null;
+}) {
+  const context = await getCurrentPracticeCallCenterContext();
+
+  if (!context) {
+    return null;
+  }
+
+  const { practice } = context;
+  const locationFilter =
+    options && "locationId" in options ? { locationId: options.locationId } : {};
+
+  const [seats, queueItems, sessions] = await Promise.all([
+    prisma.callCenterAgentSeat.findMany({
+      orderBy: [{ locationId: "asc" }, { extension: "asc" }, { label: "asc" }],
+      select: {
+        enabled: true,
+        extension: true,
+        id: true,
+        label: true,
+        location: {
+          select: {
+            name: true,
+          },
+        },
+        locationId: true,
+        presence: {
+          orderBy: {
+            lastSeenAt: "desc",
+          },
+          select: {
+            browserSessionId: true,
+            currentSessionId: true,
+            lastSeenAt: true,
+            status: true,
+            user: {
+              select: {
+                email: true,
+                name: true,
+              },
+            },
+          },
+          take: 5,
+        },
+        sipUsername: true,
+        telnyxCredentialId: true,
+        updatedAt: true,
+      },
+      where: {
+        practiceId: practice.id,
+        ...locationFilter,
+      },
+    }),
+    prisma.callCenterQueueItem.findMany({
+      orderBy: [{ enteredAt: "desc" }],
+      select: {
+        answeredAt: true,
+        endedAt: true,
+        enteredAt: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
+          },
+        },
+        locationId: true,
+        ringAttempts: {
+          orderBy: {
+            startedAt: "asc",
+          },
+          select: {
+            answeredAt: true,
+            endedAt: true,
+            hangupCause: true,
+            id: true,
+            seat: {
+              select: {
+                extension: true,
+                label: true,
+              },
+            },
+            startedAt: true,
+            status: true,
+            telnyxCallControlId: true,
+          },
+        },
+        status: true,
+        toPhone: true,
+        updatedAt: true,
+        voicemailStartedAt: true,
+      },
+      take: 25,
+      where: {
+        practiceId: practice.id,
+        ...locationFilter,
+      },
+    }),
+    prisma.callCenterSession.findMany({
+      orderBy: {
+        updatedAt: "desc",
+      },
+      select: {
+        direction: true,
+        endedAt: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
+          },
+        },
+        startedAt: true,
+        status: true,
+        telnyxCallControlId: true,
+        telnyxCallSessionId: true,
+        toPhone: true,
+        updatedAt: true,
+      },
+      take: 25,
+      where: {
+        practiceId: practice.id,
+        ...locationFilter,
+      },
+    }),
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    locationId: options?.locationId ?? null,
+    practiceId: practice.id,
+    practiceName: practice.name,
+    queueItems: queueItems.map((item) => ({
+      ...item,
+      ringAttempts: item.ringAttempts.map((attempt) => ({
+        ...attempt,
+        telnyxCallControlId: attempt.telnyxCallControlId ? "present" : null,
+      })),
+    })),
+    seats: seats.map((seat) => ({
+      ...seat,
+      hasCredential: Boolean(seat.telnyxCredentialId),
+      telnyxCredentialId: seat.telnyxCredentialId ? "present" : null,
+    })),
+    sessions: sessions.map((session) => ({
+      ...session,
+      telnyxCallControlId: session.telnyxCallControlId ? "present" : null,
+    })),
+  };
 }
 
 async function recordMissedCall({
@@ -913,13 +2481,22 @@ async function recordVoicemail({
     return null;
   }
 
-  const missedCall = sessionId
-    ? await prisma.callCenterMissedCall.findFirst({
-        where: {
-          sessionId,
-        },
-      })
-    : null;
+  const [missedCall, sourceSession] = await Promise.all([
+    sessionId
+      ? prisma.callCenterMissedCall.findFirst({
+          where: { sessionId },
+        })
+      : Promise.resolve(null),
+    sessionId
+      ? prisma.callCenterSession.findUnique({
+          select: {
+            fromPhone: true,
+            locationId: true,
+          },
+          where: { id: sessionId },
+        })
+      : Promise.resolve(null),
+  ]);
 
   if (missedCall) {
     await prisma.callCenterMissedCall.update({
@@ -932,12 +2509,19 @@ async function recordVoicemail({
     });
   }
 
+  // The recording.saved payload often lacks `from`; fall back to the source
+  // session's fromPhone (and locationId) so voicemails are attributable to
+  // a specific caller and location.
+  const fromPhone =
+    normalizePhone(asString(payload.from)) || sourceSession?.fromPhone || "Unknown";
+  const resolvedLocationId = locationId ?? sourceSession?.locationId ?? null;
+
   return prisma.callCenterVoicemail.upsert({
     create: {
       callerName: asString(payload.caller_id_name) || null,
       durationSec: Math.max(0, Math.round(duration)),
-      fromPhone: normalizePhone(asString(payload.from)) || "Unknown",
-      locationId,
+      fromPhone,
+      locationId: resolvedLocationId,
       missedCallId: missedCall?.id ?? null,
       practiceId,
       recordingId,
@@ -947,8 +2531,8 @@ async function recordVoicemail({
     update: {
       callerName: asString(payload.caller_id_name) || null,
       durationSec: Math.max(0, Math.round(duration)),
-      fromPhone: normalizePhone(asString(payload.from)) || "Unknown",
-      locationId,
+      fromPhone,
+      locationId: resolvedLocationId,
       missedCallId: missedCall?.id ?? null,
       recordingUrl,
       sessionId,
@@ -973,7 +2557,15 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
 
   const settings = await resolveCallCenterSettingsForWebhook(payload);
 
+  console.info("[call-center] webhook event", {
+    eventType,
+    callControlId: asString(payload.call_control_id),
+    direction: asString(payload.direction),
+    reason: asString(payload.reason) || undefined,
+  });
+
   if (!settings) {
+    console.warn("[call-center] webhook ignored — no enabled practice", { eventType });
     return { ignored: true, reason: "no_enabled_practice" };
   }
 
@@ -993,9 +2585,21 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         practiceId,
         status: "RINGING",
       });
+      if (isInboundSession(session) && asString(payload.call_control_id)) {
+        await queueInboundCallForStaff({
+          eventType,
+          payload,
+          session,
+          settings,
+        });
+      }
+      await updateRingAttemptFromPayload({
+        payload,
+        status: "RINGING",
+      });
       break;
 
-    case "call.answered":
+    case "call.answered": {
       session = await upsertSessionFromPayload({
         eventType,
         locationId,
@@ -1003,11 +2607,54 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         practiceId,
         status: "ACTIVE",
       });
+      const ringAttempt = await updateRingAttemptFromPayload({
+        payload,
+        status: "ANSWERED",
+      });
+
+      if (ringAttempt) {
+        console.info("[call-center] agent leg answered, waiting for auto-bridge", {
+          queueItemId: ringAttempt.queueItemId,
+          ringAttemptId: ringAttempt.id,
+        });
+      }
+      break;
+    }
+
+    case "call.enqueued":
+      session = await upsertSessionFromPayload({
+        eventType,
+        locationId,
+        payload,
+        practiceId,
+        status: "ACTIVE",
+      });
+      console.info("[call-center] ignored Telnyx native queue event in Call Control V1", {
+        eventType,
+      });
+      break;
+
+    case "call.dequeued":
+    case "call.left_queue":
+      session = await upsertSessionFromPayload({
+        eventType,
+        locationId,
+        payload,
+        practiceId,
+        status: "ACTIVE",
+      });
+      console.info("[call-center] ignored Telnyx native queue event in manual V1", {
+        eventType,
+      });
       break;
 
     case "call.hangup": {
       const hangupCause = asString(payload.hangup_cause);
       const missed = MISSED_CAUSES.has(hangupCause);
+      const ringAttempt = await updateRingAttemptFromPayload({
+        payload,
+        status: ringAttemptHangupStatus(hangupCause),
+      });
       session = await upsertSessionFromPayload({
         eventType,
         locationId,
@@ -1016,7 +2663,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         status: missed ? "MISSED" : "COMPLETED",
       });
 
-      if (missed) {
+      if (missed && isInboundSession(session)) {
         await recordMissedCall({
           agentCallId: session.agentCallId,
           locationId,
@@ -1025,14 +2672,108 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
           sessionId: session.id,
         });
       }
+      const queueItem = await upsertQueueItemForSession({
+        eventType,
+        payload,
+        session,
+        status: missed ? "ABANDONED" : "COMPLETED",
+      });
+      if (queueItem && isInboundSession(session)) {
+        await cancelPendingRingAttempts({
+          cause: hangupCause || "caller_hangup",
+          eventAt: asDate(payload.occurred_at) ?? new Date(),
+          queueItemId: queueItem.id,
+        });
+      }
+      if (ringAttempt) {
+        await routeUnansweredQueueItemToVoicemail({
+          queueItemId: ringAttempt.queueItemId,
+          settings,
+        });
+      }
       break;
     }
 
-    case "call.speak.ended":
-      if (settings.recordingEnabled && asString(payload.call_control_id)) {
-        await startTelnyxRecording(asString(payload.call_control_id));
+    case "call.playback.ended": {
+      // The queued-caller ringback playback ends naturally after the practice's
+      // voicemail timeout (loop: 1). When that happens we route the call to
+      // voicemail. If the playback ended because an agent
+      // bridged, the routing helper sees the queue item is no longer
+      // pending and skips voicemail.
+      //
+      // Prefer matching on commandId (`ringback-<queueItemId>`); fall back to
+      // resolving the queue item by the caller leg's call_control_id, since
+      // some Telnyx event variants drop command_id from the payload.
+      const commandId = asString(payload.command_id);
+      const callControlId = asString(payload.call_control_id);
+
+      let queueItemId = commandId.startsWith("ringback-")
+        ? commandId.slice("ringback-".length)
+        : "";
+
+      if (!queueItemId && callControlId) {
+        const item = await prisma.callCenterQueueItem.findFirst({
+          select: { id: true },
+          where: {
+            callerSession: {
+              telnyxCallControlId: callControlId,
+            },
+            status: { in: ["WAITING", "RINGING", "ASSIGNED"] },
+          },
+        });
+        queueItemId = item?.id ?? "";
+      }
+
+      console.info("[call-center] playback ended", {
+        callControlId,
+        commandId,
+        playbackStatus: asString(payload.status),
+        resolvedQueueItemId: queueItemId || null,
+      });
+
+      if (queueItemId) {
+        await routeUnansweredQueueItemToVoicemail({
+          queueItemId,
+          settings,
+        });
       }
       break;
+    }
+
+    case "call.speak.ended": {
+      // After the voicemail greeting finishes:
+      //   1. Fire the short beep playback (fire-and-forget — we don't wait
+      //      for call.playback.ended).
+      //   2. Wait long enough for the beep to play out (~beep duration).
+      //   3. Start recording. The brief gap means the beep itself is mostly
+      //      not captured in the recording, so the caller can speak naturally.
+      const callControlId = asString(payload.call_control_id);
+      if (settings.recordingEnabled && callControlId) {
+        startTelnyxPlayback({
+          callControlId,
+          commandId: `voicemail-beep-${callControlId}`,
+          loop: 1,
+          playbackContent: VOICEMAIL_BEEP_WAV_BASE64,
+        }).catch((error) => {
+          console.warn("[call-center] voicemail beep failed (continuing)", {
+            callControlId,
+            error,
+          });
+        });
+
+        // Beep is ~0.4s; wait a touch longer so it lands on the caller's line
+        // before we start recording.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        await startTelnyxRecording(callControlId).catch((error) => {
+          console.error("[call-center] failed to start voicemail recording", {
+            callControlId,
+            error,
+          });
+        });
+      }
+      break;
+    }
 
     case "call.recording.saved":
     case "calls.voicemail.completed":
@@ -1049,7 +2790,34 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         practiceId,
         sessionId: session.id,
       });
+      await upsertQueueItemForSession({
+        eventType,
+        payload,
+        session,
+        status: "VOICEMAIL",
+      });
       break;
+
+    case "call.bridged": {
+      session = await upsertSessionFromPayload({
+        eventType,
+        locationId,
+        payload,
+        practiceId,
+        status: "ACTIVE",
+      });
+      const bridgedAttempt = await updateRingAttemptFromPayload({
+        payload,
+        status: "BRIDGED",
+      });
+      if (bridgedAttempt) {
+        await onAgentBridgeWon({
+          queueItemId: bridgedAttempt.queueItemId,
+          winnerAttemptId: bridgedAttempt.id,
+        });
+      }
+      break;
+    }
 
     default:
       session = await upsertSessionFromPayload({

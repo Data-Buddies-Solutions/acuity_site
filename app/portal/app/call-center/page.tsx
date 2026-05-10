@@ -6,7 +6,6 @@ import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import { PracticePageHeader } from "../PracticePageHeader";
 
-import AutoRefresh from "./AutoRefresh";
 import CallCenterWorkspace from "./CallCenterWorkspace";
 import LocationPicker from "./LocationPicker";
 import { enableCallCenterAction } from "./actions";
@@ -49,16 +48,21 @@ export default async function PortalCallCenterPage({
     data.phoneNumbers.find((phone) => phone.isPrimary)?.phoneNumber ||
     data.phoneNumbers[0]?.phoneNumber ||
     "";
+  const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 20);
+  const hasSeatCredential = data.seats.some((seat) => seat.hasCredential);
+  const needsSeatCredential = data.seats.length > 0;
   const configured = Boolean(
     enabled &&
     runtimeSettings?.connectionId &&
-    runtimeSettings.credentialId &&
+    (needsSeatCredential ? hasSeatCredential : runtimeSettings.credentialId) &&
     outboundCallerNumber,
   );
+  const configurationMessage = needsSeatCredential
+    ? "Add a Telnyx credential ID to at least one station for this location before staff can register."
+    : "Telnyx is missing connection details. Add the connection ID, credential ID, and caller number to start placing calls.";
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <AutoRefresh />
       <PracticePageHeader
         branding={data.branding}
         practiceName={data.practiceName}
@@ -79,9 +83,14 @@ export default async function PortalCallCenterPage({
       <CallCenterWorkspace
         activity={data.activity}
         configured={configured}
+        configurationMessage={configurationMessage}
         enabled={enabled}
+        eventLocationId={selectedLocation?.locationId ?? null}
         outboundCallerNumber={outboundCallerNumber}
+        queue={data.queue}
+        seats={data.seats}
         totals={data.totals}
+        voicemailTimeoutSec={voicemailTimeoutSec}
       />
     </div>
   );
