@@ -356,7 +356,7 @@ const SoftphonePanel = forwardRef<
   // the caller, but this browser leg should disappear quickly if nobody picks up.
   const ringingTimeoutMs = Math.min(
     AGENT_RING_UI_TIMEOUT_MS,
-    Math.max(5_000, (voicemailTimeoutSec ?? 6) * 1000),
+    Math.max(5_000, (voicemailTimeoutSec ?? 8) * 1000),
   );
 
   const debugLog = useCallback((event: string, details: Record<string, unknown> = {}) => {

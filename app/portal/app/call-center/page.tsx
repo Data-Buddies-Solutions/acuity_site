@@ -48,7 +48,7 @@ export default async function PortalCallCenterPage({
     data.phoneNumbers.find((phone) => phone.isPrimary)?.phoneNumber ||
     data.phoneNumbers[0]?.phoneNumber ||
     "";
-  const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 20);
+  const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 8);
   const hasSeatCredential = data.seats.some((seat) => seat.hasCredential);
   const needsSeatCredential = data.seats.length > 0;
   const configured = Boolean(
