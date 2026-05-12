@@ -156,6 +156,9 @@ type CallCenterVoicemailSettings = {
   voicemailTimeoutSec: number;
 };
 
+type CallCenterQueueSettings = CallCenterVoicemailSettings &
+  CallCenterTelnyxRuntimeSettings;
+
 type CallCenterTelnyxRuntimeSettings = {
   inboundPhoneNumber: string | null;
   outboundCallerNumber: string | null;
@@ -1094,6 +1097,13 @@ function mergeSessionDirection({
   existingDirection?: CallCenterSessionDirection | null;
   payloadDirection: CallCenterSessionDirection;
 }) {
+  if (
+    existingDirection === CallCenterSessionDirection.INBOUND &&
+    payloadDirection === CallCenterSessionDirection.OUTBOUND
+  ) {
+    return existingDirection;
+  }
+
   if (payloadDirection !== CallCenterSessionDirection.UNKNOWN) {
     return payloadDirection;
   }
@@ -1826,6 +1836,143 @@ async function stopCallerRingback(callControlId: string) {
   await stopTelnyxPlayback(callControlId).catch(() => null);
 }
 
+async function findAvailableSeatsForQueueItem({
+  locationId,
+  practiceId,
+}: {
+  locationId: string | null;
+  practiceId: string;
+}) {
+  const presenceCutoff = getPresenceExpirationCutoff();
+  const locationFilter = locationId ? { locationId } : {};
+
+  return prisma.callCenterAgentSeat.findMany({
+    orderBy: [{ extension: "asc" }, { label: "asc" }],
+    select: {
+      extension: true,
+      id: true,
+      label: true,
+      sipUsername: true,
+      telnyxCredentialId: true,
+    },
+    where: {
+      enabled: true,
+      practiceId,
+      sipUsername: {
+        not: null,
+      },
+      ...locationFilter,
+      presence: {
+        some: {
+          lastSeenAt: {
+            gte: presenceCutoff,
+          },
+          status: CallCenterPresenceStatus.AVAILABLE,
+        },
+      },
+    },
+  });
+}
+
+async function autoRingAvailableSeatsForQueueItem({
+  callerCallControlId,
+  queueItem,
+  settings,
+}: {
+  callerCallControlId: string;
+  queueItem: {
+    fromPhone: string | null;
+    id: string;
+    locationId: string | null;
+    practiceId: string;
+    toPhone: string | null;
+  };
+  settings: CallCenterQueueSettings;
+}) {
+  const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
+  const callerNumber = normalizePhone(queueItem.fromPhone);
+  const from =
+    callerNumber ||
+    normalizePhone(queueItem.toPhone) ||
+    normalizePhone(runtimeSettings.outboundCallerNumber);
+
+  if (!runtimeSettings.connectionId || !from) {
+    console.warn("[call-center] cannot auto-ring seats without Telnyx dial config", {
+      hasConnectionId: Boolean(runtimeSettings.connectionId),
+      hasFrom: Boolean(from),
+      queueItemId: queueItem.id,
+    });
+    return 0;
+  }
+
+  const availableSeats = await findAvailableSeatsForQueueItem({
+    locationId: queueItem.locationId,
+    practiceId: queueItem.practiceId,
+  });
+
+  if (!availableSeats.length) {
+    console.info("[call-center] no available seats for queued inbound caller", {
+      locationId: queueItem.locationId,
+      queueItemId: queueItem.id,
+    });
+    return 0;
+  }
+
+  const claimed = await prisma.callCenterQueueItem.updateMany({
+    data: {
+      status: "RINGING",
+    },
+    where: {
+      id: queueItem.id,
+      status: "WAITING",
+    },
+  });
+
+  if (claimed.count === 0) {
+    console.info("[call-center] queued caller changed before auto-ring", {
+      queueItemId: queueItem.id,
+    });
+    return 0;
+  }
+
+  const dialedAttemptCount = await ringAvailableSeatsForQueueItem({
+    availableSeats,
+    callerCallControlId,
+    callerNumber,
+    connectionId: runtimeSettings.connectionId,
+    from,
+    queueItemId: queueItem.id,
+    timeoutSecs: AGENT_RING_TIMEOUT_SEC,
+  });
+
+  if (dialedAttemptCount === 0) {
+    await prisma.callCenterQueueItem.updateMany({
+      data: {
+        status: "WAITING",
+      },
+      where: {
+        id: queueItem.id,
+        ringAttempts: {
+          none: {
+            status: {
+              in: LIVE_RING_ATTEMPT_STATUSES,
+            },
+          },
+        },
+        status: "RINGING",
+      },
+    });
+  }
+
+  console.info("[call-center] auto-ringed available seats for queued caller", {
+    availableSeatCount: availableSeats.length,
+    dialedAttemptCount,
+    queueItemId: queueItem.id,
+  });
+
+  return dialedAttemptCount;
+}
+
 async function queueInboundCallForStaff({
   eventType,
   payload,
@@ -1835,7 +1982,7 @@ async function queueInboundCallForStaff({
   eventType: string;
   payload: Record<string, unknown>;
   session: Awaited<ReturnType<typeof upsertSessionFromPayload>>;
-  settings: CallCenterVoicemailSettings;
+  settings: CallCenterQueueSettings;
 }) {
   if (!isInboundSession(session)) {
     return null;
@@ -1882,20 +2029,30 @@ async function queueInboundCallForStaff({
       queueItemId: queueItem.id,
       status: answerResponse?.status ?? null,
     });
-    await startQueueVoicemail({
-      queueItemId: queueItem.id,
-      settings,
-    });
-    return queueItem;
   }
 
-  const ringbackStarted = await startCallerRingback({
-    callControlId: callerCallControlId,
-    queueItemId: queueItem.id,
-    timeoutSec: settings.voicemailTimeoutSec,
+  const ringbackStarted =
+    answerResponse?.ok === true
+      ? await startCallerRingback({
+          callControlId: callerCallControlId,
+          queueItemId: queueItem.id,
+          timeoutSec: settings.voicemailTimeoutSec,
+        })
+      : false;
+
+  const dialedAttemptCount = await autoRingAvailableSeatsForQueueItem({
+    callerCallControlId,
+    queueItem,
+    settings,
+  }).catch((error) => {
+    console.error("[call-center] failed to auto-ring available seats", {
+      error,
+      queueItemId: queueItem.id,
+    });
+    return 0;
   });
 
-  if (!ringbackStarted) {
+  if (dialedAttemptCount === 0 && !ringbackStarted) {
     await startQueueVoicemail({
       queueItemId: queueItem.id,
       settings,
@@ -1903,8 +2060,10 @@ async function queueInboundCallForStaff({
     return queueItem;
   }
 
-  console.info("[call-center] queued inbound caller for manual staff take", {
+  console.info("[call-center] queued inbound caller for staff ring", {
+    dialedAttemptCount,
     queueItemId: queueItem.id,
+    ringbackStarted,
   });
 
   return queueItem;
