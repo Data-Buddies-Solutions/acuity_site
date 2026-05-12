@@ -217,6 +217,86 @@ function asString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
+function normalizeHeaderName(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function headerValueFromEntry(entry: unknown) {
+  if (Array.isArray(entry) && entry.length >= 2) {
+    return {
+      name: asString(entry[0]),
+      value: asString(entry[1]),
+    };
+  }
+
+  if (!isRecord(entry)) {
+    return null;
+  }
+
+  return {
+    name:
+      asString(entry.name) ||
+      asString(entry.key) ||
+      asString(entry.header) ||
+      asString(entry.header_name),
+    value: asString(entry.value) || asString(entry.val) || asString(entry.header_value),
+  };
+}
+
+function readHeaderBag(value: unknown) {
+  const headers = new Map<string, string>();
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const header = headerValueFromEntry(entry);
+      if (header?.name && header.value) {
+        headers.set(normalizeHeaderName(header.name), header.value);
+      }
+    }
+    return headers;
+  }
+
+  if (isRecord(value)) {
+    for (const [name, rawValue] of Object.entries(value)) {
+      const headerValue = asString(rawValue);
+      if (name && headerValue) {
+        headers.set(normalizeHeaderName(name), headerValue);
+      }
+    }
+  }
+
+  return headers;
+}
+
+function headerValue(payload: Record<string, unknown>, name: string) {
+  const normalizedName = normalizeHeaderName(name);
+  const sources = [payload.custom_headers, payload.sip_headers];
+
+  for (const source of sources) {
+    const headers = readHeaderBag(source);
+    const value = headers.get(normalizedName);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+export function extractCallCenterHandoffMetadata(payload: Record<string, unknown>) {
+  if (headerValue(payload, "X-Acuity-Handoff").toLowerCase() !== "call-center") {
+    return null;
+  }
+
+  return {
+    callerPhone: headerValue(payload, "X-Acuity-Caller-Phone"),
+    liveKitCallId: headerValue(payload, "X-Acuity-LiveKit-Call-Id"),
+    officeKey: headerValue(payload, "X-Acuity-Office-Key"),
+    transferNumber: headerValue(payload, "X-Acuity-Transfer-Number"),
+    trunkPhone: headerValue(payload, "X-Acuity-Trunk-Phone"),
+  };
+}
+
 function asDate(value: unknown) {
   if (typeof value !== "string") {
     return null;
@@ -982,7 +1062,10 @@ async function resolveCallCenterSettingsForWebhook(payload: Record<string, unkno
   }
 
   // Try whichever side of the call is a recognized practice phone number.
+  const handoff = extractCallCenterHandoffMetadata(payload);
   const phoneCandidates = [
+    handoff?.trunkPhone,
+    handoff?.transferNumber,
     getPracticeSidePhone(payload),
     asString(payload.to),
     asString(payload.from),
@@ -1029,6 +1112,14 @@ async function resolveLocationIdForPhone(practiceId: string, phone: string) {
 }
 
 function getPracticeSidePhone(payload: Record<string, unknown>) {
+  const handoff = extractCallCenterHandoffMetadata(payload);
+  if (handoff?.trunkPhone) {
+    return handoff.trunkPhone;
+  }
+  if (handoff?.transferNumber) {
+    return handoff.transferNumber;
+  }
+
   const direction = asString(payload.direction);
   const from = asString(payload.from);
   const to = asString(payload.to);
@@ -1046,7 +1137,8 @@ async function resolveAgentCallIdFromPayload(
 ) {
   const clientState = decodeClientState(payload.client_state);
   const agentCallId = asString(clientState?.agentCallId);
-  const callId = asString(clientState?.callId);
+  const handoff = extractCallCenterHandoffMetadata(payload);
+  const callId = asString(clientState?.callId) || handoff?.liveKitCallId || "";
 
   if (agentCallId) {
     const call = await prisma.agentCall.findFirst({
@@ -1119,7 +1211,10 @@ async function upsertSessionFromPayload({
   const now = new Date();
   const eventAt = asDate(payload.occurred_at) ?? now;
   const agentCallId = await resolveAgentCallIdFromPayload(practiceId, payload);
-  const payloadDirection = toSessionDirection(asString(payload.direction));
+  const handoff = extractCallCenterHandoffMetadata(payload);
+  const payloadDirection = handoff
+    ? CallCenterSessionDirection.INBOUND
+    : toSessionDirection(asString(payload.direction));
   const existingSession = callControlId
     ? await prisma.callCenterSession.findUnique({
         select: {
@@ -1149,8 +1244,15 @@ async function upsertSessionFromPayload({
   // Some Telnyx event payloads (notably call.recording.saved and
   // call.playback.ended) don't include from/to/direction. Don't clobber
   // the values that were already set on the original call.initiated event.
-  const payloadFromPhone = normalizePhone(asString(payload.from)) || null;
-  const payloadToPhone = normalizePhone(asString(payload.to)) || null;
+  const payloadFromPhone =
+    normalizePhone(handoff?.callerPhone) ||
+    normalizePhone(asString(payload.from)) ||
+    null;
+  const payloadToPhone =
+    normalizePhone(handoff?.trunkPhone) ||
+    normalizePhone(handoff?.transferNumber) ||
+    normalizePhone(asString(payload.to)) ||
+    null;
   const baseData = {
     agentCallId,
     callerName: asString(payload.caller_id_name) || null,

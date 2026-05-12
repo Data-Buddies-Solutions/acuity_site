@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import {
+  extractCallCenterHandoffMetadata,
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
   normalizePhone,
@@ -45,6 +46,36 @@ describe("call-center phone helpers", () => {
     expect(variants).toContain("+17275919997");
     expect(variants).toContain("17275919997");
     expect(variants).toContain("7275919997");
+  });
+
+  it("extracts LiveKit AI handoff metadata from Telnyx SIP headers", () => {
+    expect(
+      extractCallCenterHandoffMetadata({
+        direction: "outgoing",
+        sip_headers: [
+          { name: "X-Acuity-Handoff", value: "call-center" },
+          { name: "X-Acuity-Caller-Phone", value: "+17275551212" },
+          { name: "X-Acuity-Trunk-Phone", value: "+17275919997" },
+          { name: "X-Acuity-Transfer-Number", value: "+16182265883" },
+          { name: "X-Acuity-LiveKit-Call-Id", value: "call-123" },
+          { name: "X-Acuity-Office-Key", value: "spring-hill" },
+        ],
+      }),
+    ).toEqual({
+      callerPhone: "+17275551212",
+      liveKitCallId: "call-123",
+      officeKey: "spring-hill",
+      transferNumber: "+16182265883",
+      trunkPhone: "+17275919997",
+    });
+  });
+
+  it("ignores non-call-center SIP headers", () => {
+    expect(
+      extractCallCenterHandoffMetadata({
+        sip_headers: [{ name: "X-Acuity-Handoff", value: "other" }],
+      }),
+    ).toBeNull();
   });
 
   it("prefers practice settings over Telnyx environment defaults", () => {
