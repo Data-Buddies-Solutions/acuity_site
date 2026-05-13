@@ -156,6 +156,9 @@ type CallCenterVoicemailSettings = {
   voicemailTimeoutSec: number;
 };
 
+type CallCenterQueueSettings = CallCenterVoicemailSettings &
+  CallCenterTelnyxRuntimeSettings;
+
 type CallCenterTelnyxRuntimeSettings = {
   inboundPhoneNumber: string | null;
   outboundCallerNumber: string | null;
@@ -217,94 +220,83 @@ function asString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
-type AcuityLiveKitHandoff = {
-  callerPhone: string;
-  handoff: string;
-  isCallCenterHandoff: boolean;
-  liveKitCallId: string;
-  trunkPhone: string;
-};
-
-const ACUITY_HANDOFF_HEADER = "x-acuity-handoff";
-const ACUITY_TRUNK_PHONE_HEADER = "x-acuity-trunk-phone";
-const ACUITY_CALLER_PHONE_HEADER = "x-acuity-caller-phone";
-const ACUITY_LIVEKIT_CALL_ID_HEADER = "x-acuity-livekit-call-id";
-
-function addTelnyxHeader(headers: Map<string, string>, name: unknown, value: unknown) {
-  const headerName = asString(name).toLowerCase();
-  const headerValue = asString(value);
-
-  if (headerName && headerValue) {
-    headers.set(headerName, headerValue);
-  }
+function normalizeHeaderName(value: string) {
+  return value.trim().toLowerCase();
 }
 
-function collectTelnyxHeaders(value: unknown, headers: Map<string, string>) {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      if (typeof item === "string") {
-        const separatorIndex = item.indexOf(":");
-        if (separatorIndex > 0) {
-          addTelnyxHeader(
-            headers,
-            item.slice(0, separatorIndex),
-            item.slice(separatorIndex + 1),
-          );
-        }
-        continue;
-      }
-
-      if (!isRecord(item)) {
-        continue;
-      }
-
-      addTelnyxHeader(
-        headers,
-        asString(item.name) ||
-          asString(item.key) ||
-          asString(item.header) ||
-          asString(item.header_name),
-        asString(item.value) || asString(item.header_value),
-      );
-    }
-    return;
+function headerValueFromEntry(entry: unknown) {
+  if (Array.isArray(entry) && entry.length >= 2) {
+    return {
+      name: asString(entry[0]),
+      value: asString(entry[1]),
+    };
   }
 
-  if (!isRecord(value)) {
-    return;
+  if (!isRecord(entry)) {
+    return null;
   }
-
-  for (const [name, headerValue] of Object.entries(value)) {
-    if (isRecord(headerValue)) {
-      addTelnyxHeader(
-        headers,
-        asString(headerValue.name) ||
-          asString(headerValue.key) ||
-          asString(headerValue.header) ||
-          name,
-        asString(headerValue.value) || asString(headerValue.header_value),
-      );
-    } else {
-      addTelnyxHeader(headers, name, headerValue);
-    }
-  }
-}
-
-export function extractAcuityLiveKitHandoff(
-  payload: Record<string, unknown>,
-): AcuityLiveKitHandoff {
-  const headers = new Map<string, string>();
-  collectTelnyxHeaders(payload.sip_headers, headers);
-  collectTelnyxHeaders(payload.custom_headers, headers);
-
-  const handoff = headers.get(ACUITY_HANDOFF_HEADER) ?? "";
 
   return {
-    callerPhone: headers.get(ACUITY_CALLER_PHONE_HEADER) ?? "",
-    handoff,
-    isCallCenterHandoff: handoff.toLowerCase() === "call-center",
-    liveKitCallId: headers.get(ACUITY_LIVEKIT_CALL_ID_HEADER) ?? "",
-    trunkPhone: headers.get(ACUITY_TRUNK_PHONE_HEADER) ?? "",
+    name:
+      asString(entry.name) ||
+      asString(entry.key) ||
+      asString(entry.header) ||
+      asString(entry.header_name),
+    value: asString(entry.value) || asString(entry.val) || asString(entry.header_value),
+  };
+}
+
+function readHeaderBag(value: unknown) {
+  const headers = new Map<string, string>();
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const header = headerValueFromEntry(entry);
+      if (header?.name && header.value) {
+        headers.set(normalizeHeaderName(header.name), header.value);
+      }
+    }
+    return headers;
+  }
+
+  if (isRecord(value)) {
+    for (const [name, rawValue] of Object.entries(value)) {
+      const headerValue = asString(rawValue);
+      if (name && headerValue) {
+        headers.set(normalizeHeaderName(name), headerValue);
+      }
+    }
+  }
+
+  return headers;
+}
+
+function headerValue(payload: Record<string, unknown>, name: string) {
+  const normalizedName = normalizeHeaderName(name);
+  const sources = [payload.custom_headers, payload.sip_headers];
+
+  for (const source of sources) {
+    const headers = readHeaderBag(source);
+    const value = headers.get(normalizedName);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+export function extractCallCenterHandoffMetadata(payload: Record<string, unknown>) {
+  if (headerValue(payload, "X-Acuity-Handoff").toLowerCase() !== "call-center") {
+    return null;
+  }
+
+  return {
+    callerPhone: headerValue(payload, "X-Acuity-Caller-Phone"),
+    liveKitCallId: headerValue(payload, "X-Acuity-LiveKit-Call-Id"),
+    officeKey: headerValue(payload, "X-Acuity-Office-Key"),
+    transferNumber: headerValue(payload, "X-Acuity-Transfer-Number"),
+    trunkPhone: headerValue(payload, "X-Acuity-Trunk-Phone"),
   };
 }
 
@@ -1013,33 +1005,6 @@ async function findSettingsByPracticePhone(practicePhoneVariants: string[]) {
     };
   }
 
-  const locationMapping = await prisma.practiceLocation.findFirst({
-    include: {
-      practice: {
-        include: {
-          callCenterSettings: true,
-        },
-      },
-    },
-    where: {
-      phone: {
-        in: practicePhoneVariants,
-      },
-      practice: {
-        callCenterSettings: {
-          enabled: true,
-        },
-      },
-    },
-  });
-
-  if (locationMapping?.practice.callCenterSettings) {
-    return {
-      ...locationMapping.practice.callCenterSettings,
-      practice: locationMapping.practice,
-    };
-  }
-
   return null;
 }
 
@@ -1060,7 +1025,6 @@ async function findSettingsByConnectionId(connectionId: string) {
 
 async function resolveCallCenterSettingsForWebhook(payload: Record<string, unknown>) {
   const connectionId = asString(payload.connection_id);
-  const handoff = extractAcuityLiveKitHandoff(payload);
 
   // Agent dial legs carry our ringAttemptId / queueItemId in client_state.
   // Resolve the practice through that linkage — most reliable for outbound legs
@@ -1100,18 +1064,11 @@ async function resolveCallCenterSettingsForWebhook(payload: Record<string, unkno
     }
   }
 
-  if (handoff.isCallCenterHandoff && handoff.trunkPhone) {
-    const settings = await findSettingsByPracticePhone(
-      phoneLookupVariants(handoff.trunkPhone),
-    );
-
-    if (settings) {
-      return settings;
-    }
-  }
-
   // Try whichever side of the call is a recognized practice phone number.
+  const handoff = extractCallCenterHandoffMetadata(payload);
   const phoneCandidates = [
+    handoff?.trunkPhone,
+    handoff?.transferNumber,
     getPracticeSidePhone(payload),
     asString(payload.to),
     asString(payload.from),
@@ -1154,29 +1111,16 @@ async function resolveLocationIdForPhone(practiceId: string, phone: string) {
     },
   });
 
-  if (mapping?.locationId) {
-    return mapping.locationId;
-  }
-
-  const location = await prisma.practiceLocation.findFirst({
-    select: {
-      id: true,
-    },
-    where: {
-      phone: {
-        in: variants,
-      },
-      practiceId,
-    },
-  });
-
-  return location?.id ?? null;
+  return mapping?.locationId ?? null;
 }
 
 function getPracticeSidePhone(payload: Record<string, unknown>) {
-  const handoff = extractAcuityLiveKitHandoff(payload);
-  if (handoff.isCallCenterHandoff && handoff.trunkPhone) {
+  const handoff = extractCallCenterHandoffMetadata(payload);
+  if (handoff?.trunkPhone) {
     return handoff.trunkPhone;
+  }
+  if (handoff?.transferNumber) {
+    return handoff.transferNumber;
   }
 
   const direction = asString(payload.direction);
@@ -1190,23 +1134,14 @@ function getPracticeSidePhone(payload: Record<string, unknown>) {
   return to || from;
 }
 
-function getCallerSidePhone(payload: Record<string, unknown>) {
-  const handoff = extractAcuityLiveKitHandoff(payload);
-  if (handoff.isCallCenterHandoff && handoff.callerPhone) {
-    return handoff.callerPhone;
-  }
-
-  return asString(payload.from);
-}
-
 async function resolveAgentCallIdFromPayload(
   practiceId: string,
   payload: Record<string, unknown>,
 ) {
   const clientState = decodeClientState(payload.client_state);
-  const handoff = extractAcuityLiveKitHandoff(payload);
   const agentCallId = asString(clientState?.agentCallId);
-  const callId = asString(clientState?.callId);
+  const handoff = extractCallCenterHandoffMetadata(payload);
+  const callId = asString(clientState?.callId) || handoff?.liveKitCallId || "";
 
   if (agentCallId) {
     const call = await prisma.agentCall.findFirst({
@@ -1222,18 +1157,16 @@ async function resolveAgentCallIdFromPayload(
     }
   }
 
-  for (const externalCallId of [callId, handoff.liveKitCallId].filter(Boolean)) {
+  if (callId) {
     const call = await prisma.agentCall.findFirst({
       select: { id: true },
       where: {
-        callId: externalCallId,
+        callId,
         practiceId,
       },
     });
 
-    if (call) {
-      return call.id;
-    }
+    return call?.id ?? null;
   }
 
   return null;
@@ -1249,15 +1182,6 @@ function toSessionDirection(direction: string) {
   return CallCenterSessionDirection.UNKNOWN;
 }
 
-export function telnyxSessionDirectionFromPayload(payload: Record<string, unknown>) {
-  const handoff = extractAcuityLiveKitHandoff(payload);
-  if (handoff.isCallCenterHandoff) {
-    return CallCenterSessionDirection.INBOUND;
-  }
-
-  return toSessionDirection(asString(payload.direction));
-}
-
 function mergeSessionDirection({
   existingDirection,
   payloadDirection,
@@ -1265,6 +1189,13 @@ function mergeSessionDirection({
   existingDirection?: CallCenterSessionDirection | null;
   payloadDirection: CallCenterSessionDirection;
 }) {
+  if (
+    existingDirection === CallCenterSessionDirection.INBOUND &&
+    payloadDirection === CallCenterSessionDirection.OUTBOUND
+  ) {
+    return existingDirection;
+  }
+
   if (payloadDirection !== CallCenterSessionDirection.UNKNOWN) {
     return payloadDirection;
   }
@@ -1290,8 +1221,10 @@ async function upsertSessionFromPayload({
   const now = new Date();
   const eventAt = asDate(payload.occurred_at) ?? now;
   const agentCallId = await resolveAgentCallIdFromPayload(practiceId, payload);
-  const handoff = extractAcuityLiveKitHandoff(payload);
-  const payloadDirection = telnyxSessionDirectionFromPayload(payload);
+  const handoff = extractCallCenterHandoffMetadata(payload);
+  const payloadDirection = handoff
+    ? CallCenterSessionDirection.INBOUND
+    : toSessionDirection(asString(payload.direction));
   const existingSession = callControlId
     ? await prisma.callCenterSession.findUnique({
         select: {
@@ -1322,17 +1255,14 @@ async function upsertSessionFromPayload({
   // call.playback.ended) don't include from/to/direction. Don't clobber
   // the values that were already set on the original call.initiated event.
   const payloadFromPhone =
-    normalizePhone(
-      handoff.isCallCenterHandoff && handoff.callerPhone
-        ? handoff.callerPhone
-        : asString(payload.from),
-    ) || null;
+    normalizePhone(handoff?.callerPhone) ||
+    normalizePhone(asString(payload.from)) ||
+    null;
   const payloadToPhone =
-    normalizePhone(
-      handoff.isCallCenterHandoff && handoff.trunkPhone
-        ? handoff.trunkPhone
-        : asString(payload.to),
-    ) || null;
+    normalizePhone(handoff?.trunkPhone) ||
+    normalizePhone(handoff?.transferNumber) ||
+    normalizePhone(asString(payload.to)) ||
+    null;
   const baseData = {
     agentCallId,
     callerName: asString(payload.caller_id_name) || null,
@@ -1400,24 +1330,6 @@ async function upsertSessionFromPayload({
 
 function isInboundSession(session: { direction: CallCenterSessionDirection }) {
   return session.direction === CallCenterSessionDirection.INBOUND;
-}
-
-async function wasInboundQueueUnanswered(sessionId: string) {
-  const queueItem = await prisma.callCenterQueueItem.findUnique({
-    select: {
-      answeredAt: true,
-      status: true,
-    },
-    where: {
-      callerSessionId: sessionId,
-    },
-  });
-
-  return Boolean(
-    queueItem &&
-    !queueItem.answeredAt &&
-    !["COMPLETED", "ABANDONED"].includes(queueItem.status),
-  );
 }
 
 async function upsertQueueItemForSession({
@@ -2026,6 +1938,143 @@ async function stopCallerRingback(callControlId: string) {
   await stopTelnyxPlayback(callControlId).catch(() => null);
 }
 
+async function findAvailableSeatsForQueueItem({
+  locationId,
+  practiceId,
+}: {
+  locationId: string | null;
+  practiceId: string;
+}) {
+  const presenceCutoff = getPresenceExpirationCutoff();
+  const locationFilter = locationId ? { locationId } : {};
+
+  return prisma.callCenterAgentSeat.findMany({
+    orderBy: [{ extension: "asc" }, { label: "asc" }],
+    select: {
+      extension: true,
+      id: true,
+      label: true,
+      sipUsername: true,
+      telnyxCredentialId: true,
+    },
+    where: {
+      enabled: true,
+      practiceId,
+      sipUsername: {
+        not: null,
+      },
+      ...locationFilter,
+      presence: {
+        some: {
+          lastSeenAt: {
+            gte: presenceCutoff,
+          },
+          status: CallCenterPresenceStatus.AVAILABLE,
+        },
+      },
+    },
+  });
+}
+
+async function autoRingAvailableSeatsForQueueItem({
+  callerCallControlId,
+  queueItem,
+  settings,
+}: {
+  callerCallControlId: string;
+  queueItem: {
+    fromPhone: string | null;
+    id: string;
+    locationId: string | null;
+    practiceId: string;
+    toPhone: string | null;
+  };
+  settings: CallCenterQueueSettings;
+}) {
+  const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
+  const callerNumber = normalizePhone(queueItem.fromPhone);
+  const from =
+    callerNumber ||
+    normalizePhone(queueItem.toPhone) ||
+    normalizePhone(runtimeSettings.outboundCallerNumber);
+
+  if (!runtimeSettings.connectionId || !from) {
+    console.warn("[call-center] cannot auto-ring seats without Telnyx dial config", {
+      hasConnectionId: Boolean(runtimeSettings.connectionId),
+      hasFrom: Boolean(from),
+      queueItemId: queueItem.id,
+    });
+    return 0;
+  }
+
+  const availableSeats = await findAvailableSeatsForQueueItem({
+    locationId: queueItem.locationId,
+    practiceId: queueItem.practiceId,
+  });
+
+  if (!availableSeats.length) {
+    console.info("[call-center] no available seats for queued inbound caller", {
+      locationId: queueItem.locationId,
+      queueItemId: queueItem.id,
+    });
+    return 0;
+  }
+
+  const claimed = await prisma.callCenterQueueItem.updateMany({
+    data: {
+      status: "RINGING",
+    },
+    where: {
+      id: queueItem.id,
+      status: "WAITING",
+    },
+  });
+
+  if (claimed.count === 0) {
+    console.info("[call-center] queued caller changed before auto-ring", {
+      queueItemId: queueItem.id,
+    });
+    return 0;
+  }
+
+  const dialedAttemptCount = await ringAvailableSeatsForQueueItem({
+    availableSeats,
+    callerCallControlId,
+    callerNumber,
+    connectionId: runtimeSettings.connectionId,
+    from,
+    queueItemId: queueItem.id,
+    timeoutSecs: AGENT_RING_TIMEOUT_SEC,
+  });
+
+  if (dialedAttemptCount === 0) {
+    await prisma.callCenterQueueItem.updateMany({
+      data: {
+        status: "WAITING",
+      },
+      where: {
+        id: queueItem.id,
+        ringAttempts: {
+          none: {
+            status: {
+              in: LIVE_RING_ATTEMPT_STATUSES,
+            },
+          },
+        },
+        status: "RINGING",
+      },
+    });
+  }
+
+  console.info("[call-center] auto-ringed available seats for queued caller", {
+    availableSeatCount: availableSeats.length,
+    dialedAttemptCount,
+    queueItemId: queueItem.id,
+  });
+
+  return dialedAttemptCount;
+}
+
 async function queueInboundCallForStaff({
   eventType,
   payload,
@@ -2035,7 +2084,7 @@ async function queueInboundCallForStaff({
   eventType: string;
   payload: Record<string, unknown>;
   session: Awaited<ReturnType<typeof upsertSessionFromPayload>>;
-  settings: CallCenterVoicemailSettings;
+  settings: CallCenterQueueSettings;
 }) {
   if (!isInboundSession(session)) {
     return null;
@@ -2082,20 +2131,30 @@ async function queueInboundCallForStaff({
       queueItemId: queueItem.id,
       status: answerResponse?.status ?? null,
     });
-    await startQueueVoicemail({
-      queueItemId: queueItem.id,
-      settings,
-    });
-    return queueItem;
   }
 
-  const ringbackStarted = await startCallerRingback({
-    callControlId: callerCallControlId,
-    queueItemId: queueItem.id,
-    timeoutSec: settings.voicemailTimeoutSec,
+  const ringbackStarted =
+    answerResponse?.ok === true
+      ? await startCallerRingback({
+          callControlId: callerCallControlId,
+          queueItemId: queueItem.id,
+          timeoutSec: settings.voicemailTimeoutSec,
+        })
+      : false;
+
+  const dialedAttemptCount = await autoRingAvailableSeatsForQueueItem({
+    callerCallControlId,
+    queueItem,
+    settings,
+  }).catch((error) => {
+    console.error("[call-center] failed to auto-ring available seats", {
+      error,
+      queueItemId: queueItem.id,
+    });
+    return 0;
   });
 
-  if (!ringbackStarted) {
+  if (dialedAttemptCount === 0 && !ringbackStarted) {
     await startQueueVoicemail({
       queueItemId: queueItem.id,
       settings,
@@ -2103,8 +2162,10 @@ async function queueInboundCallForStaff({
     return queueItem;
   }
 
-  console.info("[call-center] queued inbound caller for manual staff take", {
+  console.info("[call-center] queued inbound caller for staff ring", {
+    dialedAttemptCount,
     queueItemId: queueItem.id,
+    ringbackStarted,
   });
 
   return queueItem;
@@ -2267,9 +2328,6 @@ async function startQueueVoicemail({
     include: {
       callerSession: {
         select: {
-          agentCallId: true,
-          callerName: true,
-          fromPhone: true,
           telnyxCallControlId: true,
         },
       },
@@ -2313,17 +2371,6 @@ async function startQueueVoicemail({
     return null;
   }
 
-  const missedCall = await recordMissedCall({
-    agentCallId: queueItem.callerSession?.agentCallId ?? null,
-    locationId: queueItem.locationId,
-    payload: {
-      caller_id_name: queueItem.callerSession?.callerName ?? "",
-      from: queueItem.callerSession?.fromPhone ?? queueItem.fromPhone ?? "",
-    },
-    practiceId: queueItem.practiceId,
-    sessionId: queueItem.callerSessionId,
-  });
-
   const liveAttempts = queueItem.ringAttempts.filter((attempt) =>
     ["DIALING", "RINGING", "ANSWERED", "BRIDGED"].includes(attempt.status),
   );
@@ -2363,10 +2410,6 @@ async function startQueueVoicemail({
     await answerTelnyxCall(callerCallControlId).catch(() => null);
     await stopCallerRingback(callerCallControlId);
     await triggerTelnyxVoicemailPrompt(settings, callerCallControlId);
-    console.info("[call-center] caller routed to voicemail", {
-      missedCallId: missedCall.id,
-      queueItemId,
-    });
   } catch (error) {
     await markQueueVoicemailError({
       error,
@@ -2638,7 +2681,7 @@ async function recordMissedCall({
     }
   }
 
-  const fromPhone = normalizePhone(getCallerSidePhone(payload)) || "Unknown";
+  const fromPhone = normalizePhone(asString(payload.from)) || "Unknown";
   const recentDuplicate = await prisma.callCenterMissedCall.findFirst({
     orderBy: {
       createdAt: "desc",
@@ -2731,7 +2774,7 @@ async function recordVoicemail({
   // session's fromPhone (and locationId) so voicemails are attributable to
   // a specific caller and location.
   const fromPhone =
-    normalizePhone(getCallerSidePhone(payload)) || sourceSession?.fromPhone || "Unknown";
+    normalizePhone(asString(payload.from)) || sourceSession?.fromPhone || "Unknown";
   const resolvedLocationId = locationId ?? sourceSession?.locationId ?? null;
 
   return prisma.callCenterVoicemail.upsert({
@@ -2868,31 +2911,18 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
 
     case "call.hangup": {
       const hangupCause = asString(payload.hangup_cause);
+      const missed = MISSED_CAUSES.has(hangupCause);
       const ringAttempt = await updateRingAttemptFromPayload({
         payload,
         status: ringAttemptHangupStatus(hangupCause),
       });
-      const preliminarySession = await upsertSessionFromPayload({
+      session = await upsertSessionFromPayload({
         eventType,
         locationId,
         payload,
         practiceId,
-        status: "COMPLETED",
+        status: missed ? "MISSED" : "COMPLETED",
       });
-      const missed =
-        isInboundSession(preliminarySession) &&
-        (MISSED_CAUSES.has(hangupCause) ||
-          (await wasInboundQueueUnanswered(preliminarySession.id)));
-
-      session = missed
-        ? await upsertSessionFromPayload({
-            eventType,
-            locationId,
-            payload,
-            practiceId,
-            status: "MISSED",
-          })
-        : preliminarySession;
 
       if (missed && isInboundSession(session)) {
         await recordMissedCall({
