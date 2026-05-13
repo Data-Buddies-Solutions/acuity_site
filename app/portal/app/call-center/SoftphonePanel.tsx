@@ -341,7 +341,6 @@ const SoftphonePanel = forwardRef<
   const inboundCallIdsRef = useRef<Set<string>>(new Set());
   const dismissedRingKeysRef = useRef<Set<string>>(new Set());
   const outboundCallIdsRef = useRef<Set<string>>(new Set());
-  const expectingOutboundUntilRef = useRef<number>(0);
   const incomingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringingCallExpireTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
@@ -769,14 +768,12 @@ const SoftphonePanel = forwardRef<
   );
 
   const startTimer = useCallback(() => {
-    if (timerRef.current) {
-      return;
-    }
+    clearTimer();
     setCallDuration(0);
     timerRef.current = setInterval(() => {
       setCallDuration((current) => current + 1);
     }, 1000);
-  }, []);
+  }, [clearTimer]);
 
   const detachAudio = useCallback(() => {
     if (audioRef.current) {
@@ -1049,19 +1046,9 @@ const SoftphonePanel = forwardRef<
             return;
           }
 
-          const expectingOutbound =
-            expectingOutboundUntilRef.current > 0 &&
-            Date.now() < expectingOutboundUntilRef.current &&
-            !inboundCallIdsRef.current.has(call.id) &&
-            !isInboundDirection(call.direction);
           const outbound =
             outboundCallIdsRef.current.has(call.id) ||
-            isOutboundDirection(call.direction) ||
-            expectingOutbound;
-          if (expectingOutbound) {
-            outboundCallIdsRef.current.add(call.id);
-            expectingOutboundUntilRef.current = 0;
-          }
+            isOutboundDirection(call.direction);
           const knownInbound =
             inboundCallIdsRef.current.has(call.id) ||
             incomingCallRef.current?.id === call.id ||
@@ -1090,7 +1077,6 @@ const SoftphonePanel = forwardRef<
               setActiveCall(call);
               setDirection("outbound");
               setStatus("ringing");
-              startTimer();
             } else if (inbound) {
               setInboundRingingCall(call);
               setStatus("ringing");
@@ -1167,7 +1153,7 @@ const SoftphonePanel = forwardRef<
               answeringRingKeysRef.current.has(ringKey) ||
               answeredInboundCallIdsRef.current.has(call.id);
 
-            if (inbound && !answerWasRequested && !knownInbound) {
+            if (inbound && !answerWasRequested) {
               debugLog("inbound-active-without-answer-flag", {
                 call: callDebugSnapshot(call),
               });
@@ -1320,7 +1306,6 @@ const SoftphonePanel = forwardRef<
     setAnsweringCallPending,
     setAnsweringRingPending,
     setInboundRingingCall,
-    startTimer,
     stationSeatId,
   ]);
 
@@ -1441,10 +1426,7 @@ const SoftphonePanel = forwardRef<
     });
     setDialedNumber(to);
     setDirection("outbound");
-    setStatus("ringing");
     setError(null);
-
-    expectingOutboundUntilRef.current = Date.now() + 5_000;
 
     try {
       const call = client.newCall({
@@ -1452,11 +1434,9 @@ const SoftphonePanel = forwardRef<
         destinationNumber: to,
       });
       outboundCallIdsRef.current.add(call.id);
-      expectingOutboundUntilRef.current = 0;
       debugLog("outbound-call-created", { call: callDebugSnapshot(call) });
       setDraftNumber("");
     } catch (callError) {
-      expectingOutboundUntilRef.current = 0;
       debugLog("outbound-call-failed", {
         message: callError instanceof Error ? callError.message : "Unable to start call",
       });
@@ -1775,7 +1755,7 @@ const SoftphonePanel = forwardRef<
             <div className="flex items-center gap-2 text-amber-800">
               <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
               <p className="text-xs font-semibold uppercase tracking-[0.14em]">
-                Patient call
+                Incoming call
               </p>
             </div>
             <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-amber-100 bg-white px-3 py-2">
@@ -1791,8 +1771,8 @@ const SoftphonePanel = forwardRef<
                 <Button
                   aria-label={
                     incomingCallAnswering
-                      ? "Answering patient call"
-                      : "Answer patient call"
+                      ? "Answering incoming call"
+                      : "Answer incoming call"
                   }
                   className="h-8 px-2"
                   disabled={incomingCallAnswering}
@@ -1825,7 +1805,7 @@ const SoftphonePanel = forwardRef<
                   {formatPhone(activeNumber)}
                 </p>
                 <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[#6f8083]">
-                  {direction === "inbound" ? "Patient call" : "Outbound"}
+                  {direction === "inbound" ? "Inbound" : "Outbound"}
                 </p>
               </div>
               <p className="font-mono text-lg font-semibold tabular-nums text-[#10272c]">
