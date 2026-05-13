@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
+import { CallCenterSessionDirection } from "@/generated/prisma/client";
 import {
-  extractCallCenterHandoffMetadata,
+  extractAcuityLiveKitHandoff,
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
   normalizePhone,
   phoneLookupVariants,
   resolveTelnyxRuntimeSettings,
+  telnyxSessionDirectionFromPayload,
 } from "@/lib/call-center";
 
 const TELNYX_ENV_KEYS = [
@@ -46,36 +48,6 @@ describe("call-center phone helpers", () => {
     expect(variants).toContain("+17275919997");
     expect(variants).toContain("17275919997");
     expect(variants).toContain("7275919997");
-  });
-
-  it("extracts LiveKit AI handoff metadata from Telnyx SIP headers", () => {
-    expect(
-      extractCallCenterHandoffMetadata({
-        direction: "outgoing",
-        sip_headers: [
-          { name: "X-Acuity-Handoff", value: "call-center" },
-          { name: "X-Acuity-Caller-Phone", value: "+17275551212" },
-          { name: "X-Acuity-Trunk-Phone", value: "+17275919997" },
-          { name: "X-Acuity-Transfer-Number", value: "+16182265883" },
-          { name: "X-Acuity-LiveKit-Call-Id", value: "call-123" },
-          { name: "X-Acuity-Office-Key", value: "spring-hill" },
-        ],
-      }),
-    ).toEqual({
-      callerPhone: "+17275551212",
-      liveKitCallId: "call-123",
-      officeKey: "spring-hill",
-      transferNumber: "+16182265883",
-      trunkPhone: "+17275919997",
-    });
-  });
-
-  it("ignores non-call-center SIP headers", () => {
-    expect(
-      extractCallCenterHandoffMetadata({
-        sip_headers: [{ name: "X-Acuity-Handoff", value: "other" }],
-      }),
-    ).toBeNull();
   });
 
   it("prefers practice settings over Telnyx environment defaults", () => {
@@ -195,5 +167,56 @@ describe("Telnyx voicemail recording URL parsing", () => {
         },
       }),
     ).toBe("https://recordings.example/public.wav");
+  });
+});
+
+describe("LiveKit SIP handoff parsing", () => {
+  it("reads Acuity handoff headers from Telnyx sip_headers arrays", () => {
+    expect(
+      extractAcuityLiveKitHandoff({
+        sip_headers: [
+          { name: "X-Acuity-Handoff", value: "call-center" },
+          { name: "X-Acuity-Trunk-Phone", value: "+17275919997" },
+          { name: "X-Acuity-Caller-Phone", value: "(813) 555-0100" },
+          { name: "X-Acuity-LiveKit-Call-Id", value: "lk-call-123" },
+        ],
+      }),
+    ).toEqual({
+      callerPhone: "(813) 555-0100",
+      handoff: "call-center",
+      isCallCenterHandoff: true,
+      liveKitCallId: "lk-call-123",
+      trunkPhone: "+17275919997",
+    });
+  });
+
+  it("reads Acuity handoff headers from Telnyx custom_headers maps", () => {
+    expect(
+      extractAcuityLiveKitHandoff({
+        custom_headers: {
+          "x-acuity-caller-phone": "+18135550100",
+          "x-acuity-handoff": "call-center",
+          "x-acuity-livekit-call-id": "lk-call-456",
+          "x-acuity-trunk-phone": "7275919997",
+        },
+      }),
+    ).toMatchObject({
+      callerPhone: "+18135550100",
+      isCallCenterHandoff: true,
+      liveKitCallId: "lk-call-456",
+      trunkPhone: "7275919997",
+    });
+  });
+
+  it("treats call-center handoff webhooks as inbound sessions", () => {
+    expect(
+      telnyxSessionDirectionFromPayload({
+        direction: "outgoing",
+        sip_headers: [
+          { name: "X-Acuity-Handoff", value: "call-center" },
+          { name: "X-Acuity-Trunk-Phone", value: "+17275919997" },
+        ],
+      }),
+    ).toBe(CallCenterSessionDirection.INBOUND);
   });
 });
