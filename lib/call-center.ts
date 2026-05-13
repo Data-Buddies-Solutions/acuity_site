@@ -230,11 +230,7 @@ const ACUITY_TRUNK_PHONE_HEADER = "x-acuity-trunk-phone";
 const ACUITY_CALLER_PHONE_HEADER = "x-acuity-caller-phone";
 const ACUITY_LIVEKIT_CALL_ID_HEADER = "x-acuity-livekit-call-id";
 
-function addTelnyxHeader(
-  headers: Map<string, string>,
-  name: unknown,
-  value: unknown,
-) {
+function addTelnyxHeader(headers: Map<string, string>, name: unknown, value: unknown) {
   const headerName = asString(name).toLowerCase();
   const headerValue = asString(value);
 
@@ -1419,8 +1415,8 @@ async function wasInboundQueueUnanswered(sessionId: string) {
 
   return Boolean(
     queueItem &&
-      !queueItem.answeredAt &&
-      !["COMPLETED", "ABANDONED"].includes(queueItem.status),
+    !queueItem.answeredAt &&
+    !["COMPLETED", "ABANDONED"].includes(queueItem.status),
   );
 }
 
