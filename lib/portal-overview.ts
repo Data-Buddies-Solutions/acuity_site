@@ -1,4 +1,5 @@
 import { getAuthSession } from "@/lib/auth";
+import type { Prisma } from "@/generated/prisma/client";
 import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
@@ -33,6 +34,12 @@ export type PortalTimeSavedBucket = {
   seconds: number;
 };
 
+export type PortalOverviewOfficeFilterOption = {
+  id: string;
+  label: string;
+  phones: string[];
+};
+
 export type PortalOverviewMetrics = {
   appointmentActions: {
     booked: number;
@@ -42,9 +49,12 @@ export type PortalOverviewMetrics = {
   averageCallDurationSec: number;
   branding: PracticeBranding;
   callVolume: PortalCallVolumePoint[];
+  officeFilters: PortalOverviewOfficeFilterOption[];
   practiceName: string;
   previousTotalCalls: number;
   range: PortalOverviewRange;
+  selectedOfficeId: string | null;
+  selectedOfficeLabel: string | null;
   staffTimeSaved: {
     buckets: PortalTimeSavedBucket[];
     totalSeconds: number;
@@ -73,20 +83,6 @@ const rangeDays: Record<BoundedPortalOverviewRange, number> = {
 const PRACTICE_TIMEZONE = "America/New_York";
 const AFTER_HOURS_START = 18;
 const AFTER_HOURS_END = 8;
-
-type OverviewAggregate = {
-  bookedActionCount: number;
-  cancelledActionCount: number;
-  confirmedActionCount: number;
-  afterHoursSeconds: number;
-  callCount: number;
-  schedulingSeconds: number;
-  staffTimeSavedSeconds: number;
-  totalDurationSec: number;
-  transferredCalls: number;
-};
-
-type RawOverviewAggregate = Record<keyof OverviewAggregate, bigint | number | null>;
 
 function buildStaffTimeSaved(
   totalSeconds: number,
@@ -178,104 +174,111 @@ const hourLabelFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: PRACTICE_TIMEZONE,
 });
 
-function numberValue(value: bigint | number | null | undefined) {
-  return Number(value ?? 0);
+function normalizePhoneKey(phone: string | null | undefined) {
+  return phone?.replace(/\D/g, "") ?? "";
 }
 
-async function getAllTimeOverviewAggregate(
-  practiceId: string,
-): Promise<OverviewAggregate> {
-  const rows = await prisma.$queryRaw<RawOverviewAggregate[]>`
-    SELECT
-      COUNT(*)::int AS "callCount",
-      COALESCE(SUM("durationSec"), 0)::int AS "totalDurationSec",
-      COUNT(*) FILTER (WHERE "transferred")::int AS "transferredCalls",
-      COUNT(*) FILTER (WHERE "bookedAppointment")::int AS "bookedActionCount",
-      COUNT(*) FILTER (WHERE "confirmedAppointment")::int AS "confirmedActionCount",
-      COUNT(*) FILTER (WHERE "cancelledAppointment")::int AS "cancelledActionCount",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN "bookedAppointment" OR "confirmedAppointment" OR "cancelledAppointment"
-            THEN "durationSec"
-            ELSE 0
-          END
-        ),
-        0
-      )::int AS "schedulingSeconds",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN
-              NOT ("bookedAppointment" OR "confirmedAppointment" OR "cancelledAppointment")
-              AND (
-              EXTRACT(HOUR FROM timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))) >= ${AFTER_HOURS_START}
-              OR EXTRACT(HOUR FROM timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))) < ${AFTER_HOURS_END}
-              )
-            THEN "durationSec"
-            ELSE 0
-          END
-        ),
-        0
-      )::int AS "afterHoursSeconds",
-      COALESCE(SUM("durationSec"), 0)::int AS "staffTimeSavedSeconds"
-    FROM "agent_call"
-    WHERE "practiceId" = ${practiceId}
-  `;
-  const row = rows[0];
+function phoneLookupVariants(phone: string | null | undefined) {
+  const variants = new Set<string>();
+  const trimmed = phone?.trim() ?? "";
+  const digits = normalizePhoneKey(trimmed);
 
-  return {
-    bookedActionCount: numberValue(row?.bookedActionCount),
-    cancelledActionCount: numberValue(row?.cancelledActionCount),
-    confirmedActionCount: numberValue(row?.confirmedActionCount),
-    afterHoursSeconds: numberValue(row?.afterHoursSeconds),
-    callCount: numberValue(row?.callCount),
-    schedulingSeconds: numberValue(row?.schedulingSeconds),
-    staffTimeSavedSeconds: numberValue(row?.staffTimeSavedSeconds),
-    totalDurationSec: numberValue(row?.totalDurationSec),
-    transferredCalls: numberValue(row?.transferredCalls),
-  };
+  if (trimmed) variants.add(trimmed);
+
+  if (digits) {
+    variants.add(digits);
+    variants.add(`+${digits}`);
+  }
+
+  if (digits.length === 10) {
+    variants.add(`+1${digits}`);
+    variants.add(`1${digits}`);
+  }
+
+  if (digits.length === 11 && digits.startsWith("1")) {
+    variants.add(digits.slice(1));
+  }
+
+  return [...variants].filter(Boolean);
 }
 
-async function getAllTimeCallVolume(practiceId: string) {
-  const firstRows = await prisma.$queryRaw<Array<{ firstStartedAt: Date | null }>>`
-    SELECT MIN("startedAt") AS "firstStartedAt"
-    FROM "agent_call"
-    WHERE "practiceId" = ${practiceId}
-  `;
-  const firstStartedAt = firstRows[0]?.firstStartedAt;
+function buildPortalOverviewOfficeFilters(
+  phoneNumbers: Array<{
+    label: string | null;
+    location: { name: string } | null;
+    locationId: string | null;
+    phoneNumber: string;
+  }>,
+): PortalOverviewOfficeFilterOption[] {
+  const optionsById = new Map<string, PortalOverviewOfficeFilterOption>();
 
-  if (!firstStartedAt) {
-    return [];
+  for (const phone of phoneNumbers) {
+    const key = normalizePhoneKey(phone.phoneNumber);
+
+    if (!key) {
+      continue;
+    }
+
+    const id = phone.locationId ? `location:${phone.locationId}` : `phone:${key}`;
+    const existing = optionsById.get(id);
+
+    if (existing) {
+      if (!existing.phones.some((item) => normalizePhoneKey(item) === key)) {
+        existing.phones.push(phone.phoneNumber);
+      }
+      continue;
+    }
+
+    optionsById.set(id, {
+      id,
+      label: phone.location?.name ?? phone.label ?? phone.phoneNumber,
+      phones: [phone.phoneNumber],
+    });
   }
 
-  const dayMs = 24 * 60 * 60 * 1000;
-  const firstCallTime = new Date(firstStartedAt).getTime();
-  const spanDays = Math.ceil((Date.now() - firstCallTime) / dayMs);
+  return [...optionsById.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
 
-  if (spanDays > 90) {
-    return prisma.$queryRaw<PortalCallVolumePoint[]>`
-      SELECT
-        to_char(date_trunc('month', timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))), 'YYYY-MM') AS "bucket",
-        to_char(date_trunc('month', timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))), 'Mon YYYY') AS "label",
-        COUNT(*)::int AS "count"
-      FROM "agent_call"
-      WHERE "practiceId" = ${practiceId}
-      GROUP BY 1, 2
-      ORDER BY 1 ASC
-    `;
+function resolvePortalOverviewOfficeFilter(
+  officeFilter: string | string[] | null | undefined,
+  options: PortalOverviewOfficeFilterOption[],
+) {
+  const office = Array.isArray(officeFilter) ? officeFilter[0] : officeFilter;
+  const key = normalizePhoneKey(office);
+
+  if (!office) {
+    return null;
   }
 
-  return prisma.$queryRaw<PortalCallVolumePoint[]>`
-    SELECT
-      to_char(timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt")), 'YYYY-MM-DD') AS "bucket",
-      to_char(timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt")), 'Mon FMDD') AS "label",
-      COUNT(*)::int AS "count"
-    FROM "agent_call"
-    WHERE "practiceId" = ${practiceId}
-    GROUP BY 1, 2
-    ORDER BY 1 ASC
-  `;
+  return (
+    options.find(
+      (option) =>
+        option.id === office ||
+        (key && option.phones.some((phone) => normalizePhoneKey(phone) === key)),
+    ) ?? null
+  );
+}
+
+function buildPortalOverviewOfficeWhere(
+  officeFilter: PortalOverviewOfficeFilterOption | null,
+): Prisma.AgentCallWhereInput {
+  const officeLocationId = officeFilter?.id.startsWith("location:")
+    ? officeFilter.id.replace("location:", "")
+    : null;
+  const officePhoneVariants = [
+    ...new Set((officeFilter?.phones ?? []).flatMap(phoneLookupVariants)),
+  ];
+  const clauses: Prisma.AgentCallWhereInput[] = [];
+
+  if (officeLocationId) {
+    clauses.push({ locationId: officeLocationId });
+  }
+
+  if (officePhoneVariants.length) {
+    clauses.push({ officePhone: { in: officePhoneVariants } });
+  }
+
+  return clauses.length ? { OR: clauses } : {};
 }
 
 function bucketCallVolume(
@@ -637,6 +640,7 @@ function normalizeDisplayName(value: string | null) {
 
 export async function getPortalOverviewMetrics(
   range: PortalOverviewRange = "24h",
+  office?: string | string[] | null,
 ): Promise<PortalOverviewMetrics | null> {
   const session = await getAuthSession();
 
@@ -655,6 +659,16 @@ export async function getPortalOverviewMetrics(
           brandPrimaryColor: true,
           id: true,
           name: true,
+          phoneNumbers: {
+            include: {
+              location: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          },
         },
       },
     },
@@ -668,43 +682,17 @@ export async function getPortalOverviewMetrics(
     return null;
   }
 
-  if (range === "all") {
-    const [aggregate, callVolume] = await Promise.all([
-      getAllTimeOverviewAggregate(membership.practiceId),
-      getAllTimeCallVolume(membership.practiceId),
-    ]);
-
-    return {
-      appointmentActions: {
-        booked: aggregate.bookedActionCount,
-        cancelled: aggregate.cancelledActionCount,
-        confirmed: aggregate.confirmedActionCount,
-      },
-      averageCallDurationSec:
-        aggregate.callCount > 0 ? aggregate.totalDurationSec / aggregate.callCount : 0,
-      branding: getPracticeBranding(membership.practice),
-      callVolume,
-      practiceName: membership.practice.name,
-      previousTotalCalls: 0,
-      range,
-      staffTimeSaved: buildStaffTimeSaved(
-        aggregate.staffTimeSavedSeconds,
-        aggregate.schedulingSeconds,
-        aggregate.afterHoursSeconds,
-      ),
-      totalCallMinutes: aggregate.totalDurationSec / 60,
-      totalCalls: aggregate.callCount,
-      transferRate:
-        aggregate.callCount > 0 ? aggregate.transferredCalls / aggregate.callCount : 0,
-      transferredCalls: aggregate.transferredCalls,
-    };
-  }
-
+  const officeFilters = buildPortalOverviewOfficeFilters(
+    membership.practice.phoneNumbers,
+  );
+  const selectedOffice = resolvePortalOverviewOfficeFilter(office, officeFilters);
   const rangeStart = getRangeStart(range);
   const previousWindow = getPreviousRangeWindow(range);
+  const officeWhere = buildPortalOverviewOfficeWhere(selectedOffice);
   const callWhere = {
     practiceId: membership.practiceId,
     ...(rangeStart ? { startedAt: { gte: rangeStart } } : {}),
+    ...officeWhere,
   };
 
   const [callRows, previousTotalCalls] = await Promise.all([
@@ -727,6 +715,7 @@ export async function getPortalOverviewMetrics(
           where: {
             practiceId: membership.practiceId,
             startedAt: { gte: previousWindow.start, lt: previousWindow.end },
+            ...officeWhere,
           },
         })
       : Promise.resolve(0),
@@ -774,9 +763,12 @@ export async function getPortalOverviewMetrics(
     averageCallDurationSec: callCount > 0 ? totalDurationSec / callCount : 0,
     branding: getPracticeBranding(membership.practice),
     callVolume,
+    officeFilters,
     practiceName: membership.practice.name,
     previousTotalCalls,
     range,
+    selectedOfficeId: selectedOffice?.id ?? null,
+    selectedOfficeLabel: selectedOffice?.label ?? null,
     staffTimeSaved: buildStaffTimeSaved(
       staffTimeSavedSeconds,
       schedulingSeconds,
