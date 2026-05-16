@@ -44,6 +44,8 @@ const LIVE_RING_ATTEMPT_STATUSES: CallCenterRingAttemptStatus[] = [
 ];
 const DEFAULT_QUEUE_WAIT_TIMEOUT_SEC = 10;
 const MAX_QUEUE_WAIT_TIMEOUT_SEC = 120;
+const RINGBACK_TONE_DURATION_SEC = 2;
+const RINGBACK_CYCLE_SEC = 6;
 
 const ringbackWavCache = new Map<number, string>();
 const VOICEMAIL_BEEP_WAV_BASE64 = createVoicemailBeepWavBase64();
@@ -73,9 +75,16 @@ function ringbackWavBase64For(timeoutSec: number | null | undefined) {
   return wav;
 }
 
+export function isRingbackToneActiveAtSecond(elapsedSec: number) {
+  if (!Number.isFinite(elapsedSec) || elapsedSec < 0) {
+    return false;
+  }
+
+  return elapsedSec % RINGBACK_CYCLE_SEC < RINGBACK_TONE_DURATION_SEC;
+}
+
 function createRingbackWavBase64(durationSec = DEFAULT_QUEUE_WAIT_TIMEOUT_SEC) {
   const sampleRate = 8000;
-  const toneDurationSec = 2;
   const sampleCount = sampleRate * durationSec;
   const bytesPerSample = 2;
   const dataSize = sampleCount * bytesPerSample;
@@ -97,7 +106,7 @@ function createRingbackWavBase64(durationSec = DEFAULT_QUEUE_WAIT_TIMEOUT_SEC) {
 
   for (let i = 0; i < sampleCount; i += 1) {
     const t = i / sampleRate;
-    const inTone = t % durationSec < toneDurationSec;
+    const inTone = isRingbackToneActiveAtSecond(t);
     const sample = inTone
       ? Math.round(
           (9000 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t))) /
