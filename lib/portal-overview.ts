@@ -1,5 +1,5 @@
+import { Prisma } from "@/generated/prisma/client";
 import { getAuthSession } from "@/lib/auth";
-import type { Prisma } from "@/generated/prisma/client";
 import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
@@ -83,6 +83,20 @@ const rangeDays: Record<BoundedPortalOverviewRange, number> = {
 const PRACTICE_TIMEZONE = "America/New_York";
 const AFTER_HOURS_START = 18;
 const AFTER_HOURS_END = 8;
+
+type OverviewAggregate = {
+  bookedActionCount: number;
+  cancelledActionCount: number;
+  confirmedActionCount: number;
+  afterHoursSeconds: number;
+  callCount: number;
+  schedulingSeconds: number;
+  staffTimeSavedSeconds: number;
+  totalDurationSec: number;
+  transferredCalls: number;
+};
+
+type RawOverviewAggregate = Record<keyof OverviewAggregate, bigint | number | null>;
 
 function buildStaffTimeSaved(
   totalSeconds: number,
@@ -262,12 +276,8 @@ function resolvePortalOverviewOfficeFilter(
 function buildPortalOverviewOfficeWhere(
   officeFilter: PortalOverviewOfficeFilterOption | null,
 ): Prisma.AgentCallWhereInput {
-  const officeLocationId = officeFilter?.id.startsWith("location:")
-    ? officeFilter.id.replace("location:", "")
-    : null;
-  const officePhoneVariants = [
-    ...new Set((officeFilter?.phones ?? []).flatMap(phoneLookupVariants)),
-  ];
+  const { officeLocationId, officePhoneVariants } =
+    getPortalOverviewOfficeFilterParts(officeFilter);
   const clauses: Prisma.AgentCallWhereInput[] = [];
 
   if (officeLocationId) {
@@ -279,6 +289,151 @@ function buildPortalOverviewOfficeWhere(
   }
 
   return clauses.length ? { OR: clauses } : {};
+}
+
+function getPortalOverviewOfficeFilterParts(
+  officeFilter: PortalOverviewOfficeFilterOption | null,
+) {
+  return {
+    officeLocationId: officeFilter?.id.startsWith("location:")
+      ? officeFilter.id.replace("location:", "")
+      : null,
+    officePhoneVariants: [
+      ...new Set((officeFilter?.phones ?? []).flatMap(phoneLookupVariants)),
+    ],
+  };
+}
+
+function buildAllTimeOverviewSqlWhere(
+  practiceId: string,
+  officeFilter: PortalOverviewOfficeFilterOption | null,
+) {
+  const { officeLocationId, officePhoneVariants } =
+    getPortalOverviewOfficeFilterParts(officeFilter);
+  const clauses = [Prisma.sql`"practiceId" = ${practiceId}`];
+  const officeClauses = [];
+
+  if (officeLocationId) {
+    officeClauses.push(Prisma.sql`"locationId" = ${officeLocationId}`);
+  }
+
+  if (officePhoneVariants.length) {
+    officeClauses.push(
+      Prisma.sql`"officePhone" IN (${Prisma.join(officePhoneVariants)})`,
+    );
+  }
+
+  if (officeClauses.length) {
+    clauses.push(Prisma.sql`(${Prisma.join(officeClauses, " OR ")})`);
+  }
+
+  return Prisma.sql`WHERE ${Prisma.join(clauses, " AND ")}`;
+}
+
+function numberValue(value: bigint | number | null | undefined) {
+  return Number(value ?? 0);
+}
+
+async function getAllTimeOverviewAggregate(
+  practiceId: string,
+  officeFilter: PortalOverviewOfficeFilterOption | null,
+): Promise<OverviewAggregate> {
+  const where = buildAllTimeOverviewSqlWhere(practiceId, officeFilter);
+  const rows = await prisma.$queryRaw<RawOverviewAggregate[]>`
+    SELECT
+      COUNT(*)::int AS "callCount",
+      COALESCE(SUM("durationSec"), 0)::int AS "totalDurationSec",
+      COUNT(*) FILTER (WHERE "transferred")::int AS "transferredCalls",
+      COUNT(*) FILTER (WHERE "bookedAppointment")::int AS "bookedActionCount",
+      COUNT(*) FILTER (WHERE "confirmedAppointment")::int AS "confirmedActionCount",
+      COUNT(*) FILTER (WHERE "cancelledAppointment")::int AS "cancelledActionCount",
+      COALESCE(
+        SUM(
+          CASE
+            WHEN "bookedAppointment" OR "confirmedAppointment" OR "cancelledAppointment"
+            THEN "durationSec"
+            ELSE 0
+          END
+        ),
+        0
+      )::int AS "schedulingSeconds",
+      COALESCE(
+        SUM(
+          CASE
+            WHEN
+              NOT ("bookedAppointment" OR "confirmedAppointment" OR "cancelledAppointment")
+              AND (
+                EXTRACT(HOUR FROM timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))) >= ${AFTER_HOURS_START}
+                OR EXTRACT(HOUR FROM timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))) < ${AFTER_HOURS_END}
+              )
+            THEN "durationSec"
+            ELSE 0
+          END
+        ),
+        0
+      )::int AS "afterHoursSeconds",
+      COALESCE(SUM("durationSec"), 0)::int AS "staffTimeSavedSeconds"
+    FROM "agent_call"
+    ${where}
+  `;
+  const row = rows[0];
+
+  return {
+    bookedActionCount: numberValue(row?.bookedActionCount),
+    cancelledActionCount: numberValue(row?.cancelledActionCount),
+    confirmedActionCount: numberValue(row?.confirmedActionCount),
+    afterHoursSeconds: numberValue(row?.afterHoursSeconds),
+    callCount: numberValue(row?.callCount),
+    schedulingSeconds: numberValue(row?.schedulingSeconds),
+    staffTimeSavedSeconds: numberValue(row?.staffTimeSavedSeconds),
+    totalDurationSec: numberValue(row?.totalDurationSec),
+    transferredCalls: numberValue(row?.transferredCalls),
+  };
+}
+
+async function getAllTimeCallVolume(
+  practiceId: string,
+  officeFilter: PortalOverviewOfficeFilterOption | null,
+) {
+  const where = buildAllTimeOverviewSqlWhere(practiceId, officeFilter);
+  const firstRows = await prisma.$queryRaw<Array<{ firstStartedAt: Date | null }>>`
+    SELECT MIN("startedAt") AS "firstStartedAt"
+    FROM "agent_call"
+    ${where}
+  `;
+  const firstStartedAt = firstRows[0]?.firstStartedAt;
+
+  if (!firstStartedAt) {
+    return [];
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const firstCallTime = new Date(firstStartedAt).getTime();
+  const spanDays = Math.ceil((Date.now() - firstCallTime) / dayMs);
+
+  if (spanDays > 90) {
+    return prisma.$queryRaw<PortalCallVolumePoint[]>`
+      SELECT
+        to_char(date_trunc('month', timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))), 'YYYY-MM') AS "bucket",
+        to_char(date_trunc('month', timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt"))), 'Mon YYYY') AS "label",
+        COUNT(*)::int AS "count"
+      FROM "agent_call"
+      ${where}
+      GROUP BY 1, 2
+      ORDER BY 1 ASC
+    `;
+  }
+
+  return prisma.$queryRaw<PortalCallVolumePoint[]>`
+    SELECT
+      to_char(timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt")), 'YYYY-MM-DD') AS "bucket",
+      to_char(timezone(${PRACTICE_TIMEZONE}, timezone('UTC', "startedAt")), 'Mon FMDD') AS "label",
+      COUNT(*)::int AS "count"
+    FROM "agent_call"
+    ${where}
+    GROUP BY 1, 2
+    ORDER BY 1 ASC
+  `;
 }
 
 function bucketCallVolume(
@@ -695,6 +850,42 @@ export async function getPortalOverviewMetrics(
   const rangeStart = getRangeStart(range);
   const previousWindow = getPreviousRangeWindow(range);
   const officeWhere = buildPortalOverviewOfficeWhere(selectedOffice);
+
+  if (range === "all") {
+    const [aggregate, callVolume] = await Promise.all([
+      getAllTimeOverviewAggregate(membership.practiceId, selectedOffice),
+      getAllTimeCallVolume(membership.practiceId, selectedOffice),
+    ]);
+
+    return {
+      appointmentActions: {
+        booked: aggregate.bookedActionCount,
+        cancelled: aggregate.cancelledActionCount,
+        confirmed: aggregate.confirmedActionCount,
+      },
+      averageCallDurationSec:
+        aggregate.callCount > 0 ? aggregate.totalDurationSec / aggregate.callCount : 0,
+      branding: getPracticeBranding(membership.practice),
+      callVolume,
+      officeFilters,
+      practiceName: membership.practice.name,
+      previousTotalCalls: 0,
+      range,
+      selectedOfficeId: selectedOffice?.id ?? null,
+      selectedOfficeLabel: selectedOffice?.label ?? null,
+      staffTimeSaved: buildStaffTimeSaved(
+        aggregate.staffTimeSavedSeconds,
+        aggregate.schedulingSeconds,
+        aggregate.afterHoursSeconds,
+      ),
+      totalCallMinutes: aggregate.totalDurationSec / 60,
+      totalCalls: aggregate.callCount,
+      transferRate:
+        aggregate.callCount > 0 ? aggregate.transferredCalls / aggregate.callCount : 0,
+      transferredCalls: aggregate.transferredCalls,
+    };
+  }
+
   const callWhere = {
     practiceId: membership.practiceId,
     ...(rangeStart ? { startedAt: { gte: rangeStart } } : {}),
@@ -737,67 +928,22 @@ export async function getPortalOverviewMetrics(
   let afterHoursSeconds = 0;
   let staffTimeSavedSeconds = 0;
 
-  if (range === "all") {
-    const [
-      aggregate,
-      transferred,
-      booked,
-      confirmed,
-      cancelled,
-      scheduling
-    ] = await Promise.all([
-      prisma.agentCall.aggregate({
-        _count: { _all: true },
-        _sum: { durationSec: true },
-        where: callWhere,
-      }),
-      prisma.agentCall.count({ where: { ...callWhere, transferred: true } }),
-      prisma.agentCall.count({ where: { ...callWhere, bookedAppointment: true } }),
-      prisma.agentCall.count({ where: { ...callWhere, confirmedAppointment: true } }),
-      prisma.agentCall.count({ where: { ...callWhere, cancelledAppointment: true } }),
-      prisma.agentCall.aggregate({
-        _sum: { durationSec: true },
-        where: {
-          ...callWhere,
-          OR: [
-            { bookedAppointment: true },
-            { confirmedAppointment: true },
-            { cancelledAppointment: true },
-          ],
-        },
-      })
-    ]);
+  for (const call of callRows) {
+    totalDurationSec += call.durationSec;
+    if (call.transferred) transferredCalls += 1;
+    if (call.bookedAppointment) bookedActionCount += 1;
+    if (call.confirmedAppointment) confirmedActionCount += 1;
+    if (call.cancelledAppointment) cancelledActionCount += 1;
+    const isSchedulingCall =
+      call.bookedAppointment || call.confirmedAppointment || call.cancelledAppointment;
+    const isAfterHoursCall = isAfterHours(call.startedAt);
 
-    totalDurationSec = aggregate._sum.durationSec ?? 0;
-    transferredCalls = transferred;
-    bookedActionCount = booked;
-    confirmedActionCount = confirmed;
-    cancelledActionCount = cancelled;
-    schedulingSeconds = scheduling._sum.durationSec ?? 0;
-    for (const call of callRows) {
-      if (!call.bookedAppointment && !call.confirmedAppointment && !call.cancelledAppointment && isAfterHours(call.startedAt)) {
-        afterHoursSeconds += call.durationSec;
-      }
+    if (isSchedulingCall) {
+      schedulingSeconds += call.durationSec;
+    } else if (isAfterHoursCall) {
+      afterHoursSeconds += call.durationSec;
     }
-    staffTimeSavedSeconds = totalDurationSec;
-  } else {
-    for (const call of callRows) {
-      totalDurationSec += call.durationSec;
-      if (call.transferred) transferredCalls += 1;
-      if (call.bookedAppointment) bookedActionCount += 1;
-      if (call.confirmedAppointment) confirmedActionCount += 1;
-      if (call.cancelledAppointment) cancelledActionCount += 1;
-      const isSchedulingCall =
-        call.bookedAppointment || call.confirmedAppointment || call.cancelledAppointment;
-      const isAfterHoursCall = isAfterHours(call.startedAt);
-
-      if (isSchedulingCall) {
-        schedulingSeconds += call.durationSec;
-      } else if (isAfterHoursCall) {
-        afterHoursSeconds += call.durationSec;
-      }
-      staffTimeSavedSeconds += call.durationSec;
-    }
+    staffTimeSavedSeconds += call.durationSec;
   }
 
   const callVolume = bucketCallVolume(
