@@ -2,6 +2,10 @@ import { revalidatePath } from "next/cache";
 
 import type { Prisma } from "@/generated/prisma/client";
 import { requireAdminSession } from "@/lib/admin-auth";
+import {
+  ABITA_HOLLYWOOD_SWEETWATER_INSURANCE_RULES,
+  findAbitaNewOfficeByLocation,
+} from "@/lib/abita-office-data";
 import { getAuthSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -60,6 +64,9 @@ export type PortalInsuranceRuleState = {
 export type InsuranceRulesParseResult =
   | { ok: true; rules: InsuranceRulesPayload }
   | { error: string; ok: false };
+
+const ABITA_NEW_OFFICE_INSURANCE_RULES =
+  ABITA_HOLLYWOOD_SWEETWATER_INSURANCE_RULES as InsuranceRulesPayload;
 
 const ABITA_INSURANCE_RULES = {
   officeLabel: "Spring Hill",
@@ -1058,6 +1065,22 @@ function getSeedRuleSetsForPractice(practice: {
   if (isAbita) {
     const springHillLocation = findSpringHillLocation(practice.locations);
     const crystalRiverLocation = findCrystalRiverLocation(practice.locations);
+    const newOfficeRuleSets = practice.locations
+      .map((location) => {
+        const office = findAbitaNewOfficeByLocation(location);
+
+        if (!office) {
+          return null;
+        }
+
+        return {
+          locationId: location.id,
+          rules: cloneRules(ABITA_NEW_OFFICE_INSURANCE_RULES, office.name),
+          slug: office.ruleSlug,
+          title: office.insuranceTitle,
+        };
+      })
+      .filter((ruleSet): ruleSet is NonNullable<typeof ruleSet> => Boolean(ruleSet));
 
     return [
       {
@@ -1072,6 +1095,7 @@ function getSeedRuleSetsForPractice(practice: {
         slug: "crystal-river-insurance-rules",
         title: "Insurance Rules: Eye Radiance, Crystal River",
       },
+      ...newOfficeRuleSets,
     ];
   }
 

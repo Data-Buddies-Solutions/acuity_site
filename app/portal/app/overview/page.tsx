@@ -14,12 +14,11 @@ import MetricCard from "./MetricCard";
 import StaffTimeSavedCard from "./StaffTimeSavedCard";
 
 const rangeOptions = [
-  { href: "/portal/app/overview?range=24h", label: "24 Hours", value: "24h" },
-  { href: "/portal/app/overview?range=7d", label: "7 Days", value: "7d" },
-  { href: "/portal/app/overview?range=30d", label: "30 Days", value: "30d" },
-  { href: "/portal/app/overview?range=all", label: "All Time", value: "all" },
+  { label: "24 Hours", value: "24h" },
+  { label: "7 Days", value: "7d" },
+  { label: "30 Days", value: "30d" },
+  { label: "All Time", value: "all" },
 ] as const satisfies ReadonlyArray<{
-  href: string;
   label: string;
   value: PortalOverviewRange;
 }>;
@@ -38,6 +37,71 @@ function parseRange(value: string | string[] | undefined): PortalOverviewRange {
     return value;
   }
   return "24h";
+}
+
+function parseOffice(value: string | string[] | undefined) {
+  return typeof value === "string" ? value : null;
+}
+
+function overviewHref({
+  office,
+  range,
+}: {
+  office?: string | null;
+  range: PortalOverviewRange;
+}) {
+  const params = new URLSearchParams();
+
+  params.set("range", range);
+
+  if (office) {
+    params.set("office", office);
+  }
+
+  return `/portal/app/overview?${params.toString()}`;
+}
+
+function OfficeFilterNav({
+  offices,
+  range,
+  selectedOfficeId,
+}: {
+  offices: Array<{ id: string; label: string }>;
+  range: PortalOverviewRange;
+  selectedOfficeId: string | null;
+}) {
+  if (offices.length <= 1) {
+    return null;
+  }
+
+  const items = [{ id: null, label: "All Offices" }, ...offices];
+
+  return (
+    <nav
+      aria-label="Overview office"
+      className="flex max-w-full gap-2 overflow-x-auto pb-1"
+    >
+      {items.map((item) => {
+        const isActive = item.id === selectedOfficeId;
+
+        return (
+          <Link
+            key={item.id ?? "all"}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
+              isActive
+                ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
+                : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
+            )}
+            href={overviewHref({ office: item.id, range })}
+          >
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
 }
 
 function formatInteger(value: number) {
@@ -94,7 +158,8 @@ export default async function PortalOverviewPage({
 
   const params = searchParams ? await searchParams : {};
   const range = parseRange(params.range);
-  const metrics = await getPortalOverviewMetrics(range);
+  const office = parseOffice(params.office);
+  const metrics = await getPortalOverviewMetrics(range, office);
 
   if (!metrics) {
     redirect("/portal");
@@ -114,29 +179,39 @@ export default async function PortalOverviewPage({
         practiceName={metrics.practiceName}
         title="Overview"
       >
-        <nav
-          aria-label="Overview range"
-          className="inline-flex w-full rounded-lg border border-black/8 bg-white p-1 sm:w-fit"
-        >
-          {rangeOptions.map((option) => {
-            const isActive = option.value === metrics.range;
-            return (
-              <Link
-                key={option.value}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
-                  isActive
-                    ? "bg-[#10272c] text-white shadow-sm hover:text-white"
-                    : "text-[#617477] hover:bg-[#f1f5f5] hover:text-[#10272c]",
-                )}
-                href={option.href}
-              >
-                {option.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
+          <OfficeFilterNav
+            offices={metrics.officeFilters}
+            range={metrics.range}
+            selectedOfficeId={metrics.selectedOfficeId}
+          />
+          <nav
+            aria-label="Overview range"
+            className="inline-flex w-full rounded-lg border border-black/8 bg-white p-1 sm:w-fit"
+          >
+            {rangeOptions.map((option) => {
+              const isActive = option.value === metrics.range;
+              return (
+                <Link
+                  key={option.value}
+                  aria-current={isActive ? "page" : undefined}
+                  className={cn(
+                    "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
+                    isActive
+                      ? "bg-[#10272c] text-white shadow-sm hover:text-white"
+                      : "text-[#617477] hover:bg-[#f1f5f5] hover:text-[#10272c]",
+                  )}
+                  href={overviewHref({
+                    office: metrics.selectedOfficeId,
+                    range: option.value,
+                  })}
+                >
+                  {option.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
       </PracticePageHeader>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

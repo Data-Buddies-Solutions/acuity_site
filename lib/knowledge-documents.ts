@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 
 import { requireAdminSession } from "@/lib/admin-auth";
 import { getAuthSession } from "@/lib/auth";
+import { findAbitaNewOfficeByLocation } from "@/lib/abita-office-data";
 import { prisma } from "@/lib/prisma";
 
 const ABITA_SPRING_HILL_MARKDOWN = `# Knowledge Base: Abita Eye Group, Spring Hill
@@ -361,6 +362,23 @@ function getSeedDocumentsForPractice(practice: {
   const isAbita = practice.name.toLowerCase().includes("abita");
 
   if (isAbita) {
+    const newOfficeDocuments = practice.locations
+      .map((location) => {
+        const office = findAbitaNewOfficeByLocation(location);
+
+        if (!office) {
+          return null;
+        }
+
+        return {
+          locationId: location.id,
+          markdown: office.knowledgeMarkdown,
+          slug: office.documentSlug,
+          title: office.knowledgeTitle,
+        };
+      })
+      .filter((document): document is NonNullable<typeof document> => Boolean(document));
+
     return [
       {
         locationId: springHillLocation?.id ?? null,
@@ -374,6 +392,7 @@ function getSeedDocumentsForPractice(practice: {
         slug: "eye-radiance-crystal-river",
         title: "Knowledge Base: Eye Radiance powered by Abeeta Eye Group",
       },
+      ...newOfficeDocuments,
     ];
   }
 
