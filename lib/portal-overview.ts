@@ -294,7 +294,13 @@ function bucketCallVolume(
       return points;
     }
 
-    const firstCallTime = Math.min(...startedAtList.map((date) => date.getTime()));
+    let firstCallTime = startedAtList[0].getTime();
+    for (let index = 1; index < startedAtList.length; index += 1) {
+      const time = startedAtList[index].getTime();
+      if (time < firstCallTime) {
+        firstCallTime = time;
+      }
+    }
     const dayMs = 24 * 60 * 60 * 1000;
     const spanDays = Math.ceil((now.getTime() - firstCallTime) / dayMs);
     const useMonthBuckets = spanDays > 90;
@@ -731,22 +737,67 @@ export async function getPortalOverviewMetrics(
   let afterHoursSeconds = 0;
   let staffTimeSavedSeconds = 0;
 
-  for (const call of callRows) {
-    totalDurationSec += call.durationSec;
-    if (call.transferred) transferredCalls += 1;
-    if (call.bookedAppointment) bookedActionCount += 1;
-    if (call.confirmedAppointment) confirmedActionCount += 1;
-    if (call.cancelledAppointment) cancelledActionCount += 1;
-    const isSchedulingCall =
-      call.bookedAppointment || call.confirmedAppointment || call.cancelledAppointment;
-    const isAfterHoursCall = isAfterHours(call.startedAt);
+  if (range === "all") {
+    const [
+      aggregate,
+      transferred,
+      booked,
+      confirmed,
+      cancelled,
+      scheduling
+    ] = await Promise.all([
+      prisma.agentCall.aggregate({
+        _count: { _all: true },
+        _sum: { durationSec: true },
+        where: callWhere,
+      }),
+      prisma.agentCall.count({ where: { ...callWhere, transferred: true } }),
+      prisma.agentCall.count({ where: { ...callWhere, bookedAppointment: true } }),
+      prisma.agentCall.count({ where: { ...callWhere, confirmedAppointment: true } }),
+      prisma.agentCall.count({ where: { ...callWhere, cancelledAppointment: true } }),
+      prisma.agentCall.aggregate({
+        _sum: { durationSec: true },
+        where: {
+          ...callWhere,
+          OR: [
+            { bookedAppointment: true },
+            { confirmedAppointment: true },
+            { cancelledAppointment: true },
+          ],
+        },
+      })
+    ]);
 
-    if (isSchedulingCall) {
-      schedulingSeconds += call.durationSec;
-    } else if (isAfterHoursCall) {
-      afterHoursSeconds += call.durationSec;
+    totalDurationSec = aggregate._sum.durationSec ?? 0;
+    transferredCalls = transferred;
+    bookedActionCount = booked;
+    confirmedActionCount = confirmed;
+    cancelledActionCount = cancelled;
+    schedulingSeconds = scheduling._sum.durationSec ?? 0;
+    for (const call of callRows) {
+      if (!call.bookedAppointment && !call.confirmedAppointment && !call.cancelledAppointment && isAfterHours(call.startedAt)) {
+        afterHoursSeconds += call.durationSec;
+      }
     }
-    staffTimeSavedSeconds += call.durationSec;
+    staffTimeSavedSeconds = totalDurationSec;
+  } else {
+    for (const call of callRows) {
+      totalDurationSec += call.durationSec;
+      if (call.transferred) transferredCalls += 1;
+      if (call.bookedAppointment) bookedActionCount += 1;
+      if (call.confirmedAppointment) confirmedActionCount += 1;
+      if (call.cancelledAppointment) cancelledActionCount += 1;
+      const isSchedulingCall =
+        call.bookedAppointment || call.confirmedAppointment || call.cancelledAppointment;
+      const isAfterHoursCall = isAfterHours(call.startedAt);
+
+      if (isSchedulingCall) {
+        schedulingSeconds += call.durationSec;
+      } else if (isAfterHoursCall) {
+        afterHoursSeconds += call.durationSec;
+      }
+      staffTimeSavedSeconds += call.durationSec;
+    }
   }
 
   const callVolume = bucketCallVolume(
