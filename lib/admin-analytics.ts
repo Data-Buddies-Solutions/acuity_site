@@ -1,4 +1,5 @@
 import type { ToolCallRecord, TurnRecord } from "@/lib/call-types";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
@@ -1410,6 +1411,30 @@ function resolveOfficeFilter(
   );
 }
 
+function buildOfficeAgentCallWhere(
+  officeFilter?: AdminPracticeOfficeFilterOption | null,
+): Prisma.AgentCallWhereInput {
+  const officeLocationId = officeFilter?.id.startsWith("location:")
+    ? officeFilter.id.replace("location:", "")
+    : null;
+  const officePhoneVariants = [
+    ...new Set((officeFilter?.phones ?? []).flatMap(phoneLookupVariants)),
+  ];
+
+  if (!officeLocationId && officePhoneVariants.length === 0) {
+    return {};
+  }
+
+  return {
+    OR: [
+      ...(officeLocationId ? [{ locationId: officeLocationId }] : []),
+      ...(officePhoneVariants.length > 0
+        ? [{ officePhone: { in: officePhoneVariants } }]
+        : []),
+    ],
+  };
+}
+
 function buildOfficeNameByPhone(
   phoneNumbers: Array<{
     label: string | null;
@@ -1493,23 +1518,7 @@ async function loadPracticeCalls(
   officeFilter?: AdminPracticeOfficeFilterOption | null,
 ) {
   const rangeStart = getRangeStart(range);
-  const officeLocationId = officeFilter?.id.startsWith("location:")
-    ? officeFilter.id.replace("location:", "")
-    : null;
-  const officePhoneVariants = [
-    ...new Set((officeFilter?.phones ?? []).flatMap(phoneLookupVariants)),
-  ];
-  const officeWhere =
-    officeLocationId || officePhoneVariants.length > 0
-      ? {
-          OR: [
-            ...(officeLocationId ? [{ locationId: officeLocationId }] : []),
-            ...(officePhoneVariants.length > 0
-              ? [{ officePhone: { in: officePhoneVariants } }]
-              : []),
-          ],
-        }
-      : {};
+  const officeWhere = buildOfficeAgentCallWhere(officeFilter);
 
   return prisma.agentCall.findMany({
     orderBy: {
@@ -1683,6 +1692,17 @@ export async function getAdminPracticeDetail(
 
   const officeFilters = buildOfficeFilterOptions(practice.phoneNumbers);
   const selectedOffice = resolveOfficeFilter(office, officeFilters);
+  const officeWhere = buildOfficeAgentCallWhere(selectedOffice);
+  const costOfficeWhere: Prisma.UsageCostLineItemWhereInput = selectedOffice
+    ? {
+        agentCall: {
+          is: {
+            practiceId,
+            ...officeWhere,
+          },
+        },
+      }
+    : {};
 
   const [calls, costLineItems] = await Promise.all([
     loadPracticeCalls(practiceId, range, selectedOffice),
@@ -1697,6 +1717,7 @@ export async function getAdminPracticeDetail(
       },
       where: {
         ...(rangeStart ? { occurredAt: { gte: rangeStart } } : {}),
+        ...costOfficeWhere,
         practiceId,
       },
     }),

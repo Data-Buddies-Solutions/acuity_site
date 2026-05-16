@@ -5,6 +5,7 @@ import {
   extractAcuityLiveKitHandoff,
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
+  isRingbackToneActiveAtSecond,
   normalizePhone,
   phoneLookupVariants,
   resolveTelnyxRuntimeSettings,
@@ -90,6 +91,18 @@ describe("call-center phone helpers", () => {
       inboundPhoneNumber: "+15550000001",
       outboundCallerNumber: "+15550000002",
     });
+  });
+});
+
+describe("Telnyx caller ringback cadence", () => {
+  it("uses repeated ringback tone windows instead of one tone followed by silence", () => {
+    expect(isRingbackToneActiveAtSecond(0)).toBe(true);
+    expect(isRingbackToneActiveAtSecond(1.99)).toBe(true);
+    expect(isRingbackToneActiveAtSecond(2)).toBe(false);
+    expect(isRingbackToneActiveAtSecond(5.99)).toBe(false);
+    expect(isRingbackToneActiveAtSecond(6)).toBe(true);
+    expect(isRingbackToneActiveAtSecond(7.5)).toBe(true);
+    expect(isRingbackToneActiveAtSecond(-1)).toBe(false);
   });
 });
 
