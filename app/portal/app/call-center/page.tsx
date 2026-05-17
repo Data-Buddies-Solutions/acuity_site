@@ -42,24 +42,30 @@ export default async function PortalCallCenterPage({
   const enabled = settings?.enabled === true;
   const runtimeSettings = settings ? resolveTelnyxRuntimeSettings(settings) : null;
   const selectedLocation = data.selectedLocation;
-  const outboundCallerNumber =
+  const practiceWideOutboundCallerNumber =
     selectedLocation?.outboundNumber ||
     runtimeSettings?.outboundCallerNumber ||
     data.phoneNumbers.find((phone) => phone.isPrimary)?.phoneNumber ||
     data.phoneNumbers[0]?.phoneNumber ||
     "";
+  const outboundCallerNumber = data.hasAllLocationAccess
+    ? practiceWideOutboundCallerNumber
+    : selectedLocation?.outboundNumber || "";
   const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 8);
   const hasSeatCredential = data.seats.some((seat) => seat.hasCredential);
-  const needsSeatCredential = data.seats.length > 0;
+  const needsSeatCredential = !data.hasAllLocationAccess || data.seats.length > 0;
   const configured = Boolean(
     enabled &&
     runtimeSettings?.connectionId &&
     (needsSeatCredential ? hasSeatCredential : runtimeSettings.credentialId) &&
     outboundCallerNumber,
   );
-  const configurationMessage = needsSeatCredential
-    ? "Add a Telnyx credential ID to at least one station for this location before staff can register."
-    : "Telnyx is missing connection details. Add the connection ID, credential ID, and caller number to start placing calls.";
+  const configurationMessage =
+    !data.hasAllLocationAccess && data.seats.length === 0
+      ? "No assigned call center station is configured for this location."
+      : needsSeatCredential
+        ? "Add a Telnyx credential ID to at least one station for this location before staff can register."
+        : "Telnyx is missing connection details. Add the connection ID, credential ID, and caller number to start placing calls.";
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -72,7 +78,7 @@ export default async function PortalCallCenterPage({
           {selectedLocation ? (
             <LocationPicker currentId={selectedLocation.id} locations={data.locations} />
           ) : null}
-          {!enabled ? (
+          {!enabled && data.hasAllLocationAccess ? (
             <form action={enableCallCenterAction}>
               <Button variant="primary">Enable</Button>
             </form>

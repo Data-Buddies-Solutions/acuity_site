@@ -77,6 +77,11 @@ enum PracticeMembershipRole {
   STAFF
 }
 
+enum PracticeMembershipLocationScope {
+  ALL
+  SELECTED
+}
+
 enum PracticeOnboardingStatus {
   WEBSITE_PENDING
   BASICS_PENDING
@@ -378,20 +383,35 @@ model UsageCostLineItem {
 }
 
 model PracticeMembership {
-  id         String                 @id @default(cuid())
-  practiceId String
-  userId     String
-  role       PracticeMembershipRole @default(OWNER)
-  isPrimary  Boolean                @default(true)
-  createdAt  DateTime               @default(now())
-  updatedAt  DateTime               @updatedAt
-  practice   Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String                          @id @default(cuid())
+  practiceId    String
+  userId        String
+  role          PracticeMembershipRole          @default(OWNER)
+  locationScope PracticeMembershipLocationScope @default(ALL)
+  isPrimary     Boolean                         @default(true)
+  createdAt     DateTime                        @default(now())
+  updatedAt     DateTime                        @updatedAt
+  locations     PracticeMembershipLocation[]
+  practice      Practice                        @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  user          User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([practiceId, userId])
   @@index([practiceId])
   @@index([userId])
   @@map("practice_membership")
+}
+
+model PracticeMembershipLocation {
+  id           String             @id @default(cuid())
+  membershipId String
+  locationId   String
+  createdAt    DateTime           @default(now())
+  location     PracticeLocation   @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  membership   PracticeMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, locationId])
+  @@index([locationId])
+  @@map("practice_membership_location")
 }
 
 model PracticeLocation {
@@ -414,6 +434,7 @@ model PracticeLocation {
   callCenterVoicemails CallCenterVoicemail[]
   insuranceRuleSets    PracticeInsuranceRuleSet[]
   knowledgeDocuments   PracticeKnowledgeDocument[]
+  membershipGrants     PracticeMembershipLocation[]
   phoneNumbers         PracticePhoneNumber[]
   practice             Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   providers            PracticeProvider[]

@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/app/components/ui/card";
+import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 import { getPortalWorkspaceState, type PortalWorkspaceState } from "@/lib/portal-state";
 
 import { PortalTextareaField } from "../PortalFields";
@@ -207,7 +208,27 @@ export default async function PortalOnboardingPage({
 }: Readonly<{
   searchParams?: SearchParamsInput;
 }>) {
+  const accessContext = await getCurrentPortalPracticeContext();
   const portalState = await getPortalWorkspaceState();
+
+  if (accessContext && !accessContext.hasAllLocationAccess) {
+    if (portalState.launched) {
+      redirect("/portal/app/overview");
+    }
+
+    return (
+      <div className="mx-auto max-w-2xl">
+        <Card className="rounded-[1.8rem] border-black/6 bg-white">
+          <CardHeader>
+            <CardTitle>Portal access is not live yet</CardTitle>
+            <CardDescription>
+              This scoped login will be available after the practice setup is launched.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
 
   if (portalState.launched) {
     redirect("/portal/app/overview");

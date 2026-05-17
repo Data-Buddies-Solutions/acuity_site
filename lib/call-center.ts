@@ -7,7 +7,12 @@ import {
   type Prisma,
 } from "@/generated/prisma/client";
 
-import { getAuthSession } from "@/lib/auth";
+import {
+  buildPortalLocationScopeWhere,
+  canAccessPortalLocation,
+  filterPortalLocationsForAccess,
+  getCurrentPortalPracticeContext,
+} from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding } from "@/lib/practice-branding";
 import {
@@ -528,44 +533,7 @@ function defaultSettingsFromPractice(practice: {
 }
 
 export async function getCurrentPracticeCallCenterContext() {
-  const session = await getAuthSession();
-
-  if (!session) {
-    return null;
-  }
-
-  const membership = await prisma.practiceMembership.findFirst({
-    include: {
-      practice: {
-        include: {
-          callCenterSettings: true,
-          locations: {
-            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-          },
-          phoneNumbers: {
-            include: {
-              location: true,
-            },
-            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-          },
-        },
-      },
-    },
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    where: {
-      userId: session.user.id,
-    },
-  });
-
-  if (!membership) {
-    return null;
-  }
-
-  return {
-    membership,
-    practice: membership.practice,
-    session,
-  };
+  return getCurrentPortalPracticeContext();
 }
 
 export async function setCallCenterEnabledForCurrentPractice(enabled: boolean) {
@@ -573,6 +541,13 @@ export async function setCallCenterEnabledForCurrentPractice(enabled: boolean) {
 
   if (!context) {
     throw new TelnyxError("Unauthorized", 401);
+  }
+
+  if (!context.hasAllLocationAccess) {
+    throw new TelnyxError(
+      "Only practice administrators can change call center settings",
+      403,
+    );
   }
 
   const defaults = defaultSettingsFromPractice(context.practice);
@@ -675,21 +650,24 @@ export function getPresenceExpirationCutoff(now = new Date()) {
   return new Date(now.getTime() - PRESENCE_EXPIRATION_MS);
 }
 
-function getPortalCallCenterLocations(practice: {
-  locations: Array<{
-    id: string;
-    isPrimary: boolean;
-    name: string;
-    phone: string | null;
-  }>;
-  phoneNumbers: Array<{
-    id: string;
-    isPrimary: boolean;
-    label: string | null;
-    locationId: string | null;
-    phoneNumber: string;
-  }>;
-}): PortalCallCenterLocation[] {
+function getPortalCallCenterLocations(
+  practice: {
+    locations: Array<{
+      id: string;
+      isPrimary: boolean;
+      name: string;
+      phone: string | null;
+    }>;
+    phoneNumbers: Array<{
+      id: string;
+      isPrimary: boolean;
+      label: string | null;
+      locationId: string | null;
+      phoneNumber: string;
+    }>;
+  },
+  options: { allowFallback: boolean } = { allowFallback: true },
+): PortalCallCenterLocation[] {
   const locations: PortalCallCenterLocation[] = [];
 
   for (const location of practice.locations) {
@@ -721,7 +699,7 @@ function getPortalCallCenterLocations(practice: {
     });
   }
 
-  if (!locations.length) {
+  if (!locations.length && options.allowFallback) {
     const primaryPhone =
       practice.phoneNumbers.find((phone) => phone.isPrimary) ??
       practice.phoneNumbers[0] ??
@@ -754,13 +732,21 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
   }
 
   const { practice } = context;
-  const locations = getPortalCallCenterLocations(practice);
+  const visibleLocations = filterPortalLocationsForAccess(context, practice.locations);
+  const visiblePhoneNumbers = context.allowedPhoneNumbers;
+  const locations = getPortalCallCenterLocations(
+    {
+      locations: visibleLocations,
+      phoneNumbers: visiblePhoneNumbers,
+    },
+    { allowFallback: context.hasAllLocationAccess },
+  );
   const selectedLocation =
     locations.find((location) => location.id === options?.locationId) ??
     getDefaultPortalCallCenterLocation(locations);
-  const locationFilter: { locationId?: string | null } = selectedLocation
+  const locationFilter = selectedLocation
     ? { locationId: selectedLocation.locationId }
-    : {};
+    : buildPortalLocationScopeWhere(context);
 
   const seatWhere = selectedLocation
     ? {
@@ -768,6 +754,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
         practiceId: practice.id,
       }
     : {
+        ...buildPortalLocationScopeWhere(context),
         practiceId: practice.id,
       };
 
@@ -929,9 +916,10 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
   return {
     activity: activity.slice(0, 60),
     branding: getPracticeBranding(practice),
+    hasAllLocationAccess: context.hasAllLocationAccess,
     locations,
     missedCalls,
-    phoneNumbers: practice.phoneNumbers,
+    phoneNumbers: visiblePhoneNumbers,
     practiceId: practice.id,
     practiceName: practice.name,
     queue: queue.map((item) => ({
@@ -1863,12 +1851,17 @@ export async function ringStationForQueuedCall({
       where: {
         enabled: true,
         id: seatId,
+        ...buildPortalLocationScopeWhere(context),
         practiceId: context.practice.id,
       },
     }),
   ]);
 
   if (!queueItem) {
+    throw new TelnyxError("Queued call is not available", 404);
+  }
+
+  if (!canAccessPortalLocation(context, queueItem.locationId)) {
     throw new TelnyxError("Queued call is not available", 404);
   }
 
@@ -2480,8 +2473,18 @@ export async function getPortalCallCenterOperationalState(options?: {
   }
 
   const { practice } = context;
+  if (
+    options &&
+    "locationId" in options &&
+    !canAccessPortalLocation(context, options.locationId)
+  ) {
+    return null;
+  }
+
   const locationFilter =
-    options && "locationId" in options ? { locationId: options.locationId } : {};
+    options && "locationId" in options
+      ? { locationId: options.locationId }
+      : buildPortalLocationScopeWhere(context);
 
   const [seats, queueItems, sessions] = await Promise.all([
     prisma.callCenterAgentSeat.findMany({

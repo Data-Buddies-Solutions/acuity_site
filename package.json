@@ -19,7 +19,8 @@
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "seed:abita-offices": "bun scripts/seed-abita-new-offices.mjs"
+    "seed:abita-offices": "bun scripts/seed-abita-new-offices.mjs",
+    "seed:abita-scoped-users": "bun scripts/seed-abita-scoped-users.mjs"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "^1.6.10",

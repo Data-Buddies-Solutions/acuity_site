@@ -6,7 +6,10 @@ import {
   ABITA_HOLLYWOOD_SWEETWATER_INSURANCE_RULES,
   findAbitaNewOfficeByLocation,
 } from "@/lib/abita-office-data";
-import { getAuthSession } from "@/lib/auth";
+import {
+  buildPortalLocationScopeWhere,
+  getCurrentPortalPracticeContext,
+} from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
 type InsuranceRuleRevisionStatus = "PENDING_APPROVAL" | "PUBLISHED" | "REJECTED";
@@ -1117,7 +1120,10 @@ function getSeedRuleSetsForPractice(practice: {
   });
 }
 
-async function loadInsuranceRuleSetsForPractice(practiceId: string) {
+async function loadInsuranceRuleSetsForPractice(
+  practiceId: string,
+  locationScopeWhere: ReturnType<typeof buildPortalLocationScopeWhere> = {},
+) {
   return prisma.practiceInsuranceRuleSet.findMany({
     include: {
       location: {
@@ -1136,6 +1142,7 @@ async function loadInsuranceRuleSetsForPractice(practiceId: string) {
     where: {
       practiceId,
       status: "ACTIVE",
+      ...locationScopeWhere,
     },
   });
 }
@@ -1245,31 +1252,20 @@ async function ensureDefaultInsuranceRuleSets(practiceId: string) {
 export async function getPortalInsuranceRuleState(
   selectedSlug?: string,
 ): Promise<PortalInsuranceRuleState | null> {
-  const session = await getAuthSession();
+  const context = await getCurrentPortalPracticeContext();
 
-  if (!session) {
+  if (!context) {
     return null;
   }
 
-  const membership = await prisma.practiceMembership.findFirst({
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    select: {
-      practiceId: true,
-    },
-    where: {
-      userId: session.user.id,
-    },
-  });
+  await ensureDefaultInsuranceRuleSets(context.practice.id);
 
-  if (!membership) {
-    return null;
-  }
-
-  await ensureDefaultInsuranceRuleSets(membership.practiceId);
-
-  const ruleSets = (await loadInsuranceRuleSetsForPractice(membership.practiceId)).map(
-    summarizeRuleSet,
-  );
+  const ruleSets = (
+    await loadInsuranceRuleSetsForPractice(
+      context.practice.id,
+      buildPortalLocationScopeWhere(context),
+    )
+  ).map(summarizeRuleSet);
   const selectedRuleSet =
     ruleSets.find((ruleSet) => ruleSet.slug === selectedSlug) ?? ruleSets[0] ?? null;
 
@@ -1286,9 +1282,9 @@ export async function submitInsuranceRuleDraftForReview({
   ruleSetId: string;
   rulesJson: string;
 }) {
-  const session = await getAuthSession();
+  const context = await getCurrentPortalPracticeContext();
 
-  if (!session) {
+  if (!context) {
     return null;
   }
 
@@ -1311,14 +1307,9 @@ export async function submitInsuranceRuleDraftForReview({
     },
     where: {
       id: ruleSetId,
-      practice: {
-        memberships: {
-          some: {
-            userId: session.user.id,
-          },
-        },
-      },
+      practiceId: context.practice.id,
       status: "ACTIVE",
+      ...buildPortalLocationScopeWhere(context),
     },
   });
 
@@ -1382,7 +1373,7 @@ export async function submitInsuranceRuleDraftForReview({
 
     const revision = await tx.practiceInsuranceRuleRevision.create({
       data: {
-        editedByUserId: session.user.id,
+        editedByUserId: context.session.user.id,
         ruleSetId: ruleSet.id,
         rules: jsonInput(parsed.rules),
         source: "PRACTICE",
