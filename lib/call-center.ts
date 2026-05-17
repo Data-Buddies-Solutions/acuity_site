@@ -56,6 +56,7 @@ const ABITA_PRACTICE_NAME = "Abita Eye Group";
 const ABITA_SOUTH_FLORIDA_CALL_CENTER_EMAIL = "callcenter@abitaeye.com";
 const ABITA_SOUTH_FLORIDA_LOCATION_NAMES = new Set(["hollywood", "sweetwater"]);
 const ABITA_SOUTH_FLORIDA_QUEUE_KEY = "abita-south-florida";
+const ABITA_SOUTH_FLORIDA_TRANSFER_PHONE = "+16184220360";
 const ABITA_SWEETWATER_OPTICAL_EMAIL = "sweetwateropticals@abitaeye.com";
 const ABITA_SWEETWATER_OPTICAL_PHONE = "+17864657479";
 const ABITA_SWEETWATER_OPTICAL_QUEUE_KEY = "abita-sweetwater-optical";
@@ -794,6 +795,10 @@ function opticalPhoneVariants() {
   return phoneLookupVariants(ABITA_SWEETWATER_OPTICAL_PHONE);
 }
 
+function southFloridaTransferPhoneVariants() {
+  return phoneLookupVariants(ABITA_SOUTH_FLORIDA_TRANSFER_PHONE);
+}
+
 function getAbitaSouthFloridaCallCenterLocation(practice: {
   locations: Array<{ id: string; name: string }>;
   phoneNumbers: Array<{
@@ -947,14 +952,23 @@ function queueScopeForSpecialAbitaProfile(
 
   if (isAbitaSouthFloridaCallCenterContext(context)) {
     return {
-      NOT: {
-        toPhone: {
-          in: opticalVariants,
+      OR: [
+        {
+          toPhone: {
+            in: southFloridaTransferPhoneVariants(),
+          },
         },
-      },
-      locationId: {
-        in: getAbitaSouthFloridaLocationIds(context.practice),
-      },
+        {
+          NOT: {
+            toPhone: {
+              in: opticalVariants,
+            },
+          },
+          locationId: {
+            in: getAbitaSouthFloridaLocationIds(context.practice),
+          },
+        },
+      ],
     };
   }
 
@@ -978,18 +992,31 @@ function activityScopeForSpecialAbitaProfile(context: PortalPracticeAccessContex
 
   if (isAbitaSouthFloridaCallCenterContext(context)) {
     return {
-      NOT: {
-        session: {
-          is: {
-            toPhone: {
-              in: opticalVariants,
+      OR: [
+        {
+          session: {
+            is: {
+              toPhone: {
+                in: southFloridaTransferPhoneVariants(),
+              },
             },
           },
         },
-      },
-      locationId: {
-        in: getAbitaSouthFloridaLocationIds(context.practice),
-      },
+        {
+          NOT: {
+            session: {
+              is: {
+                toPhone: {
+                  in: opticalVariants,
+                },
+              },
+            },
+          },
+          locationId: {
+            in: getAbitaSouthFloridaLocationIds(context.practice),
+          },
+        },
+      ],
     };
   }
 
@@ -1032,14 +1059,23 @@ export function buildCallCenterSessionScopeWhere(
 
   if (isAbitaSouthFloridaCallCenterContext(context)) {
     return {
-      NOT: {
-        toPhone: {
-          in: opticalVariants,
+      OR: [
+        {
+          toPhone: {
+            in: southFloridaTransferPhoneVariants(),
+          },
         },
-      },
-      locationId: {
-        in: getAbitaSouthFloridaLocationIds(context.practice),
-      },
+        {
+          NOT: {
+            toPhone: {
+              in: opticalVariants,
+            },
+          },
+          locationId: {
+            in: getAbitaSouthFloridaLocationIds(context.practice),
+          },
+        },
+      ],
     };
   }
 
@@ -2499,7 +2535,12 @@ function getAbitaQueueKeyForQueueItem({
     return ABITA_SWEETWATER_OPTICAL_QUEUE_KEY;
   }
 
-  if (getAbitaSouthFloridaLocationIds(practice).includes(queueItem.locationId)) {
+  if (
+    phoneLookupVariants(queueItem.toPhone).some((variant) =>
+      southFloridaTransferPhoneVariants().includes(variant),
+    ) ||
+    getAbitaSouthFloridaLocationIds(practice).includes(queueItem.locationId)
+  ) {
     return ABITA_SOUTH_FLORIDA_QUEUE_KEY;
   }
 

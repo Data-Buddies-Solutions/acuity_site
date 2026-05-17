@@ -27,14 +27,15 @@ const SWEETWATER_OPTICAL_LOCATION_ALIASES = new Set([
   "7864657479",
 ]);
 const SOUTH_FLORIDA_SEATS = [
-  { extension: "201", label: "South Florida Station 1" },
-  { extension: "202", label: "South Florida Station 2" },
-  { extension: "203", label: "South Florida Station 3" },
-  { extension: "204", label: "South Florida Station 4" },
+  { extension: "201", label: "Seat 1" },
+  { extension: "202", label: "Seat 2" },
+  { extension: "203", label: "Seat 3" },
+  { extension: "204", label: "Seat 4" },
 ];
-const SWEETWATER_OPTICAL_SEATS = [{ extension: "301", label: "Sweetwater Optical" }];
+const SWEETWATER_OPTICAL_SEATS = [{ extension: "301", label: "Seat 1" }];
 const SOUTH_FLORIDA_QUEUE_KEY = "abita-south-florida";
 const SWEETWATER_OPTICAL_QUEUE_KEY = "abita-sweetwater-optical";
+const DEFAULT_CREDENTIAL_CONNECTION_NAME = "Call Center WebRTC";
 
 if (!email || !locationName) {
   console.error(
@@ -51,6 +52,46 @@ if (!process.env.DATABASE_URL) {
 if (!process.env.TELNYX_API_KEY) {
   console.error("TELNYX_API_KEY is required.");
   process.exit(1);
+}
+
+async function fetchCredentialConnections() {
+  const response = await fetch("https://api.telnyx.com/v2/credential_connections", {
+    headers: {
+      Authorization: `Bearer ${process.env.TELNYX_API_KEY}`,
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Failed to list Telnyx credential connections: ${response.status} ${body}`,
+    );
+  }
+
+  const body = await response.json();
+  return Array.isArray(body?.data) ? body.data : [];
+}
+
+async function resolveCredentialConnectionId() {
+  const envConnectionId = process.env.TELNYX_CREDENTIAL_CONNECTION_ID?.trim();
+
+  if (envConnectionId) {
+    return envConnectionId;
+  }
+
+  const connections = await fetchCredentialConnections();
+  const configuredName =
+    process.env.TELNYX_CREDENTIAL_CONNECTION_NAME?.trim() ||
+    DEFAULT_CREDENTIAL_CONNECTION_NAME;
+  const connection = connections.find((item) => item?.connection_name === configuredName);
+
+  if (!connection?.id) {
+    throw new Error(
+      `No Telnyx credential connection found named ${configuredName}. Set TELNYX_CREDENTIAL_CONNECTION_ID to override.`,
+    );
+  }
+
+  return connection.id;
 }
 
 async function createTelnyxCredential({ connectionId, name }) {
@@ -163,6 +204,7 @@ try {
   }
 
   const configuredSeats = [];
+  const credentialConnectionId = await resolveCredentialConnectionId();
 
   const seatDefaults = useSharedSouthFloridaQueue
     ? SOUTH_FLORIDA_SEATS
@@ -205,7 +247,7 @@ try {
 
     if (!credentialId || !sipUsername) {
       const credential = await createTelnyxCredential({
-        connectionId,
+        connectionId: credentialConnectionId,
         name: `${practice.name} ${location.name} ${seat.label}`,
       });
       credentialId = credential.id;
