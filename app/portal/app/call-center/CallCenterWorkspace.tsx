@@ -237,17 +237,24 @@ export default function CallCenterWorkspace({
       scheduleHandle = setTimeout(playCycle, 2400);
     };
 
-    if (ctx.state === "suspended") {
+    const start = () => {
       ctx
         .resume()
         .then(playCycle)
         .catch(() => {});
+    };
+
+    if (ctx.state === "suspended") {
+      window.addEventListener("pointerdown", start, { once: true });
+      window.addEventListener("keydown", start, { once: true });
     } else {
       playCycle();
     }
 
     return () => {
       cancelled = true;
+      window.removeEventListener("pointerdown", start);
+      window.removeEventListener("keydown", start);
       if (scheduleHandle) clearTimeout(scheduleHandle);
       ctx.close().catch(() => {});
     };

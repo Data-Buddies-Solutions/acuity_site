@@ -36,7 +36,7 @@ const MISSED_CAUSES = new Set([
   "user_busy",
 ]);
 const PRESENCE_EXPIRATION_MS = 45_000;
-const AGENT_RING_TIMEOUT_SEC = 6;
+const AGENT_RING_TIMEOUT_SEC = 10;
 const RETRYABLE_RING_ATTEMPT_STATUSES = new Set<CallCenterRingAttemptStatus>([
   "CANCELED",
   "FAILED",
@@ -2333,7 +2333,10 @@ export async function ringStationForQueuedCall({
     throw new TelnyxError("Queued call is not available", 404);
   }
 
-  if (!canAccessPortalLocation(context, queueItem.locationId)) {
+  if (
+    !isSpecialAbitaCallCenterContext(context) &&
+    !canAccessPortalLocation(context, queueItem.locationId)
+  ) {
     throw new TelnyxError("Queued call is not available", 404);
   }
 
@@ -2409,15 +2412,24 @@ export async function ringStationForQueuedCall({
 
   const previousStatus = queueItem.status;
 
-  await prisma.callCenterQueueItem.update({
+  const claimedForStation = await prisma.callCenterQueueItem.updateMany({
     data: {
       assignedAt: new Date(),
       status: "ASSIGNED",
     },
     where: {
+      endedAt: null,
       id: queueItem.id,
+      status: {
+        in: ["RINGING", "WAITING", "ASSIGNED"],
+      },
+      voicemailStartedAt: null,
     },
   });
+
+  if (claimedForStation.count === 0) {
+    throw new TelnyxError("Queued call is no longer available", 409);
+  }
 
   let dialedAttemptCount = 0;
 
@@ -2512,152 +2524,6 @@ async function stopCallerRingback(callControlId: string) {
   await stopTelnyxPlayback(callControlId).catch(() => null);
 }
 
-function getAbitaQueueKeyForQueueItem({
-  practice,
-  queueItem,
-}: {
-  practice: {
-    locations: Array<{ id: string; name: string }>;
-    name: string;
-  };
-  queueItem: {
-    locationId: string | null;
-    toPhone: string | null;
-  };
-}) {
-  if (!isAbitaPractice(practice) || !queueItem.locationId) {
-    return null;
-  }
-
-  const toPhoneVariants = phoneLookupVariants(queueItem.toPhone);
-
-  if (toPhoneVariants.some((variant) => opticalPhoneVariants().includes(variant))) {
-    return ABITA_SWEETWATER_OPTICAL_QUEUE_KEY;
-  }
-
-  if (
-    phoneLookupVariants(queueItem.toPhone).some((variant) =>
-      southFloridaTransferPhoneVariants().includes(variant),
-    ) ||
-    getAbitaSouthFloridaLocationIds(practice).includes(queueItem.locationId)
-  ) {
-    return ABITA_SOUTH_FLORIDA_QUEUE_KEY;
-  }
-
-  return null;
-}
-
-async function ringAbitaSpecialQueueSeats({
-  callerCallControlId,
-  queueItem,
-  settings,
-}: {
-  callerCallControlId: string;
-  queueItem: {
-    fromPhone: string | null;
-    id: string;
-    locationId: string | null;
-    practiceId: string;
-    toPhone: string | null;
-  };
-  settings: CallCenterVoicemailSettings;
-}) {
-  if (!queueItem.locationId || !callerCallControlId) {
-    return 0;
-  }
-
-  const practice = await prisma.practice.findUnique({
-    select: {
-      locations: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-      name: true,
-    },
-    where: {
-      id: queueItem.practiceId,
-    },
-  });
-
-  if (!practice) {
-    return 0;
-  }
-
-  const queueKey = getAbitaQueueKeyForQueueItem({
-    practice,
-    queueItem,
-  });
-
-  if (!queueKey) {
-    return 0;
-  }
-
-  const seats = await prisma.callCenterAgentSeat.findMany({
-    orderBy: [{ extension: "asc" }, { label: "asc" }],
-    select: {
-      extension: true,
-      id: true,
-      label: true,
-      locationId: true,
-      queueKey: true,
-      sipUsername: true,
-      telnyxCredentialId: true,
-    },
-    where: {
-      enabled: true,
-      practiceId: queueItem.practiceId,
-      queueKey,
-      sipUsername: {
-        not: null,
-      },
-      telnyxCredentialId: {
-        not: null,
-      },
-    },
-  });
-
-  if (!seats.length) {
-    return 0;
-  }
-
-  const runtimeSettings = resolveTelnyxRuntimeSettings({
-    inboundPhoneNumber: null,
-    outboundCallerNumber: settings.outboundCallerNumber ?? null,
-    telnyxConnectionId: settings.telnyxConnectionId ?? null,
-    telnyxCredentialId: settings.telnyxCredentialId ?? null,
-  });
-  const callerNumber = normalizePhone(queueItem.fromPhone);
-  const from =
-    callerNumber ||
-    normalizePhone(queueItem.toPhone) ||
-    normalizePhone(runtimeSettings.outboundCallerNumber);
-  const dialedCount = await ringAvailableSeatsForQueueItem({
-    availableSeats: seats,
-    callerCallControlId,
-    callerNumber,
-    connectionId: runtimeSettings.connectionId,
-    from: from || "",
-    queueItemId: queueItem.id,
-    timeoutSecs: AGENT_RING_TIMEOUT_SEC,
-  });
-
-  if (dialedCount > 0) {
-    await prisma.callCenterQueueItem.updateMany({
-      data: {
-        status: "RINGING",
-      },
-      where: {
-        id: queueItem.id,
-        status: "WAITING",
-      },
-    });
-  }
-
-  return dialedCount;
-}
-
 async function queueInboundCallForStaff({
   eventType,
   payload,
@@ -2738,19 +2604,6 @@ async function queueInboundCallForStaff({
   console.info("[call-center] queued inbound caller for manual staff take", {
     queueItemId: queueItem.id,
   });
-
-  const dialedSeatCount = await ringAbitaSpecialQueueSeats({
-    callerCallControlId,
-    queueItem,
-    settings,
-  });
-
-  if (dialedSeatCount > 0) {
-    console.info("[call-center] ringing Abita special queue seats", {
-      dialedSeatCount,
-      queueItemId: queueItem.id,
-    });
-  }
 
   return queueItem;
 }
@@ -2947,10 +2800,20 @@ async function startQueueVoicemail({
       voicemailStartedAt: new Date(),
     },
     where: {
+      answeredAt: null,
+      endedAt: null,
       id: queueItemId,
+      ringAttempts: {
+        none: {
+          status: {
+            in: LIVE_RING_ATTEMPT_STATUSES,
+          },
+        },
+      },
       status: {
         in: ["WAITING", "RINGING", "ASSIGNED"],
       },
+      voicemailStartedAt: null,
     },
   });
 
