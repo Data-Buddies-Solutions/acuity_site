@@ -1382,10 +1382,13 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
 
   activity.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
+  const inboundEnabled = seats.length > 0 || isSpecialAbitaCallCenterContext(context);
+
   return {
     activity: activity.slice(0, 60),
     branding: getPracticeBranding(practice),
     hasAllLocationAccess: context.hasAllLocationAccess,
+    inboundEnabled,
     locations,
     missedCalls,
     outboundCallerNumbers,
