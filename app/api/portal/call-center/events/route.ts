@@ -111,7 +111,11 @@ export async function GET(request: Request) {
   const locationParam = url.searchParams.get("locationId");
   const locationId =
     locationParam === NULL_LOCATION ? null : locationParam?.trim() || undefined;
-  if (locationId !== undefined && !canAccessPortalLocation(context, locationId)) {
+  if (
+    locationId !== undefined &&
+    !isSpecialAbitaCallCenterContext(context) &&
+    !canAccessPortalLocation(context, locationId)
+  ) {
     return NextResponse.json({ error: "Location not found" }, { status: 404 });
   }
 
