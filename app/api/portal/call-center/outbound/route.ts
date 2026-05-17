@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  getAllowedCallCenterOutboundPhoneNumbers,
   getCurrentPracticeCallCenterContext,
   normalizePhone,
   phoneLookupVariants,
@@ -59,7 +60,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "destination is required" }, { status: 400 });
   }
 
-  if (!from || !isPracticeNumber(from, context.allowedPhoneNumbers)) {
+  const allowedOutboundPhoneNumbers = getAllowedCallCenterOutboundPhoneNumbers(context);
+
+  if (!from || !isPracticeNumber(from, allowedOutboundPhoneNumbers)) {
     return NextResponse.json(
       { error: "fromPhone must be a practice-owned number" },
       { status: 422 },

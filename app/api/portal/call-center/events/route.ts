@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentPracticeCallCenterContext } from "@/lib/call-center";
 import {
-  buildPortalLocationScopeWhere,
-  canAccessPortalLocation,
-} from "@/lib/portal-access";
+  buildCallCenterActivityScopeWhere,
+  buildCallCenterQueueScopeWhere,
+  getCurrentPracticeCallCenterContext,
+  isSpecialAbitaCallCenterContext,
+} from "@/lib/call-center";
+import { canAccessPortalLocation } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -26,15 +28,14 @@ function encodeEvent(event: string, data: unknown) {
 }
 
 async function getCallCenterStateVersion({
-  locationId,
-  locationScopeWhere,
+  activityScopeWhere,
   practiceId,
+  queueScopeWhere,
 }: {
-  locationId?: string | null;
-  locationScopeWhere: ReturnType<typeof buildPortalLocationScopeWhere>;
+  activityScopeWhere: ReturnType<typeof buildCallCenterActivityScopeWhere>;
   practiceId: string;
+  queueScopeWhere: ReturnType<typeof buildCallCenterQueueScopeWhere>;
 }) {
-  const locationFilter = locationId === undefined ? locationScopeWhere : { locationId };
   const [queue, missed, voicemail] = await Promise.all([
     prisma.callCenterQueueItem.aggregate({
       _count: {
@@ -48,7 +49,7 @@ async function getCallCenterStateVersion({
         status: {
           in: ["RINGING", "WAITING", "ASSIGNED", "ACTIVE", "VOICEMAIL"],
         },
-        ...locationFilter,
+        ...queueScopeWhere,
       },
     }),
     prisma.callCenterMissedCall.aggregate({
@@ -62,7 +63,7 @@ async function getCallCenterStateVersion({
         calledBack: false,
         practiceId,
         resolvedAt: null,
-        ...locationFilter,
+        ...activityScopeWhere,
       },
     }),
     prisma.callCenterVoicemail.aggregate({
@@ -75,7 +76,7 @@ async function getCallCenterStateVersion({
       where: {
         practiceId,
         resolvedAt: null,
-        ...locationFilter,
+        ...activityScopeWhere,
       },
     }),
   ]);
@@ -114,11 +115,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Location not found" }, { status: 404 });
   }
 
-  const locationScopeWhere = buildPortalLocationScopeWhere(context);
+  const explicitLocationScope =
+    locationId === undefined || isSpecialAbitaCallCenterContext(context)
+      ? null
+      : { locationId };
+  const queueScopeWhere =
+    explicitLocationScope ?? buildCallCenterQueueScopeWhere(context);
+  const activityScopeWhere =
+    explicitLocationScope ?? buildCallCenterActivityScopeWhere(context);
   let lastVersion = await getCallCenterStateVersion({
-    locationId,
-    locationScopeWhere,
+    activityScopeWhere,
     practiceId: context.practice.id,
+    queueScopeWhere,
   });
 
   let closeStream: (() => void) | null = null;
@@ -171,9 +179,9 @@ export async function GET(request: Request) {
 
         try {
           const nextVersion = await getCallCenterStateVersion({
-            locationId,
-            locationScopeWhere,
+            activityScopeWhere,
             practiceId: context.practice.id,
+            queueScopeWhere,
           });
 
           if (nextVersion !== lastVersion) {

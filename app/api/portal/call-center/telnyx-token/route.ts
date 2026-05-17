@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
 import {
+  buildCallCenterSeatAccessWhere,
+  getAllowedCallCenterOutboundPhoneNumbers,
   getCurrentPracticeCallCenterContext,
   getPresenceExpirationCutoff,
   resolveTelnyxRuntimeSettings,
 } from "@/lib/call-center";
-import { buildPortalLocationScopeWhere } from "@/lib/portal-access";
 import { createTelnyxLoginToken, TelnyxError } from "@/lib/telnyx";
 import { prisma } from "@/lib/prisma";
 
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
         where: {
           enabled: true,
           id: seatId,
-          ...buildPortalLocationScopeWhere(context),
+          ...buildCallCenterSeatAccessWhere(context),
           practiceId: context.practice.id,
         },
       })
@@ -92,19 +93,22 @@ export async function GET(request: Request) {
   }
 
   const credentialId = seat?.telnyxCredentialId || runtimeSettings.credentialId;
+  const callerNumber =
+    getAllowedCallCenterOutboundPhoneNumbers(context)[0]?.phoneNumber ||
+    runtimeSettings.outboundCallerNumber;
   const sipUsername = env("TELNYX_SIP_USERNAME");
   const sipPassword = env("TELNYX_SIP_PASSWORD");
 
-  if (!seat && !context.hasAllLocationAccess) {
+  if (!seat && !runtimeSettings.credentialId) {
     return NextResponse.json(
       { error: "Select an assigned call center station" },
-      { status: 403 },
+      { status: 422 },
     );
   }
 
   if (!seat && sipUsername && sipPassword) {
     return NextResponse.json({
-      callerNumber: runtimeSettings.outboundCallerNumber,
+      callerNumber,
       login: sipUsername,
       password: sipPassword,
     });
@@ -121,7 +125,7 @@ export async function GET(request: Request) {
     const token = await createTelnyxLoginToken(credentialId);
 
     return NextResponse.json({
-      callerNumber: runtimeSettings.outboundCallerNumber,
+      callerNumber,
       stationLabel: seat?.label ?? null,
       token,
     });

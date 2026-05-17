@@ -53,7 +53,7 @@ export default async function PortalCallCenterPage({
     : selectedLocation?.outboundNumber || "";
   const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 8);
   const hasSeatCredential = data.seats.some((seat) => seat.hasCredential);
-  const needsSeatCredential = !data.hasAllLocationAccess || data.seats.length > 0;
+  const needsSeatCredential = data.seats.length > 0;
   const configured = Boolean(
     enabled &&
     runtimeSettings?.connectionId &&
@@ -91,8 +91,10 @@ export default async function PortalCallCenterPage({
         configured={configured}
         configurationMessage={configurationMessage}
         enabled={enabled}
-        eventLocationId={selectedLocation?.locationId ?? null}
+        eventLocationId={selectedLocation?.locationId}
+        inboundEnabled={data.seats.length > 0}
         outboundCallerNumber={outboundCallerNumber}
+        outboundCallerNumbers={data.outboundCallerNumbers}
         queue={data.queue}
         seats={data.seats}
         totals={data.totals}
