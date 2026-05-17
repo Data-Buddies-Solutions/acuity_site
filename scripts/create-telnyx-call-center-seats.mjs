@@ -13,6 +13,28 @@ const DEFAULT_SEATS = [
   { extension: "103", label: "Debbie" },
   { extension: "104", label: "Front Desk" },
 ];
+const SOUTH_FLORIDA_LOCATION_ALIASES = new Set([
+  "hollywood / sweetwater",
+  "hollywood/sweetwater",
+  "south florida",
+  "south-florida",
+]);
+const SWEETWATER_OPTICAL_LOCATION_ALIASES = new Set([
+  "sweetwater optical",
+  "sweetwater opticals",
+  "sweetwateropticals",
+  "786-465-7479",
+  "7864657479",
+]);
+const SOUTH_FLORIDA_SEATS = [
+  { extension: "201", label: "South Florida Station 1" },
+  { extension: "202", label: "South Florida Station 2" },
+  { extension: "203", label: "South Florida Station 3" },
+  { extension: "204", label: "South Florida Station 4" },
+];
+const SWEETWATER_OPTICAL_SEATS = [{ extension: "301", label: "Sweetwater Optical" }];
+const SOUTH_FLORIDA_QUEUE_KEY = "abita-south-florida";
+const SWEETWATER_OPTICAL_QUEUE_KEY = "abita-sweetwater-optical";
 
 if (!email || !locationName) {
   console.error(
@@ -91,15 +113,30 @@ try {
     process.exit(1);
   }
 
-  const locationResult = await pool.query(
-    `
-      SELECT id, name
-      FROM practice_location
-      WHERE "practiceId" = $1 AND LOWER(name) = LOWER($2)
-      LIMIT 1
-    `,
-    [practice.id, locationName],
-  );
+  const useSharedSouthFloridaQueue =
+    practice.name === "Abita Eye Group" &&
+    SOUTH_FLORIDA_LOCATION_ALIASES.has(locationName.trim().toLowerCase());
+  const useSweetwaterOpticalQueue =
+    practice.name === "Abita Eye Group" &&
+    SWEETWATER_OPTICAL_LOCATION_ALIASES.has(locationName.trim().toLowerCase());
+  const queueKey = useSharedSouthFloridaQueue
+    ? SOUTH_FLORIDA_QUEUE_KEY
+    : useSweetwaterOpticalQueue
+      ? SWEETWATER_OPTICAL_QUEUE_KEY
+      : null;
+  const locationResult = useSharedSouthFloridaQueue
+    ? { rows: [{ id: null, name: "Hollywood / Sweetwater" }] }
+    : useSweetwaterOpticalQueue
+      ? { rows: [{ id: null, name: "Sweetwater Optical" }] }
+      : await pool.query(
+          `
+          SELECT id, name
+          FROM practice_location
+          WHERE "practiceId" = $1 AND LOWER(name) = LOWER($2)
+          LIMIT 1
+        `,
+          [practice.id, locationName],
+        );
   const location = locationResult.rows[0];
 
   if (!location) {
@@ -127,16 +164,42 @@ try {
 
   const configuredSeats = [];
 
-  for (const seat of DEFAULT_SEATS) {
-    const existing = await pool.query(
-      `
-        SELECT id, "telnyxCredentialId", "sipUsername"
-        FROM call_center_agent_seat
-        WHERE "practiceId" = $1 AND "locationId" = $2 AND extension = $3
-        LIMIT 1
-      `,
-      [practice.id, location.id, seat.extension],
-    );
+  const seatDefaults = useSharedSouthFloridaQueue
+    ? SOUTH_FLORIDA_SEATS
+    : useSweetwaterOpticalQueue
+      ? SWEETWATER_OPTICAL_SEATS
+      : DEFAULT_SEATS;
+
+  for (const seat of seatDefaults) {
+    const existing = queueKey
+      ? await pool.query(
+          `
+            SELECT id, "telnyxCredentialId", "sipUsername"
+            FROM call_center_agent_seat
+            WHERE "practiceId" = $1 AND "queueKey" = $2 AND extension = $3
+            LIMIT 1
+          `,
+          [practice.id, queueKey, seat.extension],
+        )
+      : location.id
+        ? await pool.query(
+            `
+            SELECT id, "telnyxCredentialId", "sipUsername"
+            FROM call_center_agent_seat
+            WHERE "practiceId" = $1 AND "locationId" = $2 AND extension = $3
+            LIMIT 1
+          `,
+            [practice.id, location.id, seat.extension],
+          )
+        : await pool.query(
+            `
+            SELECT id, "telnyxCredentialId", "sipUsername"
+            FROM call_center_agent_seat
+            WHERE "practiceId" = $1 AND "locationId" IS NULL AND extension = $2
+            LIMIT 1
+          `,
+            [practice.id, seat.extension],
+          );
     let credentialId = existing.rows[0]?.telnyxCredentialId || null;
     let sipUsername = existing.rows[0]?.sipUsername || null;
 
@@ -158,11 +221,12 @@ try {
               "telnyxCredentialId" = $3,
               "sipUsername" = $4,
               enabled = true,
+              "queueKey" = $5,
               "updatedAt" = NOW()
             WHERE id = $1
             RETURNING id, label, extension, "telnyxCredentialId", "sipUsername", enabled
           `,
-          [existing.rows[0].id, seat.label, credentialId, sipUsername],
+          [existing.rows[0].id, seat.label, credentialId, sipUsername, queueKey],
         )
       : await pool.query(
           `
@@ -170,6 +234,7 @@ try {
               id,
               "practiceId",
               "locationId",
+              "queueKey",
               label,
               extension,
               "telnyxCredentialId",
@@ -178,13 +243,14 @@ try {
               "createdAt",
               "updatedAt"
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, NOW(), NOW())
             RETURNING id, label, extension, "telnyxCredentialId", "sipUsername", enabled
           `,
           [
             randomUUID(),
             practice.id,
             location.id,
+            queueKey,
             seat.label,
             seat.extension,
             credentialId,

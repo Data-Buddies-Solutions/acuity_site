@@ -660,6 +660,7 @@ model CallCenterAgentSeat {
   locationId         String?
   label              String
   extension          String?
+  queueKey           String?
   telnyxCredentialId String?
   sipUsername        String?
   enabled            Boolean                 @default(true)
@@ -674,6 +675,8 @@ model CallCenterAgentSeat {
   @@index([practiceId, locationId])
   @@index([practiceId, locationId, enabled])
   @@index([practiceId, locationId, extension])
+  @@index([practiceId, queueKey])
+  @@index([practiceId, queueKey, enabled])
   @@index([telnyxCredentialId])
   @@index([sipUsername])
   @@map("call_center_agent_seat")

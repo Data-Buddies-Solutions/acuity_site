@@ -10,6 +10,7 @@ import type {
   PortalCallActivityItem,
   PortalCallCenterSeat,
   PortalCallQueueItem,
+  PortalOutboundCallerNumber,
 } from "@/lib/call-center";
 
 import ActivityRail from "./ActivityRail";
@@ -33,7 +34,9 @@ export default function CallCenterWorkspace({
   configurationMessage,
   enabled,
   eventLocationId,
+  inboundEnabled,
   outboundCallerNumber,
+  outboundCallerNumbers,
   queue,
   seats,
   totals,
@@ -43,8 +46,10 @@ export default function CallCenterWorkspace({
   configured: boolean;
   configurationMessage: string;
   enabled: boolean;
-  eventLocationId: string | null;
+  eventLocationId?: string | null;
+  inboundEnabled: boolean;
   outboundCallerNumber: string;
+  outboundCallerNumbers: PortalOutboundCallerNumber[];
   queue: PortalCallQueueItem[];
   seats: PortalCallCenterSeat[];
   totals: { missedCalls: number; voicemails: number };
@@ -54,6 +59,8 @@ export default function CallCenterWorkspace({
   const [browserSessionId] = useState(getInitialBrowserSessionId);
   const [presenceStatus, setPresenceStatus] = useState<PresenceStatus>("AVAILABLE");
   const [seed, setSeed] = useState<{ value: string; token: number } | null>(null);
+  const [selectedOutboundCallerNumber, setSelectedOutboundCallerNumber] =
+    useState(outboundCallerNumber);
   const [selectedSeatId, setSelectedSeatId] = useState(() => seats[0]?.id ?? "");
   const [softphoneBusy, setSoftphoneBusy] = useState(false);
   const [softphoneEngaged, setSoftphoneEngaged] = useState(false);
@@ -64,6 +71,10 @@ export default function CallCenterWorkspace({
     [seats, selectedSeatId],
   );
   const effectivePresenceStatus: PresenceStatus = softphoneBusy ? "BUSY" : presenceStatus;
+
+  useEffect(() => {
+    setSelectedOutboundCallerNumber(outboundCallerNumber);
+  }, [outboundCallerNumber]);
 
   useEffect(() => {
     softphoneEngagedRef.current = softphoneEngaged;
@@ -104,10 +115,11 @@ export default function CallCenterWorkspace({
       return;
     }
 
-    const locationParam = eventLocationId ?? "__NULL__";
-    const source = new EventSource(
-      `/api/portal/call-center/events?locationId=${encodeURIComponent(locationParam)}`,
-    );
+    const query =
+      eventLocationId === undefined
+        ? ""
+        : `?locationId=${encodeURIComponent(eventLocationId ?? "__NULL__")}`;
+    const source = new EventSource(`/api/portal/call-center/events${query}`);
     const refresh = () => {
       if (!softphoneEngagedRef.current) {
         router.refresh();
@@ -244,13 +256,15 @@ export default function CallCenterWorkspace({
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <div className="space-y-4 lg:col-span-2">
-        <QueuePanel
-          canTake={Boolean(selectedSeat)}
-          isAvailable={effectivePresenceStatus === "AVAILABLE"}
-          onCallback={handleCallback}
-          onTake={handleTakeQueuedCall}
-          queue={queue}
-        />
+        {inboundEnabled ? (
+          <QueuePanel
+            canTake={Boolean(selectedSeat)}
+            isAvailable={effectivePresenceStatus === "AVAILABLE"}
+            onCallback={handleCallback}
+            onTake={handleTakeQueuedCall}
+            queue={queue}
+          />
+        ) : null}
         <ActivityRail activity={activity} onCallback={handleCallback} totals={totals} />
       </div>
       <div>
@@ -302,10 +316,31 @@ export default function CallCenterWorkspace({
                 </div>
               </section>
             ) : null}
+            {outboundCallerNumbers.length > 1 ? (
+              <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
+                <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
+                  Outbound number
+                  <select
+                    className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377]"
+                    onChange={(event) =>
+                      setSelectedOutboundCallerNumber(event.target.value)
+                    }
+                    value={selectedOutboundCallerNumber}
+                  >
+                    {outboundCallerNumbers.map((number) => (
+                      <option key={number.phoneNumber} value={number.phoneNumber}>
+                        {number.label} - {formatQueuePhone(number.phoneNumber)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </section>
+            ) : null}
             <SoftphonePanel
               browserSessionId={browserSessionId}
-              callerNumber={outboundCallerNumber}
+              callerNumber={selectedOutboundCallerNumber || outboundCallerNumber}
               enabled={enabled}
+              inboundEnabled={inboundEnabled}
               onActivityChange={setSoftphoneEngaged}
               onBusyChange={setSoftphoneBusy}
               ref={softphoneRef}

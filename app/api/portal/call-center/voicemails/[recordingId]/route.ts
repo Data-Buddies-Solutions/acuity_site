@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  buildCallCenterActivityScopeWhere,
   fetchTelnyxRecordingMetadata,
   getCurrentPracticeCallCenterContext,
 } from "@/lib/call-center";
-import { buildPortalLocationScopeWhere } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ export async function GET(
     where: {
       practiceId: context.practice.id,
       recordingId,
-      ...buildPortalLocationScopeWhere(context),
+      ...buildCallCenterActivityScopeWhere(context),
     },
   });
 

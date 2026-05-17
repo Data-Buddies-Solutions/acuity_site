@@ -12,6 +12,7 @@ import {
   canAccessPortalLocation,
   filterPortalLocationsForAccess,
   getCurrentPortalPracticeContext,
+  type PortalPracticeAccessContext,
 } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding } from "@/lib/practice-branding";
@@ -51,6 +52,13 @@ const DEFAULT_QUEUE_WAIT_TIMEOUT_SEC = 10;
 const MAX_QUEUE_WAIT_TIMEOUT_SEC = 120;
 const RINGBACK_TONE_DURATION_SEC = 2;
 const RINGBACK_CYCLE_SEC = 6;
+const ABITA_PRACTICE_NAME = "Abita Eye Group";
+const ABITA_SOUTH_FLORIDA_CALL_CENTER_EMAIL = "callcenter@abitaeye.com";
+const ABITA_SOUTH_FLORIDA_LOCATION_NAMES = new Set(["hollywood", "sweetwater"]);
+const ABITA_SOUTH_FLORIDA_QUEUE_KEY = "abita-south-florida";
+const ABITA_SWEETWATER_OPTICAL_EMAIL = "sweetwateropticals@abitaeye.com";
+const ABITA_SWEETWATER_OPTICAL_PHONE = "+17864657479";
+const ABITA_SWEETWATER_OPTICAL_QUEUE_KEY = "abita-sweetwater-optical";
 
 const ringbackWavCache = new Map<number, string>();
 const VOICEMAIL_BEEP_WAV_BASE64 = createVoicemailBeepWavBase64();
@@ -166,6 +174,9 @@ function createVoicemailBeepWavBase64() {
 
 type CallCenterVoicemailSettings = {
   recordingEnabled: boolean;
+  outboundCallerNumber?: string | null;
+  telnyxConnectionId?: string | null;
+  telnyxCredentialId?: string | null;
   voicemailGreeting: string;
   voicemailTimeoutSec: number;
 };
@@ -611,8 +622,14 @@ export type PortalCallActivityItem = {
 export type PortalCallCenterLocation = {
   id: string;
   label: string;
-  locationId: string | null;
+  locationId?: string | null;
+  locationIds?: string[];
   outboundNumber: string;
+};
+
+export type PortalOutboundCallerNumber = {
+  label: string;
+  phoneNumber: string;
 };
 
 export type PortalCallCenterSeat = {
@@ -621,6 +638,7 @@ export type PortalCallCenterSeat = {
   id: string;
   label: string;
   locationId: string | null;
+  queueKey: string | null;
   sipUsername: string | null;
 };
 
@@ -641,7 +659,9 @@ export type PortalCallQueueItem = {
 export type AvailableCallCenterSeat = {
   extension: string | null;
   id: string;
+  locationId?: string | null;
   label: string;
+  queueKey?: string | null;
   sipUsername: string | null;
   telnyxCredentialId: string | null;
 };
@@ -716,6 +736,387 @@ function getPortalCallCenterLocations(
   return locations;
 }
 
+function isAbitaSouthFloridaLocationName(name: string) {
+  return ABITA_SOUTH_FLORIDA_LOCATION_NAMES.has(name.trim().toLowerCase());
+}
+
+function isAbitaPractice(practice: { name: string }) {
+  return practice.name.trim().toLowerCase() === ABITA_PRACTICE_NAME.toLowerCase();
+}
+
+export function isAbitaSouthFloridaCallCenterContext(
+  context: Pick<PortalPracticeAccessContext, "practice" | "session">,
+) {
+  return Boolean(
+    context &&
+    isAbitaPractice(context.practice) &&
+    context.session.user.email?.trim().toLowerCase() ===
+      ABITA_SOUTH_FLORIDA_CALL_CENTER_EMAIL,
+  );
+}
+
+export function isAbitaSweetwaterOpticalCallCenterContext(
+  context: Pick<PortalPracticeAccessContext, "practice" | "session">,
+) {
+  return Boolean(
+    context &&
+    isAbitaPractice(context.practice) &&
+    context.session.user.email?.trim().toLowerCase() === ABITA_SWEETWATER_OPTICAL_EMAIL,
+  );
+}
+
+export function isSpecialAbitaCallCenterContext(
+  context: Pick<PortalPracticeAccessContext, "practice" | "session">,
+) {
+  return (
+    isAbitaSouthFloridaCallCenterContext(context) ||
+    isAbitaSweetwaterOpticalCallCenterContext(context)
+  );
+}
+
+function getAbitaSouthFloridaLocationIds(practice: {
+  locations: Array<{ id: string; name: string }>;
+}) {
+  return practice.locations
+    .filter((location) => isAbitaSouthFloridaLocationName(location.name))
+    .map((location) => location.id);
+}
+
+function getAbitaSweetwaterLocationIds(practice: {
+  locations: Array<{ id: string; name: string }>;
+}) {
+  return practice.locations
+    .filter((location) => location.name.trim().toLowerCase() === "sweetwater")
+    .map((location) => location.id);
+}
+
+function opticalPhoneVariants() {
+  return phoneLookupVariants(ABITA_SWEETWATER_OPTICAL_PHONE);
+}
+
+function getAbitaSouthFloridaCallCenterLocation(practice: {
+  locations: Array<{ id: string; name: string }>;
+  phoneNumbers: Array<{
+    isPrimary: boolean;
+    locationId: string | null;
+    phoneNumber: string;
+  }>;
+}): PortalCallCenterLocation | null {
+  const locationIds = getAbitaSouthFloridaLocationIds(practice);
+
+  if (!locationIds.length) {
+    return null;
+  }
+
+  const hollywood = practice.locations.find(
+    (location) => location.name.trim().toLowerCase() === "hollywood",
+  );
+  const outboundNumber =
+    practice.phoneNumbers.find(
+      (phone) => phone.locationId === hollywood?.id && phone.isPrimary,
+    )?.phoneNumber ??
+    practice.phoneNumbers.find(
+      (phone) => phone.locationId && locationIds.includes(phone.locationId),
+    )?.phoneNumber ??
+    "";
+
+  return {
+    id: "abita-south-florida",
+    label: "Hollywood / Sweetwater",
+    locationIds,
+    outboundNumber,
+  };
+}
+
+function getAbitaSweetwaterOpticalCallCenterLocation(practice: {
+  locations: Array<{ id: string; name: string }>;
+}): PortalCallCenterLocation | null {
+  const locationIds = getAbitaSweetwaterLocationIds(practice);
+
+  if (!locationIds.length) {
+    return null;
+  }
+
+  return {
+    id: "abita-sweetwater-optical",
+    label: "Sweetwater Optical",
+    locationIds,
+    outboundNumber: ABITA_SWEETWATER_OPTICAL_PHONE,
+  };
+}
+
+function getOutboundCallerNumbers({
+  fallbackNumber,
+  phoneNumbers,
+  selectedLocation,
+  visibleLocations,
+}: {
+  fallbackNumber: string;
+  phoneNumbers: Array<{
+    isPrimary: boolean;
+    label: string | null;
+    locationId: string | null;
+    phoneNumber: string;
+  }>;
+  selectedLocation: PortalCallCenterLocation | null;
+  visibleLocations: Array<{ id: string; name: string }>;
+}): PortalOutboundCallerNumber[] {
+  if (selectedLocation?.id === "abita-sweetwater-optical") {
+    return [
+      {
+        label: "Sweetwater Optical",
+        phoneNumber: ABITA_SWEETWATER_OPTICAL_PHONE,
+      },
+    ];
+  }
+
+  const locationIds = selectedLocation?.locationIds?.length
+    ? selectedLocation.locationIds
+    : selectedLocation?.locationId
+      ? [selectedLocation.locationId]
+      : [];
+  const locationNameById = new Map(
+    visibleLocations.map((location) => [location.id, location.name]),
+  );
+  const sortedNumbers = locationIds.length
+    ? locationIds.flatMap((locationId) => {
+        const numbers = phoneNumbers.filter((phone) => phone.locationId === locationId);
+        const primary = numbers.find((phone) => phone.isPrimary) ?? numbers[0] ?? null;
+
+        return primary ? [primary] : [];
+      })
+    : [...phoneNumbers].sort((a, b) => {
+        if (a.isPrimary !== b.isPrimary) {
+          return a.isPrimary ? -1 : 1;
+        }
+
+        return (a.label || a.phoneNumber).localeCompare(b.label || b.phoneNumber);
+      });
+  const seen = new Set<string>();
+  const choices: PortalOutboundCallerNumber[] = [];
+
+  for (const phone of sortedNumbers) {
+    if (seen.has(phone.phoneNumber)) {
+      continue;
+    }
+
+    seen.add(phone.phoneNumber);
+    choices.push({
+      label:
+        (phone.locationId ? locationNameById.get(phone.locationId) : null) ||
+        phone.label ||
+        phone.phoneNumber,
+      phoneNumber: phone.phoneNumber,
+    });
+  }
+
+  if (!choices.length && fallbackNumber) {
+    choices.push({
+      label: "Practice",
+      phoneNumber: fallbackNumber,
+    });
+  }
+
+  return choices;
+}
+
+function getCallCenterSeatQueueKeyForContext(context: PortalPracticeAccessContext) {
+  if (isAbitaSouthFloridaCallCenterContext(context)) {
+    return ABITA_SOUTH_FLORIDA_QUEUE_KEY;
+  }
+
+  if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
+    return ABITA_SWEETWATER_OPTICAL_QUEUE_KEY;
+  }
+
+  return null;
+}
+
+function queueScopeForSpecialAbitaProfile(
+  context: PortalPracticeAccessContext,
+): Prisma.CallCenterQueueItemWhereInput | null {
+  const opticalVariants = opticalPhoneVariants();
+
+  if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
+    return {
+      toPhone: {
+        in: opticalVariants,
+      },
+    };
+  }
+
+  if (isAbitaSouthFloridaCallCenterContext(context)) {
+    return {
+      NOT: {
+        toPhone: {
+          in: opticalVariants,
+        },
+      },
+      locationId: {
+        in: getAbitaSouthFloridaLocationIds(context.practice),
+      },
+    };
+  }
+
+  return null;
+}
+
+function activityScopeForSpecialAbitaProfile(context: PortalPracticeAccessContext) {
+  const opticalVariants = opticalPhoneVariants();
+
+  if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
+    return {
+      session: {
+        is: {
+          toPhone: {
+            in: opticalVariants,
+          },
+        },
+      },
+    };
+  }
+
+  if (isAbitaSouthFloridaCallCenterContext(context)) {
+    return {
+      NOT: {
+        session: {
+          is: {
+            toPhone: {
+              in: opticalVariants,
+            },
+          },
+        },
+      },
+      locationId: {
+        in: getAbitaSouthFloridaLocationIds(context.practice),
+      },
+    };
+  }
+
+  return null;
+}
+
+export function buildCallCenterQueueScopeWhere(
+  context: PortalPracticeAccessContext,
+  selectedLocation?: PortalCallCenterLocation | null,
+) {
+  return (
+    queueScopeForSpecialAbitaProfile(context) ??
+    callCenterLocationWhere(selectedLocation ?? null, context)
+  );
+}
+
+export function buildCallCenterActivityScopeWhere(
+  context: PortalPracticeAccessContext,
+  selectedLocation?: PortalCallCenterLocation | null,
+) {
+  return (
+    activityScopeForSpecialAbitaProfile(context) ??
+    callCenterLocationWhere(selectedLocation ?? null, context)
+  );
+}
+
+export function buildCallCenterSessionScopeWhere(
+  context: PortalPracticeAccessContext,
+  selectedLocation?: PortalCallCenterLocation | null,
+) {
+  const opticalVariants = opticalPhoneVariants();
+
+  if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
+    return {
+      toPhone: {
+        in: opticalVariants,
+      },
+    };
+  }
+
+  if (isAbitaSouthFloridaCallCenterContext(context)) {
+    return {
+      NOT: {
+        toPhone: {
+          in: opticalVariants,
+        },
+      },
+      locationId: {
+        in: getAbitaSouthFloridaLocationIds(context.practice),
+      },
+    };
+  }
+
+  return callCenterLocationWhere(selectedLocation ?? null, context);
+}
+
+export function getAllowedCallCenterOutboundPhoneNumbers(
+  context: PortalPracticeAccessContext,
+) {
+  if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
+    return [{ phoneNumber: ABITA_SWEETWATER_OPTICAL_PHONE }];
+  }
+
+  if (isAbitaSouthFloridaCallCenterContext(context)) {
+    const locationIds = getAbitaSouthFloridaLocationIds(context.practice);
+
+    return locationIds
+      .flatMap((locationId) => {
+        const numbers = context.allowedPhoneNumbers.filter(
+          (phone) => phone.locationId === locationId,
+        );
+        const primary = numbers.find((phone) => phone.isPrimary) ?? numbers[0] ?? null;
+
+        return primary ? [{ phoneNumber: primary.phoneNumber }] : [];
+      })
+      .filter(
+        (phone) =>
+          !phoneLookupVariants(phone.phoneNumber).some((variant) =>
+            opticalPhoneVariants().includes(variant),
+          ),
+      );
+  }
+
+  return context.allowedPhoneNumbers;
+}
+
+function callCenterLocationWhere(
+  selectedLocation: PortalCallCenterLocation | null,
+  context: PortalPracticeAccessContext,
+) {
+  if (selectedLocation?.locationIds?.length) {
+    return {
+      locationId: {
+        in: selectedLocation.locationIds,
+      },
+    };
+  }
+
+  if (selectedLocation && "locationId" in selectedLocation) {
+    return { locationId: selectedLocation.locationId ?? null };
+  }
+
+  return buildPortalLocationScopeWhere(context);
+}
+
+export function buildCallCenterSeatAccessWhere(
+  context: PortalPracticeAccessContext | null,
+) {
+  if (!context || context.hasAllLocationAccess) {
+    return {};
+  }
+
+  if (isAbitaSouthFloridaCallCenterContext(context)) {
+    return {
+      queueKey: ABITA_SOUTH_FLORIDA_QUEUE_KEY,
+    };
+  }
+
+  if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
+    return {
+      queueKey: ABITA_SWEETWATER_OPTICAL_QUEUE_KEY,
+    };
+  }
+
+  return buildPortalLocationScopeWhere(context);
+}
+
 function getDefaultPortalCallCenterLocation(locations: PortalCallCenterLocation[]) {
   return (
     locations.find((location) => /spring\s*hill/i.test(location.label)) ??
@@ -734,29 +1135,60 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
   const { practice } = context;
   const visibleLocations = filterPortalLocationsForAccess(context, practice.locations);
   const visiblePhoneNumbers = context.allowedPhoneNumbers;
-  const locations = getPortalCallCenterLocations(
-    {
-      locations: visibleLocations,
-      phoneNumbers: visiblePhoneNumbers,
-    },
-    { allowFallback: context.hasAllLocationAccess },
-  );
+  const southFloridaCombinedLocation = isAbitaSouthFloridaCallCenterContext(context)
+    ? getAbitaSouthFloridaCallCenterLocation({
+        locations: visibleLocations,
+        phoneNumbers: visiblePhoneNumbers,
+      })
+    : null;
+  const sweetwaterOpticalLocation = isAbitaSweetwaterOpticalCallCenterContext(context)
+    ? getAbitaSweetwaterOpticalCallCenterLocation({
+        locations: visibleLocations,
+      })
+    : null;
+  const locations = southFloridaCombinedLocation
+    ? [southFloridaCombinedLocation]
+    : sweetwaterOpticalLocation
+      ? [sweetwaterOpticalLocation]
+      : getPortalCallCenterLocations(
+          {
+            locations: visibleLocations,
+            phoneNumbers: visiblePhoneNumbers,
+          },
+          { allowFallback: context.hasAllLocationAccess },
+        );
   const selectedLocation =
     locations.find((location) => location.id === options?.locationId) ??
     getDefaultPortalCallCenterLocation(locations);
-  const locationFilter = selectedLocation
-    ? { locationId: selectedLocation.locationId }
-    : buildPortalLocationScopeWhere(context);
+  const queueFilter = buildCallCenterQueueScopeWhere(context, selectedLocation);
+  const activityFilter = buildCallCenterActivityScopeWhere(context, selectedLocation);
+  const seatQueueKey = getCallCenterSeatQueueKeyForContext(context);
 
   const seatWhere = selectedLocation
-    ? {
-        locationId: selectedLocation.locationId,
-        practiceId: practice.id,
-      }
+    ? seatQueueKey
+      ? {
+          practiceId: practice.id,
+          queueKey: seatQueueKey,
+        }
+      : selectedLocation.locationIds?.length
+        ? {
+            locationId: null,
+            practiceId: practice.id,
+          }
+        : {
+            locationId: selectedLocation.locationId ?? null,
+            practiceId: practice.id,
+          }
     : {
-        ...buildPortalLocationScopeWhere(context),
+        ...buildCallCenterSeatAccessWhere(context),
         practiceId: practice.id,
       };
+  const outboundCallerNumbers = getOutboundCallerNumbers({
+    fallbackNumber: selectedLocation?.outboundNumber ?? "",
+    phoneNumbers: visiblePhoneNumbers,
+    selectedLocation,
+    visibleLocations,
+  });
 
   const [missedCallCount, voicemailCount, missedCalls, voicemails, seats, queue] =
     await Promise.all([
@@ -765,14 +1197,14 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
           calledBack: false,
           practiceId: practice.id,
           resolvedAt: null,
-          ...locationFilter,
+          ...activityFilter,
         },
       }),
       prisma.callCenterVoicemail.count({
         where: {
           practiceId: practice.id,
           resolvedAt: null,
-          ...locationFilter,
+          ...activityFilter,
         },
       }),
       prisma.callCenterMissedCall.findMany({
@@ -797,7 +1229,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
           calledBack: false,
           practiceId: practice.id,
           resolvedAt: null,
-          ...locationFilter,
+          ...activityFilter,
         },
       }),
       prisma.callCenterVoicemail.findMany({
@@ -822,7 +1254,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
         where: {
           practiceId: practice.id,
           resolvedAt: null,
-          ...locationFilter,
+          ...activityFilter,
         },
       }),
       prisma.callCenterAgentSeat.findMany({
@@ -832,6 +1264,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
           id: true,
           label: true,
           locationId: true,
+          queueKey: true,
           sipUsername: true,
           telnyxCredentialId: true,
         },
@@ -874,7 +1307,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
           status: {
             in: ["RINGING", "WAITING", "ASSIGNED", "ACTIVE"],
           },
-          ...locationFilter,
+          ...queueFilter,
         },
       }),
     ]);
@@ -919,6 +1352,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
     hasAllLocationAccess: context.hasAllLocationAccess,
     locations,
     missedCalls,
+    outboundCallerNumbers,
     phoneNumbers: visiblePhoneNumbers,
     practiceId: practice.id,
     practiceName: practice.name,
@@ -942,6 +1376,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
       id: seat.id,
       label: seat.label,
       locationId: seat.locationId,
+      queueKey: seat.queueKey,
       sipUsername: seat.sipUsername,
     })),
     settings: practice.callCenterSettings,
@@ -1845,13 +2280,14 @@ export async function ringStationForQueuedCall({
         id: true,
         label: true,
         locationId: true,
+        queueKey: true,
         sipUsername: true,
         telnyxCredentialId: true,
       },
       where: {
         enabled: true,
         id: seatId,
-        ...buildPortalLocationScopeWhere(context),
+        ...buildCallCenterSeatAccessWhere(context),
         practiceId: context.practice.id,
       },
     }),
@@ -1865,11 +2301,23 @@ export async function ringStationForQueuedCall({
     throw new TelnyxError("Queued call is not available", 404);
   }
 
+  const scopedQueueMatch = await prisma.callCenterQueueItem.count({
+    where: {
+      id: queueItem.id,
+      practiceId: context.practice.id,
+      ...buildCallCenterQueueScopeWhere(context),
+    },
+  });
+
+  if (scopedQueueMatch === 0) {
+    throw new TelnyxError("Queued call is not available", 404);
+  }
+
   if (!seat) {
     throw new TelnyxError("Call center station not found", 404);
   }
 
-  if (queueItem.locationId !== seat.locationId) {
+  if (seat.locationId && queueItem.locationId !== seat.locationId) {
     throw new TelnyxError("Station does not belong to this queued call location", 422);
   }
 
@@ -2028,6 +2476,147 @@ async function stopCallerRingback(callControlId: string) {
   await stopTelnyxPlayback(callControlId).catch(() => null);
 }
 
+function getAbitaQueueKeyForQueueItem({
+  practice,
+  queueItem,
+}: {
+  practice: {
+    locations: Array<{ id: string; name: string }>;
+    name: string;
+  };
+  queueItem: {
+    locationId: string | null;
+    toPhone: string | null;
+  };
+}) {
+  if (!isAbitaPractice(practice) || !queueItem.locationId) {
+    return null;
+  }
+
+  const toPhoneVariants = phoneLookupVariants(queueItem.toPhone);
+
+  if (toPhoneVariants.some((variant) => opticalPhoneVariants().includes(variant))) {
+    return ABITA_SWEETWATER_OPTICAL_QUEUE_KEY;
+  }
+
+  if (getAbitaSouthFloridaLocationIds(practice).includes(queueItem.locationId)) {
+    return ABITA_SOUTH_FLORIDA_QUEUE_KEY;
+  }
+
+  return null;
+}
+
+async function ringAbitaSpecialQueueSeats({
+  callerCallControlId,
+  queueItem,
+  settings,
+}: {
+  callerCallControlId: string;
+  queueItem: {
+    fromPhone: string | null;
+    id: string;
+    locationId: string | null;
+    practiceId: string;
+    toPhone: string | null;
+  };
+  settings: CallCenterVoicemailSettings;
+}) {
+  if (!queueItem.locationId || !callerCallControlId) {
+    return 0;
+  }
+
+  const practice = await prisma.practice.findUnique({
+    select: {
+      locations: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      name: true,
+    },
+    where: {
+      id: queueItem.practiceId,
+    },
+  });
+
+  if (!practice) {
+    return 0;
+  }
+
+  const queueKey = getAbitaQueueKeyForQueueItem({
+    practice,
+    queueItem,
+  });
+
+  if (!queueKey) {
+    return 0;
+  }
+
+  const seats = await prisma.callCenterAgentSeat.findMany({
+    orderBy: [{ extension: "asc" }, { label: "asc" }],
+    select: {
+      extension: true,
+      id: true,
+      label: true,
+      locationId: true,
+      queueKey: true,
+      sipUsername: true,
+      telnyxCredentialId: true,
+    },
+    where: {
+      enabled: true,
+      practiceId: queueItem.practiceId,
+      queueKey,
+      sipUsername: {
+        not: null,
+      },
+      telnyxCredentialId: {
+        not: null,
+      },
+    },
+  });
+
+  if (!seats.length) {
+    return 0;
+  }
+
+  const runtimeSettings = resolveTelnyxRuntimeSettings({
+    inboundPhoneNumber: null,
+    outboundCallerNumber: settings.outboundCallerNumber ?? null,
+    telnyxConnectionId: settings.telnyxConnectionId ?? null,
+    telnyxCredentialId: settings.telnyxCredentialId ?? null,
+  });
+  const callerNumber = normalizePhone(queueItem.fromPhone);
+  const from =
+    callerNumber ||
+    normalizePhone(queueItem.toPhone) ||
+    normalizePhone(runtimeSettings.outboundCallerNumber);
+  const dialedCount = await ringAvailableSeatsForQueueItem({
+    availableSeats: seats,
+    callerCallControlId,
+    callerNumber,
+    connectionId: runtimeSettings.connectionId,
+    from: from || "",
+    queueItemId: queueItem.id,
+    timeoutSecs: AGENT_RING_TIMEOUT_SEC,
+  });
+
+  if (dialedCount > 0) {
+    await prisma.callCenterQueueItem.updateMany({
+      data: {
+        status: "RINGING",
+      },
+      where: {
+        id: queueItem.id,
+        status: "WAITING",
+      },
+    });
+  }
+
+  return dialedCount;
+}
+
 async function queueInboundCallForStaff({
   eventType,
   payload,
@@ -2108,6 +2697,19 @@ async function queueInboundCallForStaff({
   console.info("[call-center] queued inbound caller for manual staff take", {
     queueItemId: queueItem.id,
   });
+
+  const dialedSeatCount = await ringAbitaSpecialQueueSeats({
+    callerCallControlId,
+    queueItem,
+    settings,
+  });
+
+  if (dialedSeatCount > 0) {
+    console.info("[call-center] ringing Abita special queue seats", {
+      dialedSeatCount,
+      queueItemId: queueItem.id,
+    });
+  }
 
   return queueItem;
 }
@@ -2473,18 +3075,21 @@ export async function getPortalCallCenterOperationalState(options?: {
   }
 
   const { practice } = context;
-  if (
-    options &&
-    "locationId" in options &&
-    !canAccessPortalLocation(context, options.locationId)
-  ) {
+  const useExplicitLocationScope =
+    options && "locationId" in options && !isSpecialAbitaCallCenterContext(context);
+  if (useExplicitLocationScope && !canAccessPortalLocation(context, options.locationId)) {
     return null;
   }
 
-  const locationFilter =
-    options && "locationId" in options
-      ? { locationId: options.locationId }
-      : buildPortalLocationScopeWhere(context);
+  const locationFilter = useExplicitLocationScope
+    ? { locationId: options.locationId }
+    : buildPortalLocationScopeWhere(context);
+  const queueFilter = useExplicitLocationScope
+    ? { locationId: options.locationId }
+    : buildCallCenterQueueScopeWhere(context);
+  const sessionFilter = useExplicitLocationScope
+    ? { locationId: options.locationId }
+    : buildCallCenterSessionScopeWhere(context);
 
   const [seats, queueItems, sessions] = await Promise.all([
     prisma.callCenterAgentSeat.findMany({
@@ -2500,6 +3105,7 @@ export async function getPortalCallCenterOperationalState(options?: {
           },
         },
         locationId: true,
+        queueKey: true,
         presence: {
           orderBy: {
             lastSeenAt: "desc",
@@ -2524,7 +3130,9 @@ export async function getPortalCallCenterOperationalState(options?: {
       },
       where: {
         practiceId: practice.id,
-        ...locationFilter,
+        ...(useExplicitLocationScope
+          ? locationFilter
+          : buildCallCenterSeatAccessWhere(context)),
       },
     }),
     prisma.callCenterQueueItem.findMany({
@@ -2569,7 +3177,7 @@ export async function getPortalCallCenterOperationalState(options?: {
       take: 25,
       where: {
         practiceId: practice.id,
-        ...locationFilter,
+        ...queueFilter,
       },
     }),
     prisma.callCenterSession.findMany({
@@ -2596,7 +3204,7 @@ export async function getPortalCallCenterOperationalState(options?: {
       take: 25,
       where: {
         practiceId: practice.id,
-        ...locationFilter,
+        ...sessionFilter,
       },
     }),
   ]);

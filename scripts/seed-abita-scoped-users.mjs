@@ -27,6 +27,12 @@ ABITA_PORTAL_USERS_JSON='{
     { "email": "southfl2@abitaeye.com", "name": "South Florida 2", "password": "..." },
     { "email": "southfl3@abitaeye.com", "name": "South Florida 3", "password": "..." },
     { "email": "southfl4@abitaeye.com", "name": "South Florida 4", "password": "..." }
+  ],
+  "callCenter": [
+    { "email": "callcenter@abitaeye.com", "name": "Abita South Florida Call Center", "password": "..." }
+  ],
+  "sweetwaterOpticals": [
+    { "email": "sweetwateropticals@abitaeye.com", "name": "Sweetwater Optical Call Center", "password": "..." }
   ]
 }' bun scripts/seed-abita-scoped-users.mjs`;
 }
@@ -62,6 +68,18 @@ function parseConfig() {
           locations: entry.locations || SOUTH_FLORIDA_LOCATIONS,
           role: entry.role || "STAFF",
         })),
+        ...asArray(parsed.callCenter ?? parsed.call_center).map((entry) => ({
+          ...entry,
+          locations: entry.locations || SOUTH_FLORIDA_LOCATIONS,
+          role: entry.role || "STAFF",
+        })),
+        ...asArray(parsed.sweetwaterOpticals ?? parsed.sweetwater_opticals).map(
+          (entry) => ({
+            ...entry,
+            locations: entry.locations || ["Sweetwater"],
+            role: entry.role || "STAFF",
+          }),
+        ),
       ];
 
   return entries.map((entry, index) => {

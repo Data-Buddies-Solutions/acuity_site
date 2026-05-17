@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { CallCenterPresenceStatus } from "@/generated/prisma/client";
-import { getCurrentPracticeCallCenterContext } from "@/lib/call-center";
-import { buildPortalLocationScopeWhere } from "@/lib/portal-access";
+import {
+  buildCallCenterSeatAccessWhere,
+  getCurrentPracticeCallCenterContext,
+} from "@/lib/call-center";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -67,7 +69,7 @@ export async function POST(request: Request) {
     where: {
       enabled: true,
       id: seatId,
-      ...buildPortalLocationScopeWhere(context),
+      ...buildCallCenterSeatAccessWhere(context),
       practiceId: context.practice.id,
     },
   });

@@ -279,6 +279,7 @@ const SoftphonePanel = forwardRef<
     callerNumber: string;
     browserSessionId: string;
     enabled: boolean;
+    inboundEnabled: boolean;
     onActivityChange?: (active: boolean) => void;
     onBusyChange?: (busy: boolean) => void;
     seedNumber?: { value: string; token: number } | null;
@@ -291,6 +292,7 @@ const SoftphonePanel = forwardRef<
     callerNumber,
     browserSessionId,
     enabled,
+    inboundEnabled,
     onActivityChange,
     onBusyChange,
     seedNumber,
@@ -1092,6 +1094,17 @@ const SoftphonePanel = forwardRef<
               setStatus("ringing");
               startTimer();
             } else if (inbound) {
+              if (!inboundEnabled) {
+                debugLog("inbound-call-ignored-outbound-only", {
+                  call: callDebugSnapshot(call),
+                });
+                try {
+                  call.hangup();
+                } catch {
+                  // The call may already be gone.
+                }
+                return;
+              }
               setInboundRingingCall(call);
               setStatus("ringing");
               const ringKey = ringKeyFor(call);
@@ -1158,6 +1171,18 @@ const SoftphonePanel = forwardRef<
           if (call.state === "active") {
             if (activeCallRef.current?.id === call.id) {
               setActiveCall(call);
+              return;
+            }
+
+            if (inbound && !inboundEnabled) {
+              debugLog("inbound-active-ignored-outbound-only", {
+                call: callDebugSnapshot(call),
+              });
+              try {
+                call.hangup();
+              } catch {
+                // The call may already be gone.
+              }
               return;
             }
 
@@ -1314,6 +1339,7 @@ const SoftphonePanel = forwardRef<
     browserSessionId,
     detachAudio,
     enabled,
+    inboundEnabled,
     promoteToActiveCall,
     resetActiveCallUi,
     scheduleIncomingClear,
