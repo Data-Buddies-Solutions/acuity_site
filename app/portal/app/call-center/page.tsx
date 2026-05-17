@@ -92,7 +92,7 @@ export default async function PortalCallCenterPage({
         configurationMessage={configurationMessage}
         enabled={enabled}
         eventLocationId={selectedLocation?.locationId}
-        inboundEnabled={data.seats.length > 0}
+        inboundEnabled={data.inboundEnabled}
         outboundCallerNumber={outboundCallerNumber}
         outboundCallerNumbers={data.outboundCallerNumbers}
         queue={data.queue}
