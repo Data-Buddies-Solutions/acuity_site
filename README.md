@@ -1,4 +1,4 @@
-# Acuity Health Portal may
+# Acuity Health Portal 2
 
 Private internal application for Acuity Health. This repo contains the public
 marketing site, the practice portal, the internal admin command center, and the
