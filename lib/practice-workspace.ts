@@ -69,6 +69,11 @@ type PracticeWorkspaceUser = {
   name?: string | null;
 };
 
+type PracticeWorkspaceLocationAccess = {
+  allowedLocationIds: string[];
+  hasAllLocationAccess: boolean;
+};
+
 const practiceWorkspaceInclude = {
   insuranceCrosswalk: true,
   knowledgeBase: true,
@@ -125,12 +130,39 @@ function inferPracticeNameFromUser(user: PracticeWorkspaceUser) {
     .join(" ");
 }
 
-function getPrimaryLocation(practice: LoadedPractice) {
-  return (
-    practice.locations.find((location) => location.isPrimary) ||
-    practice.locations[0] ||
-    null
+function getVisibleLocations(
+  practice: LoadedPractice,
+  locationAccess?: PracticeWorkspaceLocationAccess,
+) {
+  if (!locationAccess || locationAccess.hasAllLocationAccess) {
+    return practice.locations;
+  }
+
+  const allowed = new Set(locationAccess.allowedLocationIds);
+  return practice.locations.filter((location) => allowed.has(location.id));
+}
+
+function getVisibleProviders(
+  practice: LoadedPractice,
+  locationAccess?: PracticeWorkspaceLocationAccess,
+) {
+  if (!locationAccess || locationAccess.hasAllLocationAccess) {
+    return practice.providers;
+  }
+
+  const allowed = new Set(locationAccess.allowedLocationIds);
+  return practice.providers.filter(
+    (provider) => !provider.primaryLocationId || allowed.has(provider.primaryLocationId),
   );
+}
+
+function getPrimaryLocation(
+  practice: LoadedPractice,
+  locationAccess?: PracticeWorkspaceLocationAccess,
+) {
+  const locations = getVisibleLocations(practice, locationAccess);
+
+  return locations.find((location) => location.isPrimary) || locations[0] || null;
 }
 
 function readLocationOverrides(value: Prisma.JsonValue | null | undefined) {
@@ -169,15 +201,21 @@ function getLocationOverride(
   );
 }
 
-function buildDraftFromPractice(practice: LoadedPractice): PracticeWorkspaceDraft {
-  const primaryLocation = getPrimaryLocation(practice);
+function buildDraftFromPractice(
+  practice: LoadedPractice,
+  locationAccess?: PracticeWorkspaceLocationAccess,
+): PracticeWorkspaceDraft {
+  const primaryLocation = getPrimaryLocation(practice, locationAccess);
   const insuranceLocationOverrides = readLocationOverrides(
     practice.insuranceCrosswalk?.planRules,
   );
   const knowledgeLocationOverrides = readLocationOverrides(
     practice.knowledgeBase?.operationalNotes,
   );
-  const locations = practice.locations.map<PracticeLocationDraft>((location) => {
+  const locations = getVisibleLocations(
+    practice,
+    locationAccess,
+  ).map<PracticeLocationDraft>((location) => {
     const insuranceOverride = getLocationOverride(insuranceLocationOverrides, location);
     const knowledgeOverride = getLocationOverride(knowledgeLocationOverrides, location);
 
@@ -194,7 +232,10 @@ function buildDraftFromPractice(practice: LoadedPractice): PracticeWorkspaceDraf
       phone: textValue(location.phone),
     };
   });
-  const providers = practice.providers.map<PracticeProviderDraft>((provider) => ({
+  const providers = getVisibleProviders(
+    practice,
+    locationAccess,
+  ).map<PracticeProviderDraft>((provider) => ({
     id: provider.id,
     providerHours: textValue(provider.scheduleSummary),
     providerLocation: textValue(provider.primaryLocation?.name || primaryLocation?.name),
@@ -233,8 +274,11 @@ function buildDraftFromPractice(practice: LoadedPractice): PracticeWorkspaceDraf
   };
 }
 
-function buildSnapshotFromPractice(practice: LoadedPractice): PracticeWorkspaceSnapshot {
-  const draft = buildDraftFromPractice(practice);
+function buildSnapshotFromPractice(
+  practice: LoadedPractice,
+  locationAccess?: PracticeWorkspaceLocationAccess,
+): PracticeWorkspaceSnapshot {
+  const draft = buildDraftFromPractice(practice, locationAccess);
   const knowledgeBase = practice.knowledgeBase;
   const insuranceCrosswalk = practice.insuranceCrosswalk;
   const launched = Boolean(practice.launchedAt) || practice.onboardingStatus === "LIVE";
@@ -783,7 +827,10 @@ async function findOrCreateProviderLocation(practiceId: string, locationName: st
   });
 }
 
-export async function getPracticeWorkspaceSnapshotForUser(user: PracticeWorkspaceUser) {
+export async function getPracticeWorkspaceSnapshotForUser(
+  user: PracticeWorkspaceUser,
+  locationAccess?: PracticeWorkspaceLocationAccess,
+) {
   if (!(await hasPracticeWorkspaceTables())) {
     return null;
   }
@@ -794,7 +841,24 @@ export async function getPracticeWorkspaceSnapshotForUser(user: PracticeWorkspac
     return null;
   }
 
-  return buildSnapshotFromPractice(practice);
+  return buildSnapshotFromPractice(practice, locationAccess);
+}
+
+export async function getPracticeWorkspaceSnapshotForPractice(
+  practiceId: string,
+  locationAccess?: PracticeWorkspaceLocationAccess,
+) {
+  if (!(await hasPracticeWorkspaceTables())) {
+    return null;
+  }
+
+  const practice = await loadPracticeWorkspace(practiceId);
+
+  if (!practice) {
+    return null;
+  }
+
+  return buildSnapshotFromPractice(practice, locationAccess);
 }
 
 export async function persistWebsiteScanForUser(

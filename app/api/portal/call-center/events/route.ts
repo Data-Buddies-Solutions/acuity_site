@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentPracticeCallCenterContext } from "@/lib/call-center";
+import {
+  buildPortalLocationScopeWhere,
+  canAccessPortalLocation,
+} from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +27,14 @@ function encodeEvent(event: string, data: unknown) {
 
 async function getCallCenterStateVersion({
   locationId,
+  locationScopeWhere,
   practiceId,
 }: {
   locationId?: string | null;
+  locationScopeWhere: ReturnType<typeof buildPortalLocationScopeWhere>;
   practiceId: string;
 }) {
-  const locationFilter = locationId === undefined ? {} : { locationId };
+  const locationFilter = locationId === undefined ? locationScopeWhere : { locationId };
   const [queue, missed, voicemail] = await Promise.all([
     prisma.callCenterQueueItem.aggregate({
       _count: {
@@ -104,8 +110,14 @@ export async function GET(request: Request) {
   const locationParam = url.searchParams.get("locationId");
   const locationId =
     locationParam === NULL_LOCATION ? null : locationParam?.trim() || undefined;
+  if (locationId !== undefined && !canAccessPortalLocation(context, locationId)) {
+    return NextResponse.json({ error: "Location not found" }, { status: 404 });
+  }
+
+  const locationScopeWhere = buildPortalLocationScopeWhere(context);
   let lastVersion = await getCallCenterStateVersion({
     locationId,
+    locationScopeWhere,
     practiceId: context.practice.id,
   });
 
@@ -160,6 +172,7 @@ export async function GET(request: Request) {
         try {
           const nextVersion = await getCallCenterStateVersion({
             locationId,
+            locationScopeWhere,
             practiceId: context.practice.id,
           });
 

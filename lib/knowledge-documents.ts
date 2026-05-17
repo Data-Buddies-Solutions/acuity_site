@@ -1,8 +1,11 @@
 import { revalidatePath } from "next/cache";
 
 import { requireAdminSession } from "@/lib/admin-auth";
-import { getAuthSession } from "@/lib/auth";
 import { findAbitaNewOfficeByLocation } from "@/lib/abita-office-data";
+import {
+  buildPortalLocationScopeWhere,
+  getCurrentPortalPracticeContext,
+} from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
 const ABITA_SPRING_HILL_MARKDOWN = `# Knowledge Base: Abita Eye Group, Spring Hill
@@ -423,7 +426,10 @@ function getSeedDocumentsForPractice(practice: {
   });
 }
 
-async function loadKnowledgeDocumentsForPractice(practiceId: string) {
+async function loadKnowledgeDocumentsForPractice(
+  practiceId: string,
+  locationScopeWhere: ReturnType<typeof buildPortalLocationScopeWhere> = {},
+) {
   return prisma.practiceKnowledgeDocument.findMany({
     include: {
       location: {
@@ -442,6 +448,7 @@ async function loadKnowledgeDocumentsForPractice(practiceId: string) {
     where: {
       practiceId,
       status: "ACTIVE",
+      ...locationScopeWhere,
     },
   });
 }
@@ -546,31 +553,20 @@ async function ensureDefaultKnowledgeDocument(practiceId: string) {
 export async function getPortalKnowledgeDocumentState(
   selectedSlug?: string,
 ): Promise<PortalKnowledgeDocumentState | null> {
-  const session = await getAuthSession();
+  const context = await getCurrentPortalPracticeContext();
 
-  if (!session) {
+  if (!context) {
     return null;
   }
 
-  const membership = await prisma.practiceMembership.findFirst({
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    select: {
-      practiceId: true,
-    },
-    where: {
-      userId: session.user.id,
-    },
-  });
+  await ensureDefaultKnowledgeDocument(context.practice.id);
 
-  if (!membership) {
-    return null;
-  }
-
-  await ensureDefaultKnowledgeDocument(membership.practiceId);
-
-  const documents = (await loadKnowledgeDocumentsForPractice(membership.practiceId)).map(
-    summarizeDocument,
-  );
+  const documents = (
+    await loadKnowledgeDocumentsForPractice(
+      context.practice.id,
+      buildPortalLocationScopeWhere(context),
+    )
+  ).map(summarizeDocument);
   const selectedDocument =
     documents.find((document) => document.slug === selectedSlug) ?? documents[0] ?? null;
 
@@ -587,9 +583,9 @@ export async function submitKnowledgeDocumentDraftForReview({
   documentId: string;
   markdown: string;
 }) {
-  const session = await getAuthSession();
+  const context = await getCurrentPortalPracticeContext();
 
-  if (!session) {
+  if (!context) {
     return null;
   }
 
@@ -612,14 +608,9 @@ export async function submitKnowledgeDocumentDraftForReview({
     },
     where: {
       id: documentId,
-      practice: {
-        memberships: {
-          some: {
-            userId: session.user.id,
-          },
-        },
-      },
+      practiceId: context.practice.id,
       status: "ACTIVE",
+      ...buildPortalLocationScopeWhere(context),
     },
   });
 
@@ -669,7 +660,7 @@ export async function submitKnowledgeDocumentDraftForReview({
     const revision = await tx.practiceKnowledgeDocumentRevision.create({
       data: {
         documentId: document.id,
-        editedByUserId: session.user.id,
+        editedByUserId: context.session.user.id,
         markdown: normalizedMarkdown,
         source: "PRACTICE",
         status: "PENDING_APPROVAL",

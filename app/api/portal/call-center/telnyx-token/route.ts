@@ -5,6 +5,7 @@ import {
   getPresenceExpirationCutoff,
   resolveTelnyxRuntimeSettings,
 } from "@/lib/call-center";
+import { buildPortalLocationScopeWhere } from "@/lib/portal-access";
 import { createTelnyxLoginToken, TelnyxError } from "@/lib/telnyx";
 import { prisma } from "@/lib/prisma";
 
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
         where: {
           enabled: true,
           id: seatId,
+          ...buildPortalLocationScopeWhere(context),
           practiceId: context.practice.id,
         },
       })
@@ -92,6 +94,13 @@ export async function GET(request: Request) {
   const credentialId = seat?.telnyxCredentialId || runtimeSettings.credentialId;
   const sipUsername = env("TELNYX_SIP_USERNAME");
   const sipPassword = env("TELNYX_SIP_PASSWORD");
+
+  if (!seat && !context.hasAllLocationAccess) {
+    return NextResponse.json(
+      { error: "Select an assigned call center station" },
+      { status: 403 },
+    );
+  }
 
   if (!seat && sipUsername && sipPassword) {
     return NextResponse.json({

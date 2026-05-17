@@ -6,6 +6,7 @@ import {
   getCurrentPracticeCallCenterContext,
   setCallCenterEnabledForCurrentPractice,
 } from "@/lib/call-center";
+import { buildPortalLocationScopeWhere } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
 export async function enableCallCenterAction() {
@@ -34,6 +35,7 @@ export async function resolveMissedCallAction(formData: FormData) {
     where: {
       id,
       practiceId: context.practice.id,
+      ...buildPortalLocationScopeWhere(context),
     },
   });
 
@@ -55,6 +57,7 @@ export async function resolveVoicemailAction(formData: FormData) {
     where: {
       id,
       practiceId: context.practice.id,
+      ...buildPortalLocationScopeWhere(context),
     },
   });
 

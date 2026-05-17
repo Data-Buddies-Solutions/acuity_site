@@ -13,13 +13,14 @@ import {
   type PracticeLocationDraft,
   type PracticeProviderDraft,
 } from "@/lib/practice-workspace";
-import { scanPracticeWebsite } from "@/lib/website-scan";
+import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 import {
   getPortalWorkspaceState,
   setPortalLaunchState,
   setPortalSectionCompletion,
   updatePortalDraftState,
 } from "@/lib/portal-state";
+import { scanPracticeWebsite } from "@/lib/website-scan";
 
 function readTextField(formData: FormData, key: string, maxLength?: number) {
   const value = String(formData.get(key) || "").trim();
@@ -198,7 +199,17 @@ async function getWorkspaceUser() {
   };
 }
 
+async function requirePracticeWidePortalAccess() {
+  const context = await getCurrentPortalPracticeContext();
+
+  if (context && !context.hasAllLocationAccess) {
+    redirect("/portal/app/overview");
+  }
+}
+
 export async function scanPracticeWebsiteAction(formData: FormData) {
+  await requirePracticeWidePortalAccess();
+
   const websiteUrl = normalizeWebsiteUrl(readTextField(formData, "websiteUrl", 200));
 
   if (!websiteUrl) {
@@ -256,6 +267,8 @@ export async function scanPracticeWebsiteAction(formData: FormData) {
 }
 
 export async function savePracticeBasicsAction(formData: FormData) {
+  await requirePracticeWidePortalAccess();
+
   const locations = readLocationRows(formData);
   const primaryLocation = locations[0];
   const input = {
@@ -288,6 +301,8 @@ export async function savePracticeBasicsAction(formData: FormData) {
 }
 
 export async function saveProviderSetupAction(formData: FormData) {
+  await requirePracticeWidePortalAccess();
+
   const providers = readProviderRows(formData);
   const primaryProvider = providers[0];
   const input = {
@@ -323,6 +338,8 @@ export async function saveProviderSetupAction(formData: FormData) {
 }
 
 export async function saveKnowledgeBaseAction(formData: FormData) {
+  await requirePracticeWidePortalAccess();
+
   const currentPortalState = await getPortalWorkspaceState();
   const knowledgeLocationRules = mergeLocationRuleRows(
     currentPortalState.draft.locations,
@@ -374,6 +391,8 @@ export async function saveKnowledgeBaseAction(formData: FormData) {
 }
 
 export async function saveInsuranceCrosswalkAction(formData: FormData) {
+  await requirePracticeWidePortalAccess();
+
   const currentPortalState = await getPortalWorkspaceState();
   const insuranceLocationRules = mergeLocationRuleRows(
     currentPortalState.draft.locations,
@@ -415,6 +434,8 @@ export async function saveInsuranceCrosswalkAction(formData: FormData) {
 }
 
 export async function submitOnboardingAction() {
+  await requirePracticeWidePortalAccess();
+
   const portalState = await getPortalWorkspaceState();
 
   if (!portalState.readyToLaunch) {

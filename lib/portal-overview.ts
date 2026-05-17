@@ -1,5 +1,9 @@
 import { Prisma } from "@/generated/prisma/client";
-import { getAuthSession } from "@/lib/auth";
+import {
+  buildPortalAgentCallScopeSql,
+  buildPortalAgentCallScopeWhere,
+  getCurrentPortalPracticeContext,
+} from "@/lib/portal-access";
 import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
@@ -68,8 +72,11 @@ export type PortalOverviewMetrics = {
 export type PortalBookingsResult = {
   bookings: PortalBookedAppointment[];
   branding: PracticeBranding;
+  officeFilters: PortalOverviewOfficeFilterOption[];
   practiceName: string;
   range: PortalOverviewRange;
+  selectedOfficeId: string | null;
+  selectedOfficeLabel: string | null;
 };
 
 type BoundedPortalOverviewRange = Exclude<PortalOverviewRange, "all">;
@@ -291,6 +298,26 @@ function buildPortalOverviewOfficeWhere(
   return clauses.length ? { OR: clauses } : {};
 }
 
+function andAgentCallWhere(
+  ...clauses: Array<Prisma.AgentCallWhereInput | null | undefined>
+): Prisma.AgentCallWhereInput {
+  const activeClauses = clauses.filter((clause): clause is Prisma.AgentCallWhereInput =>
+    Boolean(clause && Object.keys(clause).length > 0),
+  );
+
+  if (activeClauses.length === 0) {
+    return {};
+  }
+
+  if (activeClauses.length === 1) {
+    return activeClauses[0];
+  }
+
+  return {
+    AND: activeClauses,
+  };
+}
+
 function getPortalOverviewOfficeFilterParts(
   officeFilter: PortalOverviewOfficeFilterOption | null,
 ) {
@@ -306,12 +333,17 @@ function getPortalOverviewOfficeFilterParts(
 
 function buildAllTimeOverviewSqlWhere(
   practiceId: string,
+  accessContext: Awaited<ReturnType<typeof getCurrentPortalPracticeContext>>,
   officeFilter: PortalOverviewOfficeFilterOption | null,
 ) {
   const { officeLocationId, officePhoneVariants } =
     getPortalOverviewOfficeFilterParts(officeFilter);
   const clauses = [Prisma.sql`"practiceId" = ${practiceId}`];
   const officeClauses = [];
+
+  if (accessContext) {
+    clauses.push(buildPortalAgentCallScopeSql(accessContext));
+  }
 
   if (officeLocationId) {
     officeClauses.push(Prisma.sql`"locationId" = ${officeLocationId}`);
@@ -336,9 +368,10 @@ function numberValue(value: bigint | number | null | undefined) {
 
 async function getAllTimeOverviewAggregate(
   practiceId: string,
+  accessContext: Awaited<ReturnType<typeof getCurrentPortalPracticeContext>>,
   officeFilter: PortalOverviewOfficeFilterOption | null,
 ): Promise<OverviewAggregate> {
-  const where = buildAllTimeOverviewSqlWhere(practiceId, officeFilter);
+  const where = buildAllTimeOverviewSqlWhere(practiceId, accessContext, officeFilter);
   const rows = await prisma.$queryRaw<RawOverviewAggregate[]>`
     SELECT
       COUNT(*)::int AS "callCount",
@@ -393,9 +426,10 @@ async function getAllTimeOverviewAggregate(
 
 async function getAllTimeCallVolume(
   practiceId: string,
+  accessContext: Awaited<ReturnType<typeof getCurrentPortalPracticeContext>>,
   officeFilter: PortalOverviewOfficeFilterOption | null,
 ) {
-  const where = buildAllTimeOverviewSqlWhere(practiceId, officeFilter);
+  const where = buildAllTimeOverviewSqlWhere(practiceId, accessContext, officeFilter);
   const firstRows = await prisma.$queryRaw<Array<{ firstStartedAt: Date | null }>>`
     SELECT MIN("startedAt") AS "firstStartedAt"
     FROM "agent_call"
@@ -803,58 +837,25 @@ export async function getPortalOverviewMetrics(
   range: PortalOverviewRange = "24h",
   office?: string | string[] | null,
 ): Promise<PortalOverviewMetrics | null> {
-  const session = await getAuthSession();
+  const context = await getCurrentPortalPracticeContext();
 
-  if (!session) {
+  if (!context) {
     return null;
   }
 
-  const membership = await prisma.practiceMembership.findFirst({
-    include: {
-      practice: {
-        select: {
-          brandAccentColor: true,
-          brandLogoAlt: true,
-          brandLogoUrl: true,
-          brandMarkUrl: true,
-          brandPrimaryColor: true,
-          id: true,
-          name: true,
-          phoneNumbers: {
-            include: {
-              location: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-          },
-        },
-      },
-    },
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    where: {
-      userId: session.user.id,
-    },
-  });
+  const { practice } = context;
 
-  if (!membership) {
-    return null;
-  }
-
-  const officeFilters = buildPortalOverviewOfficeFilters(
-    membership.practice.phoneNumbers,
-  );
+  const officeFilters = buildPortalOverviewOfficeFilters(context.allowedPhoneNumbers);
   const selectedOffice = resolvePortalOverviewOfficeFilter(office, officeFilters);
   const rangeStart = getRangeStart(range);
   const previousWindow = getPreviousRangeWindow(range);
+  const accessWhere = buildPortalAgentCallScopeWhere(context);
   const officeWhere = buildPortalOverviewOfficeWhere(selectedOffice);
 
   if (range === "all") {
     const [aggregate, callVolume] = await Promise.all([
-      getAllTimeOverviewAggregate(membership.practiceId, selectedOffice),
-      getAllTimeCallVolume(membership.practiceId, selectedOffice),
+      getAllTimeOverviewAggregate(practice.id, context, selectedOffice),
+      getAllTimeCallVolume(practice.id, context, selectedOffice),
     ]);
 
     return {
@@ -865,10 +866,10 @@ export async function getPortalOverviewMetrics(
       },
       averageCallDurationSec:
         aggregate.callCount > 0 ? aggregate.totalDurationSec / aggregate.callCount : 0,
-      branding: getPracticeBranding(membership.practice),
+      branding: getPracticeBranding(practice),
       callVolume,
       officeFilters,
-      practiceName: membership.practice.name,
+      practiceName: practice.name,
       previousTotalCalls: 0,
       range,
       selectedOfficeId: selectedOffice?.id ?? null,
@@ -886,11 +887,12 @@ export async function getPortalOverviewMetrics(
     };
   }
 
-  const callWhere = {
-    practiceId: membership.practiceId,
-    ...(rangeStart ? { startedAt: { gte: rangeStart } } : {}),
-    ...officeWhere,
-  };
+  const callWhere = andAgentCallWhere(
+    { practiceId: practice.id },
+    rangeStart ? { startedAt: { gte: rangeStart } } : null,
+    accessWhere,
+    officeWhere,
+  );
 
   const [callRows, previousTotalCalls] = await Promise.all([
     prisma.agentCall.findMany({
@@ -910,9 +912,9 @@ export async function getPortalOverviewMetrics(
     previousWindow
       ? prisma.agentCall.count({
           where: {
-            practiceId: membership.practiceId,
+            practiceId: practice.id,
             startedAt: { gte: previousWindow.start, lt: previousWindow.end },
-            ...officeWhere,
+            ...andAgentCallWhere(accessWhere, officeWhere),
           },
         })
       : Promise.resolve(0),
@@ -958,10 +960,10 @@ export async function getPortalOverviewMetrics(
       confirmed: confirmedActionCount,
     },
     averageCallDurationSec: callCount > 0 ? totalDurationSec / callCount : 0,
-    branding: getPracticeBranding(membership.practice),
+    branding: getPracticeBranding(practice),
     callVolume,
     officeFilters,
-    practiceName: membership.practice.name,
+    practiceName: practice.name,
     previousTotalCalls,
     range,
     selectedOfficeId: selectedOffice?.id ?? null,
@@ -981,38 +983,18 @@ export async function getPortalOverviewMetrics(
 export async function getPortalBookings(
   range: PortalOverviewRange = "7d",
   limit = 50,
+  office?: string | string[] | null,
 ): Promise<PortalBookingsResult | null> {
-  const session = await getAuthSession();
+  const context = await getCurrentPortalPracticeContext();
 
-  if (!session) {
-    return null;
-  }
-
-  const membership = await prisma.practiceMembership.findFirst({
-    include: {
-      practice: {
-        select: {
-          brandAccentColor: true,
-          brandLogoAlt: true,
-          brandLogoUrl: true,
-          brandMarkUrl: true,
-          brandPrimaryColor: true,
-          id: true,
-          name: true,
-        },
-      },
-    },
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    where: {
-      userId: session.user.id,
-    },
-  });
-
-  if (!membership) {
+  if (!context) {
     return null;
   }
 
   const rangeStart = getRangeStart(range);
+  const { practice } = context;
+  const officeFilters = buildPortalOverviewOfficeFilters(context.allowedPhoneNumbers);
+  const selectedOffice = resolvePortalOverviewOfficeFilter(office, officeFilters);
   const bookedCalls = await prisma.agentCall.findMany({
     orderBy: {
       startedAt: "desc",
@@ -1025,18 +1007,25 @@ export async function getPortalBookings(
       startedAt: true,
     },
     take: limit,
-    where: {
-      bookedAppointment: true,
-      practiceId: membership.practiceId,
-      ...(rangeStart ? { startedAt: { gte: rangeStart } } : {}),
-    },
+    where: andAgentCallWhere(
+      {
+        bookedAppointment: true,
+        practiceId: practice.id,
+      },
+      rangeStart ? { startedAt: { gte: rangeStart } } : null,
+      buildPortalAgentCallScopeWhere(context),
+      buildPortalOverviewOfficeWhere(selectedOffice),
+    ),
   });
 
   return {
     bookings: bookedCalls.map(extractBookedAppointment).filter(isRenderableBooking),
-    branding: getPracticeBranding(membership.practice),
-    practiceName: membership.practice.name,
+    branding: getPracticeBranding(practice),
+    officeFilters,
+    practiceName: practice.name,
     range,
+    selectedOfficeId: selectedOffice?.id ?? null,
+    selectedOfficeLabel: selectedOffice?.label ?? null,
   };
 }
 
@@ -1133,35 +1122,13 @@ export function buildPortalCallTranscriptMessages({
 export async function getPortalCallTranscript(
   callId: string,
 ): Promise<PortalCallTranscript | null> {
-  const session = await getAuthSession();
+  const context = await getCurrentPortalPracticeContext();
 
-  if (!session) {
+  if (!context) {
     return null;
   }
 
-  const membership = await prisma.practiceMembership.findFirst({
-    include: {
-      practice: {
-        select: {
-          brandAccentColor: true,
-          brandLogoAlt: true,
-          brandLogoUrl: true,
-          brandMarkUrl: true,
-          brandPrimaryColor: true,
-          id: true,
-          name: true,
-        },
-      },
-    },
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    where: {
-      userId: session.user.id,
-    },
-  });
-
-  if (!membership) {
-    return null;
-  }
+  const { practice } = context;
 
   const call = await prisma.agentCall.findFirst({
     select: {
@@ -1170,10 +1137,13 @@ export async function getPortalCallTranscript(
       id: true,
       startedAt: true,
     },
-    where: {
-      id: callId,
-      practiceId: membership.practiceId,
-    },
+    where: andAgentCallWhere(
+      {
+        id: callId,
+        practiceId: practice.id,
+      },
+      buildPortalAgentCallScopeWhere(context),
+    ),
   });
 
   if (!call) {
@@ -1187,11 +1157,11 @@ export async function getPortalCallTranscript(
     : [];
 
   return {
-    branding: getPracticeBranding(membership.practice),
+    branding: getPracticeBranding(practice),
     callerPhone: call.callerPhone,
     callId: call.id,
     messages: buildPortalCallTranscriptMessages({ sessionItems, turns }),
-    practiceName: membership.practice.name,
+    practiceName: practice.name,
     startedAt: call.startedAt,
   };
 }

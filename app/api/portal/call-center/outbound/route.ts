@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "destination is required" }, { status: 400 });
   }
 
-  if (!from || !isPracticeNumber(from, context.practice.phoneNumbers)) {
+  if (!from || !isPracticeNumber(from, context.allowedPhoneNumbers)) {
     return NextResponse.json(
       { error: "fromPhone must be a practice-owned number" },
       { status: 422 },

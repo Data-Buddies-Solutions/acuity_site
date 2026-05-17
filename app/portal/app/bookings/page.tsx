@@ -12,11 +12,10 @@ import { cn } from "@/lib/utils";
 import { PracticePageHeader } from "../PracticePageHeader";
 
 const rangeOptions = [
-  { href: "/portal/app/bookings?range=24h", label: "24 Hours", value: "24h" },
-  { href: "/portal/app/bookings?range=7d", label: "7 Days", value: "7d" },
-  { href: "/portal/app/bookings?range=30d", label: "30 Days", value: "30d" },
+  { label: "24 Hours", value: "24h" },
+  { label: "7 Days", value: "7d" },
+  { label: "30 Days", value: "30d" },
 ] as const satisfies ReadonlyArray<{
-  href: string;
   label: string;
   value: PortalOverviewRange;
 }>;
@@ -28,6 +27,71 @@ function parseRange(value: string | string[] | undefined): PortalOverviewRange {
     return value;
   }
   return "24h";
+}
+
+function parseOffice(value: string | string[] | undefined) {
+  return typeof value === "string" ? value : null;
+}
+
+function bookingsHref({
+  office,
+  range,
+}: {
+  office?: string | null;
+  range: PortalOverviewRange;
+}) {
+  const params = new URLSearchParams();
+
+  params.set("range", range);
+
+  if (office) {
+    params.set("office", office);
+  }
+
+  return `/portal/app/bookings?${params.toString()}`;
+}
+
+function OfficeFilterNav({
+  offices,
+  range,
+  selectedOfficeId,
+}: {
+  offices: Array<{ id: string; label: string }>;
+  range: PortalOverviewRange;
+  selectedOfficeId: string | null;
+}) {
+  if (offices.length <= 1) {
+    return null;
+  }
+
+  const items = [{ id: null, label: "All Offices" }, ...offices];
+
+  return (
+    <nav
+      aria-label="Bookings office"
+      className="flex max-w-full gap-2 overflow-x-auto pb-1"
+    >
+      {items.map((item) => {
+        const isActive = item.id === selectedOfficeId;
+
+        return (
+          <Link
+            key={item.id ?? "all"}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
+              isActive
+                ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
+                : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
+            )}
+            href={bookingsHref({ office: item.id, range })}
+          >
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
 }
 
 function formatPhone(phone: string) {
@@ -182,7 +246,8 @@ export default async function PortalBookingsPage({
 
   const params = searchParams ? await searchParams : {};
   const range = parseRange(params.range);
-  const result = await getPortalBookings(range, 100);
+  const office = parseOffice(params.office);
+  const result = await getPortalBookings(range, 100, office);
 
   if (!result) {
     redirect("/portal");
@@ -198,29 +263,39 @@ export default async function PortalBookingsPage({
         practiceName={result.practiceName}
         title="Bookings"
       >
-        <nav
-          aria-label="Bookings range"
-          className="inline-flex w-full rounded-lg border border-black/8 bg-white p-1 sm:w-fit"
-        >
-          {rangeOptions.map((option) => {
-            const isActive = option.value === result.range;
-            return (
-              <Link
-                key={option.value}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
-                  isActive
-                    ? "bg-[#10272c] text-white shadow-sm hover:text-white"
-                    : "text-[#617477] hover:bg-[#f1f5f5] hover:text-[#10272c]",
-                )}
-                href={option.href}
-              >
-                {option.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
+          <OfficeFilterNav
+            offices={result.officeFilters}
+            range={result.range}
+            selectedOfficeId={result.selectedOfficeId}
+          />
+          <nav
+            aria-label="Bookings range"
+            className="inline-flex w-full rounded-lg border border-black/8 bg-white p-1 sm:w-fit"
+          >
+            {rangeOptions.map((option) => {
+              const isActive = option.value === result.range;
+              return (
+                <Link
+                  key={option.value}
+                  aria-current={isActive ? "page" : undefined}
+                  className={cn(
+                    "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
+                    isActive
+                      ? "bg-[#10272c] text-white shadow-sm hover:text-white"
+                      : "text-[#617477] hover:bg-[#f1f5f5] hover:text-[#10272c]",
+                  )}
+                  href={bookingsHref({
+                    office: result.selectedOfficeId,
+                    range: option.value,
+                  })}
+                >
+                  {option.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
       </PracticePageHeader>
 
       <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">

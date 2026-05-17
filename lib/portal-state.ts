@@ -3,8 +3,10 @@ import { redirect } from "next/navigation";
 
 import { isExplicitAdminEmail } from "./admin-auth";
 import { getAuthSession } from "./auth";
+import { getCurrentPortalPracticeContext } from "./portal-access";
 import { emptyPracticeBranding, type PracticeBranding } from "./practice-branding";
 import {
+  getPracticeWorkspaceSnapshotForPractice,
   getPracticeWorkspaceSnapshotForUser,
   hasPracticeWorkspaceTables,
   type PracticeLocationDraft,
@@ -409,11 +411,24 @@ async function getPortalWorkspaceStateFromDatabase() {
     redirect("/admin/practices");
   }
 
-  const workspaceSnapshot = await getPracticeWorkspaceSnapshotForUser({
+  const accessContext = await getCurrentPortalPracticeContext();
+  const workspaceUser = {
     email: session.user.email,
     id: session.user.id,
     name: session.user.name,
-  });
+  };
+  const locationAccess = accessContext
+    ? {
+        allowedLocationIds: accessContext.allowedLocationIds,
+        hasAllLocationAccess: accessContext.hasAllLocationAccess,
+      }
+    : undefined;
+  const workspaceSnapshot = accessContext
+    ? await getPracticeWorkspaceSnapshotForPractice(
+        accessContext.practice.id,
+        locationAccess,
+      )
+    : await getPracticeWorkspaceSnapshotForUser(workspaceUser);
 
   if (!workspaceSnapshot) {
     return null;
