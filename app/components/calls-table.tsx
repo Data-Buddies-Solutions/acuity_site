@@ -2,7 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  Languages,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +30,9 @@ type QuickFilter =
   | "booking"
   | "errors"
   | "fallback"
+  | "language"
   | "needs_review"
+  | "runtime"
   | "transfers";
 type SortKey =
   | "actions"
@@ -41,6 +50,8 @@ const quickFilters: { id: QuickFilter; label: string }[] = [
   { id: "booking", label: "Booked" },
   { id: "needs_review", label: "Needs Review" },
   { id: "transfers", label: "Transfers" },
+  { id: "language", label: "Language" },
+  { id: "runtime", label: "Runtime" },
   { id: "fallback", label: "Fallback" },
   { id: "errors", label: "Errors" },
 ];
@@ -59,6 +70,26 @@ function normalizeSearchValue(value: string): string {
 
 function normalizeDigits(value: string): string {
   return value.replace(/\D/g, "");
+}
+
+function normalizeLanguage(value: string | null | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function hasLanguageSignal(call: AdminCallTableRow): boolean {
+  if (call.languageChanged) return true;
+
+  const currentLanguage = normalizeLanguage(call.currentLanguage);
+  if (currentLanguage && currentLanguage !== "en") return true;
+
+  return call.acceptedLanguages.some((language) => {
+    const normalized = normalizeLanguage(language);
+    return normalized.length > 0 && normalized !== "en";
+  });
+}
+
+function languageDisplayValue(call: AdminCallTableRow): string {
+  return call.currentLanguage?.toUpperCase() || "Changed";
 }
 
 function formatLocalTime(value: string) {
@@ -132,11 +163,15 @@ function MobileCallCard({
   call,
   practiceId,
   showFallback,
+  showLanguage,
+  showRuntimeEvents,
   showToolErrors,
 }: {
   call: AdminCallTableRow;
   practiceId: string;
   showFallback: boolean;
+  showLanguage: boolean;
+  showRuntimeEvents: boolean;
   showToolErrors: boolean;
 }) {
   const actionBadges =
@@ -208,6 +243,28 @@ function MobileCallCard({
         {showFallback ? (
           <MobileField label="Fallback" value={call.fallbackUsed ? "Used" : "No"} />
         ) : null}
+        {showLanguage ? (
+          <MobileField
+            label="Language"
+            value={
+              call.languageChanged
+                ? `${call.currentLanguage ?? "changed"}`
+                : (call.currentLanguage ?? "No change")
+            }
+          />
+        ) : null}
+        {showRuntimeEvents ? (
+          <MobileField
+            label="Runtime"
+            value={
+              call.runtimeErrorCount > 0 ||
+              call.falseInterruptionCount > 0 ||
+              call.overlappingSpeechCount > 0
+                ? `${call.runtimeErrorCount} err / ${call.falseInterruptionCount} false / ${call.overlappingSpeechCount} overlap`
+                : "Clean"
+            }
+          />
+        ) : null}
       </div>
 
       <div className="space-y-2">
@@ -231,6 +288,18 @@ function MobileCallCard({
           {call.toolErrors > 0 && (
             <Badge variant="destructive" className="text-[10px]">
               {call.toolErrors} error{call.toolErrors === 1 ? "" : "s"}
+            </Badge>
+          )}
+          {hasLanguageSignal(call) && (
+            <Badge variant="outline" className="gap-1 text-[10px]">
+              <Languages className="h-3 w-3" />
+              {languageDisplayValue(call)}
+            </Badge>
+          )}
+          {call.runtimeErrorCount > 0 && (
+            <Badge variant="destructive" className="gap-1 text-[10px]">
+              <AlertTriangle className="h-3 w-3" />
+              Runtime
             </Badge>
           )}
         </div>
@@ -321,6 +390,20 @@ export function CallsTable({
     () => calls.some((call) => call.fallbackUsed),
     [calls],
   );
+  const showLanguage = React.useMemo(
+    () => calls.some((call) => hasLanguageSignal(call)),
+    [calls],
+  );
+  const showRuntimeEvents = React.useMemo(
+    () =>
+      calls.some(
+        (call) =>
+          call.runtimeErrorCount > 0 ||
+          call.falseInterruptionCount > 0 ||
+          call.overlappingSpeechCount > 0,
+      ),
+    [calls],
+  );
   const showToolErrors = React.useMemo(
     () => calls.some((call) => call.toolErrors > 0),
     [calls],
@@ -340,7 +423,18 @@ export function CallsTable({
         if (quickFilter === "fallback" && !call.fallbackUsed) {
           return false;
         }
+        if (quickFilter === "language" && !hasLanguageSignal(call)) {
+          return false;
+        }
         if (quickFilter === "needs_review" && !call.reviewNeedsAttention) {
+          return false;
+        }
+        if (
+          quickFilter === "runtime" &&
+          call.runtimeErrorCount === 0 &&
+          call.falseInterruptionCount === 0 &&
+          call.overlappingSpeechCount === 0
+        ) {
           return false;
         }
         if (quickFilter === "transfers" && !call.transferred) {
@@ -358,7 +452,10 @@ export function CallsTable({
           call.llmModel,
           call.officePhone,
           formatPhone(call.officePhone),
+          call.currentLanguage ?? "",
+          call.closeReason ?? "",
           getOfficeLabel(call),
+          call.acceptedLanguages.join(" "),
           call.toolActions.join(" "),
           call.transcriptText,
         ];
@@ -392,6 +489,8 @@ export function CallsTable({
   const visibleQuickFilters = quickFilters.filter((filter) => {
     if (filter.id === "errors") return showToolErrors;
     if (filter.id === "fallback") return showFallback;
+    if (filter.id === "language") return showLanguage;
+    if (filter.id === "runtime") return showRuntimeEvents;
     return true;
   });
   const pageCount = Math.max(1, Math.ceil(filteredCalls.length / pageSize));
@@ -400,7 +499,12 @@ export function CallsTable({
     pageIndex * pageSize,
     pageIndex * pageSize + pageSize,
   );
-  const tableColumnCount = 10 + (showToolErrors ? 1 : 0) + (showFallback ? 1 : 0);
+  const tableColumnCount =
+    10 +
+    (showToolErrors ? 1 : 0) +
+    (showFallback ? 1 : 0) +
+    (showLanguage ? 1 : 0) +
+    (showRuntimeEvents ? 1 : 0);
 
   function handleSort(key: SortKey) {
     setSortState((current) =>
@@ -448,6 +552,8 @@ export function CallsTable({
                 call={call}
                 practiceId={practiceId}
                 showFallback={showFallback}
+                showLanguage={showLanguage}
+                showRuntimeEvents={showRuntimeEvents}
                 showToolErrors={showToolErrors}
               />
             ))
@@ -508,6 +614,8 @@ export function CallsTable({
                     Actions
                   </SortButton>
                 </TableHead>
+                {showLanguage && <TableHead>Language</TableHead>}
+                {showRuntimeEvents && <TableHead>Runtime</TableHead>}
                 <TableHead>
                   <SortButton
                     sortKey="transferred"
@@ -593,6 +701,46 @@ export function CallsTable({
                         </div>
                       )}
                     </TableCell>
+                    {showLanguage && (
+                      <TableCell>
+                        {hasLanguageSignal(call) ? (
+                          <Badge variant="outline" className="gap-1 text-[10px]">
+                            <Languages className="h-3 w-3" />
+                            {languageDisplayValue(call)}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">--</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {showRuntimeEvents && (
+                      <TableCell>
+                        {call.runtimeErrorCount > 0 ||
+                        call.falseInterruptionCount > 0 ||
+                        call.overlappingSpeechCount > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {call.runtimeErrorCount > 0 && (
+                              <Badge variant="destructive" className="text-[10px]">
+                                {call.runtimeErrorCount} error
+                                {call.runtimeErrorCount === 1 ? "" : "s"}
+                              </Badge>
+                            )}
+                            {call.falseInterruptionCount > 0 && (
+                              <Badge variant="outline" className="text-[10px]">
+                                {call.falseInterruptionCount} false
+                              </Badge>
+                            )}
+                            {call.overlappingSpeechCount > 0 && (
+                              <Badge variant="outline" className="text-[10px]">
+                                {call.overlappingSpeechCount} overlap
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">--</span>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       {call.transferred ? (
                         <Check className="h-4 w-4 text-green-600" />

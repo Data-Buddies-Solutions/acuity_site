@@ -278,4 +278,166 @@ describe("normalizeLiveKitCallPayload", () => {
 
     expect(normalized.toolActions.bookedAppointment).toBe(false);
   });
+
+  it("normalizes new call observability payload fields", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_observability_v2",
+      callerPhone: "+15551234567",
+      durationSec: 45,
+      endedAt: "2026-05-20T14:01:00.000Z",
+      language: {
+        acceptedLanguages: ["en", "es"],
+        currentLanguage: "es",
+        initialLanguage: "en",
+        languageChanged: true,
+        languageSwitches: 1,
+        observedLanguages: ["en", "es"],
+        switchEvents: [
+          {
+            createdAt: "2026-05-20T14:00:20.000Z",
+            from: "en",
+            reason: "explicit_request",
+            to: "es",
+          },
+        ],
+      },
+      llmSummary: {
+        avgTtftMs: 500,
+        cachedPromptTokens: 120,
+        cacheHitRate: 0.4,
+        completionTokens: 30,
+        fallbackUsed: true,
+        modelsUsed: ["zai-org/GLM-4.7", "MiniMaxAI/MiniMax-M2.5"],
+        peakPromptTokens: 300,
+        promptTokens: 300,
+      },
+      officePhone: "+15557654321",
+      sessionEvents: {
+        close: {
+          createdAt: "2026-05-20T14:01:00.000Z",
+          reason: "participant_disconnected",
+        },
+        errors: [
+          {
+            code: "ETIMEDOUT",
+            createdAt: "2026-05-20T14:00:30.000Z",
+            messageClass: "code:ETIMEDOUT",
+            name: "Error",
+          },
+        ],
+        falseInterruptions: [
+          {
+            createdAt: "2026-05-20T14:00:40.000Z",
+            resumed: true,
+          },
+        ],
+        overlappingSpeech: [
+          {
+            createdAt: "2026-05-20T14:00:41.000Z",
+            durationMs: 1200,
+            isInterruption: true,
+          },
+        ],
+      },
+      startedAt: "2026-05-20T14:00:15.000Z",
+      toolExecutions: [
+        {
+          callId: "tool_1",
+          createdAt: "2026-05-20T14:00:25.000Z",
+          outputClass: "appointment_booked",
+          status: "success",
+          toolName: "book_appt",
+        },
+        {
+          callId: "tool_2",
+          createdAt: "2026-05-20T14:00:35.000Z",
+          outputClass: "middleware_error",
+          status: "error",
+          toolName: "check_insurance",
+        },
+      ],
+    });
+    const data = normalized.dataPayload as {
+      language?: unknown;
+      llmSummary?: unknown;
+      sessionEvents?: unknown;
+      toolExecutions?: unknown[];
+    };
+
+    expect(normalized.fallbackUsed).toBe(true);
+    expect(normalized.llmModel).toBe("MiniMaxAI/MiniMax-M2.5");
+    expect(normalized.inputTokens).toBe(300);
+    expect(normalized.outputTokens).toBe(30);
+    expect(normalized.cachedTokens).toBe(120);
+    expect(normalized.cacheHitRate).toBe(0.4);
+    expect(normalized.peakContext).toBe(300);
+    expect(normalized.avgTtft).toBe(500);
+    expect(normalized.toolCalls).toBe(2);
+    expect(normalized.toolErrors).toBe(1);
+    expect(normalized.toolActions.bookedAppointment).toBe(true);
+    expect(normalized.needsReview).toBe(true);
+    expect(normalized.interruptionCount).toBe(2);
+    expect(data.language).toBeTruthy();
+    expect(data.llmSummary).toBeTruthy();
+    expect(data.sessionEvents).toBeTruthy();
+    expect(data.toolExecutions?.length).toBe(2);
+  });
+
+  it("keeps metric token totals when llmSummary is partial", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_partial_llm_summary",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      endedAt: "2026-05-20T14:01:00.000Z",
+      llm: {
+        fallbackUsed: true,
+        model: "fallback-model",
+        usedModels: ["primary-model", "fallback-model"],
+      },
+      llmSummary: {
+        modelsUsed: ["summary-model"],
+      },
+      metrics: [
+        {
+          completionTokens: 25,
+          metadata: { modelName: "primary-model" },
+          promptCachedTokens: 40,
+          promptTokens: 125,
+          ttftMs: 450,
+          type: "llm_metrics",
+        },
+      ],
+      startedAt: "2026-05-20T14:00:30.000Z",
+    });
+
+    expect(normalized.llmModel).toBe("summary-model");
+    expect(normalized.fallbackUsed).toBe(true);
+    expect(normalized.inputTokens).toBe(125);
+    expect(normalized.outputTokens).toBe(25);
+    expect(normalized.cachedTokens).toBe(40);
+    expect(normalized.peakContext).toBe(125);
+    expect(normalized.avgTtft).toBe(450);
+  });
+
+  it("stores normalized tool executions and ignores malformed action status", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_malformed_tool_execution",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      startedAt: "2026-05-20T14:00:30.000Z",
+      toolExecutions: [
+        {
+          outputClass: "appointment_booked",
+          status: "pending",
+          toolName: { bad: true },
+        },
+      ] as unknown as LiveKitWebhookPayload["toolExecutions"],
+    });
+    const data = normalized.dataPayload as {
+      toolExecutions?: Array<Record<string, unknown>>;
+    };
+
+    expect(normalized.toolActions.bookedAppointment).toBe(false);
+    expect(data.toolExecutions).toEqual([{ outputClass: "appointment_booked" }]);
+  });
 });
