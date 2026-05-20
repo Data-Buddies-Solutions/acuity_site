@@ -1,4 +1,10 @@
-import type { ToolCallRecord, TurnRecord } from "@/lib/call-types";
+import type {
+  SessionEventAnalytics,
+  ToolCallRecord,
+  ToolExecutionAnalytics,
+  TurnRecord,
+  VoiceLanguageTelemetry,
+} from "@/lib/call-types";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
@@ -193,12 +199,18 @@ export interface AdminCallTableRow {
   callerPhone: string;
   durationSec: number;
   fallbackUsed: boolean;
+  acceptedLanguages: string[];
+  closeReason: string | null;
+  currentLanguage: string | null;
   hasAudio: boolean;
   id: string;
   interruptionCount: number;
+  falseInterruptionCount: number;
+  languageChanged: boolean;
   llmModel: string;
   officeName: string | null;
   officePhone: string;
+  overlappingSpeechCount: number;
   p50TotalLatency: number;
   p50Ttft: number;
   p50Ttsttfb: number;
@@ -208,6 +220,7 @@ export interface AdminCallTableRow {
   reviewPassed: boolean | null;
   reviewStatus: "pending" | "completed" | "failed" | "not_created";
   startedAt: string;
+  runtimeErrorCount: number;
   toolActions: string[];
   toolCalls: number;
   toolErrors: number;
@@ -507,6 +520,68 @@ function getToolCalls(data: unknown): ToolCallRecord[] {
   );
 }
 
+function getToolExecutions(data: unknown): ToolExecutionAnalytics[] {
+  if (!isRecord(data) || !Array.isArray(data.toolExecutions)) {
+    return [];
+  }
+
+  return data.toolExecutions.filter(isRecord).map((tool) => ({
+    ...(typeof tool.callId === "string" ? { callId: tool.callId } : {}),
+    ...(typeof tool.createdAt === "string" ? { createdAt: tool.createdAt } : {}),
+    ...(typeof tool.outputClass === "string" ? { outputClass: tool.outputClass } : {}),
+    ...(tool.status === "success" || tool.status === "error"
+      ? { status: tool.status }
+      : {}),
+    ...(typeof tool.toolName === "string" ? { toolName: tool.toolName } : {}),
+  }));
+}
+
+function getLanguageTelemetry(data: unknown): VoiceLanguageTelemetry | null {
+  if (!isRecord(data) || !isRecord(data.language)) {
+    return null;
+  }
+
+  return data.language as VoiceLanguageTelemetry;
+}
+
+function getSessionEvents(data: unknown): SessionEventAnalytics | null {
+  if (!isRecord(data) || !isRecord(data.sessionEvents)) {
+    return null;
+  }
+
+  return data.sessionEvents as SessionEventAnalytics;
+}
+
+function getObservabilitySignals(data: unknown) {
+  const language = getLanguageTelemetry(data);
+  const sessionEvents = getSessionEvents(data);
+  const errors = Array.isArray(sessionEvents?.errors) ? sessionEvents.errors : [];
+  const falseInterruptions = Array.isArray(sessionEvents?.falseInterruptions)
+    ? sessionEvents.falseInterruptions
+    : [];
+  const overlappingSpeech = Array.isArray(sessionEvents?.overlappingSpeech)
+    ? sessionEvents.overlappingSpeech
+    : [];
+
+  return {
+    acceptedLanguages: Array.isArray(language?.acceptedLanguages)
+      ? language.acceptedLanguages.filter(
+          (item): item is string => typeof item === "string" && item.length > 0,
+        )
+      : [],
+    closeReason:
+      typeof sessionEvents?.close?.reason === "string"
+        ? sessionEvents.close.reason
+        : null,
+    currentLanguage:
+      typeof language?.currentLanguage === "string" ? language.currentLanguage : null,
+    falseInterruptionCount: falseInterruptions.length,
+    languageChanged: language?.languageChanged === true,
+    overlappingSpeechCount: overlappingSpeech.length,
+    runtimeErrorCount: errors.length,
+  };
+}
+
 function getToolActionLabels(call: {
   bookedAppointment: boolean;
   cancelledAppointment: boolean;
@@ -530,6 +605,17 @@ function getToolActionLabels(call: {
     if (tool.name === "confirm_appt") actions.add("Confirmed");
     if (tool.name === "cancel_appt") actions.add("Cancelled");
     if (tool.name === "transfer_call") actions.add("Transferred");
+  }
+
+  for (const tool of getToolExecutions(call.data)) {
+    if (tool.status !== "success") {
+      continue;
+    }
+
+    if (tool.outputClass === "appointment_booked") actions.add("Booked");
+    if (tool.outputClass === "appointment_confirmed") actions.add("Confirmed");
+    if (tool.outputClass === "appointment_cancelled") actions.add("Cancelled");
+    if (tool.outputClass === "transfer_started") actions.add("Transferred");
   }
 
   return [...actions];
@@ -880,6 +966,18 @@ function buildToolStats(calls: AdminCallRecord[]) {
   const stats = new Map<string, { count: number; errors: number; durations: number[] }>();
 
   for (const call of calls) {
+    const toolExecutions = getToolExecutions(call.data);
+    if (toolExecutions.length > 0) {
+      for (const tool of toolExecutions) {
+        const name = tool.toolName ?? "unknown";
+        const current = stats.get(name) ?? { count: 0, durations: [], errors: 0 };
+        current.count++;
+        if (tool.status === "error") current.errors++;
+        stats.set(name, current);
+      }
+      continue;
+    }
+
     for (const tool of getToolCalls(call.data)) {
       const current = stats.get(tool.name) ?? { count: 0, durations: [], errors: 0 };
       current.count++;
@@ -949,12 +1047,20 @@ function buildPracticeAnalyticsData(
       continue;
     }
 
+    const toolExecutions = getToolExecutions(call.data);
     const toolCalls = getToolCalls(call.data);
-    const callToolCalls = toolCalls.length > 0 ? toolCalls.length : call.toolCalls;
+    const callToolCalls =
+      toolExecutions.length > 0
+        ? toolExecutions.length
+        : toolCalls.length > 0
+          ? toolCalls.length
+          : call.toolCalls;
     const callToolErrors =
-      toolCalls.length > 0
-        ? toolCalls.filter((tool) => tool.isError).length
-        : call.toolErrors;
+      toolExecutions.length > 0
+        ? toolExecutions.filter((tool) => tool.status === "error").length
+        : toolCalls.length > 0
+          ? toolCalls.filter((tool) => tool.isError).length
+          : call.toolErrors;
     const latencyValues = getLatencyArrays(call);
     const peakContext = getPeakContext(call);
 
@@ -1228,11 +1334,21 @@ function buildPracticeDashboardData(
   const allTokensPerSec: number[] = [];
 
   for (const call of calls) {
+    const toolExecutions = getToolExecutions(call.data);
     const tools = getToolCalls(call.data);
     const latency = getLatencyArrays(call);
-    const callToolCalls = tools.length > 0 ? tools.length : call.toolCalls;
+    const callToolCalls =
+      toolExecutions.length > 0
+        ? toolExecutions.length
+        : tools.length > 0
+          ? tools.length
+          : call.toolCalls;
     const callToolErrors =
-      tools.length > 0 ? tools.filter((tool) => tool.isError).length : call.toolErrors;
+      toolExecutions.length > 0
+        ? toolExecutions.filter((tool) => tool.status === "error").length
+        : tools.length > 0
+          ? tools.filter((tool) => tool.isError).length
+          : call.toolErrors;
     let booked = call.bookedAppointment ? 1 : 0;
     let confirmed = call.confirmedAppointment ? 1 : 0;
     let cancelled = call.cancelledAppointment ? 1 : 0;
@@ -1462,10 +1578,18 @@ function buildCallTableRow(
 ): AdminCallTableRow {
   const latency = getLatencyArrays(call);
   const tools = getToolCalls(call.data);
+  const toolExecutions = getToolExecutions(call.data);
+  const observability = getObservabilitySignals(call.data);
   const toolActions = new Set<string>();
 
   for (const tool of tools) {
     toolActions.add(formatToolAction(tool.name));
+  }
+
+  for (const tool of toolExecutions) {
+    if (tool.toolName) {
+      toolActions.add(formatToolAction(tool.toolName));
+    }
   }
 
   const apptActions = getToolActionLabels(call);
@@ -1475,21 +1599,27 @@ function buildCallTableRow(
 
   return {
     apptActions,
+    acceptedLanguages: observability.acceptedLanguages,
     avgTokensPerSec: call.avgTokensPerSec,
     cacheHitRate: getCacheHitRate(call),
     callId: call.callId,
     callerPhone: call.callerPhone,
+    closeReason: observability.closeReason,
+    currentLanguage: observability.currentLanguage,
     durationSec: call.durationSec,
     fallbackUsed: call.fallbackUsed,
+    falseInterruptionCount: observability.falseInterruptionCount,
     hasAudio: false,
     id: call.id,
     interruptionCount: call.interruptionCount,
+    languageChanged: observability.languageChanged,
     llmModel: call.llmModel ?? "",
     officeName:
       call.location?.name ??
       officeNameByPhone.get(normalizePhoneKey(call.officePhone)) ??
       null,
     officePhone: call.officePhone,
+    overlappingSpeechCount: observability.overlappingSpeechCount,
     p50TotalLatency: median(latency.total),
     p50Ttft: median(latency.ttft),
     p50Ttsttfb: median(latency.tts),
@@ -1501,11 +1631,17 @@ function buildCallTableRow(
       (reviewStatus === "completed" && reviewPassed === false),
     reviewPassed,
     reviewStatus,
+    runtimeErrorCount: observability.runtimeErrorCount,
     startedAt: call.startedAt.toISOString(),
     toolActions: [...toolActions],
-    toolCalls: call.toolCalls || tools.length,
+    toolCalls:
+      toolExecutions.length > 0 ? toolExecutions.length : call.toolCalls || tools.length,
     toolErrors:
-      tools.length > 0 ? tools.filter((tool) => tool.isError).length : call.toolErrors,
+      toolExecutions.length > 0
+        ? toolExecutions.filter((tool) => tool.status === "error").length
+        : tools.length > 0
+          ? tools.filter((tool) => tool.isError).length
+          : call.toolErrors,
     totalTurns: getCallTotalTurns(call),
     transcriptText: extractTranscriptText(call.data),
     transferred: call.transferred || apptActions.includes("Transferred"),
@@ -1750,6 +1886,7 @@ export async function getAdminPracticeDetail(
   }
 
   for (const call of calls) {
+    const toolExecutions = getToolExecutions(call.data);
     const callLatency = getLatencyArrays(call);
     latency.stt.push(...callLatency.stt);
     latency.total.push(...callLatency.total);
@@ -1765,8 +1902,14 @@ export async function getAdminPracticeDetail(
     confirmedAppointments += call.confirmedAppointment ? 1 : 0;
     cancelledAppointments += call.cancelledAppointment ? 1 : 0;
     totalDurationSec += call.durationSec;
-    totalToolCalls += call.toolCalls || getToolCalls(call.data).length;
-    totalToolErrors += call.toolErrors;
+    totalToolCalls +=
+      toolExecutions.length > 0
+        ? toolExecutions.length
+        : call.toolCalls || getToolCalls(call.data).length;
+    totalToolErrors +=
+      toolExecutions.length > 0
+        ? toolExecutions.filter((tool) => tool.status === "error").length
+        : call.toolErrors;
     totalInputTokens += call.inputTokens;
     totalOutputTokens += call.outputTokens;
     totalCachedTokens += call.cachedTokens;

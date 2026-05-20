@@ -110,6 +110,65 @@ export type AgentSessionUsage = {
   [key: string]: unknown;
 };
 
+export type VoiceLanguageTelemetry = {
+  acceptedLanguages?: string[];
+  currentLanguage?: string;
+  initialLanguage?: string;
+  languageChanged?: boolean;
+  languageSwitches?: number;
+  observedLanguages?: string[];
+  switchEvents?: Array<{
+    createdAt?: string;
+    detectedLanguage?: string;
+    from?: string;
+    languageConfidence?: number;
+    reason?: string;
+    to?: string;
+  }>;
+};
+
+export type ToolExecutionAnalytics = {
+  callId?: string;
+  createdAt?: string;
+  outputClass?: string;
+  status?: "success" | "error";
+  toolName?: string;
+};
+
+export type SessionEventAnalytics = {
+  close?: {
+    createdAt?: string;
+    reason?: string;
+  };
+  errors?: Array<{
+    code?: string;
+    createdAt?: string;
+    messageClass?: string;
+    name?: string;
+    source?: string;
+  }>;
+  falseInterruptions?: Array<{
+    createdAt?: string;
+    resumed?: boolean;
+  }>;
+  overlappingSpeech?: Array<{
+    createdAt?: string;
+    durationMs?: number;
+    isInterruption?: boolean;
+  }>;
+};
+
+export type LlmSummary = {
+  avgTtftMs?: number;
+  cacheHitRate?: number;
+  cachedPromptTokens?: number;
+  completionTokens?: number;
+  fallbackUsed?: boolean;
+  modelsUsed?: string[];
+  peakPromptTokens?: number;
+  promptTokens?: number;
+};
+
 export type TurnMetricRecord = {
   itemId?: string;
   role?: string;
@@ -129,10 +188,14 @@ export type LiveKitWebhookPayload = {
   startedAt?: string;
   endedAt?: string;
   durationSec?: number;
+  language?: VoiceLanguageTelemetry;
+  llmSummary?: LlmSummary;
   metrics?: LiveKitMetric[];
   llmMetrics?: LiveKitMetric[];
   usage?: AgentSessionUsage;
+  sessionEvents?: SessionEventAnalytics;
   turnMetrics?: TurnMetricRecord[];
+  toolExecutions?: ToolExecutionAnalytics[];
   sessionReport?: SessionReport;
   audioBase64?: string;
   reviewStatus?: string;

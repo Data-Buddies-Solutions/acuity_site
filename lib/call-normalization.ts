@@ -7,9 +7,11 @@ import type {
   JudgeResult,
   LiveKitMetric,
   LiveKitWebhookPayload,
+  LlmSummary,
   ModelUsageRecord,
   SessionReport,
   ToolCallRecord,
+  ToolExecutionAnalytics,
   TurnMetricRecord,
   TurnRecord,
 } from "@/lib/call-types";
@@ -153,12 +155,79 @@ function metricModels(metrics?: LiveKitMetric[]): string[] {
   return [...models];
 }
 
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : [];
+}
+
+function normalizedLlmSummary(value: unknown): LlmSummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const modelsUsed = stringArray(value.modelsUsed);
+  const summary: LlmSummary = {
+    ...(typeof value.avgTtftMs === "number" ? { avgTtftMs: value.avgTtftMs } : {}),
+    ...(typeof value.cacheHitRate === "number"
+      ? { cacheHitRate: value.cacheHitRate }
+      : {}),
+    ...(typeof value.cachedPromptTokens === "number"
+      ? { cachedPromptTokens: value.cachedPromptTokens }
+      : {}),
+    ...(typeof value.completionTokens === "number"
+      ? { completionTokens: value.completionTokens }
+      : {}),
+    ...(typeof value.fallbackUsed === "boolean"
+      ? { fallbackUsed: value.fallbackUsed }
+      : {}),
+    ...(modelsUsed.length > 0 ? { modelsUsed } : {}),
+    ...(typeof value.peakPromptTokens === "number"
+      ? { peakPromptTokens: value.peakPromptTokens }
+      : {}),
+    ...(typeof value.promptTokens === "number"
+      ? { promptTokens: value.promptTokens }
+      : {}),
+  };
+
+  return Object.keys(summary).length > 0 ? summary : null;
+}
+
+function normalizedToolExecutions(value: unknown): ToolExecutionAnalytics[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isRecord).map((item) => ({
+    ...(typeof item.callId === "string" ? { callId: item.callId } : {}),
+    ...(typeof item.createdAt === "string" ? { createdAt: item.createdAt } : {}),
+    ...(typeof item.outputClass === "string" ? { outputClass: item.outputClass } : {}),
+    ...(item.status === "success" || item.status === "error"
+      ? { status: item.status }
+      : {}),
+    ...(typeof item.toolName === "string" ? { toolName: item.toolName } : {}),
+  }));
+}
+
 export function deriveLlmInfo(input: {
   llm?: Partial<{ model: string; fallbackUsed: boolean; usedModels: string[] }>;
+  llmSummary?: unknown;
   metrics?: LiveKitMetric[];
   usage?: AgentSessionUsage;
   sessionReport?: SessionReport;
 }) {
+  const llmSummary = normalizedLlmSummary(input.llmSummary);
+  if (llmSummary?.modelsUsed?.length) {
+    return {
+      fallbackUsed:
+        typeof llmSummary.fallbackUsed === "boolean"
+          ? llmSummary.fallbackUsed
+          : Boolean(input.llm?.fallbackUsed),
+      model: llmSummary.modelsUsed.at(-1) ?? llmSummary.modelsUsed[0] ?? "",
+      usedModels: llmSummary.modelsUsed,
+    };
+  }
+
   const explicit = input.llm;
   if (
     explicit &&
@@ -199,6 +268,10 @@ export function isLiveKitPayload(
       Array.isArray(payload.llmMetrics) ||
       Array.isArray(payload.turnMetrics) ||
       payload.usage !== undefined ||
+      payload.language !== undefined ||
+      payload.llmSummary !== undefined ||
+      payload.sessionEvents !== undefined ||
+      payload.toolExecutions !== undefined ||
       payload.sessionReport !== undefined)
   );
 }
@@ -404,7 +477,9 @@ function groupedLlmMetrics(metrics: LiveKitMetric[]) {
 export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData {
   const metrics = payloadMetrics(body);
   const items = body.sessionReport?.chat_history?.items ?? [];
-  const llm = deriveLlmInfo({ ...body, metrics });
+  const llmSummary = normalizedLlmSummary(body.llmSummary);
+  const toolExecutions = normalizedToolExecutions(body.toolExecutions);
+  const llm = deriveLlmInfo({ ...body, llmSummary: body.llmSummary, metrics });
   const usageTotals = deriveUsageTotals(body);
   const hasTokenUsageTotals =
     usageTotals.inputTokens > 0 ||
@@ -412,11 +487,15 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
     usageTotals.cachedTokens > 0;
   const hasTtsUsageTotals = usageTotals.ttsChars > 0;
   const turnMetricMap = buildTurnMetricMap(body.turnMetrics);
+  const hasSummaryPromptTokens = typeof llmSummary?.promptTokens === "number";
+  const hasSummaryCompletionTokens = typeof llmSummary?.completionTokens === "number";
+  const hasSummaryCachedPromptTokens = typeof llmSummary?.cachedPromptTokens === "number";
+  const hasSummaryPeakPromptTokens = typeof llmSummary?.peakPromptTokens === "number";
 
-  let totalInputTokens = usageTotals.inputTokens;
-  let totalOutputTokens = usageTotals.outputTokens;
-  let totalCachedTokens = usageTotals.cachedTokens;
-  let peakContextTokens = 0;
+  let totalInputTokens = llmSummary?.promptTokens ?? usageTotals.inputTokens;
+  let totalOutputTokens = llmSummary?.completionTokens ?? usageTotals.outputTokens;
+  let totalCachedTokens = llmSummary?.cachedPromptTokens ?? usageTotals.cachedTokens;
+  let peakContextTokens = llmSummary?.peakPromptTokens ?? 0;
   let ttsChars = usageTotals.ttsChars;
 
   for (const metric of metrics) {
@@ -426,12 +505,12 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
       const cached = asNumber(metric.promptCachedTokens);
 
       if (!hasTokenUsageTotals) {
-        totalInputTokens += prompt;
-        totalOutputTokens += completion;
-        totalCachedTokens += cached;
+        if (!hasSummaryPromptTokens) totalInputTokens += prompt;
+        if (!hasSummaryCompletionTokens) totalOutputTokens += completion;
+        if (!hasSummaryCachedPromptTokens) totalCachedTokens += cached;
       }
 
-      if (prompt > peakContextTokens) {
+      if (!hasSummaryPeakPromptTokens && prompt > peakContextTokens) {
         peakContextTokens = prompt;
       }
     }
@@ -583,6 +662,10 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
   }
 
   const ttftValues = turns.map((turn) => turn.ttftMs).filter((value) => value > 0);
+  const metricTtftValues = metrics
+    .filter((metric) => LLM_METRIC_TYPES.has(metric.type))
+    .map((metric) => asNumber(metric.ttftMs))
+    .filter((value) => value > 0);
   const ttsttfbValues = turns.map((turn) => turn.ttsttfbMs).filter((value) => value > 0);
   const totalLatencyValues = turns
     .map((turn) => deriveTotalLatency(turn))
@@ -600,17 +683,25 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
     totalTurns: turns.filter((turn) => turn.callerText !== null).length,
     totals: {
       avgASR: 0,
-      avgTTFT: Math.round(average(ttftValues)),
+      avgTTFT: Math.round(
+        llmSummary?.avgTtftMs ??
+          average(ttftValues.length > 0 ? ttftValues : metricTtftValues),
+      ),
       avgTTSttfb: Math.round(average(ttsttfbValues)),
       avgTotalLatency: Math.round(average(totalLatencyValues)),
-      cacheHitRate: totalInputTokens > 0 ? totalCachedTokens / totalInputTokens : 0,
+      cacheHitRate:
+        llmSummary?.cacheHitRate ??
+        (totalInputTokens > 0 ? totalCachedTokens / totalInputTokens : 0),
       cachedTokens: totalCachedTokens,
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
       peakContextTokens,
       ttsChars,
-      toolCalls: totalToolCalls,
-      toolErrors: totalToolErrors,
+      toolCalls: toolExecutions.length > 0 ? toolExecutions.length : totalToolCalls,
+      toolErrors:
+        toolExecutions.length > 0
+          ? toolExecutions.filter((tool) => tool.status === "error").length
+          : totalToolErrors,
     },
     turns,
   };
@@ -618,6 +709,7 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
 
 export function getToolActions(
   turns: Array<{ toolCalls?: ToolCallRecord[] }>,
+  toolExecutions: ToolExecutionAnalytics[] = [],
 ): ToolActions {
   const actions: ToolActions = {
     bookedAppointment: false,
@@ -625,6 +717,28 @@ export function getToolActions(
     confirmedAppointment: false,
     transferred: false,
   };
+
+  for (const tool of toolExecutions) {
+    if (tool.status !== "success") {
+      continue;
+    }
+
+    if (tool.outputClass === "appointment_booked") {
+      actions.bookedAppointment = true;
+    }
+
+    if (tool.outputClass === "appointment_cancelled") {
+      actions.cancelledAppointment = true;
+    }
+
+    if (tool.outputClass === "appointment_confirmed") {
+      actions.confirmedAppointment = true;
+    }
+
+    if (tool.outputClass === "transfer_started") {
+      actions.transferred = true;
+    }
+  }
 
   for (const turn of turns) {
     for (const tool of turn.toolCalls ?? []) {
@@ -794,6 +908,18 @@ function getInterruptionCount(summary: CallSummaryData, body: LiveKitWebhookPayl
     }
   }
 
+  if (isRecord(body.sessionEvents)) {
+    if (Array.isArray(body.sessionEvents.falseInterruptions)) {
+      interruptionCount += body.sessionEvents.falseInterruptions.length;
+    }
+
+    if (Array.isArray(body.sessionEvents.overlappingSpeech)) {
+      interruptionCount += body.sessionEvents.overlappingSpeech.filter(
+        (event) => isRecord(event) && event.isInterruption === true,
+      ).length;
+    }
+  }
+
   return interruptionCount;
 }
 
@@ -855,16 +981,19 @@ export function normalizeLiveKitCallPayload(
     officePhone: summary.officePhone,
     startedAt: summary.startedAt,
   };
+  const toolExecutions = normalizedToolExecutions(normalizedBody.toolExecutions);
+  const llmSummary = normalizedLlmSummary(normalizedBody.llmSummary);
   const latencyValues = buildLatencyValues(summary, normalizedBody);
   const llm = deriveLlmInfo({
     llm: summary.llm,
+    llmSummary,
     metrics: payloadMetrics(normalizedBody),
     usage: summary.usage ?? normalizedBody.usage,
     sessionReport: summary.sessionReport ?? normalizedBody.sessionReport,
   });
   const reviewResult = getReviewResult(normalizedBody);
   const reviewAverageScore = getReviewAverageScore(reviewResult);
-  const toolActions = getToolActions(summary.turns ?? []);
+  const toolActions = getToolActions(summary.turns ?? [], toolExecutions);
   const ttsChars = getTtsChars(summary, normalizedBody);
   const interruptionCount = getInterruptionCount(summary, normalizedBody);
   const startedAt = asDate(summary.startedAt, new Date()) ?? new Date();
@@ -874,9 +1003,18 @@ export function normalizeLiveKitCallPayload(
     (endedAt
       ? Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000))
       : 0);
-  const inputTokens = Math.max(0, Math.round(asNumber(summary.totals?.inputTokens)));
-  const outputTokens = Math.max(0, Math.round(asNumber(summary.totals?.outputTokens)));
-  const cachedTokens = Math.max(0, Math.round(asNumber(summary.totals?.cachedTokens)));
+  const inputTokens = Math.max(
+    0,
+    Math.round(asNumber(llmSummary?.promptTokens ?? summary.totals?.inputTokens)),
+  );
+  const outputTokens = Math.max(
+    0,
+    Math.round(asNumber(llmSummary?.completionTokens ?? summary.totals?.outputTokens)),
+  );
+  const cachedTokens = Math.max(
+    0,
+    Math.round(asNumber(llmSummary?.cachedPromptTokens ?? summary.totals?.cachedTokens)),
+  );
   const toolCalls = Math.max(0, Math.round(asNumber(summary.totals?.toolCalls)));
   const toolErrors = Math.max(0, Math.round(asNumber(summary.totals?.toolErrors)));
   const llmModel = llm.model || null;
@@ -895,17 +1033,21 @@ export function normalizeLiveKitCallPayload(
     toolErrors,
   });
   const strippedBody = stripAudioPayload(normalizedBody);
+  const observabilityPayload = {
+    ...(normalizedBody.llmSummary !== undefined ? { llmSummary: llmSummary ?? {} } : {}),
+    ...(normalizedBody.toolExecutions !== undefined ? { toolExecutions } : {}),
+  };
   const dataPayload = liveKitPayload
-    ? toJsonCompatible({ ...strippedBody, ...summary })
+    ? toJsonCompatible({ ...strippedBody, ...summary, ...observabilityPayload })
     : toJsonCompatible(strippedBody);
 
   return {
     agentId: asString(normalizedBody.agentId) || null,
     audioData: decodeAudioBase64(normalizedBody.audioBase64),
     avgTokensPerSec: average(latencyValues.tokensPerSec),
-    avgTtft: asNumber(summary.totals?.avgTTFT),
+    avgTtft: asNumber(llmSummary?.avgTtftMs ?? summary.totals?.avgTTFT),
     avgTtsttfb: asNumber(summary.totals?.avgTTSttfb),
-    cacheHitRate: asNumber(summary.totals?.cacheHitRate),
+    cacheHitRate: asNumber(llmSummary?.cacheHitRate ?? summary.totals?.cacheHitRate),
     cachedTokens,
     callId: summary.callId,
     callerPhone: summary.callerPhone ?? "",
@@ -926,7 +1068,12 @@ export function normalizeLiveKitCallPayload(
       asString((reviewResult as JudgeResult | null)?.summary) ||
       null,
     outputTokens,
-    peakContext: Math.max(0, Math.round(asNumber(summary.totals?.peakContextTokens))),
+    peakContext: Math.max(
+      0,
+      Math.round(
+        asNumber(llmSummary?.peakPromptTokens ?? summary.totals?.peakContextTokens),
+      ),
+    ),
     practiceId: asString(normalizedBody.practiceId) || null,
     reviewAverageScore,
     reviewResult,

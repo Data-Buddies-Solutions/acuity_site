@@ -21,8 +21,12 @@ import type {
   CallSummaryData,
   ChatHistoryItem,
   JudgeResult,
+  LlmSummary,
+  SessionEventAnalytics,
   ToolCallRecord,
+  ToolExecutionAnalytics,
   TurnRecord,
+  VoiceLanguageTelemetry,
 } from "@/lib/call-types";
 import {
   computePercentiles,
@@ -150,6 +154,47 @@ function getToolCalls(turns: TurnRecord[]) {
   return turns.flatMap((turn) => turn.toolCalls ?? []);
 }
 
+function getPayloadRecord(data: CallSummaryData): Record<string, unknown> {
+  return isRecord(data) ? data : {};
+}
+
+function getLanguageTelemetry(data: CallSummaryData): VoiceLanguageTelemetry | null {
+  const language = getPayloadRecord(data).language;
+  return isRecord(language) ? (language as VoiceLanguageTelemetry) : null;
+}
+
+function getSessionEvents(data: CallSummaryData): SessionEventAnalytics | null {
+  const sessionEvents = getPayloadRecord(data).sessionEvents;
+  return isRecord(sessionEvents) ? (sessionEvents as SessionEventAnalytics) : null;
+}
+
+function getToolExecutions(data: CallSummaryData): ToolExecutionAnalytics[] {
+  const toolExecutions = getPayloadRecord(data).toolExecutions;
+  return Array.isArray(toolExecutions)
+    ? toolExecutions.filter(isRecord).map((tool) => ({
+        ...(typeof tool.callId === "string" ? { callId: tool.callId } : {}),
+        ...(typeof tool.createdAt === "string" ? { createdAt: tool.createdAt } : {}),
+        ...(typeof tool.outputClass === "string"
+          ? { outputClass: tool.outputClass }
+          : {}),
+        ...(tool.status === "success" || tool.status === "error"
+          ? { status: tool.status }
+          : {}),
+        ...(typeof tool.toolName === "string" ? { toolName: tool.toolName } : {}),
+      }))
+    : [];
+}
+
+function getLlmSummary(data: CallSummaryData): LlmSummary | null {
+  const llmSummary = getPayloadRecord(data).llmSummary;
+  return isRecord(llmSummary) ? (llmSummary as LlmSummary) : null;
+}
+
+function formatLanguageLabel(value: string | null | undefined) {
+  if (!value) return "Unknown";
+  return value.toUpperCase();
+}
+
 function hasTransfer(toolMap: Map<string, ToolInfo>, call: CallDetail) {
   return call.transferred || toolMap.has("transfer_call");
 }
@@ -244,6 +289,20 @@ export default async function AdminCallDetailPage({
     ? reviewResult.findings
     : [];
   const sessionItems = data.sessionReport?.chat_history?.items ?? [];
+  const languageTelemetry = getLanguageTelemetry(data);
+  const sessionEvents = getSessionEvents(data);
+  const toolExecutions = getToolExecutions(data);
+  const llmSummary = getLlmSummary(data);
+  const runtimeErrors = Array.isArray(sessionEvents?.errors) ? sessionEvents.errors : [];
+  const falseInterruptions = Array.isArray(sessionEvents?.falseInterruptions)
+    ? sessionEvents.falseInterruptions
+    : [];
+  const overlappingSpeech = Array.isArray(sessionEvents?.overlappingSpeech)
+    ? sessionEvents.overlappingSpeech
+    : [];
+  const acceptedLanguages = Array.isArray(languageTelemetry?.acceptedLanguages)
+    ? languageTelemetry.acceptedLanguages
+    : [];
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-4 py-8">
@@ -270,6 +329,17 @@ export default async function AdminCallDetailPage({
           ))}
           {hasTransfer(toolMap, call) && <Badge variant="outline">Transfer</Badge>}
           {llm.fallbackUsed && <Badge variant="destructive">Fallback used</Badge>}
+          {languageTelemetry?.languageChanged && (
+            <Badge variant="outline">
+              Language: {formatLanguageLabel(languageTelemetry.currentLanguage)}
+            </Badge>
+          )}
+          {runtimeErrors.length > 0 && (
+            <Badge variant="destructive">
+              {runtimeErrors.length} runtime error
+              {runtimeErrors.length === 1 ? "" : "s"}
+            </Badge>
+          )}
           {totalFailures > 0 && (
             <Badge variant="destructive">
               {totalFailures} tool failure{totalFailures === 1 ? "" : "s"}
@@ -344,6 +414,115 @@ export default async function AdminCallDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      {(languageTelemetry ||
+        sessionEvents ||
+        llmSummary ||
+        toolExecutions.length > 0) && (
+        <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+          <Card className="border-border/70 bg-card/80 shadow-sm">
+            <CardHeader>
+              <CardTitle>Runtime Signals</CardTitle>
+              <CardDescription>
+                Call-level events captured directly from the agent runtime.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <StatCard
+                label="Language"
+                value={
+                  languageTelemetry?.languageChanged
+                    ? "Changed"
+                    : languageTelemetry
+                      ? "No change"
+                      : "--"
+                }
+                sub={
+                  languageTelemetry
+                    ? `Final ${formatLanguageLabel(languageTelemetry.currentLanguage)}`
+                    : undefined
+                }
+              />
+              <StatCard
+                label="Accepted"
+                value={
+                  acceptedLanguages.length > 0
+                    ? acceptedLanguages.map(formatLanguageLabel).join(" -> ")
+                    : "--"
+                }
+              />
+              <StatCard label="Runtime Errors" value={String(runtimeErrors.length)} />
+              <StatCard
+                label="False Interruptions"
+                value={String(falseInterruptions.length)}
+              />
+              <StatCard
+                label="Overlapping Speech"
+                value={String(overlappingSpeech.length)}
+              />
+              <StatCard
+                label="Close Reason"
+                value={sessionEvents?.close?.reason ?? "--"}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/70 bg-card/80 shadow-sm">
+            <CardHeader>
+              <CardTitle>Model And Tool Signals</CardTitle>
+              <CardDescription>
+                Sanitized execution data for dashboards and review inputs.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {llmSummary ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <StatCard
+                    label="Models Used"
+                    value={String(llmSummary.modelsUsed?.length ?? 0)}
+                    sub={llmSummary.modelsUsed?.join(", ") || undefined}
+                  />
+                  <StatCard
+                    label="Fallback"
+                    value={(llmSummary.fallbackUsed ?? llm.fallbackUsed) ? "Yes" : "No"}
+                  />
+                  <StatCard
+                    label="Cache Hit"
+                    value={formatPercent(llmSummary.cacheHitRate ?? cacheHitRate)}
+                  />
+                  <StatCard
+                    label="Avg TTFT"
+                    value={
+                      llmSummary.avgTtftMs ? formatLatencyMs(llmSummary.avgTtftMs) : "--"
+                    }
+                  />
+                </div>
+              ) : null}
+
+              {toolExecutions.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">Tool Executions</p>
+                  <div className="flex flex-wrap gap-2">
+                    {toolExecutions.map((tool, index) => (
+                      <Badge
+                        key={`${tool.callId ?? tool.toolName}-${index}`}
+                        variant={tool.status === "error" ? "destructive" : "outline"}
+                      >
+                        {formatToolLabel(tool.toolName ?? "unknown")}
+                        {tool.outputClass ? ` · ${tool.outputClass}` : ""}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No sanitized tool execution records were posted.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <Card className="border-border/70 bg-card/80 shadow-sm">
