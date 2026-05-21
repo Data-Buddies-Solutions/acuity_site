@@ -164,6 +164,7 @@ function MobileCallCard({
   practiceId,
   showFallback,
   showLanguage,
+  showReview,
   showRuntimeEvents,
   showToolErrors,
 }: {
@@ -171,6 +172,7 @@ function MobileCallCard({
   practiceId: string;
   showFallback: boolean;
   showLanguage: boolean;
+  showReview: boolean;
   showRuntimeEvents: boolean;
   showToolErrors: boolean;
 }) {
@@ -269,8 +271,8 @@ function MobileCallCard({
 
       <div className="space-y-2">
         <div className="flex flex-wrap gap-1.5">
-          {getReviewBadge(call)}
-          {call.reviewStatus === "completed" && (
+          {showReview && getReviewBadge(call)}
+          {showReview && call.reviewStatus === "completed" && (
             <Badge variant="outline" className="text-[10px]">
               Score {formatReviewScore(call.reviewAverageScore)}
             </Badge>
@@ -280,7 +282,7 @@ function MobileCallCard({
               Transfer
             </Badge>
           )}
-          {call.fallbackUsed && (
+          {showFallback && call.fallbackUsed && (
             <Badge variant="destructive" className="text-[10px]">
               Fallback
             </Badge>
@@ -296,7 +298,7 @@ function MobileCallCard({
               {languageDisplayValue(call)}
             </Badge>
           )}
-          {call.runtimeErrorCount > 0 && (
+          {showRuntimeEvents && call.runtimeErrorCount > 0 && (
             <Badge variant="destructive" className="gap-1 text-[10px]">
               <AlertTriangle className="h-3 w-3" />
               Runtime
@@ -386,24 +388,13 @@ export function CallsTable({
     () => normalizeSearchValue(searchQuery),
     [searchQuery],
   );
-  const showFallback = React.useMemo(
-    () => calls.some((call) => call.fallbackUsed),
-    [calls],
-  );
+  const showFallback = false;
+  const showReview = false;
   const showLanguage = React.useMemo(
     () => calls.some((call) => hasLanguageSignal(call)),
     [calls],
   );
-  const showRuntimeEvents = React.useMemo(
-    () =>
-      calls.some(
-        (call) =>
-          call.runtimeErrorCount > 0 ||
-          call.falseInterruptionCount > 0 ||
-          call.overlappingSpeechCount > 0,
-      ),
-    [calls],
-  );
+  const showRuntimeEvents = false;
   const showToolErrors = React.useMemo(
     () => calls.some((call) => call.toolErrors > 0),
     [calls],
@@ -491,6 +482,7 @@ export function CallsTable({
     if (filter.id === "fallback") return showFallback;
     if (filter.id === "language") return showLanguage;
     if (filter.id === "runtime") return showRuntimeEvents;
+    if (filter.id === "needs_review") return showReview;
     return true;
   });
   const pageCount = Math.max(1, Math.ceil(filteredCalls.length / pageSize));
@@ -500,7 +492,8 @@ export function CallsTable({
     pageIndex * pageSize + pageSize,
   );
   const tableColumnCount =
-    10 +
+    9 +
+    (showReview ? 1 : 0) +
     (showToolErrors ? 1 : 0) +
     (showFallback ? 1 : 0) +
     (showLanguage ? 1 : 0) +
@@ -553,6 +546,7 @@ export function CallsTable({
                 practiceId={practiceId}
                 showFallback={showFallback}
                 showLanguage={showLanguage}
+                showReview={showReview}
                 showRuntimeEvents={showRuntimeEvents}
                 showToolErrors={showToolErrors}
               />
@@ -592,11 +586,13 @@ export function CallsTable({
                     Duration
                   </SortButton>
                 </TableHead>
-                <TableHead>
-                  <SortButton sortKey="review" sortState={sortState} onSort={handleSort}>
-                    Review
-                  </SortButton>
-                </TableHead>
+                {showReview && (
+                  <TableHead>
+                    <SortButton sortKey="review" sortState={sortState} onSort={handleSort}>
+                      Review
+                    </SortButton>
+                  </TableHead>
+                )}
                 {showToolErrors && <TableHead>Tool Errors</TableHead>}
                 <TableHead>P50 TTFT</TableHead>
                 <TableHead>P50 TTS</TableHead>
@@ -652,16 +648,18 @@ export function CallsTable({
                       </div>
                     </TableCell>
                     <TableCell>{formatDuration(call.durationSec)}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        {getReviewBadge(call)}
-                        {call.reviewStatus === "completed" && (
-                          <p className="text-xs font-medium tabular-nums text-foreground">
-                            {formatReviewScore(call.reviewAverageScore)}
-                          </p>
-                        )}
-                      </div>
-                    </TableCell>
+                    {showReview && (
+                      <TableCell>
+                        <div className="space-y-1">
+                          {getReviewBadge(call)}
+                          {call.reviewStatus === "completed" && (
+                            <p className="text-xs font-medium tabular-nums text-foreground">
+                              {formatReviewScore(call.reviewAverageScore)}
+                            </p>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                     {showToolErrors && (
                       <TableCell>
                         {call.toolErrors > 0 ? (

@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     "AI receptionist for ophthalmology",
     "ophthalmology receptionist software",
     "AdvancedMD scheduling integration",
-    "AMD marketplace AI",
+    "AdvancedMD marketplace AI",
     "eye care AI front desk",
     "ophthalmology phone automation",
   ],
