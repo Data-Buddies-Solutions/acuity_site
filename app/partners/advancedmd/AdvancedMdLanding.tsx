@@ -20,8 +20,8 @@ const VALUE_PROPS = [
   },
   {
     eyebrow: "Listed on the marketplace",
-    title: "A verified AMD integration.",
-    body: "Acuity is an official AdvancedMD Marketplace partner. Practices already on AMD can plug in Acuity without changing their scheduling backbone or retraining the front desk on a new tool.",
+    title: "A verified AdvancedMD integration.",
+    body: "Acuity is an official AdvancedMD Marketplace partner. Practices already on AdvancedMD can plug in Acuity without changing their scheduling backbone or retraining the front desk on a new tool.",
   },
 ];
 
@@ -98,7 +98,7 @@ function HeroSection() {
           transition={{ delay: 0.3, duration: 0.6 }}
         >
           Acuity is officially listed on the AdvancedMD Marketplace as the AI receptionist
-          purpose-built for ophthalmology. Answer every call, book directly into AMD, and
+          purpose-built for ophthalmology. Answer every call, book directly into AdvancedMD, and
           capture the after-hours demand your front desk has been missing.
         </motion.p>
 
@@ -126,7 +126,7 @@ function HeroSection() {
               rel="noopener noreferrer"
               target="_blank"
             >
-              View on AMD Marketplace
+              View on AdvancedMD Marketplace
             </a>
           </Button>
         </motion.div>
@@ -322,7 +322,7 @@ function FinalCta() {
           Already on AdvancedMD?
         </p>
         <h2 className="mx-auto mt-5 max-w-[20ch] text-4xl font-semibold leading-[1.0] tracking-[-0.03em] text-white md:text-6xl lg:text-[4.25rem] [text-wrap:balance]">
-          See Acuity run on your AMD instance.
+          See Acuity run on your AdvancedMD instance.
         </h2>
         <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-white/85 md:text-lg">
           30-minute demo. We walk through your AdvancedMD scheduling rules, insurance
