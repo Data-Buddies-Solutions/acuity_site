@@ -7,6 +7,7 @@ const footerLinks = [
   { href: "/#how-it-works", label: "How It Works" },
   { href: "/#offers", label: "Solutions" },
   { href: "/#results", label: "Results" },
+  { href: "/partners/advancedmd", label: "AdvancedMD partnership" },
   { href: "/faq", label: "FAQ" },
 ];
 

@@ -81,7 +81,7 @@ export const metadata: Metadata = {
     siteName: "Acuity Health",
     images: [
       {
-        url: `${SITE_CONFIG.baseUrl}/api/og?title=Patient Engagement for Eye Care&subtitle=Answer every patient call and keep communication moving.`,
+        url: `${SITE_CONFIG.baseUrl}/api/og`,
         width: 1200,
         height: 630,
         alt: "Acuity Health - patient engagement for eye care practices",
@@ -94,7 +94,7 @@ export const metadata: Metadata = {
     title: "Patient Engagement for Eye Care | Acuity Health",
     description: SITE_CONFIG.description,
     images: [
-      `${SITE_CONFIG.baseUrl}/api/og?title=Patient Engagement for Eye Care&subtitle=Answer every patient call and keep communication moving.`,
+      `${SITE_CONFIG.baseUrl}/api/og`,
     ],
   },
   robots: {
