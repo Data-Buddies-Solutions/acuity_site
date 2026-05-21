@@ -12,6 +12,7 @@ const navLinks = [
   { href: "/#how-it-works", label: "How It Works" },
   { href: "/#offers", label: "Solutions" },
   { href: "/#results", label: "Results" },
+  { href: "/partners/advancedmd", label: "AdvancedMD" },
   { href: "/faq", label: "FAQ" },
   { href: "/insights", label: "Insights" },
 ];

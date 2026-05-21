@@ -9,7 +9,6 @@ import { Button } from "./ui/button";
 const partners = [
   { name: "AdvancedMD", logo: "/logo-advancedmd.png" },
   { name: "Jazzy Eyes Optical", logo: "/logo-jazzyeyes.jpg" },
-  { name: "ElevenLabs", logo: "/logo-elevenlabs.png" },
   { name: "Abita Eye Group", logo: "/logo-abita.png" },
   { name: "NMB Eye Center", logo: "/logo-nmbeyecenter.jpg" },
   { name: "OnlineDoctorNote", logo: "/logo-onlinedoctornote.png" },
@@ -27,19 +26,28 @@ export default function Hero() {
         <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.3fr)] lg:gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] xl:gap-10">
           {/* Left: copy */}
           <div className="relative z-20 text-center lg:text-left">
-            <h1 className="text-[2.75rem] font-semibold tracking-[-0.04em] leading-[1.05] antialiased subpixel-antialiased md:text-[3.25rem] lg:text-[2.5rem] xl:text-[3rem] 2xl:text-[3.5rem]">
+            <Link
+              className="group mb-6 hidden items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-700 shadow-sm backdrop-blur transition-colors hover:border-accent/40 hover:text-neutral-900 lg:inline-flex"
+              href="/partners/advancedmd"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+              Acuity × AdvancedMD partnership
+              <span className="text-neutral-400 transition-transform group-hover:translate-x-0.5">
+                →
+              </span>
+            </Link>
+            <h1 className="text-[2.25rem] font-semibold tracking-[-0.035em] leading-[1.05] antialiased subpixel-antialiased sm:text-[2.5rem] md:text-[3rem] lg:text-[2.5rem] xl:text-[3rem] 2xl:text-[3.5rem]">
               <span className="block">The</span>
               <span className="block text-accent">patient engagement</span>
-              <span className="block">platform for</span>
-              <span className="block">ophthalmology.</span>
+              <span className="block">platform for ophthalmology.</span>
             </h1>
 
-            <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg lg:mx-0">
+            <p className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-muted-foreground md:mt-6 md:text-lg lg:mx-0">
               An AI receptionist that answers patients, books appointments, and keeps
               follow-ups moving.
             </p>
 
-            <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 lg:justify-start">
+            <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 md:mt-9 lg:justify-start">
               <Button
                 asChild
                 className="w-full rounded-full px-7 py-3 text-sm transition-opacity hover:opacity-90 sm:w-auto md:text-base"
@@ -60,7 +68,7 @@ export default function Hero() {
           </div>
 
           {/* Right: agent flow illustration — cropped tight, full visible */}
-          <div className="relative lg:-ml-8 lg:-mr-20 lg:mt-32 xl:-ml-12 xl:-mr-24 xl:mt-40">
+          <div className="relative hidden lg:block lg:-ml-8 lg:-mr-20 lg:mt-8 xl:-ml-12 xl:-mr-24 xl:mt-12">
             <div
               className="relative w-full overflow-hidden"
               style={{ aspectRatio: "1448 / 720" }}
@@ -86,11 +94,11 @@ export default function Hero() {
       </div>
 
       {/* Logo Marquee */}
-      <div className="relative z-10 mt-32 md:mt-44 lg:mt-52">
+      <div className="relative z-10 mt-10 md:mt-8 lg:mt-2">
         <div className="overflow-hidden border-t border-neutral-100 py-6 md:py-8">
           <div className="mx-auto mb-4 max-w-6xl px-4 md:mb-6 md:px-6">
             <p className="text-center text-xs font-medium uppercase tracking-widest text-muted-foreground/60">
-              Trusted by eye care practices and technology partners
+              Trusted by eye care practices
             </p>
           </div>
           <div className="relative">
