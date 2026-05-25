@@ -96,6 +96,7 @@ export default async function PortalCallCenterPage({
         outboundCallerNumber={outboundCallerNumber}
         outboundCallerNumbers={data.outboundCallerNumbers}
         queue={data.queue}
+        recentCalls={data.recentCalls}
         seats={data.seats}
         totals={data.totals}
         voicemailTimeoutSec={voicemailTimeoutSec}

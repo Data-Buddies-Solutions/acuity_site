@@ -657,6 +657,16 @@ export type PortalCallQueueItem = {
   toPhone: string | null;
 };
 
+export type PortalRecentCallItem = {
+  answeredBy: string | null;
+  fromPhone: string | null;
+  id: string;
+  locationName: string | null;
+  occurredAt: Date;
+  startedAt: Date;
+  status: CallCenterSessionStatus;
+};
+
 export type AvailableCallCenterSeat = {
   extension: string | null;
   id: string;
@@ -1198,6 +1208,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
     getDefaultPortalCallCenterLocation(locations);
   const queueFilter = buildCallCenterQueueScopeWhere(context, selectedLocation);
   const activityFilter = buildCallCenterActivityScopeWhere(context, selectedLocation);
+  const sessionFilter = buildCallCenterSessionScopeWhere(context, selectedLocation);
   const seatQueueKey = getCallCenterSeatQueueKeyForContext(context);
 
   const seatWhere = selectedLocation
@@ -1226,127 +1237,186 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
     visibleLocations,
   });
 
-  const [missedCallCount, voicemailCount, missedCalls, voicemails, seats, queue] =
-    await Promise.all([
-      prisma.callCenterMissedCall.count({
-        where: {
-          calledBack: false,
-          practiceId: practice.id,
-          resolvedAt: null,
-          ...activityFilter,
-        },
-      }),
-      prisma.callCenterVoicemail.count({
-        where: {
-          practiceId: practice.id,
-          resolvedAt: null,
-          ...activityFilter,
-        },
-      }),
-      prisma.callCenterMissedCall.findMany({
-        orderBy: {
-          createdAt: "desc",
-        },
-        select: {
-          calledBack: true,
-          callerName: true,
-          createdAt: true,
-          fromPhone: true,
-          id: true,
-          location: {
-            select: {
-              name: true,
-            },
+  const [
+    missedCallCount,
+    voicemailCount,
+    missedCalls,
+    voicemails,
+    seats,
+    queue,
+    recentSessions,
+  ] = await Promise.all([
+    prisma.callCenterMissedCall.count({
+      where: {
+        calledBack: false,
+        practiceId: practice.id,
+        resolvedAt: null,
+        ...activityFilter,
+      },
+    }),
+    prisma.callCenterVoicemail.count({
+      where: {
+        practiceId: practice.id,
+        resolvedAt: null,
+        ...activityFilter,
+      },
+    }),
+    prisma.callCenterMissedCall.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        calledBack: true,
+        callerName: true,
+        createdAt: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
           },
-          resolvedAt: true,
         },
-        take: 30,
-        where: {
-          calledBack: false,
-          practiceId: practice.id,
-          resolvedAt: null,
-          ...activityFilter,
-        },
-      }),
-      prisma.callCenterVoicemail.findMany({
-        orderBy: {
-          createdAt: "desc",
-        },
-        select: {
-          callerName: true,
-          createdAt: true,
-          durationSec: true,
-          fromPhone: true,
-          id: true,
-          location: {
-            select: {
-              name: true,
-            },
+        resolvedAt: true,
+      },
+      take: 30,
+      where: {
+        calledBack: false,
+        practiceId: practice.id,
+        resolvedAt: null,
+        ...activityFilter,
+      },
+    }),
+    prisma.callCenterVoicemail.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        callerName: true,
+        createdAt: true,
+        durationSec: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
           },
-          recordingId: true,
-          resolvedAt: true,
         },
-        take: 30,
-        where: {
-          practiceId: practice.id,
-          resolvedAt: null,
-          ...activityFilter,
-        },
-      }),
-      prisma.callCenterAgentSeat.findMany({
-        orderBy: [{ extension: "asc" }, { label: "asc" }],
-        select: {
-          extension: true,
-          id: true,
-          label: true,
-          locationId: true,
-          queueKey: true,
-          sipUsername: true,
-          telnyxCredentialId: true,
-        },
-        where: {
-          ...seatWhere,
-          enabled: true,
-        },
-      }),
-      prisma.callCenterQueueItem.findMany({
-        orderBy: [{ priority: "desc" }, { enteredAt: "asc" }],
-        select: {
-          enteredAt: true,
-          fromPhone: true,
-          id: true,
-          location: {
-            select: {
-              name: true,
-            },
+        recordingId: true,
+        resolvedAt: true,
+      },
+      take: 30,
+      where: {
+        practiceId: practice.id,
+        resolvedAt: null,
+        ...activityFilter,
+      },
+    }),
+    prisma.callCenterAgentSeat.findMany({
+      orderBy: [{ extension: "asc" }, { label: "asc" }],
+      select: {
+        extension: true,
+        id: true,
+        label: true,
+        locationId: true,
+        queueKey: true,
+        sipUsername: true,
+        telnyxCredentialId: true,
+      },
+      where: {
+        ...seatWhere,
+        enabled: true,
+      },
+    }),
+    prisma.callCenterQueueItem.findMany({
+      orderBy: [{ priority: "desc" }, { enteredAt: "asc" }],
+      select: {
+        enteredAt: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
           },
-          ringAttempts: {
-            orderBy: {
-              startedAt: "asc",
-            },
-            select: {
-              id: true,
-              seat: {
-                select: {
-                  label: true,
-                },
+        },
+        ringAttempts: {
+          orderBy: {
+            startedAt: "asc",
+          },
+          select: {
+            id: true,
+            seat: {
+              select: {
+                label: true,
               },
-              status: true,
+            },
+            status: true,
+          },
+        },
+        status: true,
+        toPhone: true,
+      },
+      take: 20,
+      where: {
+        practiceId: practice.id,
+        status: {
+          in: ["RINGING", "WAITING", "ASSIGNED", "ACTIVE"],
+        },
+        ...queueFilter,
+      },
+    }),
+    prisma.callCenterSession.findMany({
+      orderBy: [{ updatedAt: "desc" }, { startedAt: "desc" }],
+      select: {
+        answeredAt: true,
+        endedAt: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
+          },
+        },
+        queueItems: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          select: {
+            ringAttempts: {
+              orderBy: [{ answeredAt: "desc" }, { startedAt: "desc" }],
+              select: {
+                answeredAt: true,
+                seat: {
+                  select: {
+                    extension: true,
+                    label: true,
+                  },
+                },
+                status: true,
+              },
             },
           },
-          status: true,
-          toPhone: true,
+          take: 2,
         },
-        take: 20,
-        where: {
-          practiceId: practice.id,
-          status: {
-            in: ["RINGING", "WAITING", "ASSIGNED", "ACTIVE"],
-          },
-          ...queueFilter,
+        startedAt: true,
+        status: true,
+        updatedAt: true,
+      },
+      take: 25,
+      where: {
+        answeredAt: {
+          not: null,
         },
-      }),
-    ]);
+        direction: CallCenterSessionDirection.INBOUND,
+        fromPhone: {
+          not: null,
+          notIn: ["anonymous", "anonymous@anonymous", "anonymous@anonymous.invalid"],
+        },
+        practiceId: practice.id,
+        status: "COMPLETED",
+        ...sessionFilter,
+      },
+    }),
+  ]);
 
   const activity: PortalCallActivityItem[] = [];
 
@@ -1408,6 +1478,32 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
       status: item.status,
       toPhone: item.toPhone,
     })),
+    recentCalls: recentSessions.map((session) => {
+      const answeredAttempt = session.queueItems
+        .flatMap((item) => item.ringAttempts)
+        .find(
+          (attempt) =>
+            attempt.answeredAt ||
+            attempt.status === "ANSWERED" ||
+            attempt.status === "BRIDGED",
+        );
+      const seat = answeredAttempt?.seat ?? null;
+      const answeredBy = seat
+        ? seat.extension
+          ? seat.extension + " - " + seat.label
+          : seat.label
+        : null;
+
+      return {
+        answeredBy,
+        fromPhone: session.fromPhone,
+        id: session.id,
+        locationName: session.location?.name ?? null,
+        occurredAt: session.endedAt ?? session.answeredAt ?? session.startedAt,
+        startedAt: session.startedAt,
+        status: session.status,
+      };
+    }),
     selectedLocation,
     seats: seats.map((seat) => ({
       extension: seat.extension,
