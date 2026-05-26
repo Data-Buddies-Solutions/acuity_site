@@ -75,12 +75,15 @@ export default function ActivityRail({
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedAudioId, setExpandedAudioId] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   const filtered = useMemo(() => {
     if (filter === "all") return activity;
     return activity.filter((item) => item.kind === filter);
   }, [activity, filter]);
 
+  const visibleItems = showAll ? filtered : filtered.slice(0, 5);
+  const hiddenCount = Math.max(0, filtered.length - visibleItems.length);
   const totalActivityCount = totals.missedCalls + totals.voicemails;
   const selectedTotal =
     filter === "all"
@@ -134,9 +137,21 @@ export default function ActivityRail({
         </nav>
       </header>
 
-      {selectedTotal > filtered.length ? (
-        <div className="border-b border-black/5 px-4 py-2 text-xs text-[#617477]">
-          Showing latest {filtered.length} of {selectedTotal}
+      {selectedTotal > filtered.length || hiddenCount > 0 ? (
+        <div className="flex items-center justify-between gap-3 border-b border-black/5 px-4 py-2 text-xs text-[#617477]">
+          <span>
+            Showing {visibleItems.length} of{" "}
+            {selectedTotal > filtered.length ? selectedTotal : filtered.length}
+          </span>
+          {hiddenCount > 0 || showAll ? (
+            <button
+              className="font-semibold text-[#0d7377] transition hover:text-[#09595c]"
+              onClick={() => setShowAll((current) => !current)}
+              type="button"
+            >
+              {showAll ? "Show less" : "View all"}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -146,7 +161,7 @@ export default function ActivityRail({
         </div>
       ) : (
         <ul className="divide-y divide-black/5">
-          {filtered.map((item) => {
+          {visibleItems.map((item) => {
             const { Icon, className } = kindIcon(item.kind);
             const callbackTarget = item.fromPhone || "";
             const duration = formatDuration(item.durationSec);

@@ -2,7 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, CirclePause, MinusCircle, PhoneOutgoing } from "lucide-react";
+import {
+  CheckCircle2,
+  CirclePause,
+  MinusCircle,
+  PhoneCall,
+  PhoneIncoming,
+  PhoneOutgoing,
+} from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
 
@@ -11,6 +18,7 @@ import type {
   PortalCallCenterSeat,
   PortalCallQueueItem,
   PortalOutboundCallerNumber,
+  PortalRecentCallItem,
 } from "@/lib/call-center";
 
 import ActivityRail from "./ActivityRail";
@@ -38,6 +46,7 @@ export default function CallCenterWorkspace({
   outboundCallerNumber,
   outboundCallerNumbers,
   queue,
+  recentCalls,
   seats,
   totals,
   voicemailTimeoutSec,
@@ -51,6 +60,7 @@ export default function CallCenterWorkspace({
   outboundCallerNumber: string;
   outboundCallerNumbers: PortalOutboundCallerNumber[];
   queue: PortalCallQueueItem[];
+  recentCalls: PortalRecentCallItem[];
   seats: PortalCallCenterSeat[];
   totals: { missedCalls: number; voicemails: number };
   voicemailTimeoutSec: number;
@@ -273,6 +283,7 @@ export default function CallCenterWorkspace({
           />
         ) : null}
         <ActivityRail activity={activity} onCallback={handleCallback} totals={totals} />
+        <RecentCallsPanel calls={recentCalls} onCallback={handleCallback} />
       </div>
       <div>
         {enabled && configured ? (
@@ -433,9 +444,115 @@ function queueStatusLabel(status: string) {
     .join(" ");
 }
 
+function formatRecentCallTime(date: Date) {
+  const value = new Date(date);
+  const diff = Date.now() - value.getTime();
+  const minutes = Math.round(diff / 60000);
+
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return minutes + "m ago";
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return hours + "h ago";
+
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    timeZone: "America/New_York",
+  }).format(value);
+}
+
 function hasLiveRingAttempt(item: PortalCallQueueItem) {
   return item.ringAttempts.some((attempt) =>
     ["DIALING", "RINGING", "ANSWERED"].includes(attempt.status),
+  );
+}
+
+function RecentCallsPanel({
+  calls,
+  onCallback,
+}: {
+  calls: PortalRecentCallItem[];
+  onCallback: (number: string) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
+            Recent calls
+          </h3>
+          <p className="mt-1 text-sm text-[#617477]">
+            Completed inbound calls for this location.
+          </p>
+        </div>
+        <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+          {calls.length}
+        </span>
+      </div>
+
+      {calls.length ? (
+        <ul className="mt-4 divide-y divide-black/6 rounded-lg border border-black/6">
+          {calls.map((call) => {
+            const callbackTarget = call.fromPhone || "";
+
+            return (
+              <li
+                className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                key={call.id}
+              >
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <PhoneIncoming
+                      aria-hidden="true"
+                      className="h-4 w-4 shrink-0 text-[#0d7377]"
+                    />
+                    <p className="truncate text-sm font-semibold text-[#10272c]">
+                      {formatQueuePhone(call.fromPhone)}
+                    </p>
+                  </div>
+                  <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
+                    <span>{formatRecentCallTime(call.occurredAt)}</span>
+                    {call.locationName ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>{call.locationName}</span>
+                      </>
+                    ) : null}
+                    {call.answeredBy ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>{call.answeredBy}</span>
+                      </>
+                    ) : null}
+                  </p>
+                </div>
+                <Button
+                  className="w-fit"
+                  disabled={!callbackTarget}
+                  onClick={() => {
+                    if (callbackTarget) {
+                      onCallback(callbackTarget);
+                    }
+                  }}
+                  size="sm"
+                  variant="secondary"
+                >
+                  <PhoneCall className="h-4 w-4" aria-hidden="true" />
+                  Call back
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="mt-4 rounded-lg border border-dashed border-black/10 px-3 py-6 text-center text-sm text-[#617477]">
+          No completed inbound calls yet.
+        </div>
+      )}
+    </section>
   );
 }
 
