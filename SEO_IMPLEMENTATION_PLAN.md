@@ -1,6 +1,6 @@
 # SEO Implementation Plan
 
-## Objective 
+## Objective  
 
 - Launch a fully SEO-optimized version of `agent-house-landing-page` that can rank for high-intent AI automation queries, deliver Core Web Vitals in the “Good” range, and build topical authority within 6 months.
 - Translate the strategic recommendations in `SEO_RESEARCH_PLAN.md` into concrete development, content, and operational tasks for this Next.js 15 landing page.
