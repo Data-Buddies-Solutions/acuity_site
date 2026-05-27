@@ -19,6 +19,10 @@ const LIVE_LOCATIONS = [
     label: "Spring Hill",
     phoneNumber: "+17275919997",
   },
+  {
+    label: "Demo",
+    phoneNumber: "+14843989071",
+  },
 ];
 const BACKFILL_DAYS = 14;
 
@@ -112,11 +116,11 @@ function estimateCostLineItems(call) {
     },
     {
       category: "TEXT_TO_SPEECH",
-      provider: "elevenlabs",
+      provider: "cartesia",
       model: null,
       quantity: ttsChars,
       unit: "characters",
-      costMicros: dollarsToMicros((ttsChars / 1_000) * 0.05),
+      costMicros: dollarsToMicros((ttsChars / 1_000_000) * 39),
     },
     {
       category: "SPEECH_TO_TEXT",
@@ -578,7 +582,7 @@ async function upsertCall(targetPool, call, practiceId, agentId, locationByPhone
       AND provider = ANY($2)`,
     [
       agentCallId,
-      ["assemblyai", "baseten", "elevenlabs", "livekit", "telnyx", "estimated"],
+      ["assemblyai", "baseten", "cartesia", "elevenlabs", "livekit", "telnyx", "estimated"],
     ],
   );
 

@@ -5,7 +5,7 @@ export const USAGE_PRICING_RATES = {
   basetenCachedInputPerMillionTokens: 0.12,
   basetenInputPerMillionTokens: 0.6,
   basetenOutputPerMillionTokens: 2.2,
-  elevenLabsFlashPerThousandCharacters: 0.05,
+  cartesiaSonic35PerMillionCharacters: 39,
   liveKitPerMinute: 0.01,
   telnyxSipInboundPerMinute: 0.0035,
 } as const;
@@ -13,6 +13,7 @@ export const USAGE_PRICING_RATES = {
 export const ESTIMATED_USAGE_PROVIDERS = [
   "assemblyai",
   "baseten",
+  "cartesia",
   "elevenlabs",
   "livekit",
   "telnyx",
@@ -156,11 +157,11 @@ export function calculateUsageCostBreakdown(
     costItem({
       category: "TEXT_TO_SPEECH",
       costDollars:
-        (ttsChars / 1_000) * USAGE_PRICING_RATES.elevenLabsFlashPerThousandCharacters,
-      label: "ElevenLabs Flash TTS",
-      provider: "elevenlabs",
+        (ttsChars / 1_000_000) * USAGE_PRICING_RATES.cartesiaSonic35PerMillionCharacters,
+      label: "Cartesia Sonic 3.5 TTS",
+      provider: "cartesia",
       quantity: ttsChars,
-      rateLabel: "$0.05 / 1K chars",
+      rateLabel: "$39 / 1M chars",
       unit: "characters",
     }),
   ].filter((item) => item.quantity > 0 || item.costMicros > 0);

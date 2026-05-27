@@ -119,7 +119,7 @@ Admin cost estimates use the current vendor-rate calculator in `lib/pricing.ts`:
 - Baseten GLM-4.7 input: `$0.60 / 1M tokens`
 - Baseten GLM-4.7 cached input: `$0.12 / 1M tokens`
 - Baseten GLM-4.7 output: `$2.20 / 1M tokens`
-- ElevenLabs Flash TTS: `$0.05 / 1K characters`
+- Cartesia Sonic 3.5 TTS: `$39 / 1M characters`
 
 The admin analytics Costs tab shows total estimated vendor cost, cost per call, cost per minute, and the line-item breakdown for the selected practice/range.
 

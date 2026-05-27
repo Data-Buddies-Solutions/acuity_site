@@ -225,7 +225,7 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(normalized.avgTtft).toBe(420);
     expect(normalized.avgTtsttfb).toBe(180);
     expect(normalized.avgTokensPerSec).toBe(21);
-    expect(normalized.estimatedCostMicros).toBe(31428);
+    expect(normalized.estimatedCostMicros).toBe(29228);
     expect(normalized.costItems.map((item) => item.provider)).toEqual([
       "livekit",
       "telnyx",
@@ -233,7 +233,7 @@ describe("normalizeLiveKitCallPayload", () => {
       "baseten",
       "baseten",
       "baseten",
-      "elevenlabs",
+      "cartesia",
     ]);
     expect(normalized.latencyValues.stt).toEqual([230]);
     expect(normalized.latencyValues.totalLatency).toEqual([1050]);
