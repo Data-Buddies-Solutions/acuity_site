@@ -75,6 +75,7 @@ export type PortalBookingsResult = {
   officeFilters: PortalOverviewOfficeFilterOption[];
   practiceName: string;
   range: PortalOverviewRange;
+  searchQuery: string | null;
   selectedOfficeId: string | null;
   selectedOfficeLabel: string | null;
 };
@@ -197,6 +198,16 @@ const hourLabelFormatter = new Intl.DateTimeFormat("en-US", {
 
 function normalizePhoneKey(phone: string | null | undefined) {
   return phone?.replace(/\D/g, "") ?? "";
+}
+
+function normalizePortalBookingSearch(value: string | string[] | null | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) {
+    return null;
+  }
+
+  const query = raw.replace(/\s+/g, " ").trim();
+  return query ? query.slice(0, 80) : null;
 }
 
 function phoneLookupVariants(phone: string | null | undefined) {
@@ -794,6 +805,32 @@ function isRenderableBooking(booking: PortalBookedAppointment) {
   return booking.appointmentStatus !== "error" && Boolean(booking.appointmentId);
 }
 
+export function filterPortalBookingsBySearch(
+  bookings: PortalBookedAppointment[],
+  search: string | string[] | null | undefined,
+) {
+  const query = normalizePortalBookingSearch(search);
+
+  if (!query) {
+    return bookings;
+  }
+
+  const textQuery = query.toLowerCase();
+  const digitQuery = normalizePhoneKey(query);
+
+  return bookings.filter((booking) => {
+    const patientName = booking.patientName?.toLowerCase() ?? "";
+    const callerPhone = booking.callerPhone.toLowerCase();
+    const callerPhoneDigits = normalizePhoneKey(booking.callerPhone);
+
+    return (
+      patientName.includes(textQuery) ||
+      callerPhone.includes(textQuery) ||
+      Boolean(digitQuery && callerPhoneDigits.includes(digitQuery))
+    );
+  });
+}
+
 function extractPatientName(args: Record<string, unknown> | null) {
   if (!args) return null;
   const direct =
@@ -982,8 +1019,9 @@ export async function getPortalOverviewMetrics(
 
 export async function getPortalBookings(
   range: PortalOverviewRange = "7d",
-  limit = 50,
+  limit: number | null = 50,
   office?: string | string[] | null,
+  search?: string | string[] | null,
 ): Promise<PortalBookingsResult | null> {
   const context = await getCurrentPortalPracticeContext();
 
@@ -992,6 +1030,7 @@ export async function getPortalBookings(
   }
 
   const rangeStart = getRangeStart(range);
+  const searchQuery = normalizePortalBookingSearch(search);
   const { practice } = context;
   const officeFilters = buildPortalOverviewOfficeFilters(context.allowedPhoneNumbers);
   const selectedOffice = resolvePortalOverviewOfficeFilter(office, officeFilters);
@@ -1006,7 +1045,7 @@ export async function getPortalBookings(
       outcomeSummary: true,
       startedAt: true,
     },
-    take: limit,
+    ...(typeof limit === "number" ? { take: limit } : {}),
     where: andAgentCallWhere(
       {
         bookedAppointment: true,
@@ -1017,13 +1056,15 @@ export async function getPortalBookings(
       buildPortalOverviewOfficeWhere(selectedOffice),
     ),
   });
+  const bookings = bookedCalls.map(extractBookedAppointment).filter(isRenderableBooking);
 
   return {
-    bookings: bookedCalls.map(extractBookedAppointment).filter(isRenderableBooking),
+    bookings: filterPortalBookingsBySearch(bookings, searchQuery),
     branding: getPracticeBranding(practice),
     officeFilters,
     practiceName: practice.name,
     range,
+    searchQuery,
     selectedOfficeId: selectedOffice?.id ?? null,
     selectedOfficeLabel: selectedOffice?.label ?? null,
   };

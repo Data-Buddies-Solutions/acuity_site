@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import {
   buildPortalCallTranscriptMessages,
   extractBookedAppointment,
+  filterPortalBookingsBySearch,
+  type PortalBookedAppointment,
 } from "@/lib/portal-overview";
 
 describe("portal transcript messages", () => {
@@ -210,5 +212,47 @@ describe("portal booking extraction", () => {
     expect(booking.providerName).toBe("Dr. Austin Bach");
     expect(booking.locationName).toBe("ABITA EYE GROUP SPRING HILL");
     expect(booking.patientName).toBe("Jane Smith");
+  });
+});
+
+describe("portal booking search", () => {
+  const baseBooking: PortalBookedAppointment = {
+    appointmentId: "appt-1",
+    appointmentStart: "2026-05-12T11:00",
+    appointmentStatus: "booked",
+    appointmentTypeName: "Established Adult",
+    callId: "call-1",
+    callStartedAt: new Date("2026-05-03T13:00:00.000Z"),
+    callerPhone: "+17275551212",
+    duration: 30,
+    locationName: "Spring Hill",
+    patientName: "Jane Smith",
+    providerName: "Dr. Austin Bach",
+    summary: null,
+  };
+
+  it("matches patient names case-insensitively", () => {
+    const results = filterPortalBookingsBySearch(
+      [
+        baseBooking,
+        {
+          ...baseBooking,
+          appointmentId: "appt-2",
+          callId: "call-2",
+          patientName: "Robert Jones",
+        },
+      ],
+      "jane",
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0].patientName).toBe("Jane Smith");
+  });
+
+  it("matches caller phone digits across formatting", () => {
+    const results = filterPortalBookingsBySearch([baseBooking], "(727) 555-1212");
+
+    expect(results).toHaveLength(1);
+    expect(results[0].callerPhone).toBe("+17275551212");
   });
 });

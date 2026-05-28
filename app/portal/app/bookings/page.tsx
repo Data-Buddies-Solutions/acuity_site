@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Search } from "lucide-react";
 
 import {
   getPortalBookings,
@@ -15,6 +16,7 @@ const rangeOptions = [
   { label: "24 Hours", value: "24h" },
   { label: "7 Days", value: "7d" },
   { label: "30 Days", value: "30d" },
+  { label: "All Time", value: "all" },
 ] as const satisfies ReadonlyArray<{
   label: string;
   value: PortalOverviewRange;
@@ -23,7 +25,7 @@ const rangeOptions = [
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 
 function parseRange(value: string | string[] | undefined): PortalOverviewRange {
-  if (value === "24h" || value === "7d" || value === "30d") {
+  if (value === "24h" || value === "7d" || value === "30d" || value === "all") {
     return value;
   }
   return "24h";
@@ -33,11 +35,19 @@ function parseOffice(value: string | string[] | undefined) {
   return typeof value === "string" ? value : null;
 }
 
+function parseQuery(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const query = raw?.replace(/\s+/g, " ").trim() ?? "";
+  return query || null;
+}
+
 function bookingsHref({
   office,
+  query,
   range,
 }: {
   office?: string | null;
+  query?: string | null;
   range: PortalOverviewRange;
 }) {
   const params = new URLSearchParams();
@@ -48,15 +58,21 @@ function bookingsHref({
     params.set("office", office);
   }
 
+  if (query) {
+    params.set("q", query);
+  }
+
   return `/portal/app/bookings?${params.toString()}`;
 }
 
 function OfficeFilterNav({
   offices,
+  query,
   range,
   selectedOfficeId,
 }: {
   offices: Array<{ id: string; label: string }>;
+  query: string | null;
   range: PortalOverviewRange;
   selectedOfficeId: string | null;
 }) {
@@ -84,7 +100,7 @@ function OfficeFilterNav({
                 ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
                 : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
             )}
-            href={bookingsHref({ office: item.id, range })}
+            href={bookingsHref({ office: item.id, query, range })}
           >
             {item.label}
           </Link>
@@ -247,7 +263,8 @@ export default async function PortalBookingsPage({
   const params = searchParams ? await searchParams : {};
   const range = parseRange(params.range);
   const office = parseOffice(params.office);
-  const result = await getPortalBookings(range, 100, office);
+  const query = parseQuery(params.q);
+  const result = await getPortalBookings(range, null, office, query);
 
   if (!result) {
     redirect("/portal");
@@ -266,6 +283,7 @@ export default async function PortalBookingsPage({
         <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
           <OfficeFilterNav
             offices={result.officeFilters}
+            query={result.searchQuery}
             range={result.range}
             selectedOfficeId={result.selectedOfficeId}
           />
@@ -287,6 +305,7 @@ export default async function PortalBookingsPage({
                   )}
                   href={bookingsHref({
                     office: result.selectedOfficeId,
+                    query: result.searchQuery,
                     range: option.value,
                   })}
                 >
@@ -298,10 +317,58 @@ export default async function PortalBookingsPage({
         </div>
       </PracticePageHeader>
 
+      <form
+        action="/portal/app/bookings"
+        className="flex flex-col gap-3 rounded-xl border border-black/6 bg-white p-3 shadow-sm sm:flex-row sm:items-center"
+      >
+        <input name="range" type="hidden" value={result.range} />
+        {result.selectedOfficeId ? (
+          <input name="office" type="hidden" value={result.selectedOfficeId} />
+        ) : null}
+        <label className="sr-only" htmlFor="bookings-search">
+          Search bookings
+        </label>
+        <div className="relative min-w-0 flex-1">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a999b]"
+          />
+          <input
+            className="h-11 w-full rounded-lg border border-black/8 bg-white pl-9 pr-3 text-sm text-[#10272c] outline-none transition placeholder:text-[#8a999b] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/15"
+            defaultValue={result.searchQuery ?? ""}
+            id="bookings-search"
+            name="q"
+            placeholder="Search patient name or phone"
+            type="search"
+          />
+        </div>
+        <div className="flex gap-2">
+          <button
+            className="inline-flex h-11 items-center justify-center rounded-lg bg-[#10272c] px-4 text-sm font-medium text-white transition hover:bg-[#1a3a40]"
+            type="submit"
+          >
+            Search
+          </button>
+          {result.searchQuery ? (
+            <Link
+              className="inline-flex h-11 items-center justify-center rounded-lg border border-black/10 bg-white px-4 text-sm font-medium text-[#10272c] transition hover:bg-[#f1f5f5]"
+              href={bookingsHref({
+                office: result.selectedOfficeId,
+                range: result.range,
+              })}
+            >
+              Clear
+            </Link>
+          ) : null}
+        </div>
+      </form>
+
       <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
         {result.bookings.length === 0 ? (
           <div className="px-5 py-10 text-center text-sm text-[#617477]">
-            No bookings in this range yet.
+            {result.searchQuery
+              ? "No bookings matched that search."
+              : "No bookings in this range yet."}
           </div>
         ) : (
           <>
