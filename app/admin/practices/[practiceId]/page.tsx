@@ -27,7 +27,7 @@ type AdminPracticeTab =
   | "costs"
   | "tokens"
   | "tools";
-type PracticeView = "command" | "analytics";
+type PracticeView = "analytics" | "bad" | "command" | "golden";
 
 function parseRange(value: string | string[] | undefined): AdminPracticeRange {
   if (value === "24h" || value === "7d" || value === "30d" || value === "all") {
@@ -52,7 +52,11 @@ function parseTab(value: string | string[] | undefined): AdminPracticeTab {
 }
 
 function parseView(value: string | string[] | undefined): PracticeView {
-  return value === "analytics" ? "analytics" : "command";
+  if (value === "analytics" || value === "bad" || value === "golden") {
+    return value;
+  }
+
+  return "command";
 }
 
 function parseOfficeFilter(value: string | string[] | undefined) {
@@ -74,8 +78,8 @@ function hrefWithParams(
     searchParams.set("range", params.range);
   }
 
-  if (params.view === "analytics") {
-    searchParams.set("view", "analytics");
+  if (params.view !== "command") {
+    searchParams.set("view", params.view);
   }
 
   if (params.view === "analytics" && params.tab && params.tab !== "overview") {
@@ -103,11 +107,13 @@ function PracticeViewTabs({
 }) {
   const items = [
     { label: "Command Center", view: "command" },
+    { label: "Golden Calls", view: "golden" },
+    { label: "Bad Calls", view: "bad" },
     { label: "Analytics", view: "analytics" },
   ] as const;
 
   return (
-    <nav className="grid grid-cols-2 rounded-lg bg-muted p-1 sm:inline-grid sm:w-fit">
+    <nav className="grid grid-cols-2 rounded-lg bg-muted p-1 sm:inline-grid sm:w-fit sm:grid-cols-4">
       {items.map((item) => (
         <Link
           key={item.view}
@@ -154,6 +160,20 @@ export default async function AdminPracticeDetailPage({
   const data = detail.analyticsData;
   const selectedOffice =
     detail.officeFilters.find((office) => office.id === detail.selectedOfficeId) ?? null;
+  const callSetRows =
+    view === "golden"
+      ? detail.callRows.filter((call) => call.evaluationBucket === "GOLDEN")
+      : view === "bad"
+        ? detail.callRows.filter((call) => call.evaluationBucket === "BAD")
+        : detail.callRows;
+  const callSetTitle =
+    view === "golden"
+      ? "Golden Calls"
+      : view === "bad"
+        ? "Bad Calls"
+        : selectedOffice
+          ? `${selectedOffice.label} Calls`
+          : "All Calls";
 
   return (
     <main className="mx-auto max-w-6xl space-y-4 px-3 py-4 sm:px-4 md:space-y-6 md:py-8">
@@ -201,12 +221,15 @@ export default async function AdminPracticeDetailPage({
           <HealthKPIs data={detail.dashboardData} />
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-foreground">
-              {selectedOffice ? `${selectedOffice.label} Calls` : "All Calls"}
-            </h2>
+            <h2 className="text-lg font-semibold text-foreground">{callSetTitle}</h2>
             <CallsTable calls={detail.callRows} practiceId={practiceId} />
           </section>
         </>
+      ) : view === "golden" || view === "bad" ? (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-foreground">{callSetTitle}</h2>
+          <CallsTable calls={callSetRows} practiceId={practiceId} />
+        </section>
       ) : (
         <>
           <Suspense>

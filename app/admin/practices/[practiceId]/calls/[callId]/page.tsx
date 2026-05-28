@@ -1,14 +1,17 @@
 import { notFound } from "next/navigation";
+import { Star, ThumbsDown, X } from "lucide-react";
 
 import { AudioPlayer } from "@/app/components/audio-player";
 import { CopyButton } from "@/app/components/copy-button";
 import { LatencyScatterCharts } from "@/app/components/latency-scatter";
 import { StatCard } from "@/app/components/stat-card";
+import { setCallEvaluationBucketAction } from "@/app/admin/practices/[practiceId]/calls/[callId]/actions";
 import {
   SessionTranscriptTimeline,
   TranscriptTimeline,
 } from "@/app/components/turn-bubble";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -199,6 +202,67 @@ function hasTransfer(toolMap: Map<string, ToolInfo>, call: CallDetail) {
   return call.transferred || toolMap.has("transfer_call");
 }
 
+function getEvaluationBucket(call: CallDetail) {
+  if (call.evaluationLabels.some((label) => label.bucket === "BAD")) {
+    return "BAD";
+  }
+
+  if (call.evaluationLabels.some((label) => label.bucket === "GOLDEN")) {
+    return "GOLDEN";
+  }
+
+  return null;
+}
+
+function CallEvaluationForm({
+  bucket,
+  callId,
+  isActive,
+  practiceId,
+}: {
+  bucket: "BAD" | "GOLDEN";
+  callId: string;
+  isActive: boolean;
+  practiceId: string;
+}) {
+  const Icon = bucket === "GOLDEN" ? Star : ThumbsDown;
+
+  return (
+    <form action={setCallEvaluationBucketAction}>
+      <input type="hidden" name="practiceId" value={practiceId} />
+      <input type="hidden" name="callId" value={callId} />
+      <input type="hidden" name="bucket" value={bucket} />
+      <Button
+        type="submit"
+        variant={isActive ? (bucket === "BAD" ? "destructive" : "secondary") : "outline"}
+      >
+        <Icon className={bucket === "GOLDEN" && isActive ? "fill-current" : ""} />
+        {bucket === "GOLDEN" ? "Golden" : "Bad"}
+      </Button>
+    </form>
+  );
+}
+
+function ClearCallEvaluationForm({
+  callId,
+  practiceId,
+}: {
+  callId: string;
+  practiceId: string;
+}) {
+  return (
+    <form action={setCallEvaluationBucketAction}>
+      <input type="hidden" name="practiceId" value={practiceId} />
+      <input type="hidden" name="callId" value={callId} />
+      <input type="hidden" name="bucket" value="CLEAR" />
+      <Button type="submit" variant="ghost">
+        <X />
+        Clear
+      </Button>
+    </form>
+  );
+}
+
 export default async function AdminCallDetailPage({
   params,
 }: {
@@ -303,6 +367,7 @@ export default async function AdminCallDetailPage({
   const acceptedLanguages = Array.isArray(languageTelemetry?.acceptedLanguages)
     ? languageTelemetry.acceptedLanguages
     : [];
+  const evaluationBucket = getEvaluationBucket(call);
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-4 py-8">
@@ -345,8 +410,44 @@ export default async function AdminCallDetailPage({
               {totalFailures} tool failure{totalFailures === 1 ? "" : "s"}
             </Badge>
           )}
+          {evaluationBucket === "GOLDEN" && (
+            <Badge variant="secondary" className="gap-1">
+              <Star className="h-3.5 w-3.5 fill-current" />
+              Golden
+            </Badge>
+          )}
+          {evaluationBucket === "BAD" && (
+            <Badge variant="destructive" className="gap-1">
+              <ThumbsDown className="h-3.5 w-3.5" />
+              Bad
+            </Badge>
+          )}
         </div>
       </div>
+
+      <Card className="border-border/70 bg-card/80 shadow-sm">
+        <CardHeader>
+          <CardTitle>Eval Set</CardTitle>
+          <CardDescription>Manual admin label for this call.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-2">
+          <CallEvaluationForm
+            bucket="GOLDEN"
+            callId={call.id}
+            isActive={evaluationBucket === "GOLDEN"}
+            practiceId={practiceId}
+          />
+          <CallEvaluationForm
+            bucket="BAD"
+            callId={call.id}
+            isActive={evaluationBucket === "BAD"}
+            practiceId={practiceId}
+          />
+          {evaluationBucket ? (
+            <ClearCallEvaluationForm callId={call.id} practiceId={practiceId} />
+          ) : null}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <Card className="border-border/70 bg-card/80 shadow-sm">

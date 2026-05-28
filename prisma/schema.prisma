@@ -114,6 +114,11 @@ enum AgentCallStatus {
   ABANDONED
 }
 
+enum AgentCallEvaluationBucket {
+  GOLDEN
+  BAD
+}
+
 enum UsageCostCategory {
   LLM_INPUT
   LLM_CACHED_INPUT
@@ -241,6 +246,7 @@ model Practice {
   launchedAt           DateTime?
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
+  callEvaluationLabels  AgentCallEvaluationLabel[]
   agentCalls           AgentCall[]
   agents               PracticeAgent[]
   callCenterAgentSeats CallCenterAgentSeat[]
@@ -347,6 +353,7 @@ model AgentCall {
   callCenterMissed     CallCenterMissedCall[]
   callCenterSessions   CallCenterSession[]
   costLineItems        UsageCostLineItem[]
+  evaluationLabels     AgentCallEvaluationLabel[]
   location             PracticeLocation?      @relation(fields: [locationId], references: [id], onDelete: SetNull)
   practice             Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
 
@@ -358,6 +365,23 @@ model AgentCall {
   @@index([callerPhone])
   @@index([officePhone])
   @@map("agent_call")
+}
+
+model AgentCallEvaluationLabel {
+  id              String                    @id @default(cuid())
+  practiceId      String
+  callId          String
+  bucket          AgentCallEvaluationBucket
+  createdByUserId String?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  call            AgentCall                 @relation(fields: [callId], references: [id], onDelete: Cascade)
+  practice        Practice                  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, bucket])
+  @@index([practiceId, bucket])
+  @@index([callId])
+  @@map("agent_call_evaluation_label")
 }
 
 model UsageCostLineItem {

@@ -9,6 +9,8 @@ import {
   ArrowUpDown,
   Check,
   Languages,
+  Star,
+  ThumbsDown,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -146,6 +148,28 @@ function getReviewBadge(call: AdminCallTableRow) {
   );
 }
 
+function getEvaluationBadge(call: AdminCallTableRow) {
+  if (call.evaluationBucket === "GOLDEN") {
+    return (
+      <Badge variant="secondary" className="gap-1 text-[10px]">
+        <Star className="h-3 w-3 fill-current" />
+        Golden
+      </Badge>
+    );
+  }
+
+  if (call.evaluationBucket === "BAD") {
+    return (
+      <Badge variant="destructive" className="gap-1 text-[10px]">
+        <ThumbsDown className="h-3 w-3" />
+        Bad
+      </Badge>
+    );
+  }
+
+  return null;
+}
+
 function formatLatencyValue(value: number) {
   return value > 0 ? formatLatencyMs(value) : "--";
 }
@@ -271,6 +295,7 @@ function MobileCallCard({
 
       <div className="space-y-2">
         <div className="flex flex-wrap gap-1.5">
+          {getEvaluationBadge(call)}
           {showReview && getReviewBadge(call)}
           {showReview && call.reviewStatus === "completed" && (
             <Badge variant="outline" className="text-[10px]">
@@ -629,12 +654,15 @@ export function CallsTable({
                 pageRows.map((call) => (
                   <TableRow key={call.id}>
                     <TableCell>
-                      <Link
-                        href={`/admin/practices/${practiceId}/calls/${call.id}`}
-                        className="whitespace-nowrap hover:underline"
-                      >
-                        {formatLocalTime(call.startedAt)}
-                      </Link>
+                      <div className="space-y-1.5">
+                        <Link
+                          href={`/admin/practices/${practiceId}/calls/${call.id}`}
+                          className="whitespace-nowrap hover:underline"
+                        >
+                          {formatLocalTime(call.startedAt)}
+                        </Link>
+                        {getEvaluationBadge(call)}
+                      </div>
                     </TableCell>
                     <TableCell>{formatPhone(call.callerPhone)}</TableCell>
                     <TableCell>

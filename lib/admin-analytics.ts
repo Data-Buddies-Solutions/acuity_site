@@ -5,7 +5,7 @@ import type {
   TurnRecord,
   VoiceLanguageTelemetry,
 } from "@/lib/call-types";
-import type { Prisma } from "@/generated/prisma/client";
+import type { AgentCallEvaluationBucket, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
@@ -198,6 +198,7 @@ export interface AdminCallTableRow {
   callId: string;
   callerPhone: string;
   durationSec: number;
+  evaluationBucket: AgentCallEvaluationBucket | null;
   fallbackUsed: boolean;
   acceptedLanguages: string[];
   closeReason: string | null;
@@ -1572,6 +1573,20 @@ function buildOfficeNameByPhone(
   return officeNameByPhone;
 }
 
+function getEvaluationBucket(
+  labels: Array<{ bucket: AgentCallEvaluationBucket }>,
+): AgentCallEvaluationBucket | null {
+  if (labels.some((label) => label.bucket === "BAD")) {
+    return "BAD";
+  }
+
+  if (labels.some((label) => label.bucket === "GOLDEN")) {
+    return "GOLDEN";
+  }
+
+  return null;
+}
+
 function buildCallTableRow(
   call: AdminCallRecord,
   officeNameByPhone: Map<string, string>,
@@ -1607,6 +1622,7 @@ function buildCallTableRow(
     closeReason: observability.closeReason,
     currentLanguage: observability.currentLanguage,
     durationSec: call.durationSec,
+    evaluationBucket: getEvaluationBucket(call.evaluationLabels),
     fallbackUsed: call.fallbackUsed,
     falseInterruptionCount: observability.falseInterruptionCount,
     hasAudio: false,
@@ -1674,6 +1690,11 @@ async function loadPracticeCalls(
       data: true,
       durationSec: true,
       estimatedCostMicros: true,
+      evaluationLabels: {
+        select: {
+          bucket: true,
+        },
+      },
       fallbackUsed: true,
       id: true,
       inputTokens: true,
@@ -2000,6 +2021,11 @@ export async function getAdminCallDetail(practiceId: string, callId: string) {
       costLineItems: {
         orderBy: {
           costMicros: "desc",
+        },
+      },
+      evaluationLabels: {
+        orderBy: {
+          createdAt: "desc",
         },
       },
       location: true,
