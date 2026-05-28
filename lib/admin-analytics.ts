@@ -1731,6 +1731,40 @@ async function loadPracticeCalls(
   });
 }
 
+export async function getAdminPracticeCallRows(
+  practiceId: string,
+  range: AdminPracticeRange = "7d",
+  office?: string | null,
+) {
+  const practice = await prisma.practice.findUnique({
+    select: {
+      phoneNumbers: {
+        include: {
+          location: true,
+        },
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+      },
+    },
+    where: {
+      id: practiceId,
+    },
+  });
+
+  if (!practice) {
+    return null;
+  }
+
+  const officeFilters = buildOfficeFilterOptions(practice.phoneNumbers);
+  const selectedOffice = resolveOfficeFilter(office, officeFilters);
+  const officeNameByPhone = buildOfficeNameByPhone(practice.phoneNumbers);
+  const calls = await loadPracticeCalls(practiceId, range, selectedOffice);
+
+  return {
+    callRows: calls.map((call) => buildCallTableRow(call, officeNameByPhone)),
+    selectedOfficeId: selectedOffice?.id ?? null,
+  };
+}
+
 export async function getAdminPracticeSummaries() {
   const since30 = sinceDays(30);
   const since7 = sinceDays(7);

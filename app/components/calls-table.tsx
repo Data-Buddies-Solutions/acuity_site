@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowDown,
@@ -24,39 +25,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AdminCallTableRow } from "@/lib/admin-analytics";
+import {
+  CALL_TABLE_PAGE_SIZE,
+  callQuickFilters,
+  clampCallTablePage,
+  filterAndSortCalls,
+  getCallOfficeLabel,
+  getCallOfficeSubLabel,
+  getCallTablePageCount,
+  hasLanguageSignal,
+  parseCallTableState,
+  writeCallTableStateToParams,
+  type CallQuickFilter,
+  type CallSortKey,
+  type CallSortState,
+  type CallTableState,
+} from "@/lib/admin-call-table-state";
 import { formatDuration, formatLatencyMs, formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-type QuickFilter =
-  | "all"
-  | "booking"
-  | "errors"
-  | "fallback"
-  | "language"
-  | "needs_review"
-  | "runtime"
-  | "transfers";
-type SortKey =
-  | "actions"
-  | "durationSec"
-  | "office"
-  | "review"
-  | "startedAt"
-  | "totalLatency"
-  | "transferred";
-type SortState = { direction: "asc" | "desc"; key: SortKey };
-
-const pageSize = 15;
-const quickFilters: { id: QuickFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "booking", label: "Booked" },
-  { id: "needs_review", label: "Needs Review" },
-  { id: "transfers", label: "Transfers" },
-  { id: "language", label: "Language" },
-  { id: "runtime", label: "Runtime" },
-  { id: "fallback", label: "Fallback" },
-  { id: "errors", label: "Errors" },
-];
 
 const localTimeFormatter = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
@@ -65,30 +51,6 @@ const localTimeFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   timeZone: "America/New_York",
 });
-
-function normalizeSearchValue(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function normalizeDigits(value: string): string {
-  return value.replace(/\D/g, "");
-}
-
-function normalizeLanguage(value: string | null | undefined): string {
-  return value?.trim().toLowerCase() ?? "";
-}
-
-function hasLanguageSignal(call: AdminCallTableRow): boolean {
-  if (call.languageChanged) return true;
-
-  const currentLanguage = normalizeLanguage(call.currentLanguage);
-  if (currentLanguage && currentLanguage !== "en") return true;
-
-  return call.acceptedLanguages.some((language) => {
-    const normalized = normalizeLanguage(language);
-    return normalized.length > 0 && normalized !== "en";
-  });
-}
 
 function languageDisplayValue(call: AdminCallTableRow): string {
   return call.currentLanguage?.toUpperCase() || "Changed";
@@ -100,14 +62,6 @@ function formatLocalTime(value: string) {
 
 function formatReviewScore(score: number | null): string {
   return score === null ? "--" : `${score.toFixed(1)}/5`;
-}
-
-function getOfficeLabel(call: AdminCallTableRow) {
-  return call.officeName || formatPhone(call.officePhone) || "Unknown office";
-}
-
-function getOfficeSubLabel(call: AdminCallTableRow) {
-  return call.officeName && call.officePhone ? formatPhone(call.officePhone) : "";
 }
 
 function getReviewBadge(call: AdminCallTableRow) {
@@ -185,7 +139,7 @@ function MobileField({ label, value }: { label: string; value: React.ReactNode }
 
 function MobileCallCard({
   call,
-  practiceId,
+  callHref,
   showFallback,
   showLanguage,
   showReview,
@@ -193,7 +147,7 @@ function MobileCallCard({
   showToolErrors,
 }: {
   call: AdminCallTableRow;
-  practiceId: string;
+  callHref: string;
   showFallback: boolean;
   showLanguage: boolean;
   showReview: boolean;
@@ -215,10 +169,7 @@ function MobileCallCard({
     <article className="space-y-3 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <Link
-            href={`/admin/practices/${practiceId}/calls/${call.id}`}
-            className="font-medium hover:underline"
-          >
+          <Link href={callHref} className="font-medium hover:underline">
             {formatLocalTime(call.startedAt)}
           </Link>
           <p className="mt-0.5 text-sm text-muted-foreground">
@@ -238,10 +189,10 @@ function MobileCallCard({
           label="Office"
           value={
             <div className="min-w-0">
-              <p className="truncate">{getOfficeLabel(call)}</p>
-              {getOfficeSubLabel(call) ? (
+              <p className="truncate">{getCallOfficeLabel(call)}</p>
+              {getCallOfficeSubLabel(call) ? (
                 <p className="truncate text-xs font-normal text-muted-foreground">
-                  {getOfficeSubLabel(call)}
+                  {getCallOfficeSubLabel(call)}
                 </p>
               ) : null}
             </div>
@@ -348,9 +299,9 @@ function SortButton({
   onSort,
 }: {
   children: React.ReactNode;
-  onSort: (key: SortKey) => void;
-  sortKey: SortKey;
-  sortState: SortState;
+  onSort: (key: CallSortKey) => void;
+  sortKey: CallSortKey;
+  sortState: CallSortState;
 }) {
   const Icon =
     sortState.key !== sortKey
@@ -367,38 +318,6 @@ function SortButton({
   );
 }
 
-function getSortValue(call: AdminCallTableRow, key: SortKey) {
-  switch (key) {
-    case "actions":
-      return call.toolActions.length;
-    case "durationSec":
-      return call.durationSec;
-    case "office":
-      return getOfficeLabel(call);
-    case "review":
-      return call.reviewNeedsAttention ? 1 : (call.reviewAverageScore ?? -1);
-    case "startedAt":
-      return new Date(call.startedAt).getTime();
-    case "totalLatency":
-      return call.p50TotalLatency;
-    case "transferred":
-      return call.transferred ? 1 : 0;
-  }
-}
-
-function compareCalls(a: AdminCallTableRow, b: AdminCallTableRow, sort: SortState) {
-  const aValue = getSortValue(a, sort.key);
-  const bValue = getSortValue(b, sort.key);
-  if (typeof aValue === "string" || typeof bValue === "string") {
-    const direction = sort.direction === "asc" ? 1 : -1;
-    return String(aValue).localeCompare(String(bValue)) * direction;
-  }
-
-  const delta = aValue - bValue;
-
-  return sort.direction === "asc" ? delta : -delta;
-}
-
 export function CallsTable({
   calls,
   practiceId,
@@ -406,18 +325,19 @@ export function CallsTable({
   calls: AdminCallTableRow[];
   practiceId: string;
 }) {
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [quickFilter, setQuickFilter] = React.useState<QuickFilter>("all");
-  const [sortState, setSortState] = React.useState<SortState>({
-    direction: "desc",
-    key: "startedAt",
-  });
-  const [page, setPage] = React.useState(0);
-
-  const normalizedQuery = React.useMemo(
-    () => normalizeSearchValue(searchQuery),
-    [searchQuery],
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const stateFromUrl = React.useMemo(
+    () => parseCallTableState(searchParams),
+    [searchParams],
   );
+  const stateSignature = `${stateFromUrl.searchQuery}|${stateFromUrl.quickFilter}|${stateFromUrl.sortState.key}|${stateFromUrl.sortState.direction}|${stateFromUrl.page}`;
+  const [searchQuery, setSearchQuery] = React.useState(stateFromUrl.searchQuery);
+  const [quickFilter, setQuickFilter] = React.useState<CallQuickFilter>(
+    stateFromUrl.quickFilter,
+  );
+  const [sortState, setSortState] = React.useState<CallSortState>(stateFromUrl.sortState);
+  const [page, setPage] = React.useState(stateFromUrl.page);
   const showFallback = false;
   const showReview = false;
   const showLanguage = React.useMemo(
@@ -430,75 +350,27 @@ export function CallsTable({
     [calls],
   );
 
-  const filteredCalls = React.useMemo(() => {
-    const phoneQuery = normalizeDigits(searchQuery);
-
-    return calls
-      .filter((call) => {
-        if (quickFilter === "booking" && !call.apptActions.includes("Booked")) {
-          return false;
-        }
-        if (quickFilter === "errors" && call.toolErrors === 0) {
-          return false;
-        }
-        if (quickFilter === "fallback" && !call.fallbackUsed) {
-          return false;
-        }
-        if (quickFilter === "language" && !hasLanguageSignal(call)) {
-          return false;
-        }
-        if (quickFilter === "needs_review" && !call.reviewNeedsAttention) {
-          return false;
-        }
-        if (
-          quickFilter === "runtime" &&
-          call.runtimeErrorCount === 0 &&
-          call.falseInterruptionCount === 0 &&
-          call.overlappingSpeechCount === 0
-        ) {
-          return false;
-        }
-        if (quickFilter === "transfers" && !call.transferred) {
-          return false;
-        }
-
-        if (!normalizedQuery) {
-          return true;
-        }
-
-        const searchableValues = [
-          call.callId,
-          call.callerPhone,
-          formatPhone(call.callerPhone),
-          call.llmModel,
-          call.officePhone,
-          formatPhone(call.officePhone),
-          call.currentLanguage ?? "",
-          call.closeReason ?? "",
-          getOfficeLabel(call),
-          call.acceptedLanguages.join(" "),
-          call.evaluationComment ?? "",
-          call.toolActions.join(" "),
-          call.transcriptText,
-        ];
-
-        if (
-          phoneQuery &&
-          searchableValues.some((value) => normalizeDigits(value).includes(phoneQuery))
-        ) {
-          return true;
-        }
-
-        return searchableValues.some((value) =>
-          normalizeSearchValue(value).includes(normalizedQuery),
-        );
-      })
-      .sort((a, b) => compareCalls(a, b, sortState));
-  }, [calls, normalizedQuery, quickFilter, searchQuery, sortState]);
-
   React.useEffect(() => {
-    setPage(0);
-  }, [normalizedQuery, quickFilter, sortState]);
+    setSearchQuery(stateFromUrl.searchQuery);
+    setQuickFilter(stateFromUrl.quickFilter);
+    setSortState(stateFromUrl.sortState);
+    setPage(stateFromUrl.page);
+  }, [stateFromUrl, stateSignature]);
+
+  const tableState = React.useMemo<CallTableState>(
+    () => ({
+      page,
+      quickFilter,
+      searchQuery,
+      sortState,
+    }),
+    [page, quickFilter, searchQuery, sortState],
+  );
+
+  const filteredCalls = React.useMemo(
+    () => filterAndSortCalls(calls, tableState),
+    [calls, tableState],
+  );
 
   if (calls.length === 0) {
     return (
@@ -508,7 +380,7 @@ export function CallsTable({
     );
   }
 
-  const visibleQuickFilters = quickFilters.filter((filter) => {
+  const visibleQuickFilters = callQuickFilters.filter((filter) => {
     if (filter.id === "errors") return showToolErrors;
     if (filter.id === "fallback") return showFallback;
     if (filter.id === "language") return showLanguage;
@@ -516,11 +388,12 @@ export function CallsTable({
     if (filter.id === "needs_review") return showReview;
     return true;
   });
-  const pageCount = Math.max(1, Math.ceil(filteredCalls.length / pageSize));
-  const pageIndex = Math.min(page, pageCount - 1);
+  const pageCount = getCallTablePageCount(filteredCalls.length);
+  const activePage = clampCallTablePage(page, pageCount);
+  const pageIndex = activePage - 1;
   const pageRows = filteredCalls.slice(
-    pageIndex * pageSize,
-    pageIndex * pageSize + pageSize,
+    pageIndex * CALL_TABLE_PAGE_SIZE,
+    pageIndex * CALL_TABLE_PAGE_SIZE + CALL_TABLE_PAGE_SIZE,
   );
   const tableColumnCount =
     9 +
@@ -530,15 +403,46 @@ export function CallsTable({
     (showLanguage ? 1 : 0) +
     (showRuntimeEvents ? 1 : 0);
 
-  function handleSort(key: SortKey) {
-    setSortState((current) =>
-      current.key === key
+  function replaceTableUrl(nextState: CallTableState) {
+    const params = new URLSearchParams(searchParams.toString());
+    writeCallTableStateToParams(params, nextState);
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+  }
+
+  function updateTableState(nextState: CallTableState) {
+    setSearchQuery(nextState.searchQuery);
+    setQuickFilter(nextState.quickFilter);
+    setSortState(nextState.sortState);
+    setPage(nextState.page);
+    replaceTableUrl(nextState);
+  }
+
+  function getCallHref(callId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    writeCallTableStateToParams(params, {
+      ...tableState,
+      page: activePage,
+    });
+    const query = params.toString();
+    return `/admin/practices/${practiceId}/calls/${callId}${query ? `?${query}` : ""}`;
+  }
+
+  function handleSort(key: CallSortKey) {
+    const nextSortState: CallSortState =
+      sortState.key === key
         ? {
-            direction: current.direction === "asc" ? "desc" : "asc",
+            direction: sortState.direction === "asc" ? "desc" : "asc",
             key,
           }
-        : { direction: "desc", key },
-    );
+        : { direction: "desc" as const, key };
+
+    updateTableState({
+      page: 1,
+      quickFilter,
+      searchQuery,
+      sortState: nextSortState,
+    });
   }
 
   return (
@@ -547,7 +451,14 @@ export function CallsTable({
         <input
           type="text"
           value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
+          onChange={(event) =>
+            updateTableState({
+              page: 1,
+              quickFilter,
+              searchQuery: event.target.value,
+              sortState,
+            })
+          }
           placeholder="Search calls"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 sm:max-w-sm"
           aria-label="Search calls"
@@ -560,7 +471,14 @@ export function CallsTable({
             key={filter.id}
             variant={quickFilter === filter.id ? "secondary" : "outline"}
             size="sm"
-            onClick={() => setQuickFilter(filter.id)}
+            onClick={() =>
+              updateTableState({
+                page: 1,
+                quickFilter: filter.id,
+                searchQuery,
+                sortState,
+              })
+            }
           >
             {filter.label}
           </Button>
@@ -574,7 +492,7 @@ export function CallsTable({
               <MobileCallCard
                 key={call.id}
                 call={call}
-                practiceId={practiceId}
+                callHref={getCallHref(call.id)}
                 showFallback={showFallback}
                 showLanguage={showLanguage}
                 showReview={showReview}
@@ -666,7 +584,7 @@ export function CallsTable({
                     <TableCell>
                       <div className="space-y-1.5">
                         <Link
-                          href={`/admin/practices/${practiceId}/calls/${call.id}`}
+                          href={getCallHref(call.id)}
                           className="whitespace-nowrap hover:underline"
                         >
                           {formatLocalTime(call.startedAt)}
@@ -682,10 +600,10 @@ export function CallsTable({
                     <TableCell>{formatPhone(call.callerPhone)}</TableCell>
                     <TableCell>
                       <div className="max-w-40">
-                        <p className="truncate font-medium">{getOfficeLabel(call)}</p>
-                        {getOfficeSubLabel(call) && (
+                        <p className="truncate font-medium">{getCallOfficeLabel(call)}</p>
+                        {getCallOfficeSubLabel(call) && (
                           <p className="truncate text-xs text-muted-foreground">
-                            {getOfficeSubLabel(call)}
+                            {getCallOfficeSubLabel(call)}
                           </p>
                         )}
                       </div>
@@ -824,14 +742,24 @@ export function CallsTable({
             </p>
             <Button
               variant="outline"
-              onClick={() => setPage((current) => Math.max(0, current - 1))}
+              onClick={() =>
+                updateTableState({
+                  ...tableState,
+                  page: Math.max(1, activePage - 1),
+                })
+              }
               disabled={pageIndex === 0}
             >
               Previous
             </Button>
             <Button
               variant="outline"
-              onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+              onClick={() =>
+                updateTableState({
+                  ...tableState,
+                  page: Math.min(pageCount, activePage + 1),
+                })
+              }
               disabled={pageIndex >= pageCount - 1}
             >
               Next

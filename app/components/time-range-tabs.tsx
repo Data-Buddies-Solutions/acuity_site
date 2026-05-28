@@ -27,6 +27,7 @@ export function TimeRangeTabs() {
         onValueChange={(value) => {
           const params = new URLSearchParams(searchParams.toString());
           params.set("range", value);
+          params.delete("page");
           startTransition(() => {
             router.replace(`${pathname}?${params.toString()}`, { scroll: false });
           });

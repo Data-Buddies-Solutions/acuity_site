@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { Star, ThumbsDown, X } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, ArrowRight, List, Star, ThumbsDown, X } from "lucide-react";
 
 import { AudioPlayer } from "@/app/components/audio-player";
 import { CopyButton } from "@/app/components/copy-button";
@@ -19,7 +20,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { getAdminCallDetail } from "@/lib/admin-analytics";
+import {
+  getAdminCallDetail,
+  getAdminPracticeCallRows,
+  type AdminPracticeRange,
+} from "@/lib/admin-analytics";
+import {
+  getCallListNavigation,
+  getPageForCallIndex,
+  parseCallTableState,
+  searchParamRecordToURLSearchParams,
+  writeCallTableStateToParams,
+  type CallTableState,
+} from "@/lib/admin-call-table-state";
 import type {
   CallSummaryData,
   ChatHistoryItem,
@@ -47,6 +60,7 @@ interface ToolInfo {
 }
 
 type CallDetail = NonNullable<Awaited<ReturnType<typeof getAdminCallDetail>>>;
+type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 
 const REVIEW_SCORE_ITEMS = [
   { key: "grounding", label: "Grounding" },
@@ -58,6 +72,55 @@ const REVIEW_SCORE_ITEMS = [
 ] as const;
 
 export const dynamic = "force-dynamic";
+
+function parseRange(value: string | string[] | undefined): AdminPracticeRange {
+  if (value === "24h" || value === "7d" || value === "30d" || value === "all") {
+    return value;
+  }
+
+  return "24h";
+}
+
+function parseOfficeFilter(value: string | string[] | undefined) {
+  return typeof value === "string" ? value : null;
+}
+
+function tableStateWithPage(state: CallTableState, page: number): CallTableState {
+  return {
+    ...state,
+    page,
+  };
+}
+
+function practiceCallsHref(
+  practiceId: string,
+  params: URLSearchParams,
+  tableState: CallTableState,
+) {
+  const nextParams = new URLSearchParams(params.toString());
+  writeCallTableStateToParams(nextParams, tableState);
+  const query = nextParams.toString();
+  return `/admin/practices/${practiceId}${query ? `?${query}` : ""}`;
+}
+
+function callDetailHref({
+  callId,
+  page,
+  params,
+  practiceId,
+  tableState,
+}: {
+  callId: string;
+  page: number;
+  params: URLSearchParams;
+  practiceId: string;
+  tableState: CallTableState;
+}) {
+  const nextParams = new URLSearchParams(params.toString());
+  writeCallTableStateToParams(nextParams, tableStateWithPage(tableState, page));
+  const query = nextParams.toString();
+  return `/admin/practices/${practiceId}/calls/${callId}${query ? `?${query}` : ""}`;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -273,13 +336,53 @@ function CallEvaluationEditor({
 
 export default async function AdminCallDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ callId: string; practiceId: string }>;
+  searchParams?: SearchParamsInput;
 }) {
-  const { callId, practiceId } = await params;
-  const call = await getAdminCallDetail(practiceId, callId);
+  const [{ callId, practiceId }, resolvedSearchParams] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve({} as Record<string, string | string[] | undefined>),
+  ]);
+  const range = parseRange(resolvedSearchParams.range);
+  const office = parseOfficeFilter(resolvedSearchParams.office);
+  const tableState = parseCallTableState(resolvedSearchParams);
+  const urlParams = searchParamRecordToURLSearchParams(resolvedSearchParams);
+  const [call, callRowsResult] = await Promise.all([
+    getAdminCallDetail(practiceId, callId),
+    getAdminPracticeCallRows(practiceId, range, office),
+  ]);
 
   if (!call) notFound();
+
+  const callNavigation = callRowsResult
+    ? getCallListNavigation(callRowsResult.callRows, tableState, call.id)
+    : null;
+  const currentPage = callNavigation?.currentPage ?? tableState.page;
+  const backHref = practiceCallsHref(
+    practiceId,
+    urlParams,
+    tableStateWithPage(tableState, currentPage),
+  );
+  const previousHref = callNavigation?.previousCall
+    ? callDetailHref({
+        callId: callNavigation.previousCall.id,
+        page: getPageForCallIndex(callNavigation.currentIndex - 1),
+        params: urlParams,
+        practiceId,
+        tableState,
+      })
+    : null;
+  const nextHref = callNavigation?.nextCall
+    ? callDetailHref({
+        callId: callNavigation.nextCall.id,
+        page: getPageForCallIndex(callNavigation.currentIndex + 1),
+        params: urlParams,
+        practiceId,
+        tableState,
+      })
+    : null;
 
   const data = getSummary(call);
   const turns = data.turns ?? [];
@@ -380,6 +483,42 @@ export default async function AdminCallDetailPage({
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-4 py-8">
+      <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card/80 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <Link
+          href={backHref}
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground transition hover:bg-muted"
+        >
+          <List className="h-4 w-4" />
+          Back to calls
+        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            aria-disabled={!previousHref}
+            className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium transition ${
+              previousHref
+                ? "text-foreground hover:bg-muted"
+                : "pointer-events-none text-muted-foreground opacity-50"
+            }`}
+            href={previousHref ?? backHref}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Previous call
+          </Link>
+          <Link
+            aria-disabled={!nextHref}
+            className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium transition ${
+              nextHref
+                ? "text-foreground hover:bg-muted"
+                : "pointer-events-none text-muted-foreground opacity-50"
+            }`}
+            href={nextHref ?? backHref}
+          >
+            Next call
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </div>
+
       <div className="space-y-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">

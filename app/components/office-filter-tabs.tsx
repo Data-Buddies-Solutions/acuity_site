@@ -40,6 +40,7 @@ export function OfficeFilterTabs({ offices, selectedOfficeId }: OfficeFilterTabs
           } else {
             params.set("office", value);
           }
+          params.delete("page");
 
           const query = params.toString();
 

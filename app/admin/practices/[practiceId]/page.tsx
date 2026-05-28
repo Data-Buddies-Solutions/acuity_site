@@ -222,13 +222,17 @@ export default async function AdminPracticeDetailPage({
 
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-foreground">{callSetTitle}</h2>
-            <CallsTable calls={detail.callRows} practiceId={practiceId} />
+            <Suspense>
+              <CallsTable calls={detail.callRows} practiceId={practiceId} />
+            </Suspense>
           </section>
         </>
       ) : view === "golden" || view === "bad" ? (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-foreground">{callSetTitle}</h2>
-          <CallsTable calls={callSetRows} practiceId={practiceId} />
+          <Suspense>
+            <CallsTable calls={callSetRows} practiceId={practiceId} />
+          </Suspense>
         </section>
       ) : (
         <>
