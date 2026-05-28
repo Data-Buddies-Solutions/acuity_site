@@ -330,6 +330,11 @@ function MobileCallCard({
             </Badge>
           )}
         </div>
+        {call.evaluationComment ? (
+          <p className="line-clamp-2 text-xs text-muted-foreground">
+            {call.evaluationComment}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-1.5">{actionBadges}</div>
       </div>
     </article>
@@ -472,6 +477,7 @@ export function CallsTable({
           call.closeReason ?? "",
           getOfficeLabel(call),
           call.acceptedLanguages.join(" "),
+          call.evaluationComment ?? "",
           call.toolActions.join(" "),
           call.transcriptText,
         ];
@@ -613,7 +619,11 @@ export function CallsTable({
                 </TableHead>
                 {showReview && (
                   <TableHead>
-                    <SortButton sortKey="review" sortState={sortState} onSort={handleSort}>
+                    <SortButton
+                      sortKey="review"
+                      sortState={sortState}
+                      onSort={handleSort}
+                    >
                       Review
                     </SortButton>
                   </TableHead>
@@ -662,6 +672,11 @@ export function CallsTable({
                           {formatLocalTime(call.startedAt)}
                         </Link>
                         {getEvaluationBadge(call)}
+                        {call.evaluationComment ? (
+                          <p className="max-w-56 truncate text-xs text-muted-foreground">
+                            {call.evaluationComment}
+                          </p>
+                        ) : null}
                       </div>
                     </TableCell>
                     <TableCell>{formatPhone(call.callerPhone)}</TableCell>

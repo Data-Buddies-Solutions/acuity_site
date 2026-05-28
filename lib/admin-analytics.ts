@@ -199,6 +199,7 @@ export interface AdminCallTableRow {
   callerPhone: string;
   durationSec: number;
   evaluationBucket: AgentCallEvaluationBucket | null;
+  evaluationComment: string | null;
   fallbackUsed: boolean;
   acceptedLanguages: string[];
   closeReason: string | null;
@@ -1573,18 +1574,14 @@ function buildOfficeNameByPhone(
   return officeNameByPhone;
 }
 
-function getEvaluationBucket(
-  labels: Array<{ bucket: AgentCallEvaluationBucket }>,
-): AgentCallEvaluationBucket | null {
-  if (labels.some((label) => label.bucket === "BAD")) {
-    return "BAD";
-  }
-
-  if (labels.some((label) => label.bucket === "GOLDEN")) {
-    return "GOLDEN";
-  }
-
-  return null;
+function getEvaluationLabel(
+  labels: Array<{ bucket: AgentCallEvaluationBucket; comment: string | null }>,
+) {
+  return (
+    labels.find((label) => label.bucket === "BAD") ??
+    labels.find((label) => label.bucket === "GOLDEN") ??
+    null
+  );
 }
 
 function buildCallTableRow(
@@ -1611,6 +1608,7 @@ function buildCallTableRow(
   const reviewStatus = normalizeReviewStatus(call.reviewStatus);
   const reviewPassed = getReviewPassed(call.reviewResult);
   const reviewAverageScore = getReviewAverage(call);
+  const evaluationLabel = getEvaluationLabel(call.evaluationLabels);
 
   return {
     apptActions,
@@ -1622,7 +1620,8 @@ function buildCallTableRow(
     closeReason: observability.closeReason,
     currentLanguage: observability.currentLanguage,
     durationSec: call.durationSec,
-    evaluationBucket: getEvaluationBucket(call.evaluationLabels),
+    evaluationBucket: evaluationLabel?.bucket ?? null,
+    evaluationComment: evaluationLabel?.comment ?? null,
     fallbackUsed: call.fallbackUsed,
     falseInterruptionCount: observability.falseInterruptionCount,
     hasAudio: false,
@@ -1693,6 +1692,7 @@ async function loadPracticeCalls(
       evaluationLabels: {
         select: {
           bucket: true,
+          comment: true,
         },
       },
       fallbackUsed: true,

@@ -4,13 +4,20 @@ import { prisma } from "@/lib/prisma";
 export type SetAgentCallEvaluationBucketInput = {
   bucket: AgentCallEvaluationBucket | null;
   callId: string;
+  comment?: string | null;
   createdByUserId: string;
   practiceId: string;
 };
 
+function normalizeEvaluationComment(comment: string | null | undefined) {
+  const normalized = comment?.replace(/\r\n?/g, "\n").trim() ?? "";
+  return normalized ? normalized.slice(0, 2000) : null;
+}
+
 export async function setAgentCallEvaluationBucket({
   bucket,
   callId,
+  comment,
   createdByUserId,
   practiceId,
 }: SetAgentCallEvaluationBucketInput) {
@@ -48,6 +55,7 @@ export async function setAgentCallEvaluationBucket({
       data: {
         bucket,
         callId: call.id,
+        comment: normalizeEvaluationComment(comment),
         createdByUserId,
         practiceId: call.practiceId,
       },

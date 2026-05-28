@@ -202,63 +202,71 @@ function hasTransfer(toolMap: Map<string, ToolInfo>, call: CallDetail) {
   return call.transferred || toolMap.has("transfer_call");
 }
 
-function getEvaluationBucket(call: CallDetail) {
-  if (call.evaluationLabels.some((label) => label.bucket === "BAD")) {
-    return "BAD";
-  }
-
-  if (call.evaluationLabels.some((label) => label.bucket === "GOLDEN")) {
-    return "GOLDEN";
-  }
-
-  return null;
-}
-
-function CallEvaluationForm({
-  bucket,
-  callId,
-  isActive,
-  practiceId,
-}: {
-  bucket: "BAD" | "GOLDEN";
-  callId: string;
-  isActive: boolean;
-  practiceId: string;
-}) {
-  const Icon = bucket === "GOLDEN" ? Star : ThumbsDown;
-
+function getEvaluationLabel(call: CallDetail) {
   return (
-    <form action={setCallEvaluationBucketAction}>
-      <input type="hidden" name="practiceId" value={practiceId} />
-      <input type="hidden" name="callId" value={callId} />
-      <input type="hidden" name="bucket" value={bucket} />
-      <Button
-        type="submit"
-        variant={isActive ? (bucket === "BAD" ? "destructive" : "secondary") : "outline"}
-      >
-        <Icon className={bucket === "GOLDEN" && isActive ? "fill-current" : ""} />
-        {bucket === "GOLDEN" ? "Golden" : "Bad"}
-      </Button>
-    </form>
+    call.evaluationLabels.find((label) => label.bucket === "BAD") ??
+    call.evaluationLabels.find((label) => label.bucket === "GOLDEN") ??
+    null
   );
 }
 
-function ClearCallEvaluationForm({
+function CallEvaluationEditor({
   callId,
+  currentBucket,
+  currentComment,
   practiceId,
 }: {
   callId: string;
+  currentBucket: "BAD" | "GOLDEN" | null;
+  currentComment: string | null;
   practiceId: string;
 }) {
   return (
-    <form action={setCallEvaluationBucketAction}>
+    <form action={setCallEvaluationBucketAction} className="w-full space-y-3">
       <input type="hidden" name="practiceId" value={practiceId} />
       <input type="hidden" name="callId" value={callId} />
-      <input type="hidden" name="bucket" value="CLEAR" />
-      <Button type="submit" variant="ghost">
-        <X />
-        Clear
-      </Button>
+      <div className="space-y-1.5">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground"
+          htmlFor="evaluation-comment"
+        >
+          Reviewer comment
+        </label>
+        <textarea
+          className="min-h-24 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          defaultValue={currentComment ?? ""}
+          id="evaluation-comment"
+          maxLength={2000}
+          name="comment"
+          placeholder="Why should this call be in this eval set?"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          name="bucket"
+          type="submit"
+          value="GOLDEN"
+          variant={currentBucket === "GOLDEN" ? "secondary" : "outline"}
+        >
+          <Star className={currentBucket === "GOLDEN" ? "fill-current" : ""} />
+          {currentBucket === "GOLDEN" ? "Save Golden" : "Golden"}
+        </Button>
+        <Button
+          name="bucket"
+          type="submit"
+          value="BAD"
+          variant={currentBucket === "BAD" ? "destructive" : "outline"}
+        >
+          <ThumbsDown />
+          {currentBucket === "BAD" ? "Save Bad" : "Bad"}
+        </Button>
+        {currentBucket ? (
+          <Button name="bucket" type="submit" value="CLEAR" variant="ghost">
+            <X />
+            Clear
+          </Button>
+        ) : null}
+      </div>
     </form>
   );
 }
@@ -367,7 +375,8 @@ export default async function AdminCallDetailPage({
   const acceptedLanguages = Array.isArray(languageTelemetry?.acceptedLanguages)
     ? languageTelemetry.acceptedLanguages
     : [];
-  const evaluationBucket = getEvaluationBucket(call);
+  const evaluationLabel = getEvaluationLabel(call);
+  const evaluationBucket = evaluationLabel?.bucket ?? null;
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-4 py-8">
@@ -431,21 +440,12 @@ export default async function AdminCallDetailPage({
           <CardDescription>Manual admin label for this call.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2">
-          <CallEvaluationForm
-            bucket="GOLDEN"
+          <CallEvaluationEditor
             callId={call.id}
-            isActive={evaluationBucket === "GOLDEN"}
+            currentBucket={evaluationBucket}
+            currentComment={evaluationLabel?.comment ?? null}
             practiceId={practiceId}
           />
-          <CallEvaluationForm
-            bucket="BAD"
-            callId={call.id}
-            isActive={evaluationBucket === "BAD"}
-            practiceId={practiceId}
-          />
-          {evaluationBucket ? (
-            <ClearCallEvaluationForm callId={call.id} practiceId={practiceId} />
-          ) : null}
         </CardContent>
       </Card>
 

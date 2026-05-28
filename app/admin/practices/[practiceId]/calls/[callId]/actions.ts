@@ -20,11 +20,13 @@ export async function setCallEvaluationBucketAction(formData: FormData) {
   const practiceId = String(formData.get("practiceId") || "");
   const callId = String(formData.get("callId") || "");
   const bucket = parseBucket(formData.get("bucket"));
+  const comment = String(formData.get("comment") || "");
   const detailPath = `/admin/practices/${practiceId}/calls/${callId}`;
 
   await setAgentCallEvaluationBucket({
     bucket,
     callId,
+    comment,
     createdByUserId: session.user.id,
     practiceId,
   });
