@@ -7,31 +7,16 @@ import { SITE_CONFIG } from "@/lib/config";
 
 const organizationSchema = {
   "@context": "https://schema.org",
-  "@type": "ProfessionalService",
+  "@type": "Organization",
   name: SITE_CONFIG.name,
   url: SITE_CONFIG.baseUrl,
   logo: `${SITE_CONFIG.baseUrl}/logo.png`,
   description: SITE_CONFIG.description,
   email: SITE_CONFIG.email,
   sameAs: [SITE_CONFIG.social.linkedin],
-  serviceType: [
-    "Patient engagement platform for ophthalmology",
-    "Patient engagement platform for optometry",
-    "Eye care patient engagement",
-    "Eye care phone system",
-    "HIPAA-compliant patient communication",
-  ],
   areaServed: {
     "@type": "Country",
     name: "United States",
-  },
-  offers: {
-    "@type": "Service",
-    name: "Patient Engagement Platform",
-    description:
-      "Patient engagement for ophthalmology and optometry practices, including call handling, scheduling, confirmations, reminders, and follow-up workflows.",
-    priceRange: "$$",
-    url: SITE_CONFIG.baseUrl,
   },
   founder: {
     "@type": "Person",
@@ -39,25 +24,68 @@ const organizationSchema = {
   },
 };
 
+const softwareApplicationSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Acuity AI Receptionist",
+  applicationCategory: "HealthApplication",
+  applicationSubCategory: "AI Receptionist / Voice AI",
+  operatingSystem: "Web",
+  url: SITE_CONFIG.baseUrl,
+  description:
+    "AI receptionist for ophthalmology practices that answers every patient call and books appointments directly into the EMR.",
+  audience: {
+    "@type": "MedicalAudience",
+    audienceType: "Ophthalmology practices",
+  },
+  offers: {
+    "@type": "Offer",
+    priceCurrency: "USD",
+    price: "0",
+    priceSpecification: {
+      "@type": "PriceSpecification",
+      priceCurrency: "USD",
+      description: "Custom pricing based on locations, workflows, and call volume.",
+    },
+  },
+  featureList: [
+    "AI receptionist that answers 100% of patient calls",
+    "Direct appointment booking into the EMR",
+    "After-hours and weekend call capture",
+    "Multilingual handling, including Spanish",
+    "Pediatric and medical vs. vision insurance routing",
+    "Two-way SMS, confirmations, and reminders",
+    "Front-desk analytics across locations",
+    "HIPAA-conscious deployment",
+  ],
+  provider: {
+    "@type": "Organization",
+    name: SITE_CONFIG.name,
+    url: SITE_CONFIG.baseUrl,
+  },
+};
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_CONFIG.baseUrl),
   title: {
-    default: `${SITE_CONFIG.name} | Patient Engagement for Eye Care`,
+    default: `${SITE_CONFIG.name} | AI Receptionist for Ophthalmology`,
     template: `%s | ${SITE_CONFIG.name}`,
   },
   description: SITE_CONFIG.description,
   keywords: [
+    "AI receptionist",
+    "AI receptionist for ophthalmology",
+    "AI receptionist for medical practices",
+    "AI phone agent",
+    "virtual receptionist for doctors",
+    "medical answering service alternative",
+    "AI appointment booking",
+    "AI receptionist EMR integration",
+    "ophthalmology answering service",
+    "eye care AI front desk",
+    "after-hours call answering",
+    "never miss a call",
     "Acuity Health",
-    "patient engagement ophthalmology",
-    "patient engagement optometry",
-    "eye care phone system",
-    "ophthalmology appointment scheduling",
-    "ophthalmology call management",
-    "patient communication for eye doctors",
-    "HIPAA compliant phone system",
-    "AdvancedMD integration",
-    "automated patient calls eye care",
-    "ophthalmology office phone system",
   ],
   icons: {
     icon: "/icon.svg",
@@ -76,7 +104,7 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: `${SITE_CONFIG.baseUrl}/`,
-    title: "Patient Engagement for Eye Care | Acuity Health",
+    title: "AI Receptionist for Ophthalmology | Acuity Health",
     description: SITE_CONFIG.description,
     siteName: "Acuity Health",
     images: [
@@ -84,14 +112,14 @@ export const metadata: Metadata = {
         url: `${SITE_CONFIG.baseUrl}/api/og`,
         width: 1200,
         height: 630,
-        alt: "Acuity Health - patient engagement for eye care practices",
+        alt: "Acuity Health — AI receptionist that answers every call and books directly into your EMR",
         type: "image/png",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Patient Engagement for Eye Care | Acuity Health",
+    title: "AI Receptionist for Ophthalmology | Acuity Health",
     description: SITE_CONFIG.description,
     images: [
       `${SITE_CONFIG.baseUrl}/api/og`,
@@ -127,6 +155,12 @@ export default function RootLayout({
           type="application/ld+json"
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
+        />
+        <Script
+          id="structured-data-software-application"
+          type="application/ld+json"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationSchema) }}
         />
       </body>
     </html>

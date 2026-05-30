@@ -3,16 +3,16 @@ import { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Acuity Health",
-    short_name: "Acuity Health",
+    short_name: "Acuity",
     description:
-      "Patient access and engagement for ophthalmology and optometry practices.",
+      "AI receptionist for ophthalmology. Answer every call, book directly into your EMR.",
     start_url: "/",
     display: "standalone",
     background_color: "#faf9f5",
-    theme_color: "#cc6633",
+    theme_color: "#0b1f23",
     icons: [
       {
-        src: "/favicon-old.png",
+        src: "/favicon.png",
         sizes: "any",
         type: "image/png",
       },

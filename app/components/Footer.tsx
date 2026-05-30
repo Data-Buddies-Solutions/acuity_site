@@ -4,10 +4,10 @@ import Logo from "./VisionOpsLogo";
 import { SITE_CONFIG } from "@/lib/config";
 
 const footerLinks = [
-  { href: "/#how-it-works", label: "How It Works" },
   { href: "/#offers", label: "Solutions" },
-  { href: "/#results", label: "Results" },
-  { href: "/partners/advancedmd", label: "AdvancedMD partnership" },
+  { href: "/about", label: "About" },
+  { href: "/insights", label: "Insights" },
+  { href: "/press", label: "Press" },
   { href: "/faq", label: "FAQ" },
 ];
 
@@ -20,8 +20,8 @@ export default function Footer() {
           <div className="max-w-sm">
             <Logo className="mb-4" />
             <p className="text-sm text-muted-foreground mb-4">
-              Patient engagement for ophthalmology and optometry practices, from first
-              call to follow-up.
+              The AI receptionist for ophthalmology. Answer every call, book directly
+              into your EMR, never miss a patient.
             </p>
             <Image
               src="/hipaa-badge.webp"

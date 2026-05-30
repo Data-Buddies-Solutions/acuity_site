@@ -9,9 +9,9 @@ import { SITE_CONFIG } from "@/lib/config";
 import { insightPosts } from "./posts";
 
 export const metadata: Metadata = {
-  title: "Insights",
+  title: "Insights — AI Receptionist for Ophthalmology",
   description:
-    "Acuity Health insights on patient engagement, front-desk operations, and communication strategy for eye care practices.",
+    "Practical writing on AI receptionists, after-hours call capture, EMR booking, and the cost of missed calls in ophthalmology practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/insights`,
   },
@@ -35,12 +35,11 @@ export default function InsightsPage() {
             </span>
           </div>
           <h1 className="mt-6 text-4xl font-semibold tracking-tight md:text-5xl">
-            A focused library for patient engagement in eye care.
+            How leading ophthalmology practices stop missing calls.
           </h1>
           <p className="mx-auto mt-6 max-w-3xl text-lg leading-relaxed text-muted-foreground">
-            Practical writing for ophthalmology and optometry operators who care about
-            responsiveness, front-desk performance, scheduling flow, and patient
-            engagement before the visit.
+            Practical writing on AI receptionists, after-hours call capture, EMR booking,
+            and the real cost of missed calls in ophthalmology and optometry.
           </p>
         </div>
       </section>

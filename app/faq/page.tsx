@@ -86,9 +86,9 @@ const faqs = [
 ];
 
 export const metadata: Metadata = {
-  title: "FAQ | Patient Engagement for Eye Care",
+  title: "FAQ — AI Receptionist for Ophthalmology",
   description:
-    "Common questions about Acuity Health's patient engagement platform for ophthalmology and optometry practices.",
+    "Common questions about Acuity's AI receptionist for ophthalmology — call answering, EMR booking, languages, HIPAA, pricing, and setup.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/faq`,
   },

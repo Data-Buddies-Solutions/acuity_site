@@ -5,9 +5,9 @@ import { SITE_CONFIG } from "@/lib/config";
 
 import AdvancedMdLanding from "./AdvancedMdLanding";
 
-const TITLE = "Acuity × AdvancedMD: The AI Receptionist for Ophthalmology";
+const TITLE = "Acuity for AdvancedMD — AI Receptionist Integration";
 const DESCRIPTION =
-  "Acuity is the AI receptionist built for AdvancedMD ophthalmology practices. Answer every call, book directly into AdvancedMD, and capture after-hours demand. Now available on the AdvancedMD Marketplace.";
+  "AI receptionist for AdvancedMD ophthalmology practices. Answer every call and book directly into AdvancedMD via the official Marketplace integration.";
 const CANONICAL = `${SITE_CONFIG.baseUrl}/partners/advancedmd`;
 
 export const metadata: Metadata = {
@@ -56,7 +56,7 @@ export default function AdvancedMdPartnerPage() {
     description: DESCRIPTION,
     brand: { "@type": "Brand", name: "Acuity Health" },
     url: CANONICAL,
-    category: "Healthcare AI / Patient Engagement",
+    category: "Healthcare AI / Medical Receptionist",
     isRelatedTo: {
       "@type": "Organization",
       name: "AdvancedMD",
