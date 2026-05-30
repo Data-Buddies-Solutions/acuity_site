@@ -17,6 +17,21 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
+        source: "/platform",
+        destination: "/#offers",
+        permanent: true,
+      },
+      {
+        source: "/results",
+        destination: "/#results",
+        permanent: true,
+      },
+      {
+        source: "/insights/hidden-cost-of-missed-calls-ophthalmology",
+        destination: "/insights/the-cost-of-a-missed-call-in-ophthalmology",
+        permanent: true,
+      },
+      {
         source: "/blog",
         destination: "/insights",
         permanent: true,

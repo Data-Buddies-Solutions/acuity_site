@@ -1,19 +1,24 @@
 # humanstxt.org
 
 /* TEAM */
-CEO: Kyle Shechtman
+Co-founder and CEO: Kyle Shechtman
 Twitter: @_kyleshechtman
 From: United States
 
-CTO: Chase Fagen
+Co-founder and Head of Engineering: Chase Fagen
 Twitter: @chasef07
+From: United States
+
+Chief Medical Officer: Dr. Michael Venincasa
 From: United States
 
 /* THANKS */
 Thanks to the open-source community for amazing tools that power modern web development.
 
 /* SITE */
-Last update: 2025/01/03
+Site: Acuity Health
+URL: https://acuityhealth.io
+Last update: 2026/05/30
 Standards: HTML5, CSS3, TypeScript
-Components: React, Next.js 15, Tailwind CSS
+Components: React, Next.js 16, Tailwind CSS
 IDE: VS Code

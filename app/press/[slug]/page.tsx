@@ -88,7 +88,7 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
       name: SITE_CONFIG.name,
       logo: {
         "@type": "ImageObject",
-        url: `${SITE_CONFIG.baseUrl}/logo.png`,
+        url: SITE_CONFIG.logoUrl,
       },
     },
     mainEntityOfPage: { "@type": "WebPage", "@id": url },

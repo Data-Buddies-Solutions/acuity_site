@@ -1,31 +1,18 @@
-# AI Disclosure - Data Buddies Solutions
+# AI Disclosure - Acuity Health
 
-## AI Tools We Use
-We use specific AI models for content and code development:
-- OpenAI GPT-4 and GPT-4 Turbo for content drafting and analysis
-- Anthropic Claude 3.5 Sonnet for technical writing and code review
-- GitHub Copilot for development assistance
+## Product AI Use
+Acuity Health builds an AI receptionist for ophthalmology practices. The product uses voice AI and supporting automation to answer patient calls, gather scheduling context, route requests, book appointments into the practice EMR, send confirmations, and escalate to staff when needed.
 
-These AI tools help us:
-- Draft initial content ideas and outlines
-- Assist with code development and debugging
-- Generate marketing copy for review and editing
-- Analyze customer feedback and data patterns
+Patients are informed when they are speaking with an AI assistant. Human handoff is used for exceptions, clinical escalation, urgent issues, and practice-specific workflows that require staff involvement.
 
-All AI-generated content is reviewed, edited, and approved by our human team before publication.
+## Content and Development AI Use
+The Acuity Health team may use AI tools to assist with content drafting, code development, debugging, and analysis. Human team members review, edit, and approve public-facing content and production code before release.
 
-## Our AI Services
-Data Buddies Solutions provides AI automation consulting for small businesses:
-- Custom AI agent development
-- Workflow automation implementation
-- Data infrastructure modernization
-- Ongoing optimization and support
-
-## Transparency
-We believe in transparent AI use. Our team reviews and refines all AI outputs to ensure accuracy, relevance, and alignment with our values and your business needs.
+## Data Practices
+Acuity is implemented with HIPAA-conscious workflows and vendor agreements intended to prevent patient data from being used for model training. Practice-specific deployment details, integrations, and data handling are reviewed during implementation.
 
 ## Contact
-Questions about our AI practices? Email: team@databuddiessolutions.com
+Questions about Acuity Health's AI practices? Email: kyle@acuityhealth.io
 
 ---
-Last Updated: January 2025
+Last Updated: May 2026

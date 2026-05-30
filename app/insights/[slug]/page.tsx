@@ -99,7 +99,7 @@ export default async function InsightPostPage({ params }: PageProps) {
       name: SITE_CONFIG.name,
       logo: {
         "@type": "ImageObject",
-        url: `${SITE_CONFIG.baseUrl}/logo.png`,
+        url: SITE_CONFIG.logoUrl,
       },
     },
   };

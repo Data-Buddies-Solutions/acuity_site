@@ -1,6 +1,7 @@
 export const SITE_CONFIG = {
   name: "Acuity Health",
   baseUrl: "https://acuityhealth.io",
+  logoUrl: "https://acuityhealth.io/favicon.png",
   email: "kyle@acuityhealth.io",
   calendarLink: "https://cal.com/kyle-shechtman-acuity/30min",
   description:

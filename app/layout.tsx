@@ -10,7 +10,7 @@ const organizationSchema = {
   "@type": "Organization",
   name: SITE_CONFIG.name,
   url: SITE_CONFIG.baseUrl,
-  logo: `${SITE_CONFIG.baseUrl}/logo.png`,
+  logo: SITE_CONFIG.logoUrl,
   description: SITE_CONFIG.description,
   email: SITE_CONFIG.email,
   sameAs: [SITE_CONFIG.social.linkedin],
