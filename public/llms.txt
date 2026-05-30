@@ -1,48 +1,45 @@
-# Data Buddies Solutions
+# Acuity Health
 
-> AI automation consultancy for small businesses
+> AI receptionist for ophthalmology practices
 
 ## Quick Overview
-Data Buddies Solutions designs, builds, and maintains AI automations for small businesses. We launch AI agents for lead follow-up, customer success, analytics, and back-office workflows within weeks.
+Acuity Health builds an AI receptionist for ophthalmology and optometry practices. The system answers inbound patient calls, handles routine front-desk requests, books appointments directly into the EMR, captures after-hours demand, and escalates calls to staff when human help is needed.
 
-## Services
-- AI Automation Blueprint (2-week engagement)
-- AI Agent Development (lead follow-up, customer success, analytics)
-- Workflow Automation (CRM, email, scheduling, data entry)
-- Data Infrastructure Modernization (database upgrades, API integration)
-- Ongoing Support & Optimization
+## Product
+- AI receptionist for ophthalmology
+- Direct EMR appointment booking
+- After-hours and weekend call capture
+- Multilingual call handling, including Spanish
+- Medical vs. vision insurance routing
+- Pediatric and urgent-visit workflow support
+- Front-desk analytics across locations
+- Two-way SMS, confirmations, and reminders
+
+## Integrations
+- AdvancedMD integration available today
+- Athena and Compulink integrations in progress
+- Additional EMRs prioritized by practice demand
 
 ## Team
-- Kyle Shechtman (CEO) - @_kyleshechtman
-- Chase Fagen (CTO) - @chasef07
-Ex-big-tech specialists making AI automation accessible to small business.
+- Kyle Shechtman, Co-founder and CEO
+- Chase Fagen, Co-founder and Head of Engineering
+- Dr. Michael Venincasa, Chief Medical Officer
 
-## Process
-1. Understand & plan (2 weeks)
-2. Build & test (4-8 weeks)
-3. Launch & coach
-4. Tune & grow
-
-## Key Differentiators
-- Small business focus (not enterprise)
-- Fast implementation (2-week blueprints, 4-8 week deployment)
-- End-to-end support (strategy to optimization)
-- Founded by experienced AI specialists from big tech
-- ROI-driven approach (revenue, time saved, scale enabled)
-
-## Philosophy
-- Ship, learn, iterate
-- Build for business impact
-- Keep it effortless
+## Best-Fit Customers
+- Ophthalmology and optometry practices
+- Multi-location eye care groups
+- Practices losing calls to voicemail, hold times, or after-hours leakage
+- Practices that need appointment booking written directly into the EMR
+- Front desks overloaded by repetitive scheduling and routing calls
 
 ## Contact
-- Email: team@databuddiessolutions.com
-- Book strategy call: https://cal.com/data-buddies-solutions/30min
-- Website: https://databuddiessolutions.com
-- LinkedIn: https://www.linkedin.com/company/data-buddies-solutions
+- Email: kyle@acuityhealth.io
+- Demo: https://cal.com/kyle-shechtman-acuity/30min
+- Website: https://acuityhealth.io
+- LinkedIn: https://www.linkedin.com/company/data-buddies-solutions/
 
 ## Content
-See /llm-full.txt for comprehensive company information, use cases, and technical details.
+See /llm-full.txt for expanded product, implementation, and website details.
 
 ---
-Last Updated: January 2025
+Last Updated: May 2026

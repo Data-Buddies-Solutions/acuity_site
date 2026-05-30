@@ -1,10 +1,11 @@
 export const SITE_CONFIG = {
   name: "Acuity Health",
   baseUrl: "https://acuityhealth.io",
+  logoUrl: "https://acuityhealth.io/favicon.png",
   email: "kyle@acuityhealth.io",
   calendarLink: "https://cal.com/kyle-shechtman-acuity/30min",
   description:
-    "Patient engagement for ophthalmology and optometry practices. Answer every patient call, reduce front-desk overload, and keep scheduling, reminders, and follow-up moving.",
+    "Acuity is the AI receptionist for ophthalmology. Answer every patient call, book appointments directly into your EMR, and capture after-hours demand — without missing a call.",
   twitter: {
     kyle: "_kyleshechtman",
     chase: "chasef07",

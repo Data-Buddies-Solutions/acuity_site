@@ -30,12 +30,36 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return { title: "Insight not found" };
   }
 
+  const url = `${SITE_CONFIG.baseUrl}/insights/${post.slug}`;
+
   return {
     title: post.title,
     description: post.description,
     keywords: post.tags,
-    alternates: {
-      canonical: `${SITE_CONFIG.baseUrl}/insights/${post.slug}`,
+    alternates: { canonical: url },
+    openGraph: {
+      type: "article",
+      title: post.title,
+      description: post.description,
+      url,
+      siteName: SITE_CONFIG.name,
+      publishedTime: post.date,
+      authors: [SITE_CONFIG.name],
+      tags: post.tags,
+      images: [
+        {
+          url: `${SITE_CONFIG.baseUrl}/api/og`,
+          width: 1200,
+          height: 630,
+          alt: post.title,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: post.title,
+      description: post.description,
+      images: [`${SITE_CONFIG.baseUrl}/api/og`],
     },
   };
 }
@@ -54,6 +78,32 @@ export default async function InsightPostPage({ params }: PageProps) {
     year: "numeric",
   });
 
+  const url = `${SITE_CONFIG.baseUrl}/insights/${post.slug}`;
+  const articleSchema = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: post.title,
+    description: post.description,
+    datePublished: post.date,
+    dateModified: post.date,
+    url,
+    keywords: post.tags.join(", "),
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    author: {
+      "@type": "Organization",
+      name: SITE_CONFIG.name,
+      url: SITE_CONFIG.baseUrl,
+    },
+    publisher: {
+      "@type": "Organization",
+      name: SITE_CONFIG.name,
+      logo: {
+        "@type": "ImageObject",
+        url: SITE_CONFIG.logoUrl,
+      },
+    },
+  };
+
   return (
     <article className="section bg-background">
       <BreadcrumbSchema
@@ -62,6 +112,10 @@ export default async function InsightPostPage({ params }: PageProps) {
           { name: "Insights", url: "/insights" },
           { name: post.title, url: `/insights/${post.slug}` },
         ]}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
       />
       <div className="mx-auto flex max-w-3xl flex-col gap-12 px-4 sm:px-6 lg:px-0">
         <div className="space-y-6">

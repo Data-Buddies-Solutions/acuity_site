@@ -6,7 +6,7 @@ import { useRef } from "react";
 
 const outcomes = [
   { metric: "0", label: "missed calls in the first 30 days" },
-  { metric: "500+", label: "appointments booked in the first 30 days" },
+  { metric: "500+", label: "appointments booked directly into the EMR" },
   { metric: "2,000+", label: "after-hours calls answered" },
   { metric: "400", label: "staff hours returned to the team" },
 ];

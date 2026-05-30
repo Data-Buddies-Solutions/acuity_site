@@ -15,44 +15,194 @@ export type InsightPost = {
 
 export const insightPosts: InsightPost[] = [
   {
-    slug: "hidden-cost-of-missed-calls-ophthalmology",
-    title: "The Hidden Cost of Missed Calls in Ophthalmology Practices",
+    slug: "ai-receptionist-vs-traditional-answering-service",
+    title:
+      "AI Receptionist vs. Traditional Answering Service: What Eye Care Practices Should Actually Compare",
     description:
-      "Missed calls are not just a phone problem. In ophthalmology, they are often lost appointments, delayed care, and avoidable front-desk strain.",
-    readingTime: "5 min read",
-    date: "2026-04-20",
-    tags: ["Ophthalmology", "Missed calls", "Patient engagement"],
+      "Traditional answering services take messages. An AI receptionist answers, books, verifies, and writes appointments into the EMR. Here is the real comparison.",
+    readingTime: "6 min read",
+    date: "2026-05-22",
+    tags: ["AI receptionist", "Answering service", "Comparison"],
     sections: [
       {
-        heading: "A missed call is a dropped patient interaction",
+        heading: "The two categories solve different problems",
         paragraphs: [
-          "Many practices still think about missed calls as an operational nuisance. In reality, they are patient engagement failures. A patient called because they needed something now: scheduling, reassurance, follow-up, an answer about insurance, or clarity on next steps.",
-          "When that interaction ends in voicemail, hold time, or a dropped handoff, the patient experiences the practice as hard to reach. That changes trust before the visit ever happens.",
+          "Traditional medical answering services were built around a simple promise: a human will pick up the phone when your front desk cannot. They take a message, route urgent calls, and let the practice handle everything else the next morning. That is genuinely useful — but it is a message-taking service, not a scheduling system.",
+          "An AI receptionist sits in a different category. It does not stop at taking a message. It completes the patient interaction: answer the call, verify the patient, check insurance, book the appointment, write it into the EMR, and follow up by text if needed.",
         ],
       },
       {
-        heading: "Ophthalmology call volume is not simple",
-        paragraphs: [
-          "Eye care practices deal with a mix of routine scheduling, specialty visits, pediatric questions, urgent concerns, medical insurance, vision insurance, and multilingual needs. The front desk is rarely dealing with just one thing at a time.",
-          "That means every missed call is happening inside a system that is already carrying more communication complexity than most generic platforms are designed for.",
-        ],
-      },
-      {
-        heading: "What practices should measure",
+        heading: "What practices actually compare",
         bullets: [
-          "Missed-call volume",
-          "After-hours demand",
-          "Appointments booked from inbound calls",
-          "Staff time spent on repetitive phone work",
-          "Spanish-language or multilingual booking volume",
+          "Coverage: business hours only, after-hours only, or 24/7",
+          "Outcome: message taken vs. appointment booked",
+          "EMR integration: none, manual handoff, or direct write",
+          "Concurrency: one call at a time, or hundreds in parallel",
+          "Languages: English-only, bilingual operators, or 70+ languages",
+          "Cost model: per-minute and per-message, or per-platform with predictable usage",
         ],
         paragraphs: [
-          "If patient engagement is a priority, these are the first operational signals to review.",
+          "On every dimension, the gap is widest where ophthalmology hurts most: high concurrent volume, multilingual patients, and the need to convert a call into a booked appointment in the EMR — not a callback request.",
+        ],
+      },
+      {
+        heading: "Where traditional answering services still win",
+        paragraphs: [
+          "There are cases where a human answering service is the right call: clinical triage that requires nurse judgment, sensitive emergency escalation that needs a person reading tone in real time, or after-hours-only coverage for very low call volumes.",
+          "Most ophthalmology practices, though, are not buying a triage line. They are buying call coverage and scheduling capacity. That is exactly what AI receptionists are designed to do.",
+        ],
+      },
+      {
+        heading: "The ROI math",
+        paragraphs: [
+          "An average ophthalmology appointment is worth significantly more than the cost of answering a single call. When 23% of inbound calls are going to voicemail and 15% of demand arrives after hours, the cost is not paid in answering fees — it is paid in appointments that never got booked. That is the math an AI receptionist changes.",
         ],
       },
     ],
     takeaway:
-      "In ophthalmology, missed calls are not a minor ops issue. They are a measurable patient engagement problem with direct scheduling and trust consequences.",
+      "Traditional answering services take messages. An AI receptionist completes the appointment. For ophthalmology practices losing patients to voicemail, the right comparison is not feature-for-feature — it is bookings-per-call.",
+  },
+  {
+    slug: "after-hours-call-capture-ophthalmology",
+    title:
+      "After-Hours Call Capture: Where Ophthalmology Practices Are Quietly Losing Patients",
+    description:
+      "Roughly 15% of patient call demand in eye care arrives after the front desk has gone home. Most of it leaks to voicemail. Here is what to fix first.",
+    readingTime: "5 min read",
+    date: "2026-05-20",
+    tags: ["After-hours", "AI receptionist", "Patient acquisition"],
+    sections: [
+      {
+        heading: "The after-hours leak is bigger than most practices think",
+        paragraphs: [
+          "Patients do not call your practice on your schedule. They call when they get off work, during a kid's bedtime, on a lunch break, or after they notice something is wrong. In ophthalmology, a meaningful share of that demand lands outside the 9-to-5 window, and most of it hits voicemail.",
+          "Voicemail is the worst possible outcome for that call. The patient already overcame the friction of dialing, and the practice already absorbed the marketing cost of attracting them. Then the call dies in a queue no one returns until tomorrow — if at all.",
+        ],
+      },
+      {
+        heading: "Where after-hours demand actually comes from",
+        bullets: [
+          "Evening callers after work and dinner",
+          "Weekend bookings that wait through Monday voicemail",
+          "Caregivers scheduling on behalf of parents or kids",
+          "Multilingual patients who call when family members are home",
+          "Urgent visual symptoms that need same-day triage",
+        ],
+        paragraphs: [
+          "Each of these is a moment where the patient is ready to book and the practice cannot respond. By Monday morning, the appointment intent is often gone.",
+        ],
+      },
+      {
+        heading: "What good after-hours coverage looks like",
+        paragraphs: [
+          'Good after-hours coverage is not just "someone answers the phone." It is a coverage model that completes the patient\'s intent: book the appointment, route urgency to the right person, and confirm by text before the patient closes the laptop.',
+          "An AI receptionist is a fit here precisely because the workload is unpredictable, low-margin per call, and spiky. Paying a human service per-minute for after-hours coverage rarely pencils. Letting an AI handle it — and only escalate true urgency — does.",
+        ],
+      },
+      {
+        heading: "Measure the leak first",
+        bullets: [
+          "After-hours call volume by hour and day",
+          "Voicemail-to-callback conversion rate",
+          "Same-day vs. next-day return-call rate",
+          "Appointments booked from after-hours inbound",
+          "Lost-call estimate (calls that hung up before voicemail)",
+        ],
+        paragraphs: [
+          "Until practices measure these, the after-hours leak stays invisible. Once they do, the size of the gap usually justifies the fix on its own.",
+        ],
+      },
+    ],
+    takeaway:
+      "After-hours leakage is one of the largest, least-tracked sources of lost ophthalmology appointments. Capturing it does not require a night-shift front desk — it requires an AI receptionist that can complete the booking when the patient is ready.",
+  },
+  {
+    slug: "the-cost-of-a-missed-call-in-ophthalmology",
+    title: "The Real Cost of a Missed Call in Ophthalmology",
+    description:
+      "Missed calls are usually framed as a front-desk efficiency problem. The bigger cost is the appointment, the patient, and the lifetime relationship behind it.",
+    readingTime: "6 min read",
+    date: "2026-05-18",
+    tags: ["Missed calls", "Patient acquisition", "Ophthalmology"],
+    sections: [
+      {
+        heading: "Missed calls are usually counted wrong",
+        paragraphs: [
+          "Most practices measure missed calls as a phone-system metric: how many rang through to voicemail, how many got abandoned, how many sat on hold. Those are useful operational numbers. They are also a serious undercount of the actual cost.",
+          "A single missed call from a new patient is not a missed call. It is a missed first appointment, a missed second appointment, a missed referral, and — if the patient never gets booked — a missed multi-year relationship.",
+        ],
+      },
+      {
+        heading: "The cost stack of one missed call",
+        bullets: [
+          "Lost initial appointment revenue",
+          "Lost downstream visit revenue (annual exams, follow-ups, procedures)",
+          "Wasted marketing spend that drove the call in the first place",
+          "Front-desk time spent on callbacks and voicemail triage",
+          "Reputation cost as the patient tells others the practice is hard to reach",
+        ],
+        paragraphs: [
+          "Adding these up makes missed calls one of the most expensive recurring failures in the practice — and one of the most invisible, because the cost shows up everywhere except on the phone bill.",
+        ],
+      },
+      {
+        heading: "Why ophthalmology is hit harder than other specialties",
+        paragraphs: [
+          "Eye care has unusually high call concurrency and unusually complex booking logic: medical vs. vision insurance, sub-specialty routing, pediatric flow, and post-op urgency. That mix overwhelms generic phone tools, which is why missed-call rates in eye care often run higher than the practice realizes.",
+          "Add multilingual demand, and the gap widens further. Practices that cannot complete a booking in Spanish — or after hours, or while another five lines are ringing — quietly hand those patients to whoever can.",
+        ],
+      },
+      {
+        heading: "Fixing the missed-call problem at the source",
+        paragraphs: [
+          "Adding headcount rarely closes the gap because the demand is spiky and the work is repetitive. The structural fix is to make sure every call gets answered and resolved — by an AI receptionist that picks up on the first ring, completes the booking, and writes the appointment back into the EMR.",
+          "When that happens, the missed-call line on the operations report stops being a leading indicator of lost revenue. Then the front desk can spend its time where it actually matters.",
+        ],
+      },
+    ],
+    takeaway:
+      "Missed calls are not a phone problem. They are an acquisition problem, a revenue problem, and a trust problem. Closing them is one of the highest-ROI fixes available to an ophthalmology practice.",
+  },
+  {
+    slug: "ai-receptionists-first-layer-of-triage-eye-care",
+    title: "AI Receptionists in Eye Care: The First Layer of Triage",
+    description:
+      "AI receptionists in eye care are not just answering phones. They are becoming the first layer of triage — medical vs. vision, urgent vs. routine, scheduled vs. escalated.",
+    readingTime: "3 min read",
+    date: "2026-04-20",
+    tags: ["AI receptionist", "Triage", "Ophthalmology"],
+    sections: [
+      {
+        heading: "From answering calls to making decisions",
+        paragraphs: [
+          "AI receptionists in eye care are not just answering phones. They are becoming the first layer of triage.",
+          "The unique challenge in ophthalmology is that the front desk is not just taking messages or booking appointments. They are constantly making small but important decisions:",
+        ],
+        bullets: [
+          "Is this medical or vision?",
+          "Is this urgent?",
+          "Which provider should this patient see?",
+          "Should this be scheduled, escalated, or handed directly to the clinical team?",
+        ],
+      },
+      {
+        heading: "Where AI fits in",
+        paragraphs: [
+          "This is where AI can be especially powerful.",
+          "A well-designed AI receptionist can follow the same routing logic, ask the right questions, and know when to involve the office.",
+        ],
+      },
+      {
+        heading: "Triage is the foundation",
+        paragraphs: [
+          "For ophthalmology practices, triage is not a nice-to-have. It is the foundation of a better patient experience and a more scalable front desk.",
+          "At Acuity Health, this is what we are building: AI front desk infrastructure designed specifically for the complexity of eye care.",
+          "If your practice is exploring AI receptionists, we'd love to show you what triage-first automation can look like.",
+        ],
+      },
+    ],
+    takeaway:
+      "Triage is the foundation of a better patient experience and a more scalable front desk. The AI receptionists that work in ophthalmology are the ones designed around routing decisions, not just call answering.",
   },
   {
     slug: "how-eye-care-practices-should-measure-patient-engagement",

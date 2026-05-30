@@ -5,15 +5,16 @@ import { useRef } from "react";
 
 const spokes = [
   {
+    id: "emr-booking",
+    label: "EMR Booking",
+    description:
+      "Appointments write directly into your EMR — no double entry, no nightly reconciliation, no dropped handoffs.",
+  },
+  {
     id: "call-center",
     label: "Call Center",
     description:
       "Browser VoIP with warm transfers, live call summaries, and missed-call recaps the front desk can act on.",
-  },
-  {
-    id: "tasking",
-    label: "Tasking",
-    description: "Every call generates structured follow-up, routed to the right person.",
   },
   {
     id: "texting",
@@ -41,10 +42,11 @@ export default function OfferStory() {
             The platform
           </p>
           <h2 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[-0.02em] md:text-5xl lg:text-[3.5rem] [text-wrap:balance]">
-            One AI front desk, end to end.
+            One AI receptionist, end to end.
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
-            Watch a single call move through the platform.
+            Every call answered, every appointment booked into your EMR, every follow-up
+            routed — without a missed handoff.
           </p>
         </div>
 

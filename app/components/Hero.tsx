@@ -38,8 +38,8 @@ export default function Hero() {
             </Link>
             <h1 className="text-[2.25rem] font-semibold tracking-[-0.035em] leading-[1.05] antialiased subpixel-antialiased sm:text-[2.5rem] md:text-[3rem] lg:text-[2.5rem] xl:text-[3rem] 2xl:text-[3.5rem]">
               <span className="block">The</span>
-              <span className="block text-accent">patient engagement</span>
-              <span className="block">platform for ophthalmology.</span>
+              <span className="block text-accent">AI receptionist</span>
+              <span className="block">for ophthalmology practices.</span>
             </h1>
 
             <p className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-muted-foreground md:mt-6 md:text-lg lg:mx-0">
@@ -74,7 +74,7 @@ export default function Hero() {
               style={{ aspectRatio: "1448 / 720" }}
             >
               <Image
-                alt="Acuity AI agent moving a patient request through scheduling, EMR, calendar, and SMS confirmation"
+                alt="Acuity AI receptionist answering a patient call and booking the appointment directly into the EMR"
                 className="absolute h-auto w-full"
                 height={1086}
                 priority

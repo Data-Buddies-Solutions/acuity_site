@@ -24,7 +24,7 @@ export default function Results() {
           Impact calculator
         </p>
         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-8 md:mb-10">
-          Estimate what better patient engagement can unlock
+          Estimate what an AI receptionist can unlock for your practice
         </h2>
 
         {/* Slider */}

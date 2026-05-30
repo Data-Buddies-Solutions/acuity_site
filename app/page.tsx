@@ -7,9 +7,9 @@ import ProofNarrative from "./components/ProofNarrative";
 import CTA from "./components/CTA";
 
 export const metadata: Metadata = {
-  title: "Your AI Front Desk | Acuity Health",
+  title: { absolute: "AI Receptionist for Ophthalmology | Acuity Health" },
   description:
-    "Acuity is the AI front desk for ophthalmology practices. Answer every call, route work to the right place, and keep scheduling, texting, and analytics moving from one platform.",
+    "AI receptionist for ophthalmology. Answer every patient call, book appointments directly into your EMR, and never miss a call.",
   alternates: {
     canonical: "/",
   },

@@ -2,6 +2,7 @@ import { MetadataRoute } from "next";
 
 import { SITE_CONFIG } from "@/lib/config";
 import { insightPosts } from "./insights/posts";
+import { pressReleases } from "./press/posts";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = SITE_CONFIG.baseUrl;
@@ -28,14 +29,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: `${baseUrl}/insights`,
       lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/press`,
+      lastModified: new Date(),
       changeFrequency: "monthly",
-      priority: 0.7,
+      priority: 0.8,
     },
     {
       url: `${baseUrl}/partners/advancedmd`,
       lastModified: new Date(),
       changeFrequency: "monthly",
-      priority: 0.9,
+      priority: 0.7,
     },
     {
       url: `${baseUrl}/privacy-policy`,
@@ -58,5 +65,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.7,
   }));
 
-  return [...staticRoutes, ...insightRoutes];
+  const pressRoutes: MetadataRoute.Sitemap = pressReleases.map((release) => ({
+    url: `${baseUrl}/press/${release.slug}`,
+    lastModified: new Date(release.date),
+    changeFrequency: "yearly",
+    priority: 0.6,
+  }));
+
+  return [...staticRoutes, ...insightRoutes, ...pressRoutes];
 }

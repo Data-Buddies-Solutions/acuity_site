@@ -7,7 +7,7 @@ import { SITE_CONFIG } from "@/lib/config";
 export const metadata = {
   title: "Page Not Found",
   description:
-    "The page you're looking for doesn't exist. Explore Acuity Health's patient engagement services for eye care practices.",
+    "The page you're looking for doesn't exist. Explore Acuity's AI receptionist for ophthalmology practices.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/404`,
   },

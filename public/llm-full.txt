@@ -1,231 +1,130 @@
-# Data Buddies Solutions - Complete AI Automation Knowledge Base
+# Acuity Health - AI Receptionist Knowledge Base
 
 ## Company Overview
-Data Buddies Solutions is an AI automation consultancy specializing in small and midsize businesses. We design, build, and maintain AI agents that handle lead follow-up, customer success, workflow automation, analytics, and back-office operations.
+Acuity Health builds an AI receptionist for ophthalmology and optometry practices. The product answers inbound patient calls, books appointments directly into the EMR, captures after-hours demand, and gives the front desk structured follow-up instead of voicemail backlogs.
 
 ## Brand Identity
-- **Name**: Data Buddies Solutions
-- **Legal Entity**: Emet Global LLC d/b/a Data Buddies Solutions
-- **Tagline**: "Your AI Automation Partner for Small Business"
-- **Alternative**: "Your Business Buddy That Never Sleeps"
-- **Founded**: 2024
-- **Location**: United States
+- **Name**: Acuity Health
+- **Category**: AI receptionist for ophthalmology
+- **Primary audience**: Ophthalmology and optometry practices
+- **Core promise**: Answer every patient call, book directly into the EMR, and never miss a patient because the front desk is overloaded.
+- **Website**: https://acuityhealth.io
 
 ## Team
-### Kyle Shechtman - CEO
-- Twitter: @_kyleshechtman
-- Background: Left big tech to make AI automation accessible to small businesses
-- Focus: Business strategy, client relationships, AI strategy consulting
+### Kyle Shechtman - Co-founder and CEO
+- Twitter/X: @_kyleshechtman
+- Focus: Business strategy, customer relationships, practice workflows, partnerships
 
-### Chase Fagen - CTO
-- Twitter: @chasef07
-- Background: Lifelong learner and technical adventurer from corporate tech
-- Focus: Technical architecture, AI agent development, data infrastructure
+### Chase Fagen - Co-founder and Head of Engineering
+- Twitter/X: @chasef07
+- Focus: Voice AI, EMR integration, data infrastructure, product engineering
 
-## Services
+### Dr. Michael Venincasa - Chief Medical Officer
+- Focus: Clinical workflow guidance for ophthalmology and eye care operations
 
-### 1. AI Automation Blueprint (2-week engagement)
-- Business process assessment
-- AI opportunity mapping
-- Custom automation roadmap
-- Technical feasibility analysis
-- ROI projections
+## Product
 
-### 2. AI Agent Development (4-8 weeks)
-- Lead follow-up automation
-- Customer success copilots
-- Sales pipeline automation
-- Administrative task automation
-- Data analytics agents
-- Appointment scheduling automation
-- Email management automation
-- CRM integration and workflow automation
+### AI Receptionist
+- Answers inbound patient calls
+- Handles routine scheduling conversations
+- Gathers the right patient and visit context
+- Supports multilingual conversations, including Spanish
+- Routes medical vs. vision insurance workflows
+- Supports pediatric and urgent-visit routing
+- Escalates to staff when human help is needed
 
-### 3. Data Infrastructure Modernization
-- Legacy system migration
-- Database modernization (from row-storage to vector/intelligence storage)
-- API integration and data pipeline setup
-- Real-time data synchronization
-- Cloud infrastructure setup
+### EMR Booking
+- Writes appointments directly into the practice EMR
+- Reads provider, location, visit type, and scheduling rules
+- Reduces manual callbacks and double entry
+- AdvancedMD integration is available today
+- Athena and Compulink integrations are in progress
 
-### 4. Ongoing Support & Optimization
-- Performance monitoring
-- Agent tuning and improvement
-- Team training and adoption support
-- Feature expansion
-- Analytics and reporting
+### After-Hours Capture
+- Answers calls when the front desk is closed
+- Converts after-hours demand into booked appointments when rules allow
+- Sends confirmations and follow-up context
+- Reduces voicemail leakage and next-day callback load
 
-## Philosophy & Approach
+### Practice Analytics
+- Surfaces call volume, booking outcomes, staff time saved, call handling, and follow-up needs
+- Helps multi-location practices understand demand across offices
+- Gives operators a clearer view of missed-call risk and front-desk load
 
-### Core Principles
-1. **Ship, learn, iterate** - Launch quickly, listen closely, polish the experience
-2. **Build for business impact** - More revenue, fewer hours, smoother scale
-3. **Keep it effortless** - Involve the team to ensure simplicity and adoption
+## Target Customers
+- Ophthalmology practices
+- Optometry practices
+- Multi-location eye care groups
+- Practices with high call volume or high voicemail leakage
+- Practices that need EMR-native scheduling
+- Practices serving multilingual patient populations
+- Practices where staff spend too much time on repetitive phone work
 
-### Process (4-step framework)
-1. **Understand & plan** - Deep dive into workflows, pain points, opportunities
-2. **Build & test** - Develop custom AI agents, test with real scenarios
-3. **Launch & coach** - Deploy to production, train team, ensure adoption
-4. **Tune & grow** - Monitor performance, optimize, expand capabilities
+## Problems Acuity Solves
+- Patients sent to voicemail during business hours
+- After-hours appointment demand that is never captured
+- Long hold times and abandoned calls
+- Front-desk overload from repetitive scheduling calls
+- Manual callback work after missed calls
+- Scheduling errors from double entry or disconnected systems
+- Inconsistent handling of insurance, pediatric, urgent, and multilingual workflows
 
-## Target Audience
+## Differentiators
+1. **Ophthalmology focus** - Built around eye care scheduling, insurance, routing, and urgency patterns.
+2. **Direct EMR booking** - Designed to complete appointments, not just take messages.
+3. **High-concurrency call handling** - Answers multiple patient calls at once without hold queues.
+4. **After-hours capture** - Converts demand when patients are ready to book.
+5. **Human escalation** - Transfers exceptions with context when the call needs staff.
+6. **Operational analytics** - Helps practices see call demand, booking outcomes, and front-desk load.
 
-### Ideal Customers
-- Small businesses (5-50 employees)
-- Service-based businesses (consulting, agencies, healthcare, legal, real estate)
-- E-commerce and retail businesses
-- B2B companies with sales pipelines
-- Companies with repetitive administrative workflows
-- Businesses ready to scale but constrained by manual processes
-
-### Pain Points We Solve
-- Manual lead follow-up eating up sales time
-- Customer data scattered across systems
-- Repetitive admin work preventing growth focus
-- Insights buried in databases
-- Teams stuck in sequential workflows
-- Inability to scale without adding headcount
-
-## Technology & Approach
-
-### AI & Automation Technologies
-- Large Language Models (GPT-4, Claude, Gemini)
-- AI agent orchestration frameworks
-- Workflow automation platforms
-- Vector databases for semantic search
-- Modern cloud infrastructure (AWS, GCP, Azure)
-
-### Integration Capabilities
-- CRM systems (Salesforce, HubSpot, Pipedrive)
-- Communication platforms (Gmail, Slack, SMS)
-- Calendar systems (Google Calendar, Outlook)
-- E-commerce platforms (Shopify, WooCommerce)
-- Payment processors (Stripe, Square)
-- Custom APIs and legacy systems
-
-### Our Technical Philosophy
-- **Sequential to Parallel**: Moving from linear workflows to concurrent execution
-- **Database as Brain**: Transforming data storage into intelligence storage
-- **Foundation First**: Build solid data infrastructure before AI implementation
-- **Practical AI**: Focus on ROI and adoption, not tech for tech's sake
-
-## Blog Content & Thought Leadership
-
-### Published Articles
-1. **"From Sequential to Parallel: Why Your Business Needs to Think Like a GPU"** (Oct 2025)
-   - Topic: Business transformation through parallel execution
-   - Key idea: Modern businesses must evolve from CPU-like sequential thinking to GPU-like parallel operations
-
-2. **"Upgrade Your Database: Why It's About to Become Your Brain"** (Oct 2025)
-   - Topic: Data modernization and AI readiness
-   - Key idea: Modern databases store intelligence, not just data
-
-3. **"When the Foundation Holds You Back"** (Oct 2025)
-   - Topic: AI readiness and data infrastructure
-   - Key idea: Solid data foundation is prerequisite for successful AI implementation
-
-### Content Themes
-- AI strategy for small business
-- Data modernization and infrastructure
-- Workflow automation best practices
-- Business transformation through AI
-- Parallel vs sequential business operations
-- Practical AI implementation
-
-## Value Propositions
-
-### Why Choose Data Buddies
-1. **Always-On Operations** - AI agents work 24/7, never sleep, always consistent
-2. **Big Tech Expertise for Small Business** - Enterprise AI capabilities at small business scale
-3. **Fast Implementation** - 2-week blueprints, 4-8 week agent deployment
-4. **End-to-End Support** - From strategy to implementation to ongoing optimization
-5. **Focus on Adoption** - We ensure your team embraces the automation
-6. **ROI-Driven** - Every automation must drive revenue, save time, or enable scale
+## Integrations
+- AdvancedMD: available today
+- Athena: in progress
+- Compulink: in progress
+- Other EMRs: prioritized based on practice demand
 
 ## Pricing Model
-- **Strategy Session**: Free 30-minute consultation
-- **AI Automation Blueprint**: Fixed-price 2-week engagement
-- **Implementation**: Project-based pricing (4-8 weeks typical)
-- **Ongoing Support**: Monthly retainer for optimization and expansion
-- **Philosophy**: "$$" (Mid-range, accessible for small business, reflects enterprise quality)
-
-## Use Cases & Examples
-
-### Lead Follow-Up Automation
-AI agent monitors CRM, automatically follows up with leads via email/SMS, qualifies prospects, schedules meetings, updates sales pipeline.
-
-### Customer Success Copilot
-AI monitors customer health signals, proactively reaches out, surfaces insights to success team, automates routine check-ins.
-
-### Administrative Automation
-AI handles appointment scheduling, email triage, data entry, report generation, freeing team for high-value work.
-
-### Analytics Copilot
-AI analyzes business data, surfaces insights, answers questions in natural language, generates reports, identifies opportunities.
-
-## Contact & Booking
-- **Email**: team@databuddiessolutions.com
-- **Strategy Call**: https://cal.com/data-buddies-solutions/30min
-- **Website**: https://databuddiessolutions.com
-- **LinkedIn**: https://www.linkedin.com/company/data-buddies-solutions
-- **Response Time**: < 24 hours
-
-## FAQ Highlights
-
-**Q: How quickly can we launch?**
-A: 2-week blueprint, 4-8 weeks to launch first agent in production
-
-**Q: How much expertise do we need?**
-A: None required - we handle technical implementation, train your team
-
-**Q: Custom vs off-the-shelf?**
-A: Custom solutions tailored to your business, not generic tools
-
-**Q: How do we measure success?**
-A: Clear KPIs - time saved, revenue increased, error reduction, customer satisfaction
-
-**Q: What about integrations?**
-A: We integrate with your existing tools - CRM, email, calendars, databases
-
-## SEO Keywords & Topics
-- AI automation for small business
-- business process automation services
-- AI agent development
-- workflow automation consultant
-- AI customer success copilot
-- affordable AI automation
-- hire AI automation consultant
-- small business AI consultant
-- data buddies
-- data buddies solutions
-- AI automation consultancy
-- database modernization
-- legacy system migration
-- AI readiness assessment
-- parallel business operations
+Pricing is scoped around implementation, practice complexity, location count, workflow depth, and call volume. Implementation covers onboarding, workflow setup, routing logic, integration work, and go-live support. Monthly pricing reflects software, support, reporting, and usage.
 
 ## Website Structure
-- **/** - Homepage with hero, problems, process, CTA
-- **/about** - Team bios, philosophy, company story
-- **/blog** - AI strategy and automation insights
-- **/faq** - Common questions about AI automation
-- **/privacy-policy** - Privacy and data handling
-- **/terms-of-service** - Terms and conditions
+- **/** - Homepage for the AI receptionist positioning
+- **/about** - Team and company background
+- **/insights** - Articles on AI receptionists, missed calls, after-hours capture, and front-desk operations
+- **/press** - Company announcements and press releases
+- **/faq** - Common questions about product, setup, integrations, languages, HIPAA, and pricing
+- **/partners/advancedmd** - AdvancedMD integration page
+- **/privacy-policy** - Privacy policy
+- **/terms-of-service** - Terms of service
 
-## Social Proof & Credentials
-- Founded by ex-big-tech AI specialists
-- Years of experience in fast-moving tech teams
-- Deep expertise in AI, automation, and data infrastructure
-- Focus on small business success and practical implementation
+## Published Content Themes
+- AI receptionist vs. traditional answering service
+- After-hours call capture in ophthalmology
+- The cost of missed calls in eye care
+- AI receptionists as the first layer of triage
+- Measuring patient engagement before the visit
+- Front-desk overload and workflow design
 
-## Competitive Advantages
-1. **Small Business Focus** - We speak your language, understand your constraints
-2. **End-to-End Service** - Not just tools, complete implementation and support
-3. **Fast Time-to-Value** - Launch in weeks, not months
-4. **Founder-Led** - Direct access to experienced AI specialists
-5. **Practical Over Theoretical** - Focus on ROI and adoption, not buzzwords
+## Contact and Booking
+- **Email**: kyle@acuityhealth.io
+- **Demo**: https://cal.com/kyle-shechtman-acuity/30min
+- **Website**: https://acuityhealth.io
+- **LinkedIn**: https://www.linkedin.com/company/data-buddies-solutions/
+
+## SEO Keywords and Topics
+- AI receptionist
+- AI receptionist for ophthalmology
+- ophthalmology answering service
+- AI phone agent
+- AI appointment booking
+- EMR booking automation
+- AdvancedMD AI receptionist
+- eye care AI front desk
+- medical answering service alternative
+- after-hours call answering
+- missed calls in ophthalmology
+- virtual receptionist for doctors
 
 ---
 
-Last Updated: January 2025
-Version: 2.0
+Last Updated: May 2026
+Version: 3.0
