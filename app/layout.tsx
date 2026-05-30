@@ -121,9 +121,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "AI Receptionist for Ophthalmology | Acuity Health",
     description: SITE_CONFIG.description,
-    images: [
-      `${SITE_CONFIG.baseUrl}/api/og`,
-    ],
+    images: [`${SITE_CONFIG.baseUrl}/api/og`],
   },
   robots: {
     index: true,

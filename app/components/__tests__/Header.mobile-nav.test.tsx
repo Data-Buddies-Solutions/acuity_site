@@ -46,7 +46,7 @@ describe("Header mobile navigation overlay", () => {
     expect(sheet).toHaveClass("bg-white");
     expect(sheet).toHaveClass("min-h-full");
 
-    const mobileLink = screen.getAllByRole("link", { name: "How It Works" }).at(-1);
+    const mobileLink = screen.getAllByRole("link", { name: "About" }).at(-1);
     expect(mobileLink).toBeDefined();
     expect(mobileLink).toHaveClass("text-2xl");
   });

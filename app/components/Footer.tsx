@@ -20,8 +20,8 @@ export default function Footer() {
           <div className="max-w-sm">
             <Logo className="mb-4" />
             <p className="text-sm text-muted-foreground mb-4">
-              The AI receptionist for ophthalmology. Answer every call, book directly
-              into your EMR, never miss a patient.
+              The AI receptionist for ophthalmology. Answer every call, book directly into
+              your EMR, never miss a patient.
             </p>
             <Image
               src="/hipaa-badge.webp"

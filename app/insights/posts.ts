@@ -16,7 +16,8 @@ export type InsightPost = {
 export const insightPosts: InsightPost[] = [
   {
     slug: "ai-receptionist-vs-traditional-answering-service",
-    title: "AI Receptionist vs. Traditional Answering Service: What Eye Care Practices Should Actually Compare",
+    title:
+      "AI Receptionist vs. Traditional Answering Service: What Eye Care Practices Should Actually Compare",
     description:
       "Traditional answering services take messages. An AI receptionist answers, books, verifies, and writes appointments into the EMR. Here is the real comparison.",
     readingTime: "6 min read",
@@ -63,7 +64,8 @@ export const insightPosts: InsightPost[] = [
   },
   {
     slug: "after-hours-call-capture-ophthalmology",
-    title: "After-Hours Call Capture: Where Ophthalmology Practices Are Quietly Losing Patients",
+    title:
+      "After-Hours Call Capture: Where Ophthalmology Practices Are Quietly Losing Patients",
     description:
       "Roughly 15% of patient call demand in eye care arrives after the front desk has gone home. Most of it leaks to voicemail. Here is what to fix first.",
     readingTime: "5 min read",
@@ -93,7 +95,7 @@ export const insightPosts: InsightPost[] = [
       {
         heading: "What good after-hours coverage looks like",
         paragraphs: [
-          "Good after-hours coverage is not just \"someone answers the phone.\" It is a coverage model that completes the patient's intent: book the appointment, route urgency to the right person, and confirm by text before the patient closes the laptop.",
+          'Good after-hours coverage is not just "someone answers the phone." It is a coverage model that completes the patient\'s intent: book the appointment, route urgency to the right person, and confirm by text before the patient closes the laptop.',
           "An AI receptionist is a fit here precisely because the workload is unpredictable, low-margin per call, and spiky. Paying a human service per-minute for after-hours coverage rarely pencils. Letting an AI handle it — and only escalate true urgency — does.",
         ],
       },

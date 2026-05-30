@@ -60,11 +60,7 @@ export async function generateMetadata({
   };
 }
 
-export default async function PressReleasePage({
-  params,
-}: {
-  params: Promise<Params>;
-}) {
+export default async function PressReleasePage({ params }: { params: Promise<Params> }) {
   const { slug } = await params;
   const release = getPressReleaseBySlug(slug);
 
@@ -148,10 +144,7 @@ export default async function PressReleasePage({
                 )}
                 <div className="mt-3 space-y-4">
                   {section.paragraphs.map((p, j) => (
-                    <p
-                      key={j}
-                      className="text-base leading-relaxed text-neutral-700"
-                    >
+                    <p key={j} className="text-base leading-relaxed text-neutral-700">
                       {p}
                     </p>
                   ))}
@@ -166,7 +159,10 @@ export default async function PressReleasePage({
                 &ldquo;{release.quote.text}&rdquo;
               </blockquote>
               <figcaption className="mt-4 text-sm text-muted-foreground">
-                — <span className="font-semibold text-neutral-900">{release.quote.attribution}</span>
+                —{" "}
+                <span className="font-semibold text-neutral-900">
+                  {release.quote.attribution}
+                </span>
                 , {release.quote.role}
               </figcaption>
             </figure>
