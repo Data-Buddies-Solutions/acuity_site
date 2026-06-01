@@ -31,7 +31,7 @@ const team: TeamMember[] = [
   },
   {
     name: "Chase Fagen",
-    role: "Co-founder & Head of Engineering",
+    role: "Co-founder & Head of AI Engineering",
     initials: "CF",
     image: "/chase-fagen-v2.png",
     twitter: "chasef07",

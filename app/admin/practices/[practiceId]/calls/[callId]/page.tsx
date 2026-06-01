@@ -405,13 +405,18 @@ export default async function AdminCallDetailPage({
   const ttftValues = turns.map((turn) => turn.ttftMs).filter((value) => value > 0);
   const ttsValues = turns.map((turn) => turn.ttsttfbMs).filter((value) => value > 0);
   const sttValues = turns
-    .map((turn) => turn.sttLatencyMs ?? 0)
-    .filter((value) => value > 0);
+    .filter((turn) => turn.sttLatencyMeasured || (turn.sttLatencyMs ?? 0) > 0)
+    .map((turn) => turn.sttLatencyMs ?? 0);
   const totalLatencyValues = turns
     .map((turn) => deriveTotalLatency(turn))
     .filter((value) => value > 0);
   const latencyFallback = isRecord(call.latencyValues)
     ? {
+        stt: Array.isArray(call.latencyValues.stt)
+          ? call.latencyValues.stt.filter(
+              (value): value is number => typeof value === "number",
+            )
+          : [],
         total: Array.isArray(call.latencyValues.totalLatency)
           ? call.latencyValues.totalLatency.filter(
               (value): value is number => typeof value === "number",
@@ -428,7 +433,7 @@ export default async function AdminCallDetailPage({
             )
           : [],
       }
-    : { total: [], tts: [], ttft: [] };
+    : { stt: [], total: [], tts: [], ttft: [] };
 
   const p50Ttft = computePercentiles(
     ttftValues.length ? ttftValues : latencyFallback.ttft,
@@ -436,7 +441,8 @@ export default async function AdminCallDetailPage({
   const p50Tts = computePercentiles(
     ttsValues.length ? ttsValues : latencyFallback.tts,
   ).p50;
-  const p50Stt = computePercentiles(sttValues).p50;
+  const sttPercentileValues = sttValues.length ? sttValues : latencyFallback.stt;
+  const p50Stt = computePercentiles(sttPercentileValues).p50;
   const p50Total = computePercentiles(
     totalLatencyValues.length ? totalLatencyValues : latencyFallback.total,
   ).p50;
@@ -620,7 +626,7 @@ export default async function AdminCallDetailPage({
           <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <StatCard
               label="P50 STT"
-              value={p50Stt > 0 ? formatLatencyMs(p50Stt) : "--"}
+              value={sttPercentileValues.length > 0 ? formatLatencyMs(p50Stt) : "--"}
             />
             <StatCard
               label="P50 TTFT"
@@ -1012,11 +1018,14 @@ export default async function AdminCallDetailPage({
                   const turn = turns[turnIndex];
                   if (
                     turn &&
-                    !item.metrics?.stt_latency &&
-                    (turn.sttLatencyMs ?? 0) > 0
+                    item.metrics?.stt_latency == null &&
+                    (turn.sttLatencyMeasured || (turn.sttLatencyMs ?? 0) > 0)
                   ) {
                     item.metrics = {
                       ...(item.metrics ?? {}),
+                      ...(turn.sttConfidence != null
+                        ? { stt_confidence: turn.sttConfidence }
+                        : {}),
                       stt_latency: turn.sttLatencyMs,
                     };
                   }

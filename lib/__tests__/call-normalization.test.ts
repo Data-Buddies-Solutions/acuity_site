@@ -139,6 +139,10 @@ describe("normalizeLiveKitCallPayload", () => {
           ttftMs: 420,
           type: "llm_metrics",
         },
+        {
+          transcriptionDelayMs: 990,
+          type: "eou_metrics",
+        },
       ],
       officePhone: "+15557654321",
       sessionReport: {
@@ -183,6 +187,7 @@ describe("normalizeLiveKitCallPayload", () => {
         {
           itemId: "user_1",
           metrics: {
+            confidence: 0.82,
             transcriptionDelay: 0.23,
           },
         },
@@ -237,9 +242,76 @@ describe("normalizeLiveKitCallPayload", () => {
     ]);
     expect(normalized.latencyValues.stt).toEqual([230]);
     expect(normalized.latencyValues.totalLatency).toEqual([1050]);
+    expect(normalized.summary.turns?.[0]?.sttConfidence).toBe(0.82);
+    expect(normalized.summary.turns?.[0]?.sttLatencyMeasured).toBe(true);
     expect(normalized.summary.turns?.[0]?.toolCalls[0]?.durationMs).toBe(500);
     expect(data.turns?.length).toBe(1);
     expect(JSON.stringify(normalized.dataPayload)).not.toContain("audioBase64");
+  });
+
+  it("derives user STT latency from turnMetrics stoppedSpeakingAt fallback", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_stt_fallback",
+      sessionReport: {
+        chat_history: {
+          items: [
+            {
+              content: [{ transcript: "Okay, perfect" }],
+              createdAt: 1780333267569,
+              id: "user_final",
+              role: "user",
+              type: "message",
+            },
+          ],
+        },
+      },
+      turnMetrics: [
+        {
+          createdAt: 1780333267569,
+          itemId: "user_final",
+          metrics: {
+            stoppedSpeakingAt: 1780333267.013,
+          },
+          role: "user",
+        },
+      ],
+    });
+
+    expect(normalized.summary.turns?.[0]?.sttLatencyMs).toBe(556);
+    expect(normalized.latencyValues.stt).toEqual([556]);
+  });
+
+  it("keeps zero transcriptionDelay as a measured STT latency", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_zero_stt",
+      sessionReport: {
+        chat_history: {
+          items: [
+            {
+              content: [{ transcript: "Hi" }],
+              createdAt: 1780333267000,
+              id: "user_zero",
+              role: "user",
+              type: "message",
+            },
+          ],
+        },
+      },
+      turnMetrics: [
+        {
+          createdAt: 1780333267000,
+          itemId: "user_zero",
+          metrics: {
+            transcriptionDelay: 0,
+          },
+          role: "user",
+        },
+      ],
+    });
+
+    expect(normalized.summary.turns?.[0]?.sttLatencyMeasured).toBe(true);
+    expect(normalized.summary.turns?.[0]?.sttLatencyMs).toBe(0);
+    expect(normalized.latencyValues.stt).toEqual([0]);
   });
 
   it("does not mark failed booking tool responses as booked appointments", () => {

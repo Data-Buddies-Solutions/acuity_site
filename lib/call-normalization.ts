@@ -305,6 +305,32 @@ function toMilliseconds(
   return Math.round(numberValue < 30 ? numberValue * 1000 : numberValue);
 }
 
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function metricMsOrNull(
+  metrics: Record<string, unknown> | undefined,
+  fields: Array<{ key: string; unit?: "seconds" | "milliseconds" | "auto" }>,
+) {
+  if (!metrics) {
+    return null;
+  }
+
+  for (const field of fields) {
+    if (metrics[field.key] !== undefined) {
+      return toMilliseconds(metrics[field.key], field.unit ?? "auto");
+    }
+  }
+
+  return null;
+}
+
 function metricMs(
   metrics: Record<string, unknown> | undefined,
   fields: Array<{ key: string; unit?: "seconds" | "milliseconds" | "auto" }>,
@@ -323,23 +349,126 @@ function metricMs(
   return 0;
 }
 
-function buildTurnMetricMap(turnMetrics?: TurnMetricRecord[]) {
-  const byItemId = new Map<string, Record<string, unknown>>();
+type TurnMetricLookup = {
+  byItemId: Map<string, TurnMetricRecord>;
+  assistantTurns: TurnMetricRecord[];
+  userTurns: TurnMetricRecord[];
+};
+
+function buildTurnMetricLookup(turnMetrics?: TurnMetricRecord[]): TurnMetricLookup {
+  const byItemId = new Map<string, TurnMetricRecord>();
+  const assistantTurns: TurnMetricRecord[] = [];
+  const userTurns: TurnMetricRecord[] = [];
 
   for (const item of turnMetrics ?? []) {
     if (item.itemId && item.metrics) {
-      byItemId.set(item.itemId, item.metrics);
+      byItemId.set(item.itemId, item);
+    }
+
+    const metrics = item.metrics;
+    const hasUserTiming =
+      metrics &&
+      ("transcriptionDelay" in metrics ||
+        "transcription_delay" in metrics ||
+        "transcriptionDelayMs" in metrics ||
+        "transcription_delay_ms" in metrics ||
+        "stoppedSpeakingAt" in metrics);
+
+    if ((item.role === "user" || hasUserTiming) && item.metrics) {
+      userTurns.push(item);
+    }
+
+    if (item.role === "assistant" && item.metrics) {
+      assistantTurns.push(item);
     }
   }
 
-  return byItemId;
+  return { assistantTurns, byItemId, userTurns };
+}
+
+function turnMetricForItem(
+  item: ChatHistoryItem,
+  lookup: TurnMetricLookup,
+  fallbackIndex: number,
+) {
+  if (item.id) {
+    const matched = lookup.byItemId.get(item.id);
+    if (matched) {
+      return matched;
+    }
+  }
+
+  if (item.role === "user") {
+    return lookup.userTurns[fallbackIndex];
+  }
+
+  if (item.role === "assistant") {
+    return lookup.assistantTurns[fallbackIndex];
+  }
+
+  return undefined;
 }
 
 function metricsForItem(
   item: ChatHistoryItem,
-  turnMetricMap: Map<string, Record<string, unknown>>,
+  turnMetricRecord: TurnMetricRecord | undefined,
 ) {
-  return (item.id ? turnMetricMap.get(item.id) : undefined) ?? item.metrics;
+  return turnMetricRecord?.metrics ?? item.metrics;
+}
+
+function timestampMs(value: unknown) {
+  const numberValue = numberOrNull(value);
+  if (numberValue == null) {
+    return null;
+  }
+
+  return numberValue < 10_000_000_000 ? numberValue * 1000 : numberValue;
+}
+
+function transcriptConfidence(metrics: Record<string, unknown> | undefined) {
+  const confidence =
+    numberOrNull(metrics?.transcriptConfidence) ??
+    numberOrNull(metrics?.transcriptionConfidence) ??
+    numberOrNull(metrics?.transcript_confidence) ??
+    numberOrNull(metrics?.transcription_confidence) ??
+    numberOrNull(metrics?.confidence);
+
+  if (confidence == null) {
+    return null;
+  }
+
+  if (confidence > 1 && confidence <= 100) {
+    return confidence / 100;
+  }
+
+  return confidence >= 0 && confidence <= 1 ? confidence : null;
+}
+
+function sttLatencyFromTurnMetrics(input: {
+  item: ChatHistoryItem;
+  metrics: Record<string, unknown> | undefined;
+  turnMetric: TurnMetricRecord | undefined;
+}) {
+  const transcriptionDelayMs = metricMsOrNull(input.metrics, [
+    { key: "transcriptionDelay", unit: "seconds" },
+    { key: "transcription_delay", unit: "auto" },
+    { key: "transcriptionDelayMs", unit: "milliseconds" },
+    { key: "transcription_delay_ms", unit: "milliseconds" },
+    { key: "stt_latency", unit: "milliseconds" },
+  ]);
+
+  if (transcriptionDelayMs != null) {
+    return transcriptionDelayMs;
+  }
+
+  const createdAtMs = timestampMs(input.turnMetric?.createdAt ?? input.item.createdAt);
+  const stoppedSpeakingAtMs = timestampMs(input.metrics?.stoppedSpeakingAt);
+
+  if (createdAtMs != null && stoppedSpeakingAtMs != null) {
+    return Math.max(0, Math.round(createdAtMs - stoppedSpeakingAtMs));
+  }
+
+  return null;
 }
 
 function modelUsageEntries(body: LiveKitWebhookPayload): ModelUsageRecord[] {
@@ -486,7 +615,7 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
     usageTotals.outputTokens > 0 ||
     usageTotals.cachedTokens > 0;
   const hasTtsUsageTotals = usageTotals.ttsChars > 0;
-  const turnMetricMap = buildTurnMetricMap(body.turnMetrics);
+  const turnMetricLookup = buildTurnMetricLookup(body.turnMetrics);
   const hasSummaryPromptTokens = typeof llmSummary?.promptTokens === "number";
   const hasSummaryCompletionTokens = typeof llmSummary?.completionTokens === "number";
   const hasSummaryCachedPromptTokens = typeof llmSummary?.cachedPromptTokens === "number";
@@ -533,6 +662,8 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
   let ttsIndex = 0;
   let sttIndex = 0;
   let turnNumber = 0;
+  let userTurnMetricIndex = 0;
+  let assistantTurnMetricIndex = 0;
 
   const emptyTurn = (): TurnRecord => ({
     agentText: null,
@@ -560,19 +691,20 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
       const ttsMetric = ttsMetrics[ttsIndex++];
       const llmGroup = llmGroups[llmGroupIndex++] ?? [];
       const firstLlm = llmGroup[0];
-      const itemMetrics = metricsForItem(item, turnMetricMap);
+      const turnMetric = turnMetricForItem(item, turnMetricLookup, userTurnMetricIndex++);
+      const itemMetrics = metricsForItem(item, turnMetric);
+      const sttLatencyMs = sttLatencyFromTurnMetrics({
+        item,
+        metrics: itemMetrics,
+        turnMetric,
+      });
 
       currentTurn.ttftMs = asNumber(firstLlm?.ttftMs);
       currentTurn.ttsttfbMs = asNumber(ttsMetric?.ttfbMs);
+      currentTurn.sttConfidence = transcriptConfidence(itemMetrics);
+      currentTurn.sttLatencyMeasured = sttLatencyMs != null;
       currentTurn.sttLatencyMs =
-        Math.round(asNumber(sttMetric?.transcriptionDelayMs)) ||
-        metricMs(itemMetrics, [
-          { key: "stt_latency", unit: "milliseconds" },
-          { key: "transcriptionDelay", unit: "seconds" },
-          { key: "transcription_delay", unit: "auto" },
-          { key: "transcriptionDelayMs", unit: "milliseconds" },
-          { key: "transcription_delay_ms", unit: "milliseconds" },
-        ]);
+        sttLatencyMs ?? Math.round(asNumber(sttMetric?.transcriptionDelayMs));
 
       for (const llmMetric of llmGroup) {
         currentTurn.promptTokens += asNumber(llmMetric.promptTokens);
@@ -581,15 +713,26 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
       }
 
       currentTurn.totalLatencyMs = deriveTotalLatency(currentTurn);
-      if (currentTurn.sttLatencyMs > 0) {
-        item.metrics = { ...(item.metrics ?? {}), stt_latency: currentTurn.sttLatencyMs };
+      if (currentTurn.sttLatencyMeasured) {
+        item.metrics = {
+          ...(item.metrics ?? {}),
+          ...(currentTurn.sttConfidence != null
+            ? { stt_confidence: currentTurn.sttConfidence }
+            : {}),
+          stt_latency: currentTurn.sttLatencyMs,
+        };
       }
     }
 
     if (item.type === "message" && item.role === "assistant") {
       currentTurn ??= emptyTurn();
       currentTurn.agentText = extractText(item.content) || null;
-      const itemMetrics = metricsForItem(item, turnMetricMap);
+      const turnMetric = turnMetricForItem(
+        item,
+        turnMetricLookup,
+        assistantTurnMetricIndex++,
+      );
+      const itemMetrics = metricsForItem(item, turnMetric);
       if (currentTurn.ttftMs <= 0) {
         currentTurn.ttftMs = metricMs(itemMetrics, [
           { key: "llmNodeTtft", unit: "seconds" },
@@ -835,7 +978,7 @@ function buildLatencyValues(summary: CallSummaryData, body: LiveKitWebhookPayloa
   const tokensPerSec: number[] = [];
 
   for (const turn of summary.turns ?? []) {
-    if ((turn.sttLatencyMs ?? 0) > 0) {
+    if (turn.sttLatencyMeasured || (turn.sttLatencyMs ?? 0) > 0) {
       stt.push(turn.sttLatencyMs);
     }
     if (turn.ttftMs > 0) {

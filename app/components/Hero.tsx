@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneCall } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -43,8 +44,8 @@ export default function Hero() {
             </h1>
 
             <p className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-muted-foreground md:mt-6 md:text-lg lg:mx-0">
-              An AI receptionist that answers patients, books appointments, and keeps
-              follow-ups moving.
+              Answer every call, help patients get what they need, and keep your front
+              desk focused on the people in front of them.
             </p>
 
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 md:mt-9 lg:justify-start">
@@ -54,7 +55,14 @@ export default function Hero() {
                 size="default"
                 variant="default"
               >
-                <Link href="/#offers">See the Platform</Link>
+                <a
+                  aria-label="Call the Acuity AI receptionist live demo at 484 398 9071"
+                  className="inline-flex items-center gap-2"
+                  href="tel:+14843989071"
+                >
+                  <PhoneCall className="h-4 w-4" />
+                  Try the AI Receptionist
+                </a>
               </Button>
               <BookCallButton
                 className="w-full rounded-full border border-neutral-300 bg-white px-7 py-3 text-sm text-neutral-800 shadow-sm transition-colors hover:bg-neutral-50 sm:w-auto md:text-base"

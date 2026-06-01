@@ -769,7 +769,7 @@ function getLatencyArrays(call: {
     const turnTts = asNumber(turn.ttsttfbMs);
     const turnTotal = asNumber(turn.totalLatencyMs) || turnStt + turnTtft + turnTts;
 
-    if (turnStt > 0) stt.push(turnStt);
+    if (turn.sttLatencyMeasured || turnStt > 0) stt.push(turnStt);
     if (turnTtft > 0) ttft.push(turnTtft);
     if (turnTts > 0) tts.push(turnTts);
     if (turnTotal > 0) total.push(turnTotal);

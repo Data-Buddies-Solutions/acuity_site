@@ -69,10 +69,17 @@ export function TranscriptTimeline({ turns }: { turns: TurnRecord[] }) {
                 <p className="text-sm text-primary-foreground">{msg.text}</p>
               </div>
             </div>
-            {(msg.turn.sttLatencyMs ?? 0) > 0 && (
+            {(msg.turn.sttLatencyMeasured || (msg.turn.sttLatencyMs ?? 0) > 0) && (
               <div className="flex justify-end mt-1">
                 <Badge variant="outline" className="text-[10px] font-mono">
                   STT: {formatLatencyMs(msg.turn.sttLatencyMs)}
+                </Badge>
+              </div>
+            )}
+            {msg.turn.sttConfidence != null && (
+              <div className="flex justify-end mt-1">
+                <Badge variant="outline" className="text-[10px] font-mono">
+                  Confidence: {formatConfidence(msg.turn.sttConfidence)}
                 </Badge>
               </div>
             )}
@@ -114,6 +121,11 @@ function formatJson(value: string): string {
   } catch {
     return value;
   }
+}
+
+function formatConfidence(value: number): string {
+  const normalized = value > 1 && value <= 100 ? value / 100 : value;
+  return `${Math.round(normalized * 100)}%`;
 }
 
 function formatTimestamp(ms?: number): string | null {
@@ -171,12 +183,20 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
               {(() => {
                 const metrics = item.metrics as Record<string, number> | undefined;
                 const sttMs = metrics?.stt_latency;
-                if (!sttMs || sttMs <= 0) return null;
+                const confidence = metrics?.stt_confidence;
+                if (sttMs == null && confidence == null) return null;
                 return (
-                  <div className="flex justify-end mt-1">
-                    <Badge variant="outline" className="text-[10px] font-mono">
-                      STT: {formatLatencyMs(sttMs)}
-                    </Badge>
+                  <div className="flex justify-end mt-1 gap-1.5">
+                    {sttMs != null && sttMs >= 0 && (
+                      <Badge variant="outline" className="text-[10px] font-mono">
+                        STT: {formatLatencyMs(sttMs)}
+                      </Badge>
+                    )}
+                    {confidence != null && (
+                      <Badge variant="outline" className="text-[10px] font-mono">
+                        Confidence: {formatConfidence(confidence)}
+                      </Badge>
+                    )}
                   </div>
                 );
               })()}

@@ -195,10 +195,14 @@ export function LatencyScatterCharts({ turns }: { turns: TurnRecord[] }) {
     .filter((t) => t.value > 0);
 
   const sttData = turns
-    .filter((t) => (t.sttLatencyMs ?? 0) > 0)
+    .filter((t) => t.sttLatencyMeasured || (t.sttLatencyMs ?? 0) > 0)
     .map((t) => ({ turn: t.turn, value: t.sttLatencyMs }));
 
-  const hasLatency = ttftData.length > 0 || ttsData.length > 0;
+  const hasLatency =
+    ttftData.length > 0 ||
+    ttsData.length > 0 ||
+    sttData.length > 0 ||
+    totalData.length > 0;
   const hasContext = turns.filter((t) => t.promptTokens > 0).length >= 2;
 
   if (!hasLatency && !hasContext) return null;
