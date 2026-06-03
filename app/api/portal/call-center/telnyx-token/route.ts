@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  allowsSharedCallCenterStation,
   buildCallCenterSeatAccessWhere,
   getAllowedCallCenterOutboundPhoneNumbers,
   getCurrentPracticeCallCenterContext,
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
         select: {
           id: true,
           label: true,
+          queueKey: true,
           telnyxCredentialId: true,
         },
         where: {
@@ -63,7 +65,7 @@ export async function GET(request: Request) {
     );
   }
 
-  if (seat && browserSessionId) {
+  if (seat && browserSessionId && !allowsSharedCallCenterStation(context, seat)) {
     const leasedByAnotherBrowser = await prisma.callCenterPresence.findFirst({
       select: {
         browserSessionId: true,
