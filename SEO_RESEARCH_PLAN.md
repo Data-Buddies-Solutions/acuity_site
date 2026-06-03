@@ -1,4 +1,4 @@
-# SEO Research & Optimization Plan
+# SEO Research & Optimization Plan 
 
 ## Data Buddies Solutions Landing Page 
 
