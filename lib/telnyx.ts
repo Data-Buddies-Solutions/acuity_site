@@ -43,7 +43,7 @@ export async function telnyxFetch(path: string, options: RequestInit = {}) {
   return response;
 }
 
-async function telnyxErrorMessage(response: Response, fallback: string) {
+export async function telnyxErrorMessage(response: Response, fallback: string) {
   const text = await response.text().catch(() => "");
 
   if (!text) {
