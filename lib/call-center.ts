@@ -785,6 +785,16 @@ export function isSpecialAbitaCallCenterContext(
   );
 }
 
+export function allowsSharedCallCenterStation(
+  context: Pick<PortalPracticeAccessContext, "practice" | "session">,
+  seat: { queueKey?: string | null },
+) {
+  return (
+    isAbitaSweetwaterOpticalCallCenterContext(context) &&
+    seat.queueKey === ABITA_SWEETWATER_OPTICAL_QUEUE_KEY
+  );
+}
+
 function getAbitaSouthFloridaLocationIds(practice: {
   locations: Array<{ id: string; name: string }>;
 }) {
@@ -2460,6 +2470,7 @@ export async function ringStationForQueuedCall({
   }
 
   const presenceCutoff = getPresenceExpirationCutoff();
+  const allowsSharedStation = allowsSharedCallCenterStation(context, seat);
   const [availablePresence, competingPresence] = await Promise.all([
     prisma.callCenterPresence.count({
       where: {
@@ -2472,20 +2483,22 @@ export async function ringStationForQueuedCall({
         userId: context.session.user.id,
       },
     }),
-    prisma.callCenterPresence.count({
-      where: {
-        browserSessionId: {
-          not: browserSessionId,
-        },
-        lastSeenAt: {
-          gte: presenceCutoff,
-        },
-        seatId: seat.id,
-        status: {
-          not: CallCenterPresenceStatus.OFFLINE,
-        },
-      },
-    }),
+    allowsSharedStation
+      ? Promise.resolve(0)
+      : prisma.callCenterPresence.count({
+          where: {
+            browserSessionId: {
+              not: browserSessionId,
+            },
+            lastSeenAt: {
+              gte: presenceCutoff,
+            },
+            seatId: seat.id,
+            status: {
+              not: CallCenterPresenceStatus.OFFLINE,
+            },
+          },
+        }),
   ]);
 
   if (competingPresence > 0) {
