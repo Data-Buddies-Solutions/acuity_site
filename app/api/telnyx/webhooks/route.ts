@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { handleTelnyxWebhookEvent } from "@/lib/call-center";
+import { handleTelnyxSmsWebhookEvent, isTelnyxSmsEvent } from "@/lib/sms/service";
 import { verifyTelnyxWebhookSignature } from "@/lib/telnyx";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await handleTelnyxWebhookEvent(body);
+    const result = isTelnyxSmsEvent(body)
+      ? await handleTelnyxSmsWebhookEvent(body)
+      : await handleTelnyxWebhookEvent(body);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("[telnyx-webhook] Failed to process event", error);

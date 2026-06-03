@@ -1,26 +1,51 @@
 import { redirect } from "next/navigation";
 
 import { getPortalWorkspaceState } from "@/lib/portal-state";
+import { getSmsInbox } from "@/lib/sms/service";
 
-export default async function PortalTwoWayTextingPage() {
+import { PracticePageHeader } from "../PracticePageHeader";
+
+import TextingHeaderPicker from "./TextingHeaderPicker";
+import TwoWayTextingWorkspace from "./TwoWayTextingWorkspace";
+
+export const dynamic = "force-dynamic";
+
+type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
+
+export default async function PortalTwoWayTextingPage({
+  searchParams,
+}: {
+  searchParams?: SearchParamsInput;
+}) {
   const portalState = await getPortalWorkspaceState();
 
   if (!portalState.launched) {
     redirect("/portal/app/onboarding");
   }
 
+  const params = searchParams ? await searchParams : {};
+  const selectedInboxId = Array.isArray(params.inbox) ? params.inbox[0] : params.inbox;
+  const inbox = await getSmsInbox(selectedInboxId);
+
+  if (!inbox) {
+    redirect("/portal");
+  }
+
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
-      <p className="text-sm font-medium uppercase tracking-[0.16em] text-[#6a7b7e]">
-        Coming soon
-      </p>
-      <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#10272c] md:text-4xl">
-        Patient Engagement
-      </h1>
-      <p className="max-w-2xl text-base leading-7 text-[#617477]">
-        Two-way texting and patient engagement workflows are coming soon, giving staff a
-        simple place to review replies, follow-ups, and conversations that need attention.
-      </p>
+    <div className="mx-auto max-w-7xl space-y-6">
+      <PracticePageHeader
+        branding={portalState.branding}
+        eyebrow="Practice texting"
+        practiceName={inbox.practiceName}
+        title="Two-way Texting"
+      >
+        <TextingHeaderPicker
+          options={inbox.availableInboxes}
+          selectedId={inbox.selectedInboxId}
+        />
+      </PracticePageHeader>
+
+      <TwoWayTextingWorkspace initialInbox={inbox} />
     </div>
   );
 }

@@ -8,17 +8,19 @@ datasource db {
 }
 
 model User {
-  id                 String               @id @default(cuid())
-  name               String
-  email              String               @unique
-  emailVerified      Boolean              @default(false)
-  image              String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  accounts           Account[]
-  callCenterPresence CallCenterPresence[]
-  memberships        PracticeMembership[]
-  sessions           Session[]
+  id                   String                @id @default(cuid())
+  name                 String
+  email                String                @unique
+  emailVerified        Boolean               @default(false)
+  image                String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  accounts             Account[]
+  callCenterPresence   CallCenterPresence[]
+  memberships          PracticeMembership[]
+  sessions             Session[]
+  smsConversationReads SmsConversationRead[]
+  smsMessages          SmsMessage[]
 
   @@map("user")
 }
@@ -231,6 +233,25 @@ enum AdminAlertStatus {
   RESOLVED
 }
 
+enum SmsConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum SmsMessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum SmsMessageStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  FAILED
+  RECEIVED
+}
+
 model Practice {
   id                   String                      @id @default(cuid())
   name                 String
@@ -246,7 +267,7 @@ model Practice {
   launchedAt           DateTime?
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
-  callEvaluationLabels  AgentCallEvaluationLabel[]
+  callEvaluationLabels AgentCallEvaluationLabel[]
   agentCalls           AgentCall[]
   agents               PracticeAgent[]
   callCenterAgentSeats CallCenterAgentSeat[]
@@ -265,6 +286,7 @@ model Practice {
   memberships          PracticeMembership[]
   phoneNumbers         PracticePhoneNumber[]
   providers            PracticeProvider[]
+  smsConversations     SmsConversation[]
   websiteScans         PracticeWebsiteScan[]
 
   @@map("practice")
@@ -291,71 +313,77 @@ model PracticeAgent {
 }
 
 model PracticePhoneNumber {
-  id          String            @id @default(cuid())
-  practiceId  String
-  locationId  String?
-  phoneNumber String            @unique
-  label       String?
-  isPrimary   Boolean           @default(false)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  location    PracticeLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  practice    Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  id               String            @id @default(cuid())
+  practiceId       String
+  locationId       String?
+  phoneNumber      String            @unique
+  label            String?
+  isPrimary        Boolean           @default(false)
+  smsEnabled       Boolean           @default(false)
+  telnyxCampaignId String?
+  telnyxSmsStatus  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  location         PracticeLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice         Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  smsConversations SmsConversation[]
+  smsOptOuts       SmsOptOut[]
 
   @@index([practiceId])
   @@index([locationId])
+  @@index([smsEnabled])
   @@map("practice_phone_number")
 }
 
 model AgentCall {
-  id                   String                 @id @default(cuid())
+  id                   String                     @id @default(cuid())
   practiceId           String
   locationId           String?
   agentId              String?
-  callId               String                 @unique
+  callId               String                     @unique
   callerPhone          String
   officePhone          String
-  status               AgentCallStatus        @default(COMPLETED)
-  startedAt            DateTime               @default(now())
+  status               AgentCallStatus            @default(COMPLETED)
+  startedAt            DateTime                   @default(now())
   endedAt              DateTime?
-  durationSec          Int                    @default(0)
-  transferred          Boolean                @default(false)
-  bookedAppointment    Boolean                @default(false)
-  confirmedAppointment Boolean                @default(false)
-  cancelledAppointment Boolean                @default(false)
-  needsReview          Boolean                @default(false)
+  durationSec          Int                        @default(0)
+  transferred          Boolean                    @default(false)
+  bookedAppointment    Boolean                    @default(false)
+  confirmedAppointment Boolean                    @default(false)
+  cancelledAppointment Boolean                    @default(false)
+  needsReview          Boolean                    @default(false)
   reviewStatus         String?
   reviewAverageScore   Float?
   reviewResult         Json?
   llmModel             String?
-  fallbackUsed         Boolean                @default(false)
-  totalTurns           Int                    @default(0)
-  inputTokens          Int                    @default(0)
-  outputTokens         Int                    @default(0)
-  cachedTokens         Int                    @default(0)
-  ttsChars             Int                    @default(0)
-  toolCalls            Int                    @default(0)
-  toolErrors           Int                    @default(0)
-  avgTtft              Float                  @default(0)
-  avgTtsttfb           Float                  @default(0)
-  cacheHitRate         Float                  @default(0)
-  peakContext          Int                    @default(0)
-  avgTokensPerSec      Float                  @default(0)
-  interruptionCount    Int                    @default(0)
-  estimatedCostMicros  Int                    @default(0)
+  fallbackUsed         Boolean                    @default(false)
+  totalTurns           Int                        @default(0)
+  inputTokens          Int                        @default(0)
+  outputTokens         Int                        @default(0)
+  cachedTokens         Int                        @default(0)
+  ttsChars             Int                        @default(0)
+  toolCalls            Int                        @default(0)
+  toolErrors           Int                        @default(0)
+  avgTtft              Float                      @default(0)
+  avgTtsttfb           Float                      @default(0)
+  cacheHitRate         Float                      @default(0)
+  peakContext          Int                        @default(0)
+  avgTokensPerSec      Float                      @default(0)
+  interruptionCount    Int                        @default(0)
+  estimatedCostMicros  Int                        @default(0)
   outcomeSummary       String?
-  latencyValues        Json                   @default("{}")
+  latencyValues        Json                       @default("{}")
   data                 Json?
   audioData            Bytes?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  agent                PracticeAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  agent                PracticeAgent?             @relation(fields: [agentId], references: [id], onDelete: SetNull)
   callCenterMissed     CallCenterMissedCall[]
   callCenterSessions   CallCenterSession[]
   costLineItems        UsageCostLineItem[]
   evaluationLabels     AgentCallEvaluationLabel[]
-  location             PracticeLocation?      @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  practice             Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  location             PracticeLocation?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice             Practice                   @relation(fields: [practiceId], references: [id], onDelete: Cascade)
 
   @@index([practiceId, startedAt])
   @@index([practiceId, needsReview])
@@ -440,7 +468,7 @@ model PracticeMembershipLocation {
 }
 
 model PracticeLocation {
-  id                   String                      @id @default(cuid())
+  id                   String                       @id @default(cuid())
   practiceId           String
   name                 String
   address              String?
@@ -448,9 +476,9 @@ model PracticeLocation {
   fax                  String?
   email                String?
   hoursSummary         String?
-  isPrimary            Boolean                     @default(false)
-  createdAt            DateTime                    @default(now())
-  updatedAt            DateTime                    @updatedAt
+  isPrimary            Boolean                      @default(false)
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
   agentCalls           AgentCall[]
   callCenterAgentSeats CallCenterAgentSeat[]
   callCenterMissed     CallCenterMissedCall[]
@@ -461,8 +489,9 @@ model PracticeLocation {
   knowledgeDocuments   PracticeKnowledgeDocument[]
   membershipGrants     PracticeMembershipLocation[]
   phoneNumbers         PracticePhoneNumber[]
-  practice             Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  practice             Practice                     @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   providers            PracticeProvider[]
+  smsConversations     SmsConversation[]
 
   @@index([practiceId])
   @@map("practice_location")
@@ -654,6 +683,78 @@ model PracticeWebsiteScan {
 
   @@index([practiceId, scannedAt])
   @@map("practice_website_scan")
+}
+
+model SmsConversation {
+  id                 String                @id @default(cuid())
+  practiceId         String
+  locationId         String?
+  practiceNumberId   String
+  patientPhoneNumber String
+  status             SmsConversationStatus @default(OPEN)
+  lastMessageAt      DateTime
+  lastInboundAt      DateTime?
+  optedOut           Boolean               @default(false)
+  optedOutAt         DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  location           PracticeLocation?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  messages           SmsMessage[]
+  practice           Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  practiceNumber     PracticePhoneNumber   @relation(fields: [practiceNumberId], references: [id], onDelete: Cascade)
+  reads              SmsConversationRead[]
+
+  @@unique([practiceNumberId, patientPhoneNumber])
+  @@index([practiceId, lastMessageAt(sort: Desc)])
+  @@index([locationId, status, lastMessageAt(sort: Desc)])
+  @@map("sms_conversation")
+}
+
+model SmsMessage {
+  id              String              @id @default(cuid())
+  conversationId  String
+  direction       SmsMessageDirection
+  status          SmsMessageStatus
+  body            String              @db.Text
+  fromNumber      String
+  toNumber        String
+  telnyxMessageId String?             @unique
+  errorCode       String?
+  errorDetail     String?
+  sentByUserId    String?
+  createdAt       DateTime            @default(now())
+  deliveredAt     DateTime?
+  failedAt        DateTime?
+  conversation    SmsConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sentByUser      User?               @relation(fields: [sentByUserId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([telnyxMessageId])
+  @@map("sms_message")
+}
+
+model SmsConversationRead {
+  conversationId String
+  userId         String
+  lastReadAt     DateTime
+  conversation   SmsConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId, lastReadAt])
+  @@map("sms_conversation_read")
+}
+
+model SmsOptOut {
+  id                 String              @id @default(cuid())
+  practiceNumberId   String
+  patientPhoneNumber String
+  source             String
+  optedOutAt         DateTime            @default(now())
+  practiceNumber     PracticePhoneNumber @relation(fields: [practiceNumberId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceNumberId, patientPhoneNumber])
+  @@map("sms_opt_out")
 }
 
 model PracticeCallCenterSettings {
