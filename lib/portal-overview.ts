@@ -714,6 +714,85 @@ function fallbackAgentSummary(turns: Record<string, unknown>[]) {
   return null;
 }
 
+type StateBookedAppointment = {
+  appointmentId: string | null;
+  appointmentStart: string | null;
+  appointmentStatus: string;
+  appointmentTypeName: string | null;
+  locationName: string | null;
+  patientName: string | null;
+  providerName: string | null;
+};
+
+function extractStateBookedAppointment(data: unknown): StateBookedAppointment | null {
+  if (!isRecord(data) || !isRecord(data.callState)) {
+    return null;
+  }
+
+  const callState = data.callState;
+  const patient = isRecord(callState.patient) ? callState.patient : null;
+  const privateState = isRecord(callState.private) ? callState.private : null;
+  const latestBookedAppointmentId = asString(privateState?.latestBookedAppointmentId);
+  const appointments = Array.isArray(patient?.appointments)
+    ? patient.appointments.filter(isRecord)
+    : [];
+  if (!latestBookedAppointmentId || appointments.length === 0) {
+    return null;
+  }
+
+  const appointment =
+    appointments.find((item) => asString(item.id) === latestBookedAppointmentId) ?? null;
+  if (!appointment) {
+    return null;
+  }
+
+  return {
+    appointmentId: asString(appointment.id),
+    appointmentStart: appointmentStartFromStateAppointment(appointment),
+    appointmentStatus: "booked",
+    appointmentTypeName: asString(appointment.type),
+    locationName: asString(appointment.facility),
+    patientName: normalizeDisplayName(asString(patient?.name)),
+    providerName: asString(appointment.provider),
+  };
+}
+
+function appointmentStartFromStateAppointment(appointment: Record<string, unknown>) {
+  const date = asString(appointment.date);
+  const time = asString(appointment.time);
+  if (!date) {
+    return null;
+  }
+
+  const localTime = localTimeForAppointment(time);
+  return localTime ? `${date}T${localTime}` : time ? `${date} ${time}` : date;
+}
+
+function localTimeForAppointment(time: string | null) {
+  if (!time) {
+    return null;
+  }
+  const match = time.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+  if (!match) {
+    return null;
+  }
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "0");
+  const meridiem = match[3]?.toUpperCase();
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return null;
+  }
+  if (meridiem === "PM" && hour !== 12) {
+    hour += 12;
+  }
+  if (meridiem === "AM" && hour === 12) {
+    hour = 0;
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 export function extractBookedAppointment(call: {
   callerPhone: string;
   data: unknown;
@@ -761,12 +840,16 @@ export function extractBookedAppointment(call: {
     }
   }
 
+  const stateBooking = extractStateBookedAppointment(call.data);
   const matchedAvailability = findAvailabilityMatch(
     booking?.args ?? null,
     availabilityMatches,
   );
   const appointmentId =
-    asString(booking?.result?.appointmentId) ?? asString(booking?.result?.id);
+    asString(booking?.result?.appointmentId) ??
+    asString(booking?.result?.id) ??
+    stateBooking?.appointmentId ??
+    null;
 
   return {
     appointmentId,
@@ -774,24 +857,36 @@ export function extractBookedAppointment(call: {
       asString(booking?.result?.startDatetime) ??
       asString(booking?.args?.startDatetime) ??
       asString(booking?.args?.startDateTime) ??
-      asString(booking?.args?.datetime),
+      asString(booking?.args?.datetime) ??
+      stateBooking?.appointmentStart ??
+      null,
     appointmentStatus:
-      asString(booking?.result?.status) ?? (appointmentId ? "booked" : "unknown"),
-    appointmentTypeName: asString(booking?.result?.appointmentTypeName),
+      asString(booking?.result?.status) ??
+      stateBooking?.appointmentStatus ??
+      (appointmentId ? "booked" : "unknown"),
+    appointmentTypeName:
+      asString(booking?.result?.appointmentTypeName) ??
+      stateBooking?.appointmentTypeName ??
+      null,
     callId: call.id,
     callStartedAt: call.startedAt,
     callerPhone: call.callerPhone,
-    duration: asNumber(booking?.result?.duration) ?? asNumber(booking?.args?.duration),
+    duration:
+      asNumber(booking?.result?.duration) ?? asNumber(booking?.args?.duration) ?? null,
     locationName:
       asString(booking?.result?.locationName) ??
       matchedAvailability?.locationName ??
+      stateBooking?.locationName ??
       null,
     patientName:
       normalizeDisplayName(asString(booking?.result?.patientName)) ??
-      extractPatientName(booking?.args ?? null),
+      extractPatientName(booking?.args ?? null) ??
+      stateBooking?.patientName ??
+      null,
     providerName:
       asString(booking?.result?.providerName) ??
       matchedAvailability?.providerName ??
+      stateBooking?.providerName ??
       null,
     summary:
       call.outcomeSummary ??
