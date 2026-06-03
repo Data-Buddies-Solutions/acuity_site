@@ -27,7 +27,9 @@ export default function TextingHeaderPicker({
             return;
           }
 
-          router.push(`/portal/app/two-way-texting?inbox=${encodeURIComponent(event.target.value)}`);
+          router.push(
+            `/portal/app/two-way-texting?inbox=${encodeURIComponent(event.target.value)}`,
+          );
         }}
         value={selectedId}
       >

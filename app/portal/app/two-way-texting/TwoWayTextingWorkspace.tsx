@@ -18,7 +18,13 @@ import { cn } from "@/lib/utils";
 
 type SmsConversationStatus = "OPEN" | "CLOSED";
 type SmsMessageDirection = "INBOUND" | "OUTBOUND";
-type SmsMessageStatus = "QUEUED" | "SENDING" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
+type SmsMessageStatus =
+  | "QUEUED"
+  | "SENDING"
+  | "SENT"
+  | "DELIVERED"
+  | "FAILED"
+  | "RECEIVED";
 
 type ConversationListItem = {
   id: string;
@@ -133,7 +139,9 @@ function EmptyThread() {
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e8f4f4] text-[#0d7377]">
         <MessageSquareText className="h-7 w-7" aria-hidden="true" />
       </div>
-      <h2 className="mt-4 text-lg font-semibold text-[#10272c]">No conversation selected</h2>
+      <h2 className="mt-4 text-lg font-semibold text-[#10272c]">
+        No conversation selected
+      </h2>
       <p className="mt-2 max-w-sm text-sm leading-6 text-[#617477]">
         Incoming texts will appear in the list. Select one to read and reply.
       </p>
@@ -277,33 +285,40 @@ export default function TwoWayTextingWorkspace({
     [inbox.conversations, selectedId],
   );
 
-  const refreshInbox = useCallback(async ({ quiet = false } = {}) => {
-    if (!quiet) {
-      setRefreshing(true);
-    }
-
-    try {
-      const query = inbox.selectedInboxId
-        ? `?inboxId=${encodeURIComponent(inbox.selectedInboxId)}`
-        : "";
-      const next = await fetch(`/api/portal/sms/conversations${query}`, {
-        cache: "no-store",
-      }).then((response) => readJson<InboxState>(response));
-      setInbox(next);
-      setError(null);
-
-      if (selectedId && !next.conversations.some((item) => item.id === selectedId)) {
-        setSelectedId(next.conversations[0]?.id ?? "");
-        setConversation(null);
-      } else if (!selectedId && next.conversations[0]) {
-        setSelectedId(next.conversations[0].id);
+  const refreshInbox = useCallback(
+    async ({ quiet = false } = {}) => {
+      if (!quiet) {
+        setRefreshing(true);
       }
-    } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh inbox");
-    } finally {
-      setRefreshing(false);
-    }
-  }, [inbox.selectedInboxId, selectedId]);
+
+      try {
+        const query = inbox.selectedInboxId
+          ? `?inboxId=${encodeURIComponent(inbox.selectedInboxId)}`
+          : "";
+        const next = await fetch(`/api/portal/sms/conversations${query}`, {
+          cache: "no-store",
+        }).then((response) => readJson<InboxState>(response));
+        setInbox(next);
+        setError(null);
+
+        if (selectedId && !next.conversations.some((item) => item.id === selectedId)) {
+          setSelectedId(next.conversations[0]?.id ?? "");
+          setConversation(null);
+        } else if (!selectedId && next.conversations[0]) {
+          setSelectedId(next.conversations[0].id);
+        }
+      } catch (refreshError) {
+        setError(
+          refreshError instanceof Error
+            ? refreshError.message
+            : "Failed to refresh inbox",
+        );
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [inbox.selectedInboxId, selectedId],
+  );
 
   const refreshConversation = useCallback(
     async ({ quiet = false } = {}) => {
@@ -324,7 +339,9 @@ export default function TwoWayTextingWorkspace({
         setError(null);
       } catch (refreshError) {
         setError(
-          refreshError instanceof Error ? refreshError.message : "Failed to load conversation",
+          refreshError instanceof Error
+            ? refreshError.message
+            : "Failed to load conversation",
         );
       } finally {
         setLoadingThread(false);
@@ -377,7 +394,10 @@ export default function TwoWayTextingWorkspace({
         method: "POST",
       }).then((response) => readJson<{ ok: boolean }>(response));
       setDraft("");
-      await Promise.all([refreshInbox({ quiet: true }), refreshConversation({ quiet: true })]);
+      await Promise.all([
+        refreshInbox({ quiet: true }),
+        refreshConversation({ quiet: true }),
+      ]);
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Failed to send reply");
     } finally {
@@ -396,9 +416,14 @@ export default function TwoWayTextingWorkspace({
         headers: { "Content-Type": "application/json" },
         method: "PATCH",
       }).then((response) => readJson<{ ok: boolean }>(response));
-      await Promise.all([refreshInbox({ quiet: true }), refreshConversation({ quiet: true })]);
+      await Promise.all([
+        refreshInbox({ quiet: true }),
+        refreshConversation({ quiet: true }),
+      ]);
     } catch (statusError) {
-      setError(statusError instanceof Error ? statusError.message : "Failed to update status");
+      setError(
+        statusError instanceof Error ? statusError.message : "Failed to update status",
+      );
     }
   };
 
@@ -431,7 +456,11 @@ export default function TwoWayTextingWorkspace({
       setSelectedId(next.conversations[0]?.id ?? "");
       setConversation(null);
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete conversation");
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Failed to delete conversation",
+      );
     } finally {
       setDeleting(false);
     }

@@ -32,7 +32,14 @@ const SOUTH_FLORIDA_SMS_EMAILS = new Set([
 ]);
 const SOUTH_FLORIDA_LOCATION_NAMES = new Set(["hollywood", "sweetwater"]);
 const TEXT_PREVIEW_LENGTH = 96;
-const STOP_KEYWORDS = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
+const STOP_KEYWORDS = new Set([
+  "STOP",
+  "STOPALL",
+  "UNSUBSCRIBE",
+  "CANCEL",
+  "END",
+  "QUIT",
+]);
 const START_KEYWORDS = new Set(["START", "UNSTOP", "YES"]);
 
 type RecordLike = Record<string, unknown>;
@@ -183,8 +190,8 @@ function isSpringHillSmsNumber(phoneNumber: PracticeSmsPhoneNumber) {
 function isSouthFloridaPrimarySmsNumber(phoneNumber: PracticeSmsPhoneNumber) {
   return Boolean(
     phoneNumber.isPrimary &&
-      phoneNumber.location?.name &&
-      SOUTH_FLORIDA_LOCATION_NAMES.has(phoneNumber.location.name.trim().toLowerCase()),
+    phoneNumber.location?.name &&
+    SOUTH_FLORIDA_LOCATION_NAMES.has(phoneNumber.location.name.trim().toLowerCase()),
   );
 }
 
@@ -193,7 +200,9 @@ function isInboundEligiblePracticeNumber(phoneNumber: PracticeSmsPhoneNumber) {
     return true;
   }
 
-  return isSpringHillSmsNumber(phoneNumber) || isSouthFloridaPrimarySmsNumber(phoneNumber);
+  return (
+    isSpringHillSmsNumber(phoneNumber) || isSouthFloridaPrimarySmsNumber(phoneNumber)
+  );
 }
 
 async function findPracticeNumberByInboundTo(toNumber: string) {
@@ -237,9 +246,7 @@ async function getAllowedSmsPhoneNumbers(context: PortalPracticeAccessContext) {
 
   if (isAbitaPractice(context.practice)) {
     if (SPRING_HILL_SMS_EMAILS.has(email)) {
-      return allPracticeNumbers
-        .filter(isSpringHillSmsNumber)
-        .sort(sortSmsInboxOptions);
+      return allPracticeNumbers.filter(isSpringHillSmsNumber).sort(sortSmsInboxOptions);
     }
 
     if (SOUTH_FLORIDA_SMS_EMAILS.has(email)) {
@@ -382,7 +389,8 @@ async function handleInboundMessage(data: RecordLike, payload: RecordLike) {
   const toNumber = firstRecipientPhone(payload);
   const body = asString(payload.text);
   const telnyxMessageId = asString(payload.id);
-  const receivedAt = asDate(payload.received_at) ?? asDate(data.occurred_at) ?? new Date();
+  const receivedAt =
+    asDate(payload.received_at) ?? asDate(data.occurred_at) ?? new Date();
 
   if (!fromNumber || !toNumber || !body || !telnyxMessageId) {
     return { ignored: true, reason: "missing_message_fields" };
@@ -472,7 +480,8 @@ async function handleDeliveryUpdate(eventType: string, payload: RecordLike) {
   const failed = Boolean(code || detail || recipientDeliveryStatus.includes("fail"));
   const delivered =
     !failed &&
-    (recipientDeliveryStatus.includes("deliver") || Boolean(asString(payload.completed_at)));
+    (recipientDeliveryStatus.includes("deliver") ||
+      Boolean(asString(payload.completed_at)));
   const status =
     eventType === "message.sent"
       ? SmsMessageStatus.SENT
@@ -548,7 +557,7 @@ function serializeConversation(
   const read = conversation.reads.find((item) => item.userId === userId);
   const unread = Boolean(
     conversation.lastInboundAt &&
-      (!read || read.lastReadAt.getTime() < conversation.lastInboundAt.getTime()),
+    (!read || read.lastReadAt.getTime() < conversation.lastInboundAt.getTime()),
   );
 
   return {
@@ -716,8 +725,11 @@ export async function getSmsConversation(conversationId: string) {
       status: message.status,
     })),
     practiceNumber:
-      resolved.availableInboxes.find((inbox) => inbox.id === conversation.practiceNumberId)
-        ?.phoneNumber ?? resolved.phoneNumber?.phoneNumber ?? "",
+      resolved.availableInboxes.find(
+        (inbox) => inbox.id === conversation.practiceNumberId,
+      )?.phoneNumber ??
+      resolved.phoneNumber?.phoneNumber ??
+      "",
     readBy: conversation.reads.map((read) => ({
       lastReadAt: read.lastReadAt.toISOString(),
       name: read.user.name,
@@ -887,7 +899,8 @@ export async function sendSmsReply(conversationId: string, body: string) {
   }
 
   const result = (await response.json()) as unknown;
-  const telnyxMessageId = isRecord(result) && isRecord(result.data) ? asString(result.data.id) : "";
+  const telnyxMessageId =
+    isRecord(result) && isRecord(result.data) ? asString(result.data.id) : "";
 
   await prisma.smsMessage.update({
     data: {
