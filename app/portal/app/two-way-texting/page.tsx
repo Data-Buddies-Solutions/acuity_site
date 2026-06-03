@@ -45,7 +45,7 @@ export default async function PortalTwoWayTextingPage({
         />
       </PracticePageHeader>
 
-      <TwoWayTextingWorkspace initialInbox={inbox} />
+      <TwoWayTextingWorkspace key={inbox.selectedInboxId} initialInbox={inbox} />
     </div>
   );
 }
