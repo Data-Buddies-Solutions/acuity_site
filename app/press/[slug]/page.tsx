@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, CalendarDays } from "lucide-react";
 
 import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
-import BookCallButton from "@/app/components/BookCallButton";
 import { Button } from "@/app/components/ui/button";
 import { SITE_CONFIG } from "@/lib/config";
 import { getPressReleaseBySlug, pressReleases } from "../posts";
@@ -30,6 +30,9 @@ export async function generateMetadata({
   }
 
   const url = `${SITE_CONFIG.baseUrl}/press/${release.slug}`;
+  const imageUrl = release.image
+    ? `${SITE_CONFIG.baseUrl}${release.image.src}`
+    : `${SITE_CONFIG.baseUrl}/api/og`;
 
   return {
     title: release.headline,
@@ -44,10 +47,10 @@ export async function generateMetadata({
       publishedTime: release.date,
       images: [
         {
-          url: `${SITE_CONFIG.baseUrl}/api/og`,
+          url: imageUrl,
           width: 1200,
           height: 630,
-          alt: release.headline,
+          alt: release.image?.alt ?? release.headline,
         },
       ],
     },
@@ -55,7 +58,7 @@ export async function generateMetadata({
       card: "summary_large_image",
       title: release.headline,
       description: release.summary,
-      images: [`${SITE_CONFIG.baseUrl}/api/og`],
+      images: [imageUrl],
     },
   };
 }
@@ -92,6 +95,9 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
       },
     },
     mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    ...(release.image
+      ? { image: `${SITE_CONFIG.baseUrl}${release.image.src}` }
+      : {}),
   };
 
   return (
@@ -108,7 +114,7 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
         dangerouslySetInnerHTML={{ __html: JSON.stringify(newsArticleSchema) }}
       />
 
-      <article className="bg-background py-20 md:py-28">
+      <article className="bg-background pt-6 pb-20 md:pt-10 md:pb-28">
         <div className="mx-auto max-w-3xl px-6">
           <Link
             href="/press"
@@ -118,62 +124,93 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
             All press releases
           </Link>
 
-          <p className="mt-10 text-xs font-semibold uppercase tracking-[0.22em] text-accent">
-            For immediate release
-          </p>
-          <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-            <CalendarDays className="h-4 w-4" aria-hidden />
-            {release.dateline}
-          </div>
+          {/* Hero */}
+          <header
+            className={
+              release.image
+                ? "mt-8 grid gap-6 md:mt-10 md:grid-cols-[minmax(0,1fr)_14rem] md:items-start md:gap-10"
+                : "mt-8 md:mt-10"
+            }
+          >
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="inline-flex items-center rounded-full bg-accent/10 px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-accent">
+                  For immediate release
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                  <CalendarDays className="h-3.5 w-3.5" aria-hidden />
+                  {release.dateline}
+                </span>
+              </div>
 
-          <h1 className="mt-6 text-4xl font-semibold leading-[1.1] tracking-tight md:text-5xl [text-wrap:balance]">
-            {release.headline}
-          </h1>
+              <h1 className="mt-5 text-4xl font-semibold leading-[1.1] tracking-tight md:text-5xl [text-wrap:balance]">
+                {release.headline}
+              </h1>
 
-          <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-            {release.summary}
-          </p>
+              <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
+                {release.summary}
+              </p>
+            </div>
 
-          <div className="mt-12 space-y-10">
+            {release.image && (
+              <figure className="md:pt-1">
+                <div className="relative aspect-[4/5] w-44 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 shadow-sm md:w-full">
+                  <Image
+                    src={release.image.src}
+                    alt={release.image.alt}
+                    fill
+                    className="object-cover object-top"
+                    sizes="(max-width: 768px) 176px, 224px"
+                    priority
+                  />
+                </div>
+                <figcaption className="mt-3 text-xs text-muted-foreground">
+                  {release.image.alt}
+                </figcaption>
+              </figure>
+            )}
+          </header>
+
+          {/* Body */}
+          <div className="mt-12 space-y-8">
             {release.body.map((section, i) => (
-              <div key={i}>
+              <section key={i}>
                 {section.heading && (
                   <h2 className="text-xl font-semibold tracking-tight text-neutral-900 md:text-2xl">
                     {section.heading}
                   </h2>
                 )}
-                <div className="mt-3 space-y-4">
+                <div className={section.heading ? "mt-3 space-y-4" : "space-y-4"}>
                   {section.paragraphs.map((p, j) => (
-                    <p key={j} className="text-base leading-relaxed text-neutral-700">
+                    <p key={j} className="text-[1.0625rem] leading-[1.75] text-neutral-700">
                       {p}
                     </p>
                   ))}
                 </div>
-              </div>
+              </section>
             ))}
           </div>
 
           {release.quote && (
-            <figure className="mt-12 rounded-2xl border border-neutral-200 bg-muted/40 p-8">
-              <blockquote className="text-lg italic leading-relaxed text-neutral-800 md:text-xl">
+            <figure className="mt-12 border-l-2 border-accent pl-6">
+              <blockquote className="text-xl leading-[1.5] text-neutral-900 md:text-2xl [text-wrap:balance]">
                 &ldquo;{release.quote.text}&rdquo;
               </blockquote>
-              <figcaption className="mt-4 text-sm text-muted-foreground">
-                —{" "}
+              <figcaption className="mt-4 text-sm">
                 <span className="font-semibold text-neutral-900">
                   {release.quote.attribution}
                 </span>
-                , {release.quote.role}
+                <span className="text-muted-foreground">, {release.quote.role}</span>
               </figcaption>
             </figure>
           )}
 
           {release.relatedUrl && (
-            <div className="mt-12">
+            <div className="mt-10">
               <Button
                 asChild
                 variant="secondary"
-                className="rounded-full border border-neutral-300 bg-white px-7 py-3 text-neutral-800 shadow-sm"
+                className="rounded-full border border-neutral-300 bg-white px-6 py-3 text-neutral-800 shadow-sm hover:bg-neutral-50"
               >
                 <Link href={release.relatedUrl.href}>
                   {release.relatedUrl.label}
@@ -183,55 +220,41 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
             </div>
           )}
 
-          <div className="mt-16 border-t border-neutral-200 pt-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              About Acuity Health
-            </p>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              Acuity Health is the AI receptionist for ophthalmology practices. Acuity
-              answers every patient call, books appointments directly into the EMR, and
-              captures after-hours demand — so practices never miss a call. Learn more at{" "}
-              <Link
-                href="/"
-                className="text-foreground underline-offset-4 hover:underline"
-              >
-                acuityhealth.io
-              </Link>
-              .
-            </p>
-
-            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Press contact
-            </p>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              {release.contact.name}
-              <br />
-              <Link
-                href={`mailto:${release.contact.email}`}
-                className="text-foreground underline-offset-4 hover:underline"
-              >
-                {release.contact.email}
-              </Link>
-            </p>
-          </div>
-
-          <div className="mt-16 rounded-[2rem] border border-neutral-200 bg-white p-8 text-center md:p-10">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              See Acuity on a live call.
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-base text-muted-foreground">
-              Book a 30-minute demo and we&apos;ll run it on your scheduling rules.
-            </p>
-            <div className="mt-6">
-              <BookCallButton
-                size="default"
-                className="rounded-full px-7 py-3"
-                iconVariant="arrow-right"
-              >
-                Book a Demo
-              </BookCallButton>
+          {/* About + contact */}
+          <div className="mt-16 grid gap-8 border-t border-neutral-200 pt-8 sm:grid-cols-2">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                About Acuity Health
+              </p>
+              <p className="mt-3 text-sm leading-relaxed text-neutral-700">
+                Acuity Health is the AI receptionist for ophthalmology practices.
+                Acuity answers every patient call, books appointments directly into the
+                EMR, and captures after-hours demand.{" "}
+                <Link
+                  href="/"
+                  className="text-neutral-900 underline-offset-4 hover:underline"
+                >
+                  acuityhealth.io
+                </Link>
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Press contact
+              </p>
+              <p className="mt-3 text-sm leading-relaxed text-neutral-700">
+                {release.contact.name}
+                <br />
+                <Link
+                  href={`mailto:${release.contact.email}`}
+                  className="text-neutral-900 underline-offset-4 hover:underline"
+                >
+                  {release.contact.email}
+                </Link>
+              </p>
             </div>
           </div>
+
         </div>
       </article>
     </>

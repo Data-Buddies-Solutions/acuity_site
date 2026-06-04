@@ -27,7 +27,7 @@ export default function PressPage() {
         ]}
       />
 
-      <section className="bg-background py-20 md:py-28">
+      <section className="bg-background pt-10 pb-10 md:pt-14 md:pb-12">
         <div className="mx-auto max-w-4xl px-6 text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-accent/15 bg-accent/8 px-3 py-1.5">
             <Newspaper className="h-3.5 w-3.5 text-accent" />
@@ -35,17 +35,17 @@ export default function PressPage() {
               Press
             </span>
           </div>
-          <h1 className="mt-6 text-4xl font-semibold tracking-tight md:text-5xl">
+          <h1 className="mt-5 text-4xl font-semibold tracking-tight md:text-5xl">
             Acuity Health in the news.
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+          <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground md:text-lg">
             Announcements, launches, and milestones from the team building the AI
             receptionist for ophthalmology.
           </p>
         </div>
       </section>
 
-      <section className="border-y border-neutral-100 bg-muted/40 py-16 md:py-20">
+      <section className="border-t border-neutral-100 bg-muted/40 pt-10 pb-16 md:pt-12 md:pb-20">
         <div className="mx-auto max-w-5xl px-6">
           <div className="space-y-6">
             {pressReleases.map((release) => (
