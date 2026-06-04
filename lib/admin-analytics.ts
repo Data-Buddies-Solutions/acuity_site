@@ -604,6 +604,11 @@ function getToolActionLabels(call: {
     }
 
     if (tool.name === "book_appt") actions.add("Booked");
+    if (tool.name === "reschedule_appt") {
+      actions.add("Booked");
+      actions.add("Cancelled");
+      actions.add("Rescheduled");
+    }
     if (tool.name === "confirm_appt") actions.add("Confirmed");
     if (tool.name === "cancel_appt") actions.add("Cancelled");
     if (tool.name === "transfer_call") actions.add("Transferred");
@@ -615,6 +620,11 @@ function getToolActionLabels(call: {
     }
 
     if (tool.outputClass === "appointment_booked") actions.add("Booked");
+    if (tool.outputClass === "appointment_rescheduled") {
+      actions.add("Booked");
+      actions.add("Cancelled");
+      actions.add("Rescheduled");
+    }
     if (tool.outputClass === "appointment_confirmed") actions.add("Confirmed");
     if (tool.outputClass === "appointment_cancelled") actions.add("Cancelled");
     if (tool.outputClass === "transfer_started") actions.add("Transferred");
@@ -674,6 +684,8 @@ function formatToolAction(name: string) {
   switch (name) {
     case "book_appt":
       return "Book";
+    case "reschedule_appt":
+      return "Reschedule";
     case "confirm_appt":
       return "Confirm";
     case "cancel_appt":
@@ -1137,6 +1149,10 @@ function buildPracticeAnalyticsData(
 
       if (tool.name === "transfer_call") transferred = true;
       if (tool.name === "book_appt") booked = Math.max(booked, 1);
+      if (tool.name === "reschedule_appt") {
+        booked = Math.max(booked, 1);
+        cancelled = Math.max(cancelled, 1);
+      }
       if (tool.name === "confirm_appt") confirmed = Math.max(confirmed, 1);
       if (tool.name === "cancel_appt") cancelled = Math.max(cancelled, 1);
     }
@@ -1365,6 +1381,10 @@ function buildPracticeDashboardData(
       }
 
       if (tool.name === "book_appt") booked = Math.max(booked, 1);
+      if (tool.name === "reschedule_appt") {
+        booked = Math.max(booked, 1);
+        cancelled = Math.max(cancelled, 1);
+      }
       if (tool.name === "confirm_appt") confirmed = Math.max(confirmed, 1);
       if (tool.name === "cancel_appt") cancelled = Math.max(cancelled, 1);
       if (tool.name === "transfer_call") transferred = true;

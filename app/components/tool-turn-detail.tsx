@@ -9,6 +9,8 @@ function formatToolLabel(name: string): string {
   switch (name) {
     case "book_appt":
       return "Book";
+    case "reschedule_appt":
+      return "Reschedule";
     case "confirm_appt":
       return "Confirm";
     case "cancel_appt":

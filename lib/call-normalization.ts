@@ -870,6 +870,11 @@ export function getToolActions(
       actions.bookedAppointment = true;
     }
 
+    if (tool.outputClass === "appointment_rescheduled") {
+      actions.bookedAppointment = true;
+      actions.cancelledAppointment = true;
+    }
+
     if (tool.outputClass === "appointment_cancelled") {
       actions.cancelledAppointment = true;
     }
@@ -891,6 +896,11 @@ export function getToolActions(
 
       if (tool.name === "book_appt") {
         actions.bookedAppointment = true;
+      }
+
+      if (tool.name === "reschedule_appt") {
+        actions.bookedAppointment = true;
+        actions.cancelledAppointment = true;
       }
 
       if (tool.name === "cancel_appt") {

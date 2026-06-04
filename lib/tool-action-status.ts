@@ -43,8 +43,36 @@ export function isSuccessfulBookAppointmentTool(tool: ToolActionLike) {
   );
 }
 
+export function isSuccessfulRescheduleAppointmentTool(tool: ToolActionLike) {
+  if (tool.name !== "reschedule_appt" || tool.isError === true) return false;
+
+  const result = parseToolResult(tool.result);
+  if (!result) return false;
+
+  const status = asString(result.status)?.toLowerCase();
+  if (status === "error") return false;
+
+  const appointmentId = asString(result.appointmentId) ?? asString(result.id);
+  if (!appointmentId) return false;
+
+  return (
+    status === "rescheduled" ||
+    asString(result.cancelledAppointmentId) !== null ||
+    asString(result.cancellationStatus)?.toLowerCase() === "cancelled"
+  );
+}
+
+export function isSuccessfulAppointmentBookingTool(tool: ToolActionLike) {
+  return (
+    isSuccessfulBookAppointmentTool(tool) || isSuccessfulRescheduleAppointmentTool(tool)
+  );
+}
+
 export function isSuccessfulToolAction(tool: ToolActionLike) {
   if (tool.isError === true) return false;
   if (tool.name === "book_appt") return isSuccessfulBookAppointmentTool(tool);
+  if (tool.name === "reschedule_appt") {
+    return isSuccessfulRescheduleAppointmentTool(tool);
+  }
   return true;
 }

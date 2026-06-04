@@ -491,6 +491,63 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(normalized.avgTtft).toBe(450);
   });
 
+  it("marks successful reschedules as booked and cancelled actions", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_rescheduled",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      startedAt: "2026-05-20T14:00:30.000Z",
+      toolExecutions: [
+        {
+          outputClass: "appointment_rescheduled",
+          status: "success",
+          toolName: "reschedule_appt",
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.bookedAppointment).toBe(true);
+    expect(normalized.toolActions.cancelledAppointment).toBe(true);
+  });
+
+  it("marks structured reschedule tool calls as booked and cancelled actions", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_rescheduled_turn",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      startedAt: "2026-05-20T14:00:30.000Z",
+      turns: [
+        {
+          cachedTokens: 0,
+          callerText: "Can you move my appointment?",
+          completionTokens: 0,
+          promptTokens: 0,
+          sttLatencyMs: 0,
+          agentText: "The appointment was moved.",
+          toolCalls: [
+            {
+              args: "{}",
+              durationMs: 100,
+              isError: false,
+              name: "reschedule_appt",
+              result: JSON.stringify({
+                appointmentId: 98765,
+                cancelledAppointmentId: 12345,
+                status: "rescheduled",
+              }),
+            },
+          ],
+          ttftMs: 0,
+          ttsttfbMs: 0,
+          turn: 1,
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.bookedAppointment).toBe(true);
+    expect(normalized.toolActions.cancelledAppointment).toBe(true);
+  });
+
   it("stores normalized tool executions and ignores malformed action status", () => {
     const normalized = normalizeLiveKitCallPayload({
       callId: "call_malformed_tool_execution",

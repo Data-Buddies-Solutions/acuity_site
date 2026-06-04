@@ -7,7 +7,7 @@ import {
 import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
-import { isSuccessfulBookAppointmentTool } from "@/lib/tool-action-status";
+import { isSuccessfulAppointmentBookingTool } from "@/lib/tool-action-status";
 
 export type PortalBookedAppointment = {
   appointmentId: string | null;
@@ -730,9 +730,16 @@ function extractStateBookedAppointment(data: unknown): StateBookedAppointment | 
   }
 
   const callState = data.callState;
-  const patient = isRecord(callState.patient) ? callState.patient : null;
+  const identity = isRecord(callState.identity) ? callState.identity : null;
+  const patient = isRecord(callState.patient)
+    ? callState.patient
+    : isRecord(identity?.patient)
+      ? identity.patient
+      : null;
   const privateState = isRecord(callState.private) ? callState.private : null;
-  const latestBookedAppointmentId = asString(privateState?.latestBookedAppointmentId);
+  const latestBookedAppointmentId =
+    asString(privateState?.latestBookedAppointmentId) ??
+    asString(identity?.latestBookedAppointmentId);
   const appointments = Array.isArray(patient?.appointments)
     ? patient.appointments.filter(isRecord)
     : [];
@@ -824,8 +831,7 @@ export function extractBookedAppointment(call: {
       }
 
       if (
-        name === "book_appt" &&
-        isSuccessfulBookAppointmentTool({
+        isSuccessfulAppointmentBookingTool({
           isError: rawTool.isError === true,
           name,
           result: rawTool.result,
