@@ -214,6 +214,58 @@ describe("portal booking extraction", () => {
     expect(booking.patientName).toBe("Jane Smith");
   });
 
+  it("extracts portal booking rows from structured reschedule results", () => {
+    const booking = extractBookedAppointment({
+      callerPhone: "+17275551212",
+      data: {
+        turns: [
+          {
+            agentText: "I moved the appointment.",
+            toolCalls: [
+              {
+                args: JSON.stringify({
+                  appointmentId: 12345,
+                  appointmentReason: "move appointment",
+                  referringDoctor: "none",
+                  slotId: "A",
+                }),
+                isError: false,
+                name: "reschedule_appt",
+                result: JSON.stringify({
+                  appointmentId: 98765,
+                  appointmentTypeName: "Established Adult",
+                  bookingStatus: "booked",
+                  cancelledAppointmentId: 12345,
+                  cancellationStatus: "cancelled",
+                  duration: 30,
+                  locationName: "Spring Hill",
+                  patientName: "SMITH,JANE",
+                  providerName: "Dr. Austin Bach",
+                  startDatetime: "2026-05-12T11:00",
+                  status: "rescheduled",
+                }),
+              },
+            ],
+          },
+        ],
+      },
+      id: "call-1",
+      outcomeSummary: null,
+      startedAt: new Date("2026-05-03T13:00:00.000Z"),
+    });
+
+    expect(booking).toMatchObject({
+      appointmentId: "98765",
+      appointmentStart: "2026-05-12T11:00",
+      appointmentStatus: "rescheduled",
+      appointmentTypeName: "Established Adult",
+      duration: 30,
+      locationName: "Spring Hill",
+      patientName: "Jane Smith",
+      providerName: "Dr. Austin Bach",
+    });
+  });
+
   it("falls back to final call state when booking tool output is speech text", () => {
     const booking = extractBookedAppointment({
       callerPhone: "+17275551212",
@@ -250,6 +302,64 @@ describe("portal booking extraction", () => {
                 isError: false,
                 name: "book_appt",
                 result: "Booked May 12 at 11:00 AM with Dr. Austin Bach.",
+              },
+            ],
+          },
+        ],
+      },
+      id: "call-1",
+      outcomeSummary: null,
+      startedAt: new Date("2026-05-03T13:00:00.000Z"),
+    });
+
+    expect(booking).toMatchObject({
+      appointmentId: "98765",
+      appointmentStart: "2026-05-12T11:00",
+      appointmentStatus: "booked",
+      appointmentTypeName: "Established Adult",
+      locationName: "Spring Hill",
+      patientName: "Jane Smith",
+      providerName: "Dr. Austin Bach",
+    });
+  });
+
+  it("falls back to the current agent call state shape", () => {
+    const booking = extractBookedAppointment({
+      callerPhone: "+17275551212",
+      data: {
+        callState: {
+          identity: {
+            latestBookedAppointmentId: 98765,
+            patient: {
+              name: "Jane Smith",
+              appointments: [
+                {
+                  id: 98765,
+                  date: "2026-05-12",
+                  time: "11:00 AM",
+                  provider: "Dr. Austin Bach",
+                  type: "Established Adult",
+                  facility: "Spring Hill",
+                  confirmed: true,
+                },
+              ],
+            },
+          },
+        },
+        turns: [
+          {
+            agentText: "The appointment was moved.",
+            toolCalls: [
+              {
+                args: JSON.stringify({
+                  appointmentReason: "move appointment",
+                  referringDoctor: "none",
+                  slotId: "A",
+                }),
+                isError: false,
+                name: "reschedule_appt",
+                result:
+                  "Rescheduled the appointment to May 12 at 11:00 AM. Cancelled the old appointment.",
               },
             ],
           },
