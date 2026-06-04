@@ -4,6 +4,10 @@ export type PressRelease = {
   date: string;
   headline: string;
   summary: string;
+  image?: {
+    src: string;
+    alt: string;
+  };
   body: {
     heading?: string;
     paragraphs: string[];
@@ -20,7 +24,47 @@ export type PressRelease = {
   };
 };
 
-export const pressReleases: PressRelease[] = [
+const pressReleasePosts: PressRelease[] = [
+  {
+    slug: "acuity-health-dr-michael-venincasa-chief-medical-officer",
+    dateline: "June 4, 2026",
+    date: "2026-06-04",
+    headline:
+      "Acuity Health names Dr. Michael Venincasa as Chief Medical Officer",
+    summary:
+      "Dr. Michael Venincasa joins Acuity Health as Chief Medical Officer, strengthening the company's mission to build the leading AI receptionist for ophthalmology practices.",
+    image: {
+      src: "/michael-venincasa.jpg",
+      alt: "Dr. Michael Venincasa, Chief Medical Officer at Acuity Health",
+    },
+    body: [
+      {
+        heading: "Clinical leadership for ophthalmology-specific AI",
+        paragraphs: [
+          "Dr. Venincasa is a comprehensive ophthalmologist at Loh Ophthalmology Associates in Miami. His clinical work spans cataract surgery, refractive cataract and premium lens replacement surgery, ocular surface disease, dry eye, glaucoma, diabetic eye exams, and routine eye care.",
+          "Acuity is built around the reality of ophthalmology practices: high call volume, detailed scheduling rules, medical versus vision insurance, pediatric routing, urgent symptom triage, multilingual patient conversations, and direct EMR booking.",
+          "Dr. Venincasa's role will focus on making those clinical and operational details core to the product, so practices can use AI at the front desk without flattening the nuance of patient care or practice workflows.",
+        ],
+      },
+      {
+        heading: "A step toward the best AI receptionist for eye care",
+        paragraphs: [
+          "The appointment marks another step in Acuity's goal of becoming the best AI receptionist for ophthalmology practices. The company is pairing engineering depth with clinical guidance to answer calls, book accurately, reduce staff burden, and capture demand that would otherwise be missed.",
+          "Dr. Venincasa trained at the University of Miami Miller School of Medicine and completed his ophthalmology residency at Bascom Palmer Eye Institute. He brings direct experience from high-volume ophthalmology care to Acuity's work with practices across the country.",
+        ],
+      },
+    ],
+    quote: {
+      text: "Ophthalmology deserves AI built around how eye care practices actually operate. Dr. Venincasa gives us the clinical judgment and workflow depth to keep raising that bar.",
+      attribution: "Kyle Shechtman",
+      role: "Co-founder & CEO, Acuity Health",
+    },
+    relatedUrl: { label: "Meet the Acuity Health team", href: "/about" },
+    contact: {
+      name: "Kyle Shechtman",
+      email: "kyle@acuityhealth.io",
+    },
+  },
   {
     slug: "acuity-health-launches-ai-receptionist-ophthalmology",
     dateline: "January 1, 2026",
@@ -115,6 +159,10 @@ export const pressReleases: PressRelease[] = [
     },
   },
 ];
+
+export const pressReleases = [...pressReleasePosts].sort(
+  (a, b) => Date.parse(b.date) - Date.parse(a.date),
+);
 
 export function getPressReleaseBySlug(slug: string) {
   return pressReleases.find((release) => release.slug === slug);
