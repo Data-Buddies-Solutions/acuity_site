@@ -45,7 +45,7 @@ export default function PressPage() {
         </div>
       </section>
 
-      <section className="border-t border-neutral-100 bg-muted/40 pt-10 pb-16 md:pt-12 md:pb-20">
+      <section className="bg-muted/40 pt-10 pb-16 md:pt-12 md:pb-20">
         <div className="mx-auto max-w-5xl px-6">
           <div className="space-y-6">
             {pressReleases.map((release) => (
