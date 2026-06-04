@@ -82,6 +82,14 @@ function getReviewBadge(call: AdminCallTableRow) {
     );
   }
 
+  if (call.reviewStatus === "running") {
+    return (
+      <Badge variant="outline" className="text-[10px]">
+        Running
+      </Badge>
+    );
+  }
+
   if (call.reviewStatus !== "completed") {
     return <span className="text-muted-foreground">--</span>;
   }

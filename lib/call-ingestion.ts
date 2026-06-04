@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { normalizeLiveKitCallPayload, toJsonCompatible } from "@/lib/call-normalization";
+import { shouldQueueAgentCallReview } from "@/lib/call-review/normalize";
 import type { CallSummaryData, LiveKitWebhookPayload } from "@/lib/call-types";
 import { ESTIMATED_USAGE_PROVIDERS } from "@/lib/pricing";
 
@@ -173,6 +174,14 @@ export async function ingestLiveKitCallPayload(
   const latencyValues = jsonInput(normalized.latencyValues);
   const reviewResult =
     normalized.reviewResult == null ? undefined : jsonInput(normalized.reviewResult);
+  const hasIncomingReview =
+    normalized.reviewStatus !== null || normalized.reviewResult !== null;
+  const shouldQueueReview =
+    !hasIncomingReview &&
+    shouldQueueAgentCallReview({
+      dataPayload: normalized.dataPayload,
+      status: normalized.status,
+    });
   const audioData = normalized.audioData ? Buffer.from(normalized.audioData) : null;
   const baseWrite = {
     agentId,
@@ -195,14 +204,11 @@ export async function ingestLiveKitCallPayload(
     latencyValues,
     llmModel: normalized.llmModel,
     locationId: practice.locationId,
-    needsReview: normalized.needsReview,
     officePhone: normalized.officePhone,
     outcomeSummary: normalized.outcomeSummary,
     outputTokens: normalized.outputTokens,
     peakContext: normalized.peakContext,
     practiceId: practice.practiceId,
-    reviewAverageScore: normalized.reviewAverageScore,
-    reviewStatus: normalized.reviewStatus,
     startedAt: normalized.startedAt,
     status: normalized.status,
     toolCalls: normalized.toolCalls,
@@ -210,26 +216,60 @@ export async function ingestLiveKitCallPayload(
     totalTurns: normalized.totalTurns,
     transferred: normalized.toolActions.transferred,
     ttsChars: normalized.ttsChars,
-    ...(reviewResult === undefined ? {} : { reviewResult }),
   };
+  const reviewCreateWrite = {
+    needsReview: normalized.needsReview,
+    reviewAverageScore: hasIncomingReview ? normalized.reviewAverageScore : null,
+    reviewStatus: hasIncomingReview
+      ? normalized.reviewStatus
+      : shouldQueueReview
+        ? "pending"
+        : null,
+    ...(hasIncomingReview && reviewResult !== undefined ? { reviewResult } : {}),
+  };
+  const reviewUpdateWrite = hasIncomingReview
+    ? {
+        needsReview: normalized.needsReview,
+        reviewAverageScore: normalized.reviewAverageScore,
+        reviewStatus: normalized.reviewStatus,
+        ...(reviewResult === undefined ? {} : { reviewResult }),
+      }
+    : {};
   const updateWrite = {
     ...baseWrite,
+    ...reviewUpdateWrite,
     ...(audioData ? { audioData } : {}),
   };
   const createWrite = {
     ...baseWrite,
+    ...reviewCreateWrite,
     audioData,
     callId: normalized.callId,
   };
 
   const stored = await prisma.$transaction(async (tx) => {
-    const agentCall = await tx.agentCall.upsert({
+    const existing = await tx.agentCall.findUnique({
+      select: { reviewStatus: true },
+      where: { callId: normalized.callId },
+    });
+
+    let agentCall = await tx.agentCall.upsert({
       create: createWrite,
       update: updateWrite,
       where: {
         callId: normalized.callId,
       },
     });
+
+    if (!hasIncomingReview && shouldQueueReview && existing && !existing.reviewStatus) {
+      agentCall = await tx.agentCall.update({
+        data: {
+          needsReview: normalized.needsReview,
+          reviewStatus: "pending",
+        },
+        where: { id: agentCall.id },
+      });
+    }
 
     await tx.usageCostLineItem.deleteMany({
       where: {

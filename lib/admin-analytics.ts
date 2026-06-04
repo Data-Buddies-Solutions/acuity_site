@@ -220,7 +220,7 @@ export interface AdminCallTableRow {
   reviewAverageScore: number | null;
   reviewNeedsAttention: boolean;
   reviewPassed: boolean | null;
-  reviewStatus: "pending" | "completed" | "failed" | "not_created";
+  reviewStatus: "pending" | "running" | "completed" | "failed" | "not_created";
   startedAt: string;
   runtimeErrorCount: number;
   toolActions: string[];
@@ -673,7 +673,12 @@ function getReviewPassed(reviewResult: unknown) {
 }
 
 function normalizeReviewStatus(status: string | null): AdminCallTableRow["reviewStatus"] {
-  if (status === "pending" || status === "completed" || status === "failed") {
+  if (
+    status === "pending" ||
+    status === "running" ||
+    status === "completed" ||
+    status === "failed"
+  ) {
     return status;
   }
 

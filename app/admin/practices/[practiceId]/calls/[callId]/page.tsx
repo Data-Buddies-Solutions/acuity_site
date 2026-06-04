@@ -188,15 +188,29 @@ function getSummary(call: CallDetail): CallSummaryData {
 }
 
 function getReviewResult(call: CallDetail): JudgeResult | null {
-  if (isRecord(call.reviewResult)) {
+  if (isJudgeResultLike(call.reviewResult)) {
     return call.reviewResult as JudgeResult;
   }
 
-  if (isRecord(call.data) && isRecord(call.data.reviewResult)) {
+  if (isRecord(call.data) && isJudgeResultLike(call.data.reviewResult)) {
     return call.data.reviewResult as JudgeResult;
   }
 
   return null;
+}
+
+function isJudgeResultLike(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.summary === "string" &&
+    typeof value.passed === "boolean"
+  );
+}
+
+function getReviewError(call: CallDetail) {
+  const result = isRecord(call.reviewResult) ? call.reviewResult : null;
+  const error = isRecord(result?.reviewError) ? result.reviewError : null;
+  return typeof error?.message === "string" ? error.message : null;
 }
 
 function getReviewAverageScore(call: CallDetail, reviewResult: JudgeResult | null) {
@@ -464,10 +478,11 @@ export default async function AdminCallDetailPage({
       label: formatToolLabel(tool),
     }));
   const rawJson = JSON.stringify(data, null, 2);
-  const reviewResult = getReviewResult(call);
-  const reviewAverageScore = getReviewAverageScore(call, reviewResult);
   const reviewStatus =
     call.reviewStatus ?? (call.needsReview ? "needs_review" : "not_created");
+  const reviewResult = reviewStatus === "completed" ? getReviewResult(call) : null;
+  const reviewAverageScore = getReviewAverageScore(call, reviewResult);
+  const reviewError = getReviewError(call);
   const reviewFindings = Array.isArray(reviewResult?.findings)
     ? reviewResult.findings
     : [];
@@ -787,9 +802,14 @@ export default async function AdminCallDetailPage({
               </p>
             ) : reviewStatus === "pending" ? (
               <p className="text-sm text-muted-foreground">Review pending.</p>
+            ) : reviewStatus === "running" ? (
+              <p className="text-sm text-muted-foreground">Review running.</p>
             ) : reviewStatus === "failed" ? (
               <div className="space-y-2">
                 <Badge variant="destructive">Review failed</Badge>
+                {reviewError ? (
+                  <p className="text-sm text-muted-foreground">{reviewError}</p>
+                ) : null}
               </div>
             ) : reviewResult ? (
               <div className="space-y-4">
