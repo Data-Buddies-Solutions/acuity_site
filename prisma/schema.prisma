@@ -388,6 +388,7 @@ model AgentCall {
   @@index([practiceId, startedAt])
   @@index([practiceId, needsReview])
   @@index([practiceId, status])
+  @@index([reviewStatus, endedAt(sort: Desc), startedAt(sort: Desc)])
   @@index([locationId])
   @@index([agentId])
   @@index([callerPhone])
