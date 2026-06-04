@@ -93,6 +93,27 @@
   }
 }
 
+.portal-platform {
+  font-family:
+    "ABC Monument Grotesk",
+    "Inter",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.portal-platform h1,
+.portal-platform h2,
+.portal-platform h3,
+.portal-platform h4,
+.portal-platform h5,
+.portal-platform h6 {
+  letter-spacing: 0;
+}
+
 @layer utilities {
   .section {
     padding-top: 5rem;

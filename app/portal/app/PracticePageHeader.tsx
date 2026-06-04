@@ -8,6 +8,7 @@ export function PracticePageHeader({
   eyebrow,
   logoMeta,
   practiceName,
+  showLogo = true,
   title,
   branding,
 }: {
@@ -16,32 +17,54 @@ export function PracticePageHeader({
   eyebrow?: string;
   logoMeta?: string;
   practiceName: string;
+  showLogo?: boolean;
   title: string;
 }) {
-  return (
-    <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-      <div className="grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+  if (!showLogo) {
+    return (
+      <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <PracticeBrandLogo
-            branding={branding}
-            className="h-16 max-w-full"
-            practiceName={practiceName}
-          />
-        </div>
-        <div className="min-w-0 sm:row-start-1 sm:col-start-2">
           {eyebrow ? (
-            <p className="text-sm font-medium uppercase tracking-[0.16em] text-[#6a7b7e]">
+            <p className="text-sm font-medium tracking-normal text-[#7b8494]">
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="break-words text-2xl font-semibold tracking-normal text-[#10272c] sm:text-3xl md:text-4xl">
+          <h1 className="break-words text-4xl font-semibold leading-tight tracking-normal text-[#151a24] md:text-5xl">
             {title}
           </h1>
+          {logoMeta ? (
+            <p className="mt-2 text-sm font-medium text-[#8a94a6]">{logoMeta}</p>
+          ) : null}
+        </div>
+        {children}
+      </section>
+    );
+  }
+
+  return (
+    <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-3">
+          <div className="min-w-0">
+            <PracticeBrandLogo
+              branding={branding}
+              className="h-12 max-w-[220px] border-transparent bg-transparent px-0 py-0 shadow-none"
+              practiceName={practiceName}
+            />
+          </div>
+          <div className="min-w-0">
+            {eyebrow ? (
+              <p className="text-sm font-medium tracking-normal text-[#7b8494]">
+                {eyebrow}
+              </p>
+            ) : null}
+            <h1 className="break-words text-4xl font-semibold leading-tight tracking-normal text-[#151a24] md:text-5xl">
+              {title}
+            </h1>
+          </div>
         </div>
         {logoMeta ? (
-          <p className="text-sm font-medium text-[#617477] sm:col-start-1 sm:row-start-2">
-            {logoMeta}
-          </p>
+          <p className="mt-3 text-sm font-medium text-[#8a94a6]">{logoMeta}</p>
         ) : null}
       </div>
       {children}

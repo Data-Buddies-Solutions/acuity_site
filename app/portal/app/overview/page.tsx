@@ -77,10 +77,7 @@ function OfficeFilterNav({
   const items = [{ id: null, label: "All Offices" }, ...offices];
 
   return (
-    <nav
-      aria-label="Overview office"
-      className="flex max-w-full gap-2 overflow-x-auto pb-1"
-    >
+    <nav aria-label="Overview office" className="flex max-w-full gap-2 overflow-x-auto">
       {items.map((item) => {
         const isActive = item.id === selectedOfficeId;
 
@@ -89,10 +86,10 @@ function OfficeFilterNav({
             key={item.id ?? "all"}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
+              "inline-flex h-10 min-w-fit items-center rounded-xl border px-4 text-sm font-medium transition",
               isActive
-                ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
-                : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
+                ? "border-[#cbd7ff] bg-[#edf4ff] text-[#2f58d6]"
+                : "border-[#d8dde8] bg-white text-[#667085] hover:bg-[#f5f7fb] hover:text-[#1f2937]",
             )}
             href={overviewHref({ office: item.id, range })}
           >
@@ -106,6 +103,18 @@ function OfficeFilterNav({
 
 function formatInteger(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatHoursMinutes(seconds: number) {
+  const totalMinutes = Math.max(0, Math.round(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours <= 0) {
+    return `${minutes}m`;
+  }
+
+  return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
 }
 
 function formatCallDuration(seconds: number) {
@@ -132,6 +141,13 @@ function formatTodayLabel() {
   }).format(new Date());
 }
 
+function rangeNarrative(range: PortalOverviewRange) {
+  if (range === "24h") return "in the last 24 hours";
+  if (range === "7d") return "in the last 7 days";
+  if (range === "30d") return "in the last 30 days";
+  return "since launch";
+}
+
 function buildDelta(current: number, previous: number) {
   if (previous <= 0) {
     return null;
@@ -143,6 +159,47 @@ function buildDelta(current: number, previous: number) {
       diff === 0 ? ("flat" as const) : diff > 0 ? ("up" as const) : ("down" as const),
     label: `${Math.round(Math.abs(ratio) * 100)}%`,
   };
+}
+
+function pluralize(value: number, singular: string, plural = `${singular}s`) {
+  return value === 1 ? singular : plural;
+}
+
+function OverviewBrief({
+  bookedAppointments,
+  callsHandled,
+  frontDeskTimeCovered,
+  range,
+  selectedOfficeLabel,
+  transferredCalls,
+}: {
+  bookedAppointments: number;
+  callsHandled: number;
+  frontDeskTimeCovered: number;
+  range: PortalOverviewRange;
+  selectedOfficeLabel: string | null;
+  transferredCalls: number;
+}) {
+  const scope = selectedOfficeLabel ? ` for ${selectedOfficeLabel}` : "";
+
+  return (
+    <section className="rounded-xl border border-[#cfd5e2] bg-white px-5 py-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.04)] transition duration-150 hover:border-[#b9c4dd] hover:shadow-[0_2px_4px_rgba(16,24,40,0.06),0_16px_34px_rgba(16,24,40,0.08)] md:px-6">
+      <p className="text-sm font-medium tracking-normal text-[#8a94a6]">
+        Operating Brief
+      </p>
+      <p className="mt-2 max-w-4xl text-2xl font-semibold leading-snug tracking-normal text-[#151a24] md:text-3xl">
+        Acuity handled {formatInteger(callsHandled)} patient{" "}
+        {pluralize(callsHandled, "call")}
+        {scope} {rangeNarrative(range)}.
+      </p>
+      <p className="mt-2 max-w-3xl text-base leading-7 text-[#667085]">
+        {formatInteger(bookedAppointments)} {pluralize(bookedAppointments, "appointment")}{" "}
+        booked, {formatInteger(transferredCalls)} {pluralize(transferredCalls, "call")}{" "}
+        escalated to staff, and {formatHoursMinutes(frontDeskTimeCovered)} of front desk
+        time covered.
+      </p>
+    </section>
+  );
 }
 
 export default async function PortalOverviewPage({
@@ -172,14 +229,15 @@ export default async function PortalOverviewPage({
   const periodNote = previousLabel[range];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-5">
       <PracticePageHeader
         branding={metrics.branding}
         logoMeta={formatTodayLabel()}
         practiceName={metrics.practiceName}
+        showLogo={false}
         title="Overview"
       >
-        <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end lg:w-auto lg:pt-1">
           <OfficeFilterNav
             offices={metrics.officeFilters}
             range={metrics.range}
@@ -187,7 +245,7 @@ export default async function PortalOverviewPage({
           />
           <nav
             aria-label="Overview range"
-            className="inline-flex w-full rounded-lg border border-black/8 bg-white p-1 sm:w-fit"
+            className="inline-flex h-10 w-full rounded-xl border border-[#d8dde8] bg-white p-1 sm:w-fit"
           >
             {rangeOptions.map((option) => {
               const isActive = option.value === metrics.range;
@@ -196,10 +254,10 @@ export default async function PortalOverviewPage({
                   key={option.value}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
+                    "flex flex-1 items-center justify-center rounded-lg px-4 text-sm font-medium transition sm:min-w-24",
                     isActive
-                      ? "bg-[#10272c] text-white shadow-sm hover:text-white"
-                      : "text-[#617477] hover:bg-[#f1f5f5] hover:text-[#10272c]",
+                      ? "bg-[#19203a] text-white shadow-sm hover:text-white"
+                      : "text-[#667085] hover:bg-[#f5f7fb] hover:text-[#1f2937]",
                   )}
                   href={overviewHref({
                     office: metrics.selectedOfficeId,
@@ -214,6 +272,15 @@ export default async function PortalOverviewPage({
         </div>
       </PracticePageHeader>
 
+      <OverviewBrief
+        bookedAppointments={metrics.appointmentActions.booked}
+        callsHandled={metrics.totalCalls}
+        frontDeskTimeCovered={metrics.staffTimeSaved.totalSeconds}
+        range={metrics.range}
+        selectedOfficeLabel={metrics.selectedOfficeLabel}
+        transferredCalls={metrics.transferredCalls}
+      />
+
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           delta={
@@ -224,20 +291,21 @@ export default async function PortalOverviewPage({
                 }
               : null
           }
-          label="Call Volume"
+          label="Patient Calls Handled"
           value={formatInteger(metrics.totalCalls)}
         />
         <MetricCard
-          label="Transfer Rate"
-          note={`${formatInteger(metrics.transferredCalls)} of ${formatInteger(metrics.totalCalls)} calls`}
-          value={formatRate(metrics.transferRate)}
-        />
-        <MetricCard
-          label="Bookings"
+          label="Appointments Booked"
           value={formatInteger(metrics.appointmentActions.booked)}
         />
         <MetricCard
+          label="Escalated to Staff"
+          note={`${formatRate(metrics.transferRate)} of handled calls`}
+          value={formatInteger(metrics.transferredCalls)}
+        />
+        <MetricCard
           label="Average Call Duration"
+          note={`${formatInteger(metrics.totalCallMinutes)} total minutes handled`}
           value={formatCallDuration(metrics.averageCallDurationSec)}
         />
       </section>

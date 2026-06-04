@@ -30,17 +30,17 @@ export default function MetricCard({
   const DeltaIcon = delta ? deltaIcons[delta.direction] : null;
 
   return (
-    <div className="rounded-xl border border-black/6 bg-white px-5 py-5 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+    <div className="rounded-xl border border-[#cfd5e2] bg-white px-5 py-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.04)] transition duration-150 hover:-translate-y-0.5 hover:border-[#b9c4dd] hover:shadow-[0_2px_4px_rgba(16,24,40,0.06),0_16px_34px_rgba(16,24,40,0.08)]">
+      <p className="text-sm font-medium leading-5 tracking-normal text-[#8a94a6]">
         {label}
       </p>
-      <p className="mt-3 text-3xl font-semibold tracking-normal text-[#10272c] sm:text-4xl">
+      <p className="mt-3 text-4xl font-semibold tracking-normal text-[#151a24]">
         {value}
       </p>
       {delta && DeltaIcon ? (
         <p
           className={cn(
-            "mt-2 inline-flex items-center gap-1 text-sm font-medium",
+            "mt-3 inline-flex items-center gap-1 text-sm font-medium",
             deltaStyles[delta.direction],
           )}
         >
@@ -48,7 +48,7 @@ export default function MetricCard({
           {delta.label}
         </p>
       ) : note ? (
-        <p className="mt-2 text-sm text-[#617477]">{note}</p>
+        <p className="mt-3 text-sm text-[#7b8494]">{note}</p>
       ) : null}
     </div>
   );
