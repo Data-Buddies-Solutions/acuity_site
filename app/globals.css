@@ -1,29 +1,37 @@
 @import "tailwindcss";
 
 @theme {
+  --font-sans:
+    var(--font-geist-sans), "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  --font-display: var(--font-newsreader), Georgia, "Times New Roman", serif;
+  --font-mono:
+    var(--font-geist-mono), "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
+    monospace;
+
   --color-background: #ffffff;
-  --color-background-alt: #fafafa;
+  --color-canvas: #fbfaf7;
+  --color-background-alt: #f7f8fb;
   --color-card: #ffffff;
-  --color-card-foreground: #1d1d1d;
-  --color-foreground: #1d1d1d;
-  --color-border: #e5e5e5;
-  --color-input: #e5e5e5;
-  --color-muted: #f7f7f7;
-  --color-muted-foreground: #666666;
+  --color-card-foreground: #101820;
+  --color-foreground: #101820;
+  --color-border: #e1e5eb;
+  --color-input: #e1e5eb;
+  --color-muted: #f3f5f8;
+  --color-muted-foreground: #586372;
   --color-popover: #ffffff;
-  --color-popover-foreground: #1d1d1d;
-  --color-primary: #0d7377;
+  --color-popover-foreground: #101820;
+  --color-primary: #172033;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #e8f4f4;
-  --color-secondary-foreground: #10272c;
+  --color-secondary: #edf1f7;
+  --color-secondary-foreground: #101820;
   --color-destructive: #dc2626;
-  --color-ring: #0d7377;
-  --color-accent: #0d7377;
-  --color-accent-hover: #0a5c5f;
-  --color-accent-light: #e8f4f4;
-  --color-gold: #c9a227;
-  --color-dark: #111111;
-  --color-dark-card: #1a1a1a;
+  --color-ring: #536a91;
+  --color-accent: #536a91;
+  --color-accent-hover: #435879;
+  --color-accent-light: #e8edf5;
+  --color-dark: #111827;
+  --color-dark-card: #182236;
 
   --radius-lg: 12px;
   --radius-md: 8px;
@@ -40,11 +48,11 @@
 @layer base {
   :root {
     color-scheme: light;
-    --chart-1: #0d7377;
-    --chart-2: #2563eb;
-    --chart-3: #7c3aed;
-    --chart-4: #c9a227;
-    --chart-5: #dc2626;
+    --chart-1: #536a91;
+    --chart-2: #1d3557;
+    --chart-3: #7b6f9f;
+    --chart-4: #7a8492;
+    --chart-5: #b4514f;
   }
 
   * {
@@ -52,13 +60,7 @@
   }
 
   body {
-    font-family:
-      "Inter",
-      system-ui,
-      -apple-system,
-      "Segoe UI",
-      Roboto,
-      sans-serif;
+    font-family: var(--font-sans);
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
@@ -71,7 +73,8 @@
   h4,
   h5,
   h6 {
-    letter-spacing: -0.04em;
+    font-family: var(--font-sans);
+    letter-spacing: -0.02em;
     color: var(--color-foreground);
     font-weight: 600;
   }
@@ -91,6 +94,29 @@
   a:hover {
     color: var(--color-accent-hover);
   }
+}
+
+.marketing-site h1,
+.marketing-site h2,
+.marketing-site h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.052em;
+}
+
+.marketing-site h4,
+.marketing-site h5,
+.marketing-site h6 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.marketing-site .marketing-label,
+.marketing-site .marketing-cta {
+  font-family: var(--font-mono);
+  font-feature-settings: "ss09" 1;
+  text-transform: uppercase;
 }
 
 .portal-platform {
@@ -129,7 +155,7 @@
 
   /* Gradient text for metrics */
   .text-gradient {
-    background: linear-gradient(135deg, #0d7377 0%, #14919b 50%, #0a5c5f 100%);
+    background: linear-gradient(135deg, #536a91 0%, #7b6f9f 52%, #172033 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -203,7 +229,7 @@
 
   /* Photo placeholder styling */
   .photo-placeholder {
-    background: linear-gradient(145deg, #e8f4f4 0%, #f0f7f7 50%, #e0eeee 100%);
+    background: linear-gradient(145deg, #e8edf5 0%, #f7f8fb 50%, #dfe5ee 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -217,7 +243,7 @@
     inset: 0;
     background-image: radial-gradient(
       circle at 50% 50%,
-      rgba(13, 115, 119, 0.05) 0%,
+      rgba(83, 106, 145, 0.06) 0%,
       transparent 70%
     );
   }

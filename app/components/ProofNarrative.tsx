@@ -23,10 +23,10 @@ export default function ProofNarrative() {
   const inView = useInView(ref, { amount: 0.2, once: true });
 
   return (
-    <section className="bg-white py-24 md:py-32" id="results">
+    <section className="bg-[#fbfaf7] py-24 md:py-32" id="results">
       <div ref={ref} className="mx-auto max-w-7xl px-4 md:px-6">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="text-xs font-medium uppercase tracking-[0.2em] text-accent">
+          <p className="marketing-label text-xs font-medium tracking-[0.16em] text-accent">
             Proof from practice
           </p>
           <h2 className="mt-4 text-4xl font-semibold leading-[1.05] tracking-[-0.02em] md:text-5xl lg:text-[3.25rem] [text-wrap:balance]">
@@ -44,7 +44,7 @@ export default function ProofNarrative() {
               key={o.label}
               transition={{ delay: 0.1 + i * 0.12, duration: 0.5, ease: "easeOut" }}
             >
-              <p className="text-5xl font-semibold tracking-[-0.04em] text-accent tabular-nums md:text-6xl lg:text-[4rem]">
+              <p className="font-display text-5xl font-medium tracking-[-0.052em] text-accent tabular-nums md:text-6xl lg:text-[4rem]">
                 {o.metric}
               </p>
               <p className="mx-auto mt-3 max-w-[18ch] text-sm leading-relaxed text-muted-foreground md:text-base">
@@ -67,20 +67,20 @@ export default function ProofNarrative() {
           >
             &ldquo;
           </span>
-          <blockquote className="-mt-8 text-2xl font-medium leading-[1.35] tracking-[-0.01em] text-neutral-900 md:text-3xl lg:text-[2.25rem] [text-wrap:balance]">
+          <blockquote className="-mt-8 text-2xl font-medium leading-[1.35] tracking-[-0.01em] text-[#101820] md:text-3xl lg:text-[2.25rem] [text-wrap:balance]">
             I was spending 4+ hours a day on manual admin work. Acuity gave me my life
             back.
           </blockquote>
           <figcaption className="mt-8 flex items-center justify-center gap-3 text-sm">
-            <span className="font-semibold text-neutral-900">Jason Buchwald</span>
-            <span className="h-1 w-1 rounded-full bg-neutral-300" />
+            <span className="font-semibold text-[#101820]">Jason Buchwald</span>
+            <span className="h-1 w-1 rounded-full bg-[#c8ced8]" />
             <span className="text-muted-foreground">Practice Operator</span>
           </figcaption>
         </motion.figure>
 
         {/* Logo strip — quiet trust signal */}
-        <div className="mt-20 border-t border-neutral-100 pt-12 md:mt-28">
-          <p className="text-center text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground/70">
+        <div className="mt-20 border-t border-[#e1e5eb] pt-12 md:mt-28">
+          <p className="marketing-label text-center text-[11px] font-medium tracking-[0.16em] text-muted-foreground/70">
             Deployed across
           </p>
           <div className="mx-auto mt-8 grid max-w-3xl grid-cols-2 items-center justify-items-center gap-x-10 gap-y-6 md:grid-cols-4">

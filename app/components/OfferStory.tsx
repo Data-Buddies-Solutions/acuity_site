@@ -35,10 +35,10 @@ export default function OfferStory() {
   const inView = useInView(ref, { amount: 0.25, once: true });
 
   return (
-    <section className="bg-[#f7fbfb] py-24 md:py-32" id="offers">
+    <section className="bg-[#edf1f7] py-24 md:py-32" id="offers">
       <div ref={ref} className="mx-auto max-w-6xl px-4 md:px-6">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-accent">
+          <p className="marketing-label text-[11px] font-medium tracking-[0.16em] text-accent">
             The platform
           </p>
           <h2 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[-0.02em] md:text-5xl lg:text-[3.5rem] [text-wrap:balance]">
@@ -112,7 +112,7 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
             refY="3.5"
             viewBox="0 0 7 7"
           >
-            <path d="M0 0 L7 3.5 L0 7 Z" fill="#3fc4b0" />
+            <path d="M0 0 L7 3.5 L0 7 Z" fill="#536a91" />
           </marker>
           <marker
             id="arrow-muted"
@@ -123,7 +123,7 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
             refY="3.5"
             viewBox="0 0 7 7"
           >
-            <path d="M0 0 L7 3.5 L0 7 Z" fill="#94a3a3" />
+            <path d="M0 0 L7 3.5 L0 7 Z" fill="#aeb7c5" />
           </marker>
         </defs>
 
@@ -132,7 +132,7 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
           animate={inView ? { pathLength: 1, opacity: 1 } : {}}
           initial={{ pathLength: 0, opacity: 0 }}
           markerEnd="url(#arrow-muted)"
-          stroke="#94a3a3"
+          stroke="#aeb7c5"
           strokeDasharray="4 4"
           strokeWidth="1.5"
           transition={{ delay: 0.2, duration: 0.6, ease: "easeOut" }}
@@ -149,7 +149,7 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
             initial={{ pathLength: 0, opacity: 0 }}
             key={i}
             markerEnd="url(#arrow-accent)"
-            stroke="#3fc4b0"
+            stroke="#536a91"
             strokeWidth="1.75"
             transition={{ delay: 0.7 + i * 0.12, duration: 0.5, ease: "easeOut" }}
             x1={a.x1}
@@ -170,7 +170,7 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Inbound
         </p>
-        <p className="mt-2 text-base font-semibold text-neutral-900">Patient calls</p>
+        <p className="mt-2 text-base font-semibold text-[#101820]">Patient calls</p>
         <p className="mt-1 text-xs text-muted-foreground">Any hour, any language</p>
       </motion.div>
 
@@ -181,14 +181,14 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
       >
         <motion.div
           animate={inView ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.94 }}
-          className="flex h-48 w-48 flex-col items-center justify-center rounded-full bg-white text-center shadow-[0_30px_80px_rgba(15,39,44,0.12)] ring-1 ring-neutral-200"
+          className="flex h-48 w-48 flex-col items-center justify-center rounded-full bg-white text-center shadow-[0_30px_80px_rgba(23,32,51,0.10)] ring-1 ring-[#d9dfe8]"
           initial={{ opacity: 0, scale: 0.94 }}
           transition={{ delay: 0.4, duration: 0.5, ease: "easeOut" }}
         >
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-accent">
             Acuity
           </p>
-          <p className="mt-2 text-xl font-semibold leading-tight tracking-tight text-neutral-900">
+          <p className="mt-2 text-xl font-semibold leading-tight tracking-tight text-[#101820]">
             AI Receptionist
           </p>
           <p className="mt-2 max-w-[10rem] text-[11px] leading-relaxed text-muted-foreground">
@@ -205,7 +205,7 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
         {spokes.map((s, i) => (
           <motion.div
             animate={inView ? { opacity: 1, x: 0 } : { opacity: 0, x: 12 }}
-            className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_18px_45px_rgba(15,39,44,0.06)]"
+            className="rounded-2xl border border-[#d9dfe8] bg-white p-4 shadow-[0_18px_45px_rgba(23,32,51,0.06)]"
             initial={{ opacity: 0, x: 12 }}
             key={s.id}
             style={{ height: "22.857%" }}
@@ -214,7 +214,7 @@ function HubSpokeDiagram({ inView }: { inView: boolean }) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
               Module
             </p>
-            <p className="mt-1.5 text-[15px] font-semibold tracking-tight text-neutral-900">
+            <p className="mt-1.5 text-[15px] font-semibold tracking-tight text-[#101820]">
               {s.label}
             </p>
             <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
@@ -242,7 +242,7 @@ function VerticalFlow({ inView }: { inView: boolean }) {
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Inbound
         </p>
-        <p className="mt-1 text-base font-semibold text-neutral-900">Patient calls</p>
+        <p className="mt-1 text-base font-semibold text-[#101820]">Patient calls</p>
       </motion.div>
 
       {/* Arrow down */}
@@ -251,14 +251,14 @@ function VerticalFlow({ inView }: { inView: boolean }) {
       {/* Hub */}
       <motion.div
         animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
-        className="mx-auto flex h-40 w-40 flex-col items-center justify-center rounded-full bg-white text-center shadow-[0_24px_60px_rgba(15,39,44,0.10)] ring-1 ring-neutral-200"
+        className="mx-auto flex h-40 w-40 flex-col items-center justify-center rounded-full bg-white text-center shadow-[0_24px_60px_rgba(23,32,51,0.09)] ring-1 ring-[#d9dfe8]"
         initial={{ opacity: 0, y: 8 }}
         transition={{ delay: 0.35, duration: 0.45 }}
       >
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-accent">
           Acuity
         </p>
-        <p className="mt-1.5 text-lg font-semibold leading-tight tracking-tight text-neutral-900">
+        <p className="mt-1.5 text-lg font-semibold leading-tight tracking-tight text-[#101820]">
           AI Receptionist
         </p>
         <p className="mt-1.5 max-w-[8.5rem] text-[10px] leading-relaxed text-muted-foreground">
@@ -297,7 +297,7 @@ function VerticalFlow({ inView }: { inView: boolean }) {
         {spokes.map((s, i) => (
           <motion.div
             animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
-            className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_12px_30px_rgba(15,39,44,0.05)]"
+            className="rounded-2xl border border-[#d9dfe8] bg-white p-4 shadow-[0_12px_30px_rgba(23,32,51,0.05)]"
             initial={{ opacity: 0, y: 10 }}
             key={s.id}
             transition={{ delay: 1.05 + i * 0.08, duration: 0.45 }}
@@ -305,7 +305,7 @@ function VerticalFlow({ inView }: { inView: boolean }) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
               Module
             </p>
-            <p className="mt-1.5 text-[15px] font-semibold tracking-tight text-neutral-900">
+            <p className="mt-1.5 text-[15px] font-semibold tracking-tight text-[#101820]">
               {s.label}
             </p>
             <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">

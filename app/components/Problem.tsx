@@ -14,16 +14,16 @@ export default function Problem() {
   const inView = useInView(ref, { amount: 0.2, once: true });
 
   return (
-    <section className="bg-[#0a1c20] py-24 text-white md:py-32" id="problem">
+    <section className="bg-[#111827] py-24 text-white md:py-32" id="problem">
       <div ref={ref} className="mx-auto max-w-6xl px-4 md:px-6">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-accent">
+          <p className="marketing-label text-[11px] font-medium tracking-[0.16em] text-[#aebbd0]">
             Why this matters
           </p>
           <h2 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[-0.025em] text-white md:text-5xl lg:text-[3.5rem] [text-wrap:balance]">
             A more responsive front desk is a better patient experience.
           </h2>
-          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-white/85 md:text-lg">
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-[#d8dee8] md:text-lg">
             Missed calls, voicemail, and after-hours dead ends do more than create
             friction. They slow booking, pile on repetitive phone work, and make the
             practice feel harder to reach.
@@ -34,15 +34,15 @@ export default function Problem() {
           {stats.map((item, i) => (
             <motion.div
               animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 16 }}
-              className="text-center md:border-l md:border-white/10 md:px-6 md:first:border-l-0"
+              className="text-center md:border-l md:border-[#aebbd0]/18 md:px-6 md:first:border-l-0"
               initial={{ opacity: 0, y: 16 }}
               key={item.label}
               transition={{ delay: 0.15 + i * 0.12, duration: 0.5, ease: "easeOut" }}
             >
-              <p className="text-6xl font-semibold tracking-[-0.045em] tabular-nums text-white md:text-7xl lg:text-[5.5rem]">
+              <p className="font-display text-6xl font-medium tracking-[-0.052em] tabular-nums text-white md:text-7xl lg:text-[5.5rem]">
                 {item.number}
               </p>
-              <p className="mx-auto mt-4 max-w-[20ch] text-sm leading-relaxed text-white/85 md:text-base">
+              <p className="mx-auto mt-4 max-w-[20ch] text-sm leading-relaxed text-[#d8dee8] md:text-base">
                 {item.label}
               </p>
             </motion.div>

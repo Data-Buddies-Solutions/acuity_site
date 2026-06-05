@@ -1,9 +1,28 @@
 import type { Metadata } from "next";
+import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import Script from "next/script";
 
 import "./globals.css";
 import AppChrome from "./components/AppChrome";
 import { SITE_CONFIG } from "@/lib/config";
+
+const geistSans = Geist({
+  subsets: ["latin"],
+  variable: "--font-geist-sans",
+  display: "swap",
+});
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+  display: "swap",
+});
+
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  variable: "--font-newsreader",
+  display: "swap",
+});
 
 const organizationSchema = {
   "@context": "https://schema.org",
@@ -146,7 +165,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-background text-foreground antialiased">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} min-h-screen bg-background text-foreground antialiased`}
+      >
         <AppChrome>{children}</AppChrome>
         <Script
           id="structured-data-organization"

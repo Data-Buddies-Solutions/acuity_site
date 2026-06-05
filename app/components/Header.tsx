@@ -38,8 +38,8 @@ export default function Header() {
       >
         <div
           className={cn(
-            "mx-auto flex max-w-screen-xl items-center justify-between rounded-full border border-stone-200 bg-stone-50/90 backdrop-blur-md shadow-sm transition-all duration-300",
-            isScrolled ? "px-4 py-1.5" : "px-8 py-3",
+            "mx-auto flex max-w-screen-xl items-center justify-between rounded-[6px] border border-[#e1e5eb] bg-[#fbfaf7]/94 backdrop-blur-md shadow-sm transition-all duration-300",
+            isScrolled ? "px-4 py-1.5" : "px-5 py-3 md:px-8",
           )}
         >
           {/* Logo */}
@@ -49,7 +49,7 @@ export default function Header() {
             aria-label="Acuity Health home"
           >
             <Logo />
-            <span className="text-sm font-semibold text-stone-900 tracking-tight">
+            <span className="text-sm font-semibold tracking-tight text-[#101820]">
               Acuity Health
             </span>
           </Link>
@@ -61,7 +61,7 @@ export default function Header() {
                 <Link
                   key={href}
                   href={href}
-                  className="text-sm font-normal text-stone-600 hover:text-stone-900 transition-colors"
+                  className="text-sm font-normal text-[#586372] transition-colors hover:text-[#101820]"
                 >
                   {label}
                 </Link>
@@ -75,7 +75,7 @@ export default function Header() {
               variant="secondary"
               size="sm"
               iconVariant="none"
-              className="hidden md:inline-flex rounded-full border-stone-200 bg-white text-stone-900 shadow-sm hover:bg-stone-50"
+              className="marketing-cta hidden rounded-[4px] border-[#d4dae3] bg-white px-3.5 text-[11px] font-medium tracking-[0.11em] text-[#172033] shadow-sm hover:bg-[#f7f8fb] md:inline-flex"
             >
               Book a Demo
             </BookCallButton>
@@ -83,7 +83,7 @@ export default function Header() {
             <Button
               variant="default"
               size="sm"
-              className="hidden md:inline-flex rounded-full"
+              className="marketing-cta hidden rounded-[4px] bg-[#172033] px-3.5 text-[11px] font-medium tracking-[0.11em] hover:bg-[#22304a] md:inline-flex"
               asChild
             >
               <Link href="/portal">Practice Portal</Link>
@@ -93,7 +93,7 @@ export default function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden h-10 w-10 rounded-full border border-border bg-white text-foreground shadow-sm"
+              className="h-10 w-10 rounded-[4px] border border-[#e1e5eb] bg-white text-[#101820] shadow-sm md:hidden"
               onClick={() => setMobileNavOpen(!isMobileNavOpen)}
               aria-label="Toggle navigation"
             >
@@ -104,12 +104,12 @@ export default function Header() {
 
         {/* Mobile nav - fullscreen overlay */}
         {isMobileNavOpen && (
-          <div className="md:hidden fixed inset-0 z-40 bg-white">
-            <div className="flex min-h-full flex-col items-center justify-center gap-8 bg-white px-6 py-8">
+          <div className="fixed inset-0 z-40 bg-[#fbfaf7] md:hidden">
+            <div className="flex min-h-full flex-col items-center justify-center gap-8 bg-[#fbfaf7] px-6 py-8">
               <button
                 type="button"
                 onClick={() => setMobileNavOpen(false)}
-                className="absolute top-6 right-6 h-10 w-10 rounded-full border border-border bg-white text-foreground shadow-sm flex items-center justify-center"
+                className="absolute right-6 top-6 flex h-10 w-10 items-center justify-center rounded-[4px] border border-[#e1e5eb] bg-white text-[#101820] shadow-sm"
                 aria-label="Close navigation"
               >
                 <X className="h-5 w-5" />
@@ -119,7 +119,7 @@ export default function Header() {
                   <Link
                     key={href}
                     href={href}
-                    className="text-2xl font-normal text-foreground/80 hover:text-foreground transition-colors"
+                    className="text-2xl font-normal text-[#101820]/80 transition-colors hover:text-[#101820]"
                     onClick={() => setMobileNavOpen(false)}
                   >
                     {label}
@@ -130,14 +130,14 @@ export default function Header() {
                     variant="secondary"
                     size="lg"
                     iconVariant="none"
-                    className="w-full rounded-full border-stone-200 bg-white text-base text-stone-900 shadow-sm hover:bg-stone-50"
+                    className="marketing-cta w-full rounded-[4px] border-[#d4dae3] bg-white text-[12px] tracking-[0.11em] text-[#172033] shadow-sm hover:bg-[#f7f8fb]"
                   >
                     Book a Demo
                   </BookCallButton>
                   <Button
                     variant="default"
                     size="lg"
-                    className="w-full rounded-full text-base"
+                    className="marketing-cta w-full rounded-[4px] bg-[#172033] text-[12px] tracking-[0.11em] hover:bg-[#22304a]"
                     asChild
                   >
                     <Link href="/portal" onClick={() => setMobileNavOpen(false)}>

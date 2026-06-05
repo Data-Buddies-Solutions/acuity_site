@@ -20,15 +20,15 @@ const duplicatedPartners = [...partners, ...partners];
 export default function Hero() {
   return (
     <section
-      className="relative overflow-hidden bg-white pb-12 pt-6 md:pt-10 lg:pt-12"
+      className="relative overflow-hidden bg-canvas pb-12 pt-6 md:pt-10 lg:pt-12"
       id="top"
     >
       <div className="relative z-10 mx-auto max-w-7xl px-4 md:px-6">
-        <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.3fr)] lg:gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] xl:gap-10">
+        <div className="grid min-w-0 grid-cols-1 items-center gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.3fr)] lg:gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] xl:gap-10">
           {/* Left: copy */}
-          <div className="relative z-20 text-center lg:text-left">
+          <div className="relative z-20 mx-auto w-full max-w-[22.5rem] min-w-0 text-center sm:max-w-xl lg:mx-0 lg:max-w-none lg:text-left">
             <Link
-              className="group mb-6 hidden items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-700 shadow-sm backdrop-blur transition-colors hover:border-accent/40 hover:text-neutral-900 lg:inline-flex"
+              className="marketing-label group mb-6 hidden items-center gap-2 rounded-[4px] border border-[#dfe4ec] bg-white/88 px-3.5 py-2 text-[11px] font-medium tracking-[0.12em] text-[#586372] shadow-sm backdrop-blur transition-colors hover:border-accent/45 hover:text-[#101820] lg:inline-flex"
               href="/partners/advancedmd"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -37,13 +37,15 @@ export default function Hero() {
                 →
               </span>
             </Link>
-            <h1 className="text-[2.25rem] font-semibold tracking-[-0.035em] leading-[1.05] antialiased subpixel-antialiased sm:text-[2.5rem] md:text-[3rem] lg:text-[2.5rem] xl:text-[3rem] 2xl:text-[3.5rem]">
+            <h1 className="text-[2.8rem] leading-[0.94] text-[#101820] antialiased subpixel-antialiased sm:text-[3.8rem] md:text-[4.8rem] lg:text-[4.35rem] xl:text-[5.25rem] 2xl:text-[5.9rem]">
               <span className="block">The</span>
-              <span className="block text-accent">AI receptionist</span>
-              <span className="block">for ophthalmology practices.</span>
+              <span className="block text-[#3f4f6a]">AI receptionist</span>
+              <span className="block">
+                for ophthalmology <span className="block sm:inline">practices.</span>
+              </span>
             </h1>
 
-            <p className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-muted-foreground md:mt-6 md:text-lg lg:mx-0">
+            <p className="mx-auto mt-5 max-w-xl text-[15px] leading-[1.55] text-[#586372] md:mt-6 md:text-[1.12rem] lg:mx-0">
               Answer every call, help patients get what they need, and keep your front
               desk focused on the people in front of them.
             </p>
@@ -51,7 +53,7 @@ export default function Hero() {
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 md:mt-9 lg:justify-start">
               <Button
                 asChild
-                className="w-full rounded-full px-7 py-3 text-sm transition-opacity hover:opacity-90 sm:w-auto md:text-base"
+                className="marketing-cta w-full rounded-[4px] bg-[#172033] px-5 py-3 text-[12px] font-medium tracking-[0.11em] shadow-[0_18px_42px_rgba(23,32,51,0.18)] transition-colors hover:bg-[#22304a] sm:w-auto md:px-6"
                 size="default"
                 variant="default"
               >
@@ -65,7 +67,7 @@ export default function Hero() {
                 </a>
               </Button>
               <BookCallButton
-                className="w-full rounded-full border border-neutral-300 bg-white px-7 py-3 text-sm text-neutral-800 shadow-sm transition-colors hover:bg-neutral-50 sm:w-auto md:text-base"
+                className="marketing-cta w-full rounded-[4px] border border-[#d4dae3] bg-white px-5 py-3 text-[12px] font-medium tracking-[0.11em] text-[#172033] shadow-sm transition-colors hover:border-[#bdc7d7] hover:bg-[#f7f8fb] sm:w-auto md:px-6"
                 iconVariant="none"
                 size="default"
                 variant="secondary"
@@ -75,7 +77,7 @@ export default function Hero() {
             </div>
           </div>
 
-          {/* Right: agent flow illustration — cropped tight, full visible */}
+          {/* Right: product workflow image */}
           <div className="relative hidden lg:block lg:-ml-8 lg:-mr-20 lg:mt-8 xl:-ml-12 xl:-mr-24 xl:mt-12">
             <div
               className="relative w-full overflow-hidden"
@@ -105,13 +107,13 @@ export default function Hero() {
       <div className="relative z-10 mt-10 md:mt-8 lg:mt-2">
         <div className="overflow-hidden border-t border-neutral-100 py-6 md:py-8">
           <div className="mx-auto mb-4 max-w-6xl px-4 md:mb-6 md:px-6">
-            <p className="text-center text-xs font-medium uppercase tracking-widest text-muted-foreground/60">
+            <p className="marketing-label text-center text-[11px] font-medium tracking-[0.14em] text-muted-foreground/60">
               Trusted by eye care practices
             </p>
           </div>
           <div className="relative">
-            <div className="absolute bottom-0 left-0 top-0 z-10 w-20 bg-gradient-to-r from-background to-transparent md:w-40" />
-            <div className="absolute bottom-0 right-0 top-0 z-10 w-20 bg-gradient-to-l from-background to-transparent md:w-40" />
+            <div className="absolute bottom-0 left-0 top-0 z-10 w-20 bg-gradient-to-r from-canvas to-transparent md:w-40" />
+            <div className="absolute bottom-0 right-0 top-0 z-10 w-20 bg-gradient-to-l from-canvas to-transparent md:w-40" />
 
             <div className="logo-carousel flex animate-scroll items-center gap-10 md:gap-20">
               {duplicatedPartners.map((partner, index) => (

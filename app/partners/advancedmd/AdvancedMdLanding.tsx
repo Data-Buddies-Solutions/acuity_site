@@ -98,8 +98,8 @@ function HeroSection() {
           transition={{ delay: 0.3, duration: 0.6 }}
         >
           Acuity is officially listed on the AdvancedMD Marketplace as the AI receptionist
-          purpose-built for ophthalmology. Answer every call, book directly into AdvancedMD, and
-          capture the after-hours demand your front desk has been missing.
+          purpose-built for ophthalmology. Answer every call, book directly into
+          AdvancedMD, and capture the after-hours demand your front desk has been missing.
         </motion.p>
 
         <motion.div
@@ -257,8 +257,8 @@ function PartnershipStrip() {
         </p>
         <p className="mx-auto mt-4 max-w-3xl text-center text-lg leading-relaxed text-neutral-700 md:text-xl [text-wrap:balance]">
           Your AdvancedMD instance is the source of truth. Acuity plugs in, reading
-          providers, locations, visit types, and scheduling rules, and operates as a
-          24/7 front desk on top of the system your team already knows.
+          providers, locations, visit types, and scheduling rules, and operates as a 24/7
+          front desk on top of the system your team already knows.
         </p>
       </div>
     </section>
@@ -276,7 +276,8 @@ function ValueSection() {
             Why this partnership matters
           </p>
           <h2 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[-0.02em] md:text-5xl lg:text-[3.25rem] [text-wrap:balance]">
-            AdvancedMD runs the practice.<br />
+            AdvancedMD runs the practice.
+            <br />
             Acuity runs the phones.
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
@@ -316,9 +317,9 @@ function ValueSection() {
 
 function FinalCta() {
   return (
-    <section className="relative overflow-hidden bg-[#0b1f23] py-24 text-white md:py-32">
+    <section className="relative overflow-hidden bg-[#111827] py-24 text-white md:py-32">
       <div className="relative mx-auto max-w-4xl px-6 text-center">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#5fdcc7]">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#aebbd0]">
           Already on AdvancedMD?
         </p>
         <h2 className="mx-auto mt-5 max-w-[20ch] text-4xl font-semibold leading-[1.0] tracking-[-0.03em] text-white md:text-6xl lg:text-[4.25rem] [text-wrap:balance]">
@@ -330,7 +331,7 @@ function FinalCta() {
         </p>
         <div className="mt-10 flex flex-col items-center justify-center gap-4">
           <BookCallButton
-            className="rounded-full bg-white px-8 py-3 text-base font-semibold text-[#0b1f23] shadow-[0_18px_45px_rgba(0,0,0,0.18)] transition-opacity hover:opacity-90"
+            className="rounded-full bg-white px-8 py-3 text-base font-semibold text-[#111827] shadow-[0_18px_45px_rgba(0,0,0,0.18)] transition-opacity hover:opacity-90"
             iconVariant="arrow-right"
             size="lg"
           >
