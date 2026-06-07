@@ -506,6 +506,24 @@ function encodeClientState(value: Record<string, unknown>) {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64");
 }
 
+function callControlIdVariants(callControlId: string) {
+  const trimmed = callControlId.trim();
+
+  if (!trimmed) {
+    return [];
+  }
+
+  const variants = new Set([trimmed]);
+
+  if (trimmed.startsWith("v3:")) {
+    variants.add(trimmed.slice(3));
+  } else {
+    variants.add(`v3:${trimmed}`);
+  }
+
+  return [...variants];
+}
+
 function telnyxSipUri(sipUsername: string | null) {
   const username = sipUsername?.trim() ?? "";
 
@@ -526,6 +544,33 @@ function extractTelnyxCallControlId(result: unknown) {
   }
 
   return asString(result.data.call_control_id);
+}
+
+function objectMetadata(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? { ...value } : {};
+}
+
+function pendingBlindTransfer(value: unknown) {
+  const metadata = isRecord(value) ? value : {};
+  const transfer = metadata.blindTransferPending;
+
+  return isRecord(transfer) ? transfer : null;
+}
+
+function metadataWithoutPendingBlindTransfer(
+  value: unknown,
+  details?: { endedAt: Date; reason: string },
+) {
+  const metadata = objectMetadata(value);
+
+  delete metadata.blindTransferPending;
+
+  if (details) {
+    metadata.blindTransferLastEndedAt = details.endedAt.toISOString();
+    metadata.blindTransferLastEndReason = details.reason;
+  }
+
+  return metadata;
 }
 
 function defaultSettingsFromPractice(practice: {
@@ -655,6 +700,10 @@ export type PortalCallQueueItem = {
   }>;
   status: string;
   toPhone: string | null;
+  transferRequest: {
+    fromSeatLabel: string | null;
+    targetSeatId: string;
+  } | null;
 };
 
 export type PortalRecentCallItem = {
@@ -1348,6 +1397,7 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
             name: true,
           },
         },
+        metadata: true,
         ringAttempts: {
           orderBy: {
             startedAt: "asc",
@@ -1475,19 +1525,30 @@ export async function getPortalCallCenterData(options?: { locationId?: string })
     phoneNumbers: visiblePhoneNumbers,
     practiceId: practice.id,
     practiceName: practice.name,
-    queue: queue.map((item) => ({
-      enteredAt: item.enteredAt,
-      fromPhone: item.fromPhone,
-      id: item.id,
-      locationName: item.location?.name ?? null,
-      ringAttempts: item.ringAttempts.map((attempt) => ({
-        id: attempt.id,
-        seatLabel: attempt.seat.label,
-        status: attempt.status,
-      })),
-      status: item.status,
-      toPhone: item.toPhone,
-    })),
+    queue: queue.map((item) => {
+      const transfer = pendingBlindTransfer(item.metadata);
+      const targetSeatId = asString(transfer?.targetSeatId);
+
+      return {
+        enteredAt: item.enteredAt,
+        fromPhone: item.fromPhone,
+        id: item.id,
+        locationName: item.location?.name ?? null,
+        ringAttempts: item.ringAttempts.map((attempt) => ({
+          id: attempt.id,
+          seatLabel: attempt.seat.label,
+          status: attempt.status,
+        })),
+        status: item.status,
+        toPhone: item.toPhone,
+        transferRequest: targetSeatId
+          ? {
+              fromSeatLabel: asString(transfer?.fromSeatLabel) || null,
+              targetSeatId,
+            }
+          : null,
+      };
+    }),
     recentCalls: recentSessions.map((session) => {
       const answeredAttempt = session.queueItems
         .flatMap((item) => item.ringAttempts)
@@ -2112,7 +2173,13 @@ async function updateRingAttemptFromPayload({
   const existing = await prisma.callCenterRingAttempt.findFirst({
     select: {
       id: true,
+      queueItem: {
+        select: {
+          metadata: true,
+        },
+      },
       queueItemId: true,
+      seatId: true,
       status: true,
       telnyxCallControlId: true,
     },
@@ -2135,6 +2202,15 @@ async function updateRingAttemptFromPayload({
 
   // Terminal hangup of a connected agent leg → end of call, mark queue COMPLETED.
   if (terminal && previouslyAnswered) {
+    const transfer = pendingBlindTransfer(existing.queueItem.metadata);
+    const isTransferSourceHangup =
+      transfer &&
+      asString(transfer.fromSeatId) === existing.seatId &&
+      (!asString(transfer.sourceCallControlId) ||
+        callControlIdVariants(asString(transfer.sourceCallControlId)).includes(
+          existing.telnyxCallControlId || callControlId,
+        ));
+
     const attempt = await prisma.callCenterRingAttempt.update({
       data: {
         endedAt: eventAt,
@@ -2146,6 +2222,24 @@ async function updateRingAttemptFromPayload({
         id: existing.id,
       },
     });
+
+    if (transfer && isTransferSourceHangup) {
+      await prisma.callCenterQueueItem.update({
+        data: {
+          metadata: jsonInput(
+            metadataWithoutPendingBlindTransfer(existing.queueItem.metadata, {
+              endedAt: eventAt,
+              reason: asString(payload.hangup_cause) || "source_ended",
+            }),
+          ),
+        },
+        where: {
+          id: existing.queueItemId,
+        },
+      });
+
+      return attempt;
+    }
 
     await prisma.callCenterQueueItem.update({
       data: {
@@ -2576,6 +2670,508 @@ export async function ringStationForQueuedCall({
   };
 }
 
+export async function blindTransferActiveCallToSeat({
+  sourceCallControlId,
+  targetSeatId,
+}: {
+  browserSessionId?: string;
+  sourceCallControlId: string;
+  targetSeatId: string;
+}) {
+  const context = await getCurrentPracticeCallCenterContext();
+
+  if (!context) {
+    throw new TelnyxError("Unauthorized", 401);
+  }
+
+  const settings = context.practice.callCenterSettings;
+
+  if (!settings?.enabled) {
+    throw new TelnyxError("Call center is not enabled for this practice", 403);
+  }
+
+  const callControlIds = callControlIdVariants(sourceCallControlId);
+
+  if (!callControlIds.length || !targetSeatId) {
+    throw new TelnyxError(
+      "sourceCallControlId and targetSeatId are required",
+      400,
+    );
+  }
+
+  const sourceAttempt = await prisma.callCenterRingAttempt.findFirst({
+    select: {
+      id: true,
+      queueItem: {
+        select: {
+          callerSession: {
+            select: {
+              fromPhone: true,
+              telnyxCallControlId: true,
+            },
+          },
+          fromPhone: true,
+          id: true,
+          locationId: true,
+          metadata: true,
+          practiceId: true,
+          status: true,
+          toPhone: true,
+        },
+      },
+      queueItemId: true,
+      seat: {
+        select: {
+          extension: true,
+          label: true,
+        },
+      },
+      seatId: true,
+      status: true,
+      telnyxCallControlId: true,
+    },
+    where: {
+      queueItem: {
+        practiceId: context.practice.id,
+      },
+      endedAt: null,
+      status: {
+        in: ["ANSWERED", "BRIDGED"],
+      },
+      telnyxCallControlId: {
+        in: callControlIds,
+      },
+    },
+  });
+
+  if (!sourceAttempt) {
+    throw new TelnyxError("Active call is not available for transfer", 404);
+  }
+
+  const queueItem = sourceAttempt.queueItem;
+  const callerCallControlId = queueItem.callerSession?.telnyxCallControlId || "";
+  const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
+  const callerNumber = normalizePhone(
+    queueItem.callerSession?.fromPhone || queueItem.fromPhone,
+  );
+  const from =
+    callerNumber ||
+    normalizePhone(queueItem.toPhone) ||
+    normalizePhone(runtimeSettings.outboundCallerNumber);
+
+  if (!["ACTIVE", "ASSIGNED"].includes(queueItem.status)) {
+    throw new TelnyxError("Call is not active", 409);
+  }
+
+  if (!callerCallControlId) {
+    throw new TelnyxError("Caller leg is missing Telnyx call control ID", 422);
+  }
+
+  if (
+    !isSpecialAbitaCallCenterContext(context) &&
+    !canAccessPortalLocation(context, queueItem.locationId)
+  ) {
+    throw new TelnyxError("Active call is not available for transfer", 404);
+  }
+
+  const scopedQueueMatch = await prisma.callCenterQueueItem.count({
+    where: {
+      id: queueItem.id,
+      practiceId: context.practice.id,
+      ...buildCallCenterQueueScopeWhere(context),
+    },
+  });
+
+  if (scopedQueueMatch === 0) {
+    throw new TelnyxError("Active call is not available for transfer", 404);
+  }
+
+  if (sourceAttempt.seatId === targetSeatId) {
+    throw new TelnyxError("Choose a different station to transfer this call", 422);
+  }
+
+  const targetSeat = await prisma.callCenterAgentSeat.findFirst({
+    select: {
+      extension: true,
+      id: true,
+      label: true,
+      locationId: true,
+      queueKey: true,
+      sipUsername: true,
+      telnyxCredentialId: true,
+    },
+    where: {
+      enabled: true,
+      id: targetSeatId,
+      ...buildCallCenterSeatAccessWhere(context),
+      practiceId: context.practice.id,
+    },
+  });
+
+  if (!targetSeat) {
+    throw new TelnyxError("Transfer station not found", 404);
+  }
+
+  if (!targetSeat.sipUsername) {
+    throw new TelnyxError("Transfer station is missing a SIP username", 422);
+  }
+
+  const presenceCutoff = getPresenceExpirationCutoff();
+  const targetPresence = await prisma.callCenterPresence.count({
+    where: {
+      lastSeenAt: {
+        gte: presenceCutoff,
+      },
+      seatId: targetSeat.id,
+      status: CallCenterPresenceStatus.AVAILABLE,
+    },
+  });
+
+  if (targetPresence === 0) {
+    throw new TelnyxError("Transfer station is not available", 409);
+  }
+
+  if (!runtimeSettings.connectionId || !from) {
+    throw new TelnyxError("Telnyx connection and caller number are required", 422);
+  }
+
+  const transferState = {
+    fromSeatId: sourceAttempt.seatId,
+    fromSeatLabel: sourceAttempt.seat.extension
+      ? `${sourceAttempt.seat.extension} - ${sourceAttempt.seat.label}`
+      : sourceAttempt.seat.label,
+    callerCallControlId,
+    queueItemId: queueItem.id,
+    sourceCallControlId: sourceAttempt.telnyxCallControlId,
+    sourceRingAttemptId: sourceAttempt.id,
+    startedAt: new Date().toISOString(),
+    targetSeatId: targetSeat.id,
+    targetSeatLabel: targetSeat.extension
+      ? `${targetSeat.extension} - ${targetSeat.label}`
+      : targetSeat.label,
+  };
+
+  await prisma.callCenterQueueItem.update({
+    data: {
+      metadata: jsonInput({
+        ...objectMetadata(queueItem.metadata),
+        blindTransferPending: transferState,
+      }),
+    },
+    where: {
+      id: queueItem.id,
+    },
+  });
+
+  return {
+    ok: true,
+  };
+}
+
+export async function takePendingBlindTransfer({
+  browserSessionId,
+  queueItemId,
+  seatId,
+}: {
+  browserSessionId: string;
+  queueItemId: string;
+  seatId: string;
+}) {
+  const context = await getCurrentPracticeCallCenterContext();
+
+  if (!context) {
+    throw new TelnyxError("Unauthorized", 401);
+  }
+
+  const settings = context.practice.callCenterSettings;
+
+  if (!settings?.enabled) {
+    throw new TelnyxError("Call center is not enabled for this practice", 403);
+  }
+
+  if (!browserSessionId || !queueItemId || !seatId) {
+    throw new TelnyxError("browserSessionId, queueItemId, and seatId are required", 400);
+  }
+
+  const queueItem = await prisma.callCenterQueueItem.findFirst({
+    select: {
+      callerSession: {
+        select: {
+          fromPhone: true,
+          telnyxCallControlId: true,
+        },
+      },
+      fromPhone: true,
+      id: true,
+      locationId: true,
+      metadata: true,
+      practiceId: true,
+      status: true,
+      toPhone: true,
+    },
+    where: {
+      id: queueItemId,
+      practiceId: context.practice.id,
+      status: "ACTIVE",
+    },
+  });
+
+  if (!queueItem) {
+    throw new TelnyxError("Transfer is not available", 404);
+  }
+
+  if (
+    !isSpecialAbitaCallCenterContext(context) &&
+    !canAccessPortalLocation(context, queueItem.locationId)
+  ) {
+    throw new TelnyxError("Transfer is not available", 404);
+  }
+
+  const scopedQueueMatch = await prisma.callCenterQueueItem.count({
+    where: {
+      id: queueItem.id,
+      practiceId: context.practice.id,
+      ...buildCallCenterQueueScopeWhere(context),
+    },
+  });
+
+  if (scopedQueueMatch === 0) {
+    throw new TelnyxError("Transfer is not available", 404);
+  }
+
+  const transfer = pendingBlindTransfer(queueItem.metadata);
+
+  if (!transfer || asString(transfer.targetSeatId) !== seatId) {
+    throw new TelnyxError("Transfer is not assigned to this station", 409);
+  }
+
+  if (asString(transfer.sourceEndedAt)) {
+    await prisma.callCenterQueueItem.update({
+      data: {
+        metadata: jsonInput(
+          metadataWithoutPendingBlindTransfer(queueItem.metadata, {
+            endedAt: new Date(),
+            reason: "source_ended",
+          }),
+        ),
+      },
+      where: {
+        id: queueItem.id,
+      },
+    });
+    throw new TelnyxError("Source call is no longer active", 409);
+  }
+
+  const targetSeat = await prisma.callCenterAgentSeat.findFirst({
+    select: {
+      extension: true,
+      id: true,
+      label: true,
+      locationId: true,
+      queueKey: true,
+      sipUsername: true,
+      telnyxCredentialId: true,
+    },
+    where: {
+      enabled: true,
+      id: seatId,
+      ...buildCallCenterSeatAccessWhere(context),
+      practiceId: context.practice.id,
+    },
+  });
+
+  if (!targetSeat) {
+    throw new TelnyxError("Transfer station not found", 404);
+  }
+
+  if (!targetSeat.sipUsername) {
+    throw new TelnyxError("Transfer station is missing a SIP username", 422);
+  }
+
+  const presenceCutoff = getPresenceExpirationCutoff();
+  const allowsSharedStation = allowsSharedCallCenterStation(context, targetSeat);
+  const [availablePresence, competingPresence] = await Promise.all([
+    prisma.callCenterPresence.count({
+      where: {
+        browserSessionId,
+        lastSeenAt: {
+          gte: presenceCutoff,
+        },
+        seatId: targetSeat.id,
+        status: CallCenterPresenceStatus.AVAILABLE,
+        userId: context.session.user.id,
+      },
+    }),
+    allowsSharedStation
+      ? Promise.resolve(0)
+      : prisma.callCenterPresence.count({
+          where: {
+            browserSessionId: {
+              not: browserSessionId,
+            },
+            lastSeenAt: {
+              gte: presenceCutoff,
+            },
+            seatId: targetSeat.id,
+            status: {
+              not: CallCenterPresenceStatus.OFFLINE,
+            },
+          },
+        }),
+  ]);
+
+  if (competingPresence > 0) {
+    throw new TelnyxError("Station is active in another browser", 409);
+  }
+
+  if (availablePresence === 0) {
+    throw new TelnyxError("Station is not available", 409);
+  }
+
+  const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
+  const callerCallControlId =
+    asString(transfer.callerCallControlId) ||
+    queueItem.callerSession?.telnyxCallControlId ||
+    "";
+  const callerNumber = normalizePhone(
+    queueItem.callerSession?.fromPhone || queueItem.fromPhone,
+  );
+  const from =
+    callerNumber ||
+    normalizePhone(queueItem.toPhone) ||
+    normalizePhone(runtimeSettings.outboundCallerNumber);
+
+  if (!callerCallControlId) {
+    throw new TelnyxError("Caller leg is missing Telnyx call control ID", 422);
+  }
+
+  if (!runtimeSettings.connectionId || !from) {
+    throw new TelnyxError("Telnyx connection and caller number are required", 422);
+  }
+
+  const sourceAttemptId = asString(transfer.sourceRingAttemptId);
+  const sourceAttempt = await prisma.callCenterRingAttempt.findFirst({
+    select: {
+      id: true,
+    },
+    where: {
+      ...(sourceAttemptId ? { id: sourceAttemptId } : {}),
+      endedAt: null,
+      queueItemId: queueItem.id,
+      status: {
+        in: ["ANSWERED", "BRIDGED"],
+      },
+    },
+  });
+
+  if (!sourceAttempt) {
+    throw new TelnyxError("Source call is no longer active", 409);
+  }
+
+  const existingTargetAttempt = await prisma.callCenterRingAttempt.findFirst({
+    select: {
+      id: true,
+      status: true,
+    },
+    where: {
+      queueItemId: queueItem.id,
+      seatId: targetSeat.id,
+    },
+  });
+
+  if (
+    existingTargetAttempt &&
+    !RETRYABLE_RING_ATTEMPT_STATUSES.has(existingTargetAttempt.status)
+  ) {
+    throw new TelnyxError("Transfer station already has a live call leg", 409);
+  }
+
+  if (existingTargetAttempt) {
+    await prisma.callCenterRingAttempt.delete({
+      where: {
+        id: existingTargetAttempt.id,
+      },
+    });
+  }
+
+  const targetAttempt = await prisma.callCenterRingAttempt.create({
+    data: {
+      queueItemId: queueItem.id,
+      seatId: targetSeat.id,
+      status: "DIALING",
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  const clientState = encodeClientState({
+    blindTransfer: true,
+    callerNumber: callerNumber || undefined,
+    queueItemId: queueItem.id,
+    ringAttemptId: targetAttempt.id,
+    sourceRingAttemptId: sourceAttempt.id,
+    targetSeatId: targetSeat.id,
+  });
+
+  try {
+    const result = await dialTelnyxCall({
+      bridgeIntent: true,
+      bridgeOnAnswer: true,
+      clientState,
+      commandId: `transfer-ring-${queueItem.id}-${targetSeat.id}`,
+      connectionId: runtimeSettings.connectionId,
+      from,
+      linkTo: callerCallControlId,
+      preventDoubleBridge: false,
+      timeoutSecs: AGENT_RING_TIMEOUT_SEC,
+      to: telnyxSipUri(targetSeat.sipUsername),
+    });
+    const telnyxCallControlId = extractTelnyxCallControlId(result);
+
+    await prisma.callCenterRingAttempt.update({
+      data: {
+        status: "RINGING",
+        telnyxCallControlId: telnyxCallControlId || undefined,
+      },
+      where: {
+        id: targetAttempt.id,
+      },
+    });
+  } catch (error) {
+    await Promise.all([
+      prisma.callCenterRingAttempt.update({
+        data: {
+          endedAt: new Date(),
+          hangupCause:
+            error instanceof Error ? error.message : "failed_to_transfer_call",
+          status: "FAILED",
+        },
+        where: {
+          id: targetAttempt.id,
+        },
+      }),
+      prisma.callCenterQueueItem.update({
+        data: {
+          metadata: jsonInput({
+            ...objectMetadata(queueItem.metadata),
+            blindTransferError:
+              error instanceof Error ? error.message : "failed_to_transfer_call",
+          }),
+        },
+        where: {
+          id: queueItem.id,
+        },
+      }),
+    ]);
+    throw error;
+  }
+
+  return {
+    ok: true,
+  };
+}
+
 async function markQueueVoicemailError({
   error,
   queueItemId,
@@ -2743,19 +3339,52 @@ async function onAgentBridgeWon({
     },
   });
 
+  const queueItem = await prisma.callCenterQueueItem.findUnique({
+    select: {
+      callerSession: {
+        select: {
+          telnyxCallControlId: true,
+        },
+      },
+      metadata: true,
+    },
+    where: {
+      id: queueItemId,
+    },
+  });
+  const blindTransfer = pendingBlindTransfer(queueItem?.metadata);
+  const sourceRingAttemptId = asString(blindTransfer?.sourceRingAttemptId);
+  const sourceSeatId = asString(blindTransfer?.fromSeatId);
+  const transferSourceWhere =
+    blindTransfer && (sourceRingAttemptId || sourceSeatId)
+      ? [
+          {
+            ...(sourceRingAttemptId ? { id: sourceRingAttemptId } : {}),
+            ...(sourceSeatId ? { seatId: sourceSeatId } : {}),
+            queueItemId,
+            status: "BRIDGED" as const,
+          },
+        ]
+      : [];
+
   const losing = await prisma.callCenterRingAttempt.findMany({
     select: {
       id: true,
       telnyxCallControlId: true,
     },
     where: {
-      id: {
-        not: winnerAttemptId,
-      },
-      queueItemId,
-      status: {
-        in: ["DIALING", "RINGING", "ANSWERED"],
-      },
+      OR: [
+        {
+          id: {
+            not: winnerAttemptId,
+          },
+          queueItemId,
+          status: {
+            in: ["DIALING", "RINGING", "ANSWERED"],
+          },
+        },
+        ...transferSourceWhere,
+      ],
     },
   });
 
@@ -2790,23 +3419,26 @@ async function onAgentBridgeWon({
     );
   }
 
-  const queueItem = await prisma.callCenterQueueItem.findUnique({
-    select: {
-      callerSession: {
-        select: {
-          telnyxCallControlId: true,
-        },
-      },
-    },
-    where: {
-      id: queueItemId,
-    },
-  });
-
   const callerCallControlId = queueItem?.callerSession?.telnyxCallControlId;
 
   if (callerCallControlId) {
     await stopCallerRingback(callerCallControlId);
+  }
+
+  if (blindTransfer) {
+    await prisma.callCenterQueueItem.update({
+      data: {
+        metadata: jsonInput(
+          metadataWithoutPendingBlindTransfer(queueItem?.metadata, {
+            endedAt: eventAt,
+            reason: "transfer_bridged",
+          }),
+        ),
+      },
+      where: {
+        id: queueItemId,
+      },
+    });
   }
 }
 
@@ -3414,7 +4046,9 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
   console.info("[call-center] webhook event", {
     eventType,
     callControlId: asString(payload.call_control_id),
+    clientState: decodeClientState(payload.client_state),
     direction: asString(payload.direction),
+    hangupCause: asString(payload.hangup_cause) || undefined,
     reason: asString(payload.reason) || undefined,
   });
 

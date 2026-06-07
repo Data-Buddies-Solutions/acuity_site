@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -16,6 +17,7 @@ import {
   MicOff,
   Pause,
   Phone,
+  PhoneForwarded,
   PhoneIncoming,
   PhoneOff,
   Play,
@@ -23,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
+import type { PortalCallCenterSeat } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
 type TelnyxStatus =
@@ -188,7 +191,9 @@ function isEndedCall(call: TelnyxCall) {
 }
 
 function isAnswerableInboundCall(call: TelnyxCall) {
-  return call.state === "ringing";
+  return ["new", "trying", "requesting", "ringing", "early"].includes(
+    call.state || "",
+  );
 }
 
 function errorMessageFor(error: unknown) {
@@ -285,6 +290,7 @@ const SoftphonePanel = forwardRef<
     seedNumber?: { value: string; token: number } | null;
     stationLabel?: string | null;
     stationSeatId?: string | null;
+    transferTargets?: PortalCallCenterSeat[];
     voicemailTimeoutSec?: number;
   }
 >(function SoftphonePanel(
@@ -298,6 +304,7 @@ const SoftphonePanel = forwardRef<
     seedNumber,
     stationLabel,
     stationSeatId,
+    transferTargets = [],
     voicemailTimeoutSec,
   },
   ref,
@@ -323,6 +330,8 @@ const SoftphonePanel = forwardRef<
   const [isHeld, setHeld] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  const [selectedTransferSeatId, setSelectedTransferSeatId] = useState("");
+  const [transferPending, setTransferPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [soundUnlocked, setSoundUnlocked] = useState(false);
   const [answeringCallIds, setAnsweringCallIds] = useState<Set<string>>(() => new Set());
@@ -344,6 +353,7 @@ const SoftphonePanel = forwardRef<
   const dismissedRingKeysRef = useRef<Set<string>>(new Set());
   const outboundCallIdsRef = useRef<Set<string>>(new Set());
   const expectingOutboundUntilRef = useRef<number>(0);
+  const transferPendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incomingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringingCallExpireTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
@@ -376,6 +386,25 @@ const SoftphonePanel = forwardRef<
       ...details,
     });
   }, []);
+
+  const eligibleTransferTargets = useMemo(
+    () =>
+      transferTargets.filter(
+        (seat) => seat.id !== stationSeatId && Boolean(seat.sipUsername),
+      ),
+    [stationSeatId, transferTargets],
+  );
+
+  useEffect(() => {
+    if (
+      selectedTransferSeatId &&
+      eligibleTransferTargets.some((seat) => seat.id === selectedTransferSeatId)
+    ) {
+      return;
+    }
+
+    setSelectedTransferSeatId(eligibleTransferTargets[0]?.id ?? "");
+  }, [eligibleTransferTargets, selectedTransferSeatId]);
 
   const setAnsweringCallPending = useCallback((callId: string, pending: boolean) => {
     if (pending) {
@@ -670,6 +699,13 @@ const SoftphonePanel = forwardRef<
     }
   }, []);
 
+  const clearTransferPendingTimer = useCallback(() => {
+    if (transferPendingTimerRef.current) {
+      clearTimeout(transferPendingTimerRef.current);
+      transferPendingTimerRef.current = null;
+    }
+  }, []);
+
   const clearIncomingClearTimer = useCallback(() => {
     if (incomingClearTimerRef.current) {
       clearTimeout(incomingClearTimerRef.current);
@@ -827,7 +863,9 @@ const SoftphonePanel = forwardRef<
     setHeld(false);
     setShowKeypad(false);
     setCallDuration(0);
-  }, [clearTimer, debugLog, detachAudio]);
+    clearTransferPendingTimer();
+    setTransferPending(false);
+  }, [clearTimer, clearTransferPendingTimer, debugLog, detachAudio]);
 
   const setInboundRingingCall = useCallback(
     (call: TelnyxCall) => {
@@ -1058,7 +1096,6 @@ const SoftphonePanel = forwardRef<
             !isInboundDirection(call.direction);
           const outbound =
             outboundCallIdsRef.current.has(call.id) ||
-            isOutboundDirection(call.direction) ||
             expectingOutbound;
           if (expectingOutbound) {
             outboundCallIdsRef.current.add(call.id);
@@ -1068,16 +1105,13 @@ const SoftphonePanel = forwardRef<
             inboundCallIdsRef.current.has(call.id) ||
             incomingCallRef.current?.id === call.id ||
             queuedCallsRef.current.some((queuedCall) => queuedCall.id === call.id);
-          const inbound =
-            !outbound &&
-            (knownInbound ||
-              isInboundDirection(call.direction) ||
-              !isOutboundDirection(call.direction));
+          const inbound = !outbound;
           const ringingStates = ["new", "trying", "requesting", "ringing", "early"];
           debugLog("call-update", {
             call: callDebugSnapshot(call),
             classifiedInbound: inbound,
             classifiedOutbound: outbound,
+            knownInbound,
             incomingCallId: incomingCallRef.current?.id ?? null,
             isAnswerPending: answeringInboundCallIdsRef.current.has(call.id),
             queuedCallIds: queuedCallsRef.current.map((queuedCall) => queuedCall.id),
@@ -1319,6 +1353,7 @@ const SoftphonePanel = forwardRef<
       cancelled = true;
       debugLog("softphone-cleanup");
       clearTimer();
+      clearTransferPendingTimer();
       clearIncomingClearTimer();
       clearAllRingingCallExpiryTimers();
       detachAudio();
@@ -1332,6 +1367,7 @@ const SoftphonePanel = forwardRef<
   }, [
     clearTimer,
     clearAllRingingCallExpiryTimers,
+    clearTransferPendingTimer,
     clearIncomingClearTimer,
     clearRingingCallExpiryTimer,
     clearRingingCallUi,
@@ -1751,11 +1787,80 @@ const SoftphonePanel = forwardRef<
     [activeCall],
   );
 
+  const transferCall = useCallback(async () => {
+    const sourceCallControlId = activeCall?.telnyxIDs?.telnyxCallControlId;
+
+    if (!activeCall || !sourceCallControlId || !selectedTransferSeatId) {
+      setError("Choose an available station before transferring.");
+      return;
+    }
+
+    setTransferPending(true);
+    clearTransferPendingTimer();
+    setError(null);
+    debugLog("transfer-request-start", {
+      call: callDebugSnapshot(activeCall),
+      targetSeatId: selectedTransferSeatId,
+    });
+
+    try {
+      const response = await fetch("/api/portal/call-center/transfer", {
+        body: JSON.stringify({
+          browserSessionId,
+          sourceCallControlId,
+          targetSeatId: selectedTransferSeatId,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          detail?: string;
+          error?: string;
+        } | null;
+        throw new Error(body?.detail || body?.error || "Unable to transfer call");
+      }
+
+      debugLog("transfer-request-finished", {
+        call: callDebugSnapshot(activeCall),
+        targetSeatId: selectedTransferSeatId,
+      });
+      transferPendingTimerRef.current = setTimeout(() => {
+        debugLog("transfer-pending-timeout", {
+          call: callDebugSnapshot(activeCallRef.current),
+          targetSeatId: selectedTransferSeatId,
+        });
+        setTransferPending(false);
+      }, AGENT_RING_UI_TIMEOUT_MS + 2000);
+    } catch (transferError) {
+      debugLog("transfer-request-failed", {
+        call: callDebugSnapshot(activeCall),
+        message: errorMessageFor(transferError),
+        targetSeatId: selectedTransferSeatId,
+      });
+      setTransferPending(false);
+      setError(errorMessageFor(transferError) || "Unable to transfer call");
+    }
+  }, [
+    activeCall,
+    browserSessionId,
+    clearTransferPendingTimer,
+    debugLog,
+    selectedTransferSeatId,
+  ]);
+
   const activeNumber =
     activeCall && direction === "inbound"
       ? callerNumberFor(activeCall)
       : dialedNumber || (activeCall ? callerNumberFor(activeCall) : "");
   const canDial = status === "ready" && Boolean(normalizeToE164(draftNumber));
+  const canTransfer =
+    Boolean(activeCall?.telnyxIDs?.telnyxCallControlId) &&
+    Boolean(selectedTransferSeatId) &&
+    !transferPending;
   const incomingCallAnswering = incomingCall ? isAnsweringCall(incomingCall) : false;
 
   return (
@@ -1886,6 +1991,38 @@ const SoftphonePanel = forwardRef<
               <Button onClick={hangUp} variant="secondary">
                 <PhoneOff className="h-4 w-4" aria-hidden="true" />
                 End
+              </Button>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2 rounded-md border border-black/8 bg-white p-3 sm:flex-row sm:items-center">
+              <label className="min-w-0 flex-1">
+                <span className="sr-only">Transfer station</span>
+                <select
+                  className="h-9 w-full rounded-md border border-black/10 bg-white px-2.5 text-sm font-medium text-[#10272c] outline-none focus:border-[#0d7377]"
+                  disabled={transferPending || eligibleTransferTargets.length === 0}
+                  onChange={(event) => setSelectedTransferSeatId(event.target.value)}
+                  value={selectedTransferSeatId}
+                >
+                  {eligibleTransferTargets.length ? (
+                    eligibleTransferTargets.map((seat) => (
+                      <option key={seat.id} value={seat.id}>
+                        {seat.extension
+                          ? `${seat.extension} - ${seat.label}`
+                          : seat.label}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">No stations available</option>
+                  )}
+                </select>
+              </label>
+              <Button
+                disabled={!canTransfer}
+                onClick={() => void transferCall()}
+                variant="secondary"
+              >
+                <PhoneForwarded className="h-4 w-4" aria-hidden="true" />
+                {transferPending ? "Transferring" : "Transfer"}
               </Button>
             </div>
 
