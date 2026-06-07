@@ -8,9 +8,11 @@ import {
   Loader2,
   Lock,
   MessageSquareText,
+  Plus,
   RefreshCw,
   Send,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
@@ -75,6 +77,14 @@ type InboxState = {
   practiceNumber: string;
   selectedInboxId: string;
   unreadCount: number;
+};
+
+type StartConversationResponse = {
+  conversationId: string;
+  detail?: string | null;
+  error?: string;
+  messageId: string;
+  ok: boolean;
 };
 
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -256,6 +266,142 @@ function ConversationRow({
   );
 }
 
+function DraftConversationRow({ body, phone }: { body: string; phone: string }) {
+  return (
+    <div className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 bg-[#e8f4f4] px-4 py-4 text-left transition">
+      <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#0d7377]" aria-hidden="true" />
+      <span className="min-w-0">
+        <span className="flex items-center justify-between gap-3">
+          <span className="truncate text-sm font-semibold text-[#10272c]">
+            {phone.trim() || "New text"}
+          </span>
+          <span className="shrink-0 text-xs text-[#7d8d90]">Draft</span>
+        </span>
+        <span className="mt-1 block truncate text-sm text-[#617477]">
+          {body.trim() || "Write the first message"}
+        </span>
+        <span className="mt-2 flex items-center gap-2">
+          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-[#0d7377]">
+            New
+          </span>
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function DraftConversationThread({
+  body,
+  error,
+  onBodyChange,
+  onCancel,
+  onPhoneChange,
+  onSubmit,
+  phone,
+  sending,
+}: {
+  body: string;
+  error: string | null;
+  onBodyChange: (value: string) => void;
+  onCancel: () => void;
+  onPhoneChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  phone: string;
+  sending: boolean;
+}) {
+  const ready = Boolean(phone.trim() && body.trim());
+
+  return (
+    <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f6f8f8]">
+      <header className="border-b border-black/6 bg-white px-4 py-3 md:px-5">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div className="min-w-0">
+            <label className="sr-only" htmlFor="new-sms-phone">
+              Patient mobile
+            </label>
+            <div className="grid max-w-md grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b border-black/12 pb-1.5 transition focus-within:border-[#0d7377]">
+              <span className="text-sm font-semibold text-[#7d8d90]">To</span>
+              <input
+                autoComplete="tel"
+                className="h-7 w-full min-w-0 bg-transparent text-sm font-semibold text-[#10272c] outline-none placeholder:font-medium placeholder:text-[#9aa7a9]"
+                disabled={sending}
+                id="new-sms-phone"
+                inputMode="tel"
+                onChange={(event) => onPhoneChange(event.target.value)}
+                placeholder="Patient mobile"
+                type="tel"
+                value={phone}
+              />
+            </div>
+          </div>
+          <Button
+            aria-label="Close new text"
+            className="h-9 w-9 border-black/10 bg-white p-0 text-[#617477] hover:bg-[#f1f5f5]"
+            onClick={onCancel}
+            type="button"
+            variant="secondary"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
+      </header>
+
+      {error ? (
+        <div className="border-b border-[#ffd6d6] bg-[#fff7f7] px-4 py-2 text-sm text-[#8a1f1f]">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-5">
+        <div className="grid min-h-[360px] place-items-center text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e8f4f4] text-[#0d7377]">
+            <MessageSquareText className="h-7 w-7" aria-hidden="true" />
+          </div>
+        </div>
+      </div>
+
+      <footer className="border-t border-black/6 bg-white px-4 py-2 md:px-5">
+        <form onSubmit={onSubmit}>
+          <label className="sr-only" htmlFor="new-sms-body">
+            Message
+          </label>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch">
+            <textarea
+              className="h-10 resize-none rounded-lg border border-black/10 bg-white px-3 py-2 text-sm leading-5 text-[#10272c] outline-none transition placeholder:text-[#9aa7a9] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/15"
+              disabled={sending}
+              id="new-sms-body"
+              maxLength={1000}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              onChange={(event) => onBodyChange(event.target.value)}
+              placeholder="Write the first message..."
+              value={body}
+            />
+            <Button
+              className="h-10 px-4"
+              disabled={sending || !ready}
+              size="sm"
+              type="submit"
+              variant="primary"
+            >
+              {sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              Send text
+            </Button>
+          </div>
+        </form>
+      </footer>
+    </main>
+  );
+}
+
 export default function TwoWayTextingWorkspace({
   initialInbox,
 }: {
@@ -266,10 +412,14 @@ export default function TwoWayTextingWorkspace({
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [filter, setFilter] = useState<"OPEN" | "UNREAD" | "CLOSED">("OPEN");
   const [draft, setDraft] = useState("");
+  const [newPatientPhone, setNewPatientPhone] = useState("");
+  const [newDraft, setNewDraft] = useState("");
+  const [composing, setComposing] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [sending, setSending] = useState(false);
+  const [startingOutbound, setStartingOutbound] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const filteredConversations = useMemo(() => {
@@ -284,6 +434,12 @@ export default function TwoWayTextingWorkspace({
     () => inbox.conversations.find((item) => item.id === selectedId) ?? null,
     [inbox.conversations, selectedId],
   );
+
+  const selectConversation = useCallback((id: string) => {
+    setComposing(false);
+    setError(null);
+    setSelectedId(id);
+  }, []);
 
   const refreshInbox = useCallback(
     async ({ quiet = false } = {}) => {
@@ -405,6 +561,57 @@ export default function TwoWayTextingWorkspace({
     }
   };
 
+  const handleStartOutbound = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!newPatientPhone.trim() || !newDraft.trim()) {
+      return;
+    }
+
+    setStartingOutbound(true);
+    setError(null);
+
+    try {
+      const result = await fetch("/api/portal/sms/conversations", {
+        body: JSON.stringify({
+          body: newDraft,
+          inboxId: inbox.selectedInboxId,
+          patientPhoneNumber: newPatientPhone,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }).then((response) => readJson<StartConversationResponse>(response));
+
+      setFilter("OPEN");
+      setSelectedId(result.conversationId);
+      setNewPatientPhone("");
+      setNewDraft("");
+      setComposing(false);
+
+      const query = inbox.selectedInboxId
+        ? `?inboxId=${encodeURIComponent(inbox.selectedInboxId)}`
+        : "";
+      const [nextInbox, nextConversation] = await Promise.all([
+        fetch(`/api/portal/sms/conversations${query}`, {
+          cache: "no-store",
+        }).then((response) => readJson<InboxState>(response)),
+        fetch(`/api/portal/sms/conversations/${result.conversationId}`, {
+          cache: "no-store",
+        }).then((response) => readJson<ConversationDetail>(response)),
+      ]);
+
+      setInbox(nextInbox);
+      setConversation(nextConversation);
+      if (!result.ok) {
+        setError(result.detail || result.error || "Failed to send text");
+      }
+    } catch (startError) {
+      setError(startError instanceof Error ? startError.message : "Failed to send text");
+    } finally {
+      setStartingOutbound(false);
+    }
+  };
+
   const handleStatus = async (status: SmsConversationStatus) => {
     if (!conversation) {
       return;
@@ -511,20 +718,35 @@ export default function TwoWayTextingWorkspace({
               </button>
             ))}
           </div>
-          <Button
-            className="border-black/10 bg-white text-[#10272c] hover:bg-[#f1f5f5]"
-            disabled={refreshing}
-            onClick={() => {
-              void refreshInbox();
-              void refreshConversation();
-            }}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              className="bg-[#0d7377] text-white hover:bg-[#0b6467]"
+              onClick={() => {
+                setComposing(true);
+                setError(null);
+              }}
+              size="sm"
+              type="button"
+              variant="primary"
+            >
+              <Plus className="h-4 w-4" />
+              New text
+            </Button>
+            <Button
+              className="border-black/10 bg-white text-[#10272c] hover:bg-[#f1f5f5]"
+              disabled={refreshing}
+              onClick={() => {
+                void refreshInbox();
+                void refreshConversation();
+              }}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -539,16 +761,19 @@ export default function TwoWayTextingWorkspace({
             </span>
           </div>
           <div className="min-h-0 divide-y divide-black/6 overflow-y-auto">
+            {composing ? (
+              <DraftConversationRow body={newDraft} phone={newPatientPhone} />
+            ) : null}
             {filteredConversations.length ? (
               filteredConversations.map((item) => (
                 <ConversationRow
                   conversation={item}
                   key={item.id}
-                  onSelect={setSelectedId}
+                  onSelect={selectConversation}
                   selected={item.id === selectedId}
                 />
               ))
-            ) : (
+            ) : composing ? null : (
               <div className="px-6 py-14 text-center">
                 <Circle className="mx-auto h-8 w-8 text-[#b2bfc1]" aria-hidden="true" />
                 <p className="mt-3 text-sm font-medium text-[#10272c]">
@@ -562,7 +787,21 @@ export default function TwoWayTextingWorkspace({
           </div>
         </aside>
 
-        {selectedConversation ? (
+        {composing ? (
+          <DraftConversationThread
+            body={newDraft}
+            error={error}
+            onBodyChange={setNewDraft}
+            onCancel={() => {
+              setComposing(false);
+              setError(null);
+            }}
+            onPhoneChange={setNewPatientPhone}
+            onSubmit={handleStartOutbound}
+            phone={newPatientPhone}
+            sending={startingOutbound}
+          />
+        ) : selectedConversation ? (
           <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f6f8f8]">
             {error ? (
               <div className="border-b border-[#ffd6d6] bg-[#fff7f7] px-4 py-2 text-sm text-[#8a1f1f]">
@@ -630,7 +869,7 @@ export default function TwoWayTextingWorkspace({
               )}
             </div>
 
-            <footer className="h-[57px] border-t border-black/6 bg-white px-4 py-2 md:px-5">
+            <footer className="border-t border-black/6 bg-white px-4 py-2 md:px-5">
               {conversation?.optedOut ? (
                 <div className="mb-3 flex items-center gap-2 rounded-lg bg-[#fff1f1] px-3 py-2 text-sm text-[#8a1f1f]">
                   <Lock className="h-4 w-4" aria-hidden="true" />
@@ -676,14 +915,28 @@ export default function TwoWayTextingWorkspace({
             </footer>
           </main>
         ) : (
-          <>
+          <main className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
             {error ? (
               <div className="border-b border-[#ffd6d6] bg-[#fff7f7] px-4 py-2 text-sm text-[#8a1f1f]">
                 {error}
               </div>
             ) : null}
-            <EmptyThread />
-          </>
+            <div className="relative min-h-0 flex-1">
+              <EmptyThread />
+              <Button
+                className="absolute left-1/2 top-[calc(50%+5rem)] -translate-x-1/2 bg-[#0d7377] text-white hover:bg-[#0b6467]"
+                onClick={() => {
+                  setComposing(true);
+                  setError(null);
+                }}
+                type="button"
+                variant="primary"
+              >
+                <Plus className="h-4 w-4" />
+                New text
+              </Button>
+            </div>
+          </main>
         )}
       </div>
     </section>
