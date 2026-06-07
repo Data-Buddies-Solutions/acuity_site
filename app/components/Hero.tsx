@@ -20,13 +20,13 @@ const duplicatedPartners = [...partners, ...partners];
 export default function Hero() {
   return (
     <section
-      className="relative overflow-hidden bg-canvas pb-12 pt-10 md:pt-14 lg:pt-16"
+      className="relative overflow-hidden bg-canvas pb-10 pt-9 md:pt-12 lg:pt-12"
       id="top"
     >
       <div className="relative z-10 mx-auto max-w-7xl px-4 md:px-6">
-        <div className="mx-auto flex min-w-0 max-w-6xl flex-col items-center text-center">
+        <div className="mx-auto flex min-w-0 max-w-5xl flex-col items-center text-center">
           <Link
-            className="marketing-label group mb-7 inline-flex items-center gap-2 rounded-[4px] border border-[#dfe4ec] bg-white/88 px-3.5 py-2 text-[11px] font-medium tracking-[0.12em] text-[#586372] shadow-sm backdrop-blur transition-colors hover:border-accent/45 hover:text-[#101820]"
+            className="marketing-label group mb-5 inline-flex items-center gap-2 rounded-[4px] border border-[#dfe4ec] bg-white/88 px-3.5 py-2 text-[11px] font-medium tracking-[0.12em] text-[#586372] shadow-sm backdrop-blur transition-colors hover:border-accent/45 hover:text-[#101820] lg:mb-6"
             href="/partners/advancedmd"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -35,20 +35,20 @@ export default function Hero() {
               →
             </span>
           </Link>
-          <h1 className="max-w-5xl text-[3.15rem] leading-[0.94] text-[#101820] antialiased subpixel-antialiased sm:text-[4.5rem] md:text-[5.6rem] lg:text-[6.8rem] xl:text-[7.4rem]">
+          <h1 className="max-w-5xl text-[3.15rem] leading-[0.95] text-[#101820] antialiased subpixel-antialiased sm:text-[4.25rem] md:text-[4.9rem] lg:text-[5.45rem] xl:text-[5.95rem]">
             <span className="block">The</span>
             <span className="block text-[#3f4f6a]">AI receptionist</span>
             <span className="block">
-              for ophthalmology <span className="block sm:inline">practices.</span>
+              for ophthalmology <span className="block sm:inline">practices</span>
             </span>
           </h1>
 
-          <p className="mx-auto mt-6 max-w-3xl text-[16px] leading-[1.6] text-[#586372] md:mt-7 md:text-[1.28rem]">
+          <p className="mx-auto mt-5 max-w-3xl text-[16px] leading-[1.58] text-[#586372] md:text-[1.12rem] lg:mt-6 lg:text-[1.18rem]">
             Answer every call, help patients get what they need, and keep your front desk
             focused on the people in front of them.
           </p>
 
-          <div className="mt-8 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row sm:gap-4 md:mt-10">
+          <div className="mt-6 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row sm:gap-4 md:mt-7 lg:mt-8">
             <Button
               asChild
               className="marketing-cta w-full rounded-[4px] bg-[#172033] px-5 py-3 text-[12px] font-medium tracking-[0.11em] shadow-[0_18px_42px_rgba(23,32,51,0.18)] transition-colors hover:bg-[#22304a] sm:w-auto md:px-6"
@@ -77,7 +77,7 @@ export default function Hero() {
       </div>
 
       {/* Logo Marquee */}
-      <div className="relative z-10 mt-10 md:mt-8 lg:mt-2">
+      <div className="relative z-10 mt-8 md:mt-7 lg:mt-6">
         <div className="overflow-hidden border-t border-neutral-100 py-6 md:py-8">
           <div className="mx-auto mb-4 max-w-6xl px-4 md:mb-6 md:px-6">
             <p className="marketing-label text-center text-[11px] font-medium tracking-[0.14em] text-muted-foreground/60">
