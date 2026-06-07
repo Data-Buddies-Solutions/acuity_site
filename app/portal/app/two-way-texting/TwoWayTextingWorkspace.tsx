@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   CheckCheck,
@@ -318,9 +311,12 @@ export default function TwoWayTextingWorkspace({
       }
 
       try {
-        const next = await fetch(`/api/portal/sms/conversations${conversationListQuery()}`, {
-          cache: "no-store",
-        }).then((response) => readJson<InboxState>(response));
+        const next = await fetch(
+          `/api/portal/sms/conversations${conversationListQuery()}`,
+          {
+            cache: "no-store",
+          },
+        ).then((response) => readJson<InboxState>(response));
         setInbox(next);
         setError(null);
 
@@ -481,9 +477,12 @@ export default function TwoWayTextingWorkspace({
         method: "DELETE",
       }).then((response) => readJson<{ ok: boolean }>(response));
 
-      const next = await fetch(`/api/portal/sms/conversations${conversationListQuery()}`, {
-        cache: "no-store",
-      }).then((response) => readJson<InboxState>(response));
+      const next = await fetch(
+        `/api/portal/sms/conversations${conversationListQuery()}`,
+        {
+          cache: "no-store",
+        },
+      ).then((response) => readJson<InboxState>(response));
 
       setInbox(next);
       setSelectedId(next.conversations[0]?.id ?? "");

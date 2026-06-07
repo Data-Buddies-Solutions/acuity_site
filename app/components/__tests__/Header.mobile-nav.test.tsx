@@ -33,7 +33,7 @@ describe("Header mobile navigation overlay", () => {
     const closeButton = screen.getByLabelText("Close navigation");
     const overlay = closeButton.closest(".fixed");
     expect(overlay).not.toBeNull();
-    expect(overlay).toHaveClass("bg-white");
+    expect(overlay).toHaveClass("bg-[#fbfaf7]");
     expect(overlay).not.toHaveClass("bg-background/95");
 
     const mobileNav = screen
@@ -43,7 +43,7 @@ describe("Header mobile navigation overlay", () => {
 
     const sheet = mobileNav?.closest("div");
     expect(sheet).not.toBeNull();
-    expect(sheet).toHaveClass("bg-white");
+    expect(sheet).toHaveClass("bg-[#fbfaf7]");
     expect(sheet).toHaveClass("min-h-full");
 
     const mobileLink = screen.getAllByRole("link", { name: "About" }).at(-1);

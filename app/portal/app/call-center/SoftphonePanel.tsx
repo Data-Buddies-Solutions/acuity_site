@@ -191,9 +191,7 @@ function isEndedCall(call: TelnyxCall) {
 }
 
 function isAnswerableInboundCall(call: TelnyxCall) {
-  return ["new", "trying", "requesting", "ringing", "early"].includes(
-    call.state || "",
-  );
+  return ["new", "trying", "requesting", "ringing", "early"].includes(call.state || "");
 }
 
 function errorMessageFor(error: unknown) {
@@ -1094,9 +1092,7 @@ const SoftphonePanel = forwardRef<
             Date.now() < expectingOutboundUntilRef.current &&
             !inboundCallIdsRef.current.has(call.id) &&
             !isInboundDirection(call.direction);
-          const outbound =
-            outboundCallIdsRef.current.has(call.id) ||
-            expectingOutbound;
+          const outbound = outboundCallIdsRef.current.has(call.id) || expectingOutbound;
           if (expectingOutbound) {
             outboundCallIdsRef.current.add(call.id);
             expectingOutboundUntilRef.current = 0;

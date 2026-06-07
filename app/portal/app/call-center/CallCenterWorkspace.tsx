@@ -679,8 +679,7 @@ function QueuePanel({
                   item.status,
                 );
                 const canManuallyTake = canTake && isTakeableStatus && !liveRingAttempt;
-                const canTakeTransfer =
-                  canTake && isTransferRequest && !liveRingAttempt;
+                const canTakeTransfer = canTake && isTransferRequest && !liveRingAttempt;
                 const isTakingTransfer = takingTransferIds.has(item.id);
 
                 return (
@@ -690,7 +689,9 @@ function QueuePanel({
                         {formatQueuePhone(item.fromPhone)}
                       </p>
                       <p className="mt-1 text-xs text-[#617477]">
-                        {isTransferRequest ? "Transfer request" : queueStatusLabel(item.status)}
+                        {isTransferRequest
+                          ? "Transfer request"
+                          : queueStatusLabel(item.status)}
                         {isTransferRequest && item.transferRequest?.fromSeatLabel
                           ? ` from ${item.transferRequest.fromSeatLabel}`
                           : ""}

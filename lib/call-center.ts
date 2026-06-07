@@ -2693,10 +2693,7 @@ export async function blindTransferActiveCallToSeat({
   const callControlIds = callControlIdVariants(sourceCallControlId);
 
   if (!callControlIds.length || !targetSeatId) {
-    throw new TelnyxError(
-      "sourceCallControlId and targetSeatId are required",
-      400,
-    );
+    throw new TelnyxError("sourceCallControlId and targetSeatId are required", 400);
   }
 
   const sourceAttempt = await prisma.callCenterRingAttempt.findFirst({
@@ -3143,8 +3140,7 @@ export async function takePendingBlindTransfer({
       prisma.callCenterRingAttempt.update({
         data: {
           endedAt: new Date(),
-          hangupCause:
-            error instanceof Error ? error.message : "failed_to_transfer_call",
+          hangupCause: error instanceof Error ? error.message : "failed_to_transfer_call",
           status: "FAILED",
         },
         where: {
