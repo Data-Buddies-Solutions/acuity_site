@@ -372,13 +372,25 @@ function buildTurnMetricLookup(turnMetrics?: TurnMetricRecord[]): TurnMetricLook
         "transcription_delay" in metrics ||
         "transcriptionDelayMs" in metrics ||
         "transcription_delay_ms" in metrics ||
+        "endOfTurnDelay" in metrics ||
+        "end_of_turn_delay" in metrics ||
+        "endOfTurnDelayMs" in metrics ||
+        "end_of_turn_delay_ms" in metrics ||
         "stoppedSpeakingAt" in metrics);
+    const hasAssistantTiming =
+      metrics &&
+      ("e2eLatency" in metrics ||
+        "e2e_latency" in metrics ||
+        "llmNodeTtft" in metrics ||
+        "llm_node_ttft" in metrics ||
+        "ttsNodeTtfb" in metrics ||
+        "tts_node_ttfb" in metrics);
 
     if ((item.role === "user" || hasUserTiming) && item.metrics) {
       userTurns.push(item);
     }
 
-    if (item.role === "assistant" && item.metrics) {
+    if ((item.role === "assistant" || hasAssistantTiming) && item.metrics) {
       assistantTurns.push(item);
     }
   }
@@ -413,7 +425,11 @@ function metricsForItem(
   item: ChatHistoryItem,
   turnMetricRecord: TurnMetricRecord | undefined,
 ) {
-  return turnMetricRecord?.metrics ?? item.metrics;
+  if (item.metrics && turnMetricRecord?.metrics) {
+    return { ...turnMetricRecord.metrics, ...item.metrics };
+  }
+
+  return item.metrics ?? turnMetricRecord?.metrics;
 }
 
 function timestampMs(value: unknown) {
@@ -469,6 +485,44 @@ function sttLatencyFromTurnMetrics(input: {
   }
 
   return null;
+}
+
+function endOfTurnDelayFromMetrics(
+  metrics: Record<string, unknown> | undefined,
+  eouMetric?: LiveKitMetric,
+) {
+  const chatMessageDelayMs = metricMsOrNull(metrics, [
+    { key: "endOfTurnDelay", unit: "seconds" },
+    { key: "end_of_turn_delay", unit: "auto" },
+    { key: "endOfTurnDelayMs", unit: "milliseconds" },
+    { key: "end_of_turn_delay_ms", unit: "milliseconds" },
+    { key: "endOfUtteranceDelay", unit: "auto" },
+    { key: "end_of_utterance_delay", unit: "auto" },
+    { key: "endOfUtteranceDelayMs", unit: "milliseconds" },
+    { key: "end_of_utterance_delay_ms", unit: "milliseconds" },
+  ]);
+
+  if (chatMessageDelayMs != null) {
+    return chatMessageDelayMs;
+  }
+
+  return metricMsOrNull(eouMetric, [
+    { key: "endOfUtteranceDelay", unit: "auto" },
+    { key: "end_of_utterance_delay", unit: "auto" },
+    { key: "endOfUtteranceDelayMs", unit: "milliseconds" },
+    { key: "end_of_utterance_delay_ms", unit: "milliseconds" },
+    { key: "endOfTurnDelayMs", unit: "milliseconds" },
+    { key: "end_of_turn_delay_ms", unit: "milliseconds" },
+  ]);
+}
+
+function transcriptionDelayFromEouMetric(eouMetric?: LiveKitMetric) {
+  return metricMsOrNull(eouMetric, [
+    { key: "transcriptionDelay", unit: "auto" },
+    { key: "transcription_delay", unit: "auto" },
+    { key: "transcriptionDelayMs", unit: "milliseconds" },
+    { key: "transcription_delay_ms", unit: "milliseconds" },
+  ]);
 }
 
 function modelUsageEntries(body: LiveKitWebhookPayload): ModelUsageRecord[] {
@@ -546,7 +600,7 @@ function extractText(content?: ChatHistoryItem["content"]): string {
 }
 
 function deriveTotalLatency(turn: {
-  sttLatencyMs?: number;
+  endOfTurnDelayMs?: number;
   totalLatencyMs?: number;
   ttftMs: number;
   ttsttfbMs?: number;
@@ -559,7 +613,11 @@ function deriveTotalLatency(turn: {
     return 0;
   }
 
-  return (turn.sttLatencyMs ?? 0) + turn.ttftMs + (turn.ttsttfbMs ?? 0);
+  if ((turn.endOfTurnDelayMs ?? 0) <= 0) {
+    return 0;
+  }
+
+  return (turn.endOfTurnDelayMs ?? 0) + turn.ttftMs + (turn.ttsttfbMs ?? 0);
 }
 
 function outputByCallId(items: ChatHistoryItem[]) {
@@ -698,13 +756,17 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
         metrics: itemMetrics,
         turnMetric,
       });
+      const endOfTurnDelayMs = endOfTurnDelayFromMetrics(itemMetrics, sttMetric);
 
       currentTurn.ttftMs = asNumber(firstLlm?.ttftMs);
       currentTurn.ttsttfbMs = asNumber(ttsMetric?.ttfbMs);
+      if (endOfTurnDelayMs != null) {
+        currentTurn.endOfTurnDelayMs = endOfTurnDelayMs;
+      }
       currentTurn.sttConfidence = transcriptConfidence(itemMetrics);
       currentTurn.sttLatencyMeasured = sttLatencyMs != null;
       currentTurn.sttLatencyMs =
-        sttLatencyMs ?? Math.round(asNumber(sttMetric?.transcriptionDelayMs));
+        sttLatencyMs ?? transcriptionDelayFromEouMetric(sttMetric) ?? 0;
 
       for (const llmMetric of llmGroup) {
         currentTurn.promptTokens += asNumber(llmMetric.promptTokens);
@@ -733,22 +795,24 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
         assistantTurnMetricIndex++,
       );
       const itemMetrics = metricsForItem(item, turnMetric);
-      if (currentTurn.ttftMs <= 0) {
-        currentTurn.ttftMs = metricMs(itemMetrics, [
-          { key: "llmNodeTtft", unit: "seconds" },
-          { key: "llm_node_ttft", unit: "auto" },
-          { key: "ttftMs", unit: "milliseconds" },
-          { key: "ttft_ms", unit: "milliseconds" },
-        ]);
+      const messageTtftMs = metricMs(itemMetrics, [
+        { key: "llmNodeTtft", unit: "seconds" },
+        { key: "llm_node_ttft", unit: "auto" },
+        { key: "ttftMs", unit: "milliseconds" },
+        { key: "ttft_ms", unit: "milliseconds" },
+      ]);
+      if (messageTtftMs > 0) {
+        currentTurn.ttftMs = messageTtftMs;
       }
 
-      if (currentTurn.ttsttfbMs <= 0) {
-        currentTurn.ttsttfbMs = metricMs(itemMetrics, [
-          { key: "ttsNodeTtfb", unit: "seconds" },
-          { key: "tts_node_ttfb", unit: "auto" },
-          { key: "ttfbMs", unit: "milliseconds" },
-          { key: "ttfb_ms", unit: "milliseconds" },
-        ]);
+      const messageTtsTtfbMs = metricMs(itemMetrics, [
+        { key: "ttsNodeTtfb", unit: "seconds" },
+        { key: "tts_node_ttfb", unit: "auto" },
+        { key: "ttfbMs", unit: "milliseconds" },
+        { key: "ttfb_ms", unit: "milliseconds" },
+      ]);
+      if (messageTtsTtfbMs > 0) {
+        currentTurn.ttsttfbMs = messageTtsTtfbMs;
       }
 
       const e2eLatencyMs = metricMs(itemMetrics, [

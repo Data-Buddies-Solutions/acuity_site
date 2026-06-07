@@ -218,11 +218,15 @@ export function LatencyScatterCharts({ turns }: { turns: TurnRecord[] }) {
             <LatencyChart title="TTS TTFB by Turn" data={ttsData} color="#3b82f6" />
           )}
           {sttData.length > 0 && (
-            <LatencyChart title="STT Latency by Turn" data={sttData} color="#f59e0b" />
+            <LatencyChart
+              title="STT Final Delay by Turn"
+              data={sttData}
+              color="#f59e0b"
+            />
           )}
           {totalData.length > 0 && (
             <LatencyChart
-              title="Total Latency by Turn"
+              title="E2E Response Latency by Turn"
               data={totalData}
               color="#10b981"
             />

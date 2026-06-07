@@ -20,85 +20,58 @@ const duplicatedPartners = [...partners, ...partners];
 export default function Hero() {
   return (
     <section
-      className="relative overflow-hidden bg-canvas pb-12 pt-6 md:pt-10 lg:pt-12"
+      className="relative overflow-hidden bg-canvas pb-12 pt-10 md:pt-14 lg:pt-16"
       id="top"
     >
       <div className="relative z-10 mx-auto max-w-7xl px-4 md:px-6">
-        <div className="grid min-w-0 grid-cols-1 items-center gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.3fr)] lg:gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] xl:gap-10">
-          {/* Left: copy */}
-          <div className="relative z-20 mx-auto w-full max-w-[22.5rem] min-w-0 text-center sm:max-w-xl lg:mx-0 lg:max-w-none lg:text-left">
-            <Link
-              className="marketing-label group mb-6 hidden items-center gap-2 rounded-[4px] border border-[#dfe4ec] bg-white/88 px-3.5 py-2 text-[11px] font-medium tracking-[0.12em] text-[#586372] shadow-sm backdrop-blur transition-colors hover:border-accent/45 hover:text-[#101820] lg:inline-flex"
-              href="/partners/advancedmd"
+        <div className="mx-auto flex min-w-0 max-w-6xl flex-col items-center text-center">
+          <Link
+            className="marketing-label group mb-7 inline-flex items-center gap-2 rounded-[4px] border border-[#dfe4ec] bg-white/88 px-3.5 py-2 text-[11px] font-medium tracking-[0.12em] text-[#586372] shadow-sm backdrop-blur transition-colors hover:border-accent/45 hover:text-[#101820]"
+            href="/partners/advancedmd"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+            Acuity × AdvancedMD partnership
+            <span className="text-neutral-400 transition-transform group-hover:translate-x-0.5">
+              →
+            </span>
+          </Link>
+          <h1 className="max-w-5xl text-[3.15rem] leading-[0.94] text-[#101820] antialiased subpixel-antialiased sm:text-[4.5rem] md:text-[5.6rem] lg:text-[6.8rem] xl:text-[7.4rem]">
+            <span className="block">The</span>
+            <span className="block text-[#3f4f6a]">AI receptionist</span>
+            <span className="block">
+              for ophthalmology <span className="block sm:inline">practices.</span>
+            </span>
+          </h1>
+
+          <p className="mx-auto mt-6 max-w-3xl text-[16px] leading-[1.6] text-[#586372] md:mt-7 md:text-[1.28rem]">
+            Answer every call, help patients get what they need, and keep your front desk
+            focused on the people in front of them.
+          </p>
+
+          <div className="mt-8 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row sm:gap-4 md:mt-10">
+            <Button
+              asChild
+              className="marketing-cta w-full rounded-[4px] bg-[#172033] px-5 py-3 text-[12px] font-medium tracking-[0.11em] shadow-[0_18px_42px_rgba(23,32,51,0.18)] transition-colors hover:bg-[#22304a] sm:w-auto md:px-6"
+              size="default"
+              variant="default"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-              Acuity × AdvancedMD partnership
-              <span className="text-neutral-400 transition-transform group-hover:translate-x-0.5">
-                →
-              </span>
-            </Link>
-            <h1 className="text-[2.8rem] leading-[0.94] text-[#101820] antialiased subpixel-antialiased sm:text-[3.8rem] md:text-[4.8rem] lg:text-[4.35rem] xl:text-[5.25rem] 2xl:text-[5.9rem]">
-              <span className="block">The</span>
-              <span className="block text-[#3f4f6a]">AI receptionist</span>
-              <span className="block">
-                for ophthalmology <span className="block sm:inline">practices.</span>
-              </span>
-            </h1>
-
-            <p className="mx-auto mt-5 max-w-xl text-[15px] leading-[1.55] text-[#586372] md:mt-6 md:text-[1.12rem] lg:mx-0">
-              Answer every call, help patients get what they need, and keep your front
-              desk focused on the people in front of them.
-            </p>
-
-            <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 md:mt-9 lg:justify-start">
-              <Button
-                asChild
-                className="marketing-cta w-full rounded-[4px] bg-[#172033] px-5 py-3 text-[12px] font-medium tracking-[0.11em] shadow-[0_18px_42px_rgba(23,32,51,0.18)] transition-colors hover:bg-[#22304a] sm:w-auto md:px-6"
-                size="default"
-                variant="default"
+              <a
+                aria-label="Call the Acuity AI receptionist live demo at 484 398 9071"
+                className="inline-flex items-center gap-2"
+                href="tel:+14843989071"
               >
-                <a
-                  aria-label="Call the Acuity AI receptionist live demo at 484 398 9071"
-                  className="inline-flex items-center gap-2"
-                  href="tel:+14843989071"
-                >
-                  <PhoneCall className="h-4 w-4" />
-                  Try the AI Receptionist
-                </a>
-              </Button>
-              <BookCallButton
-                className="marketing-cta w-full rounded-[4px] border border-[#d4dae3] bg-white px-5 py-3 text-[12px] font-medium tracking-[0.11em] text-[#172033] shadow-sm transition-colors hover:border-[#bdc7d7] hover:bg-[#f7f8fb] sm:w-auto md:px-6"
-                iconVariant="none"
-                size="default"
-                variant="secondary"
-              >
-                Book a Demo
-              </BookCallButton>
-            </div>
-          </div>
-
-          {/* Right: product workflow image */}
-          <div className="relative hidden lg:block lg:-ml-8 lg:-mr-20 lg:mt-8 xl:-ml-12 xl:-mr-24 xl:mt-12">
-            <div
-              className="relative w-full overflow-hidden"
-              style={{ aspectRatio: "1448 / 720" }}
+                <PhoneCall className="h-4 w-4" />
+                Try the AI Receptionist
+              </a>
+            </Button>
+            <BookCallButton
+              className="marketing-cta w-full rounded-[4px] border border-[#d4dae3] bg-white px-5 py-3 text-[12px] font-medium tracking-[0.11em] text-[#172033] shadow-sm transition-colors hover:border-[#bdc7d7] hover:bg-[#f7f8fb] sm:w-auto md:px-6"
+              iconVariant="none"
+              size="default"
+              variant="secondary"
             >
-              <Image
-                alt="Acuity AI receptionist answering a patient call and booking the appointment directly into the EMR"
-                className="absolute h-auto w-full"
-                height={1086}
-                priority
-                quality={95}
-                sizes="(max-width: 1024px) 100vw, 60vw"
-                src="/hero-agent-flow.jpg"
-                style={{
-                  top: "50%",
-                  left: 0,
-                  transform: "translateY(-50%)",
-                }}
-                width={1448}
-              />
-            </div>
+              Book a Demo
+            </BookCallButton>
           </div>
         </div>
       </div>

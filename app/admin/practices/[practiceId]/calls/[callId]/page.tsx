@@ -622,12 +622,12 @@ export default async function AdminCallDetailPage({
           <CardHeader>
             <CardTitle>Latency</CardTitle>
             <CardDescription>
-              The response path you’ve been optimizing on the dashboard.
+              LiveKit per-turn response metrics from the session report.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <StatCard
-              label="P50 STT"
+              label="P50 STT Final"
               value={sttPercentileValues.length > 0 ? formatLatencyMs(p50Stt) : "--"}
             />
             <StatCard
@@ -639,7 +639,7 @@ export default async function AdminCallDetailPage({
               value={p50Tts > 0 ? formatLatencyMs(p50Tts) : "--"}
             />
             <StatCard
-              label="P50 Total"
+              label="P50 E2E"
               value={p50Total > 0 ? formatLatencyMs(p50Total) : "--"}
             />
             <StatCard

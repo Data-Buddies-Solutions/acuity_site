@@ -276,7 +276,7 @@ export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
         <div className="grid gap-3 md:grid-cols-3">
           <PercentileRow label="LLM TTFT" p={data.ttftPercentiles} />
           <PercentileRow label="TTS TTFB" p={data.ttsttfbPercentiles} />
-          <PercentileRow label="Total Latency" p={data.totalLatencyPercentiles} />
+          <PercentileRow label="E2E Response" p={data.totalLatencyPercentiles} />
         </div>
       </div>
     </div>

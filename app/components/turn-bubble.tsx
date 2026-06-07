@@ -72,7 +72,7 @@ export function TranscriptTimeline({ turns }: { turns: TurnRecord[] }) {
             {(msg.turn.sttLatencyMeasured || (msg.turn.sttLatencyMs ?? 0) > 0) && (
               <div className="flex justify-end mt-1">
                 <Badge variant="outline" className="text-[10px] font-mono">
-                  STT: {formatLatencyMs(msg.turn.sttLatencyMs)}
+                  STT final: {formatLatencyMs(msg.turn.sttLatencyMs)}
                 </Badge>
               </div>
             )}
@@ -189,7 +189,7 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
                   <div className="flex justify-end mt-1 gap-1.5">
                     {sttMs != null && sttMs >= 0 && (
                       <Badge variant="outline" className="text-[10px] font-mono">
-                        STT: {formatLatencyMs(sttMs)}
+                        STT final: {formatLatencyMs(sttMs)}
                       </Badge>
                     )}
                     {confidence != null && (

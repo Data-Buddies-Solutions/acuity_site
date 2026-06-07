@@ -8,7 +8,7 @@ export function PerformanceTab({ data }: { data: AnalyticsData }) {
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
-          label="STT P50"
+          label="STT Final P50"
           value={
             data.pipelineP50.stt != null ? formatLatencyMs(data.pipelineP50.stt) : "--"
           }
@@ -38,13 +38,13 @@ export function PerformanceTab({ data }: { data: AnalyticsData }) {
           }
         />
         <StatCard
-          label="Total Latency P50"
+          label="E2E Response P50"
           value={
             data.pipelineP50.total != null
               ? formatLatencyMs(data.pipelineP50.total)
               : "--"
           }
-          sub="STT + LLM + TTS"
+          sub="User stop to agent start"
           size="hero"
           color={
             data.pipelineP50.total != null
@@ -63,13 +63,13 @@ export function PerformanceTab({ data }: { data: AnalyticsData }) {
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <LatencyBandChart
           data={data.totalLatencyTrendData}
-          title="Total Latency"
-          description={`${data.trendGranularityLabel[0].toUpperCase() + data.trendGranularityLabel.slice(1)} P50 and P95 end-to-end latency`}
+          title="E2E Response Latency"
+          description={`${data.trendGranularityLabel[0].toUpperCase() + data.trendGranularityLabel.slice(1)} P50 and P95 end-to-end response latency`}
         />
         <LatencyBandChart
           data={data.sttLatencyTrendData}
-          title="STT Latency"
-          description={`${data.trendGranularityLabel[0].toUpperCase() + data.trendGranularityLabel.slice(1)} transcription latency`}
+          title="STT Final Transcript"
+          description={`${data.trendGranularityLabel[0].toUpperCase() + data.trendGranularityLabel.slice(1)} final transcript delay`}
         />
         <div className="md:col-span-2">
           <LatencyBandChart

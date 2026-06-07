@@ -179,7 +179,7 @@ function MobileCallCard({
         <div className="shrink-0 text-right text-sm">
           <p className="font-medium">{formatDuration(call.durationSec)}</p>
           <p className="text-muted-foreground">
-            {formatLatencyValue(call.p50TotalLatency)} total
+            {formatLatencyValue(call.p50TotalLatency)} e2e
           </p>
         </div>
       </div>
@@ -201,7 +201,7 @@ function MobileCallCard({
         <MobileField label="Duration" value={formatDuration(call.durationSec)} />
         <MobileField label="P50 TTFT" value={formatLatencyValue(call.p50Ttft)} />
         <MobileField label="P50 TTS" value={formatLatencyValue(call.p50Ttsttfb)} />
-        <MobileField label="P50 Total" value={formatLatencyValue(call.p50TotalLatency)} />
+        <MobileField label="P50 E2E" value={formatLatencyValue(call.p50TotalLatency)} />
         <MobileField label="Transfer" value={call.transferred ? "Yes" : "No"} />
         {showToolErrors ? (
           <MobileField
@@ -555,7 +555,7 @@ export function CallsTable({
                     sortState={sortState}
                     onSort={handleSort}
                   >
-                    P50 Total
+                    P50 E2E
                   </SortButton>
                 </TableHead>
                 <TableHead>

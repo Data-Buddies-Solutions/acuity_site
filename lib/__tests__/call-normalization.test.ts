@@ -27,6 +27,7 @@ describe("normalizeLiveKitCallPayload", () => {
           type: "tts_metrics",
         },
         {
+          endOfUtteranceDelayMs: 210,
           transcriptionDelayMs: 210,
           type: "eou_metrics",
         },
@@ -247,6 +248,111 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(normalized.summary.turns?.[0]?.toolCalls[0]?.durationMs).toBe(500);
     expect(data.turns?.length).toBe(1);
     expect(JSON.stringify(normalized.dataPayload)).not.toContain("audioBase64");
+  });
+
+  it("prefers LiveKit ChatMessage metrics over plugin metric arrays", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_chat_message_metrics",
+      metrics: [
+        {
+          metadata: { modelName: "zai-org/GLM-4.7" },
+          promptTokens: 100,
+          completionTokens: 20,
+          ttftMs: 900,
+          type: "llm_metrics",
+        },
+        {
+          ttfbMs: 800,
+          type: "tts_metrics",
+        },
+        {
+          endOfUtteranceDelayMs: 700,
+          transcriptionDelayMs: 200,
+          type: "eou_metrics",
+        },
+      ],
+      sessionReport: {
+        chat_history: {
+          items: [
+            {
+              content: [{ transcript: "I need an appointment" }],
+              createdAt: 1,
+              id: "user_metrics",
+              metrics: {
+                endOfTurnDelay: 0.7,
+                transcriptionDelay: 0.2,
+              },
+              role: "user",
+              type: "message",
+            },
+            {
+              content: [{ transcript: "I can help with that." }],
+              createdAt: 2,
+              id: "agent_metrics",
+              metrics: {
+                e2eLatency: 0.95,
+                llmNodeTtft: 0.3,
+                ttsNodeTtfb: 0.1,
+              },
+              role: "assistant",
+              type: "message",
+            },
+          ],
+        },
+      },
+    });
+
+    const turn = normalized.summary.turns?.[0];
+
+    expect(turn?.sttLatencyMs).toBe(200);
+    expect(turn?.endOfTurnDelayMs).toBe(700);
+    expect(turn?.ttftMs).toBe(300);
+    expect(turn?.ttsttfbMs).toBe(100);
+    expect(turn?.totalLatencyMs).toBe(950);
+    expect(normalized.avgTtft).toBe(300);
+    expect(normalized.avgTtsttfb).toBe(100);
+    expect(normalized.latencyValues.totalLatency).toEqual([950]);
+  });
+
+  it("falls back to EOU plus LLM plus TTS instead of STT plus LLM plus TTS", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_eou_total_fallback",
+      sessionReport: {
+        chat_history: {
+          items: [
+            {
+              content: [{ transcript: "I need an appointment" }],
+              createdAt: 1,
+              id: "user_eou",
+              metrics: {
+                endOfTurnDelay: 0.7,
+                transcriptionDelay: 0.2,
+              },
+              role: "user",
+              type: "message",
+            },
+            {
+              content: [{ transcript: "I can help with that." }],
+              createdAt: 2,
+              id: "agent_eou",
+              metrics: {
+                llmNodeTtft: 0.3,
+                ttsNodeTtfb: 0.1,
+              },
+              role: "assistant",
+              type: "message",
+            },
+          ],
+        },
+      },
+    });
+
+    const turn = normalized.summary.turns?.[0];
+
+    expect(turn?.sttLatencyMs).toBe(200);
+    expect(turn?.endOfTurnDelayMs).toBe(700);
+    expect(turn?.totalLatencyMs).toBe(1100);
+    expect(normalized.latencyValues.totalLatency).toEqual([1100]);
   });
 
   it("derives user STT latency from turnMetrics stoppedSpeakingAt fallback", () => {

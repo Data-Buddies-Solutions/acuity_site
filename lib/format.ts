@@ -59,14 +59,15 @@ function percentile(sorted: number[], p: number): number {
 }
 
 export function deriveTotalLatency(turn: {
-  sttLatencyMs?: number | null;
+  endOfTurnDelayMs?: number | null;
   totalLatencyMs?: number;
   ttftMs: number;
   ttsttfbMs?: number | null;
 }): number {
   if ((turn.totalLatencyMs ?? 0) > 0) return turn.totalLatencyMs!;
   if (turn.ttftMs <= 0) return 0;
-  return (turn.sttLatencyMs ?? 0) + turn.ttftMs + (turn.ttsttfbMs ?? 0);
+  if ((turn.endOfTurnDelayMs ?? 0) <= 0) return 0;
+  return (turn.endOfTurnDelayMs ?? 0) + turn.ttftMs + (turn.ttsttfbMs ?? 0);
 }
 
 export function latencyColor(ms: number): string {

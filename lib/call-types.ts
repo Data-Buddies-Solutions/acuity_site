@@ -30,6 +30,7 @@ export type TurnRecord = {
   promptTokens: number;
   completionTokens: number;
   cachedTokens: number;
+  endOfTurnDelayMs?: number;
   sttConfidence?: number | null;
   sttLatencyMs: number;
   sttLatencyMeasured?: boolean;
