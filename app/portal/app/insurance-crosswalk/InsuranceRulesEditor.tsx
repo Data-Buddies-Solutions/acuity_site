@@ -31,11 +31,11 @@ export function InsuranceRulesEditor({
     <form action={saveInsuranceRuleDraftAction} className="space-y-4">
       <input type="hidden" name="ruleSetId" value={ruleSetId} />
       <label className="block space-y-2">
-        <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#6a7b7e]">
+        <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--portal-muted-soft)]">
           Rules JSON
         </span>
         <textarea
-          className="min-h-[680px] w-full rounded-[1.15rem] border border-black/8 bg-[#fbfdfc] px-4 py-3 font-mono text-sm leading-6 text-[#10272c] outline-none transition placeholder:text-[#90a0a2] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/12"
+          className="min-h-[680px] w-full rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 font-mono text-sm leading-6 text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/12"
           name="rulesJson"
           required
           value={rulesJson}

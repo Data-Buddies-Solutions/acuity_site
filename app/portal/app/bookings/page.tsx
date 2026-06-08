@@ -9,8 +9,7 @@ import {
 } from "@/lib/portal-overview";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
-
-import { PracticePageHeader } from "../PracticePageHeader";
+import { formatEasternAppointmentDateTime } from "@/lib/format";
 
 const rangeOptions = [
   { label: "24 Hours", value: "24h" },
@@ -81,32 +80,39 @@ function OfficeFilterNav({
   }
 
   const items = [{ id: null, label: "All Offices" }, ...offices];
+  const selectedOfficeLabel =
+    items.find((item) => item.id === selectedOfficeId)?.label ?? "All Offices";
 
   return (
-    <nav
-      aria-label="Bookings office"
-      className="flex max-w-full gap-2 overflow-x-auto pb-1"
-    >
-      {items.map((item) => {
-        const isActive = item.id === selectedOfficeId;
+    <section className="flex max-w-full flex-col gap-2">
+      <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+        Office: <span className="text-[#536a91]">{selectedOfficeLabel}</span>
+      </p>
+      <nav
+        aria-label="Bookings office"
+        className="flex max-w-full gap-2 overflow-x-auto pb-1"
+      >
+        {items.map((item) => {
+          const isActive = item.id === selectedOfficeId;
 
-        return (
-          <Link
-            key={item.id ?? "all"}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
-              isActive
-                ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
-                : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
-            )}
-            href={bookingsHref({ office: item.id, query, range })}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
+          return (
+            <Link
+              key={item.id ?? "all"}
+              aria-current={isActive ? "page" : undefined}
+              className={cn(
+                "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
+                isActive
+                  ? "!border-[#536a91] !bg-[#536a91] !text-white shadow-sm hover:!text-white"
+                  : "border-[var(--portal-border)] bg-white text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
+              )}
+              href={bookingsHref({ office: item.id, query, range })}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </section>
   );
 }
 
@@ -121,23 +127,6 @@ function formatPhone(phone: string) {
   return phone || "—";
 }
 
-const appointmentDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  month: "short",
-  weekday: "short",
-});
-
-const zonedAppointmentDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  month: "short",
-  timeZone: "America/New_York",
-  weekday: "short",
-});
-
 const callDateFormatter = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   month: "short",
@@ -146,25 +135,7 @@ const callDateFormatter = new Intl.DateTimeFormat("en-US", {
 });
 
 function formatAppointment(value: string | null) {
-  if (!value) return "—";
-  const localMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (localMatch) {
-    const [, year, month, day, hour, minute] = localMatch;
-    return appointmentDateTimeFormatter.format(
-      new Date(
-        Number(year),
-        Number(month) - 1,
-        Number(day),
-        Number(hour),
-        Number(minute),
-      ),
-    );
-  }
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) {
-    return zonedAppointmentDateTimeFormatter.format(parsed);
-  }
-  return value;
+  return formatEasternAppointmentDateTime(value, "—");
 }
 
 function formatCallDate(date: Date) {
@@ -174,20 +145,24 @@ function formatCallDate(date: Date) {
 function BookingRow({ booking }: { booking: PortalBookedAppointment }) {
   return (
     <tr className="border-b border-black/5 last:border-0">
-      <td className="px-5 py-4 text-sm font-medium text-[#10272c]">
+      <td className="px-5 py-4 text-sm font-medium text-[var(--portal-ink)]">
         {formatPhone(booking.callerPhone)}
       </td>
-      <td className="px-5 py-4 text-sm text-[#10272c]">{booking.patientName ?? "—"}</td>
-      <td className="px-5 py-4 text-sm text-[#10272c]">
+      <td className="px-5 py-4 text-sm text-[var(--portal-ink)]">
+        {booking.patientName ?? "—"}
+      </td>
+      <td className="px-5 py-4 text-sm text-[var(--portal-ink)]">
         {formatAppointment(booking.appointmentStart)}
       </td>
-      <td className="px-5 py-4 text-sm text-[#10272c]">{booking.providerName ?? "—"}</td>
-      <td className="px-5 py-4 text-sm text-[#617477]">
+      <td className="px-5 py-4 text-sm text-[var(--portal-ink)]">
+        {booking.providerName ?? "—"}
+      </td>
+      <td className="px-5 py-4 text-sm text-[var(--portal-muted)]">
         {formatCallDate(booking.callStartedAt)}
       </td>
       <td className="px-5 py-4 text-right">
         <Link
-          className="inline-flex items-center rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-[#10272c] transition hover:bg-[#f1f5f5]"
+          className="inline-flex items-center rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-[var(--portal-ink)] transition hover:bg-[var(--portal-panel)]"
           href={`/portal/app/calls/${booking.callId}`}
         >
           Transcript
@@ -202,15 +177,15 @@ function BookingCard({ booking }: { booking: PortalBookedAppointment }) {
     <article className="space-y-4 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-medium text-[#10272c]">
+          <p className="font-medium text-[var(--portal-ink)]">
             {booking.patientName ?? "Unknown patient"}
           </p>
-          <p className="mt-0.5 text-sm text-[#617477]">
+          <p className="mt-0.5 text-sm text-[var(--portal-muted)]">
             {formatPhone(booking.callerPhone)}
           </p>
         </div>
         <Link
-          className="inline-flex shrink-0 items-center rounded-md border border-black/10 bg-white px-3 py-2 text-xs font-medium text-[#10272c] transition hover:bg-[#f1f5f5]"
+          className="inline-flex shrink-0 items-center rounded-md border border-black/10 bg-white px-3 py-2 text-xs font-medium text-[var(--portal-ink)] transition hover:bg-[var(--portal-panel)]"
           href={`/portal/app/calls/${booking.callId}`}
         >
           Transcript
@@ -219,33 +194,52 @@ function BookingCard({ booking }: { booking: PortalBookedAppointment }) {
 
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase text-[#6f8083]">
+          <p className="text-[10px] font-semibold uppercase text-[var(--portal-muted-soft)]">
             Appointment
           </p>
-          <p className="mt-1 text-sm font-medium text-[#10272c]">
+          <p className="mt-1 text-sm font-medium text-[var(--portal-ink)]">
             {formatAppointment(booking.appointmentStart)}
           </p>
         </div>
         <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase text-[#6f8083]">Doctor</p>
-          <p className="mt-1 truncate text-sm font-medium text-[#10272c]">
+          <p className="text-[10px] font-semibold uppercase text-[var(--portal-muted-soft)]">
+            Doctor
+          </p>
+          <p className="mt-1 truncate text-sm font-medium text-[var(--portal-ink)]">
             {booking.providerName ?? "—"}
           </p>
         </div>
         <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase text-[#6f8083]">Booked</p>
-          <p className="mt-1 text-sm font-medium text-[#10272c]">
+          <p className="text-[10px] font-semibold uppercase text-[var(--portal-muted-soft)]">
+            Booked
+          </p>
+          <p className="mt-1 text-sm font-medium text-[var(--portal-ink)]">
             {formatCallDate(booking.callStartedAt)}
           </p>
         </div>
         <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase text-[#6f8083]">Phone</p>
-          <p className="mt-1 truncate text-sm font-medium text-[#10272c]">
+          <p className="text-[10px] font-semibold uppercase text-[var(--portal-muted-soft)]">
+            Phone
+          </p>
+          <p className="mt-1 truncate text-sm font-medium text-[var(--portal-ink)]">
             {formatPhone(booking.callerPhone)}
           </p>
         </div>
       </div>
     </article>
+  );
+}
+
+function BookingsSummary({ count }: { count: number }) {
+  return (
+    <div className="mt-4 inline-flex items-end gap-3 rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 shadow-sm">
+      <span className="font-mono text-3xl font-semibold leading-none tabular-nums text-[#536a91]">
+        {count}
+      </span>
+      <span className="pb-0.5 text-sm font-semibold uppercase tracking-normal text-[var(--portal-muted)]">
+        Total {count === 1 ? "appointment" : "appointments"}
+      </span>
+    </div>
   );
 }
 
@@ -272,14 +266,13 @@ export default async function PortalBookingsPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <PracticePageHeader
-        branding={result.branding}
-        logoMeta={`${result.bookings.length} appointment${
-          result.bookings.length === 1 ? "" : "s"
-        }`}
-        practiceName={result.practiceName}
-        title="Bookings"
-      >
+      <section className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="break-words text-4xl font-semibold leading-tight tracking-normal text-[#151a24] md:text-5xl">
+            Bookings
+          </h1>
+          <BookingsSummary count={result.bookings.length} />
+        </div>
         <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
           <OfficeFilterNav
             offices={result.officeFilters}
@@ -300,8 +293,8 @@ export default async function PortalBookingsPage({
                   className={cn(
                     "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
                     isActive
-                      ? "bg-[#10272c] text-white shadow-sm hover:text-white"
-                      : "text-[#617477] hover:bg-[#f1f5f5] hover:text-[#10272c]",
+                      ? "!bg-[#536a91] !text-white shadow-sm hover:!text-white"
+                      : "text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
                   )}
                   href={bookingsHref({
                     office: result.selectedOfficeId,
@@ -315,11 +308,11 @@ export default async function PortalBookingsPage({
             })}
           </nav>
         </div>
-      </PracticePageHeader>
+      </section>
 
       <form
         action="/portal/app/bookings"
-        className="flex flex-col gap-3 rounded-xl border border-black/6 bg-white p-3 shadow-sm sm:flex-row sm:items-center"
+        className="flex flex-col gap-2 sm:flex-row sm:items-center"
       >
         <input name="range" type="hidden" value={result.range} />
         {result.selectedOfficeId ? (
@@ -331,27 +324,22 @@ export default async function PortalBookingsPage({
         <div className="relative min-w-0 flex-1">
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a999b]"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--portal-muted-soft)]"
           />
           <input
-            className="h-11 w-full rounded-lg border border-black/8 bg-white pl-9 pr-3 text-sm text-[#10272c] outline-none transition placeholder:text-[#8a999b] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/15"
+            className="h-12 w-full rounded-xl border border-[var(--portal-border-strong)] bg-white pl-10 pr-16 text-sm text-[var(--portal-ink)] shadow-sm outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
             defaultValue={result.searchQuery ?? ""}
             id="bookings-search"
             name="q"
             placeholder="Search patient name or phone"
             type="search"
           />
-        </div>
-        <div className="flex gap-2">
-          <button
-            className="inline-flex h-11 items-center justify-center rounded-lg bg-[#10272c] px-4 text-sm font-medium text-white transition hover:bg-[#1a3a40]"
-            type="submit"
-          >
+          <button className="sr-only" type="submit">
             Search
           </button>
           {result.searchQuery ? (
             <Link
-              className="inline-flex h-11 items-center justify-center rounded-lg border border-black/10 bg-white px-4 text-sm font-medium text-[#10272c] transition hover:bg-[#f1f5f5]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#536a91] transition hover:text-[#435879]"
               href={bookingsHref({
                 office: result.selectedOfficeId,
                 range: result.range,
@@ -365,7 +353,7 @@ export default async function PortalBookingsPage({
 
       <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
         {result.bookings.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-[#617477]">
+          <div className="px-5 py-10 text-center text-sm text-[var(--portal-muted)]">
             {result.searchQuery
               ? "No bookings matched that search."
               : "No bookings in this range yet."}
@@ -381,22 +369,22 @@ export default async function PortalBookingsPage({
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-black/6 bg-[#fafbfb]">
-                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       Phone
                     </th>
-                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       Name
                     </th>
-                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       Appointment
                     </th>
-                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       Doctor
                     </th>
-                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       Booked
                     </th>
-                    <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+                    <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       <span className="sr-only">Transcript</span>
                     </th>
                   </tr>

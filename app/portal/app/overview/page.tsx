@@ -75,29 +75,39 @@ function OfficeFilterNav({
   }
 
   const items = [{ id: null, label: "All Offices" }, ...offices];
+  const selectedOfficeLabel =
+    items.find((item) => item.id === selectedOfficeId)?.label ?? "All Offices";
 
   return (
-    <nav aria-label="Overview office" className="flex max-w-full gap-2 overflow-x-auto">
-      {items.map((item) => {
-        const isActive = item.id === selectedOfficeId;
+    <section className="flex max-w-full flex-col gap-1.5 lg:items-end">
+      <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+        Office: <span className="text-[#536a91]">{selectedOfficeLabel}</span>
+      </p>
+      <nav
+        aria-label="Overview office"
+        className="flex max-w-full gap-2 overflow-x-auto pb-1"
+      >
+        {items.map((item) => {
+          const isActive = item.id === selectedOfficeId;
 
-        return (
-          <Link
-            key={item.id ?? "all"}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "inline-flex h-10 min-w-fit items-center rounded-xl border px-4 text-sm font-medium transition",
-              isActive
-                ? "border-[#cbd7ff] bg-[#edf4ff] text-[#2f58d6]"
-                : "border-[#d8dde8] bg-white text-[#667085] hover:bg-[#f5f7fb] hover:text-[#1f2937]",
-            )}
-            href={overviewHref({ office: item.id, range })}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
+          return (
+            <Link
+              key={item.id ?? "all"}
+              aria-current={isActive ? "page" : undefined}
+              className={cn(
+                "inline-flex h-10 min-w-fit items-center rounded-xl border px-4 text-sm font-medium transition",
+                isActive
+                  ? "!border-[#536a91] !bg-[#536a91] !text-white shadow-sm hover:!text-white"
+                  : "border-[var(--portal-border)] bg-white text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
+              )}
+              href={overviewHref({ office: item.id, range })}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </section>
   );
 }
 
@@ -195,8 +205,8 @@ function OverviewBrief({
       <p className="mt-2 max-w-3xl text-base leading-7 text-[#667085]">
         {formatInteger(bookedAppointments)} {pluralize(bookedAppointments, "appointment")}{" "}
         booked, {formatInteger(transferredCalls)} {pluralize(transferredCalls, "call")}{" "}
-        escalated to staff, and {formatHoursMinutes(frontDeskTimeCovered)} of front desk
-        time covered.
+        sent to staff, and {formatHoursMinutes(frontDeskTimeCovered)} of front desk time
+        covered.
       </p>
     </section>
   );
@@ -237,38 +247,43 @@ export default async function PortalOverviewPage({
         showLogo={false}
         title="Overview"
       >
-        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end lg:w-auto lg:pt-1">
+        <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
           <OfficeFilterNav
             offices={metrics.officeFilters}
             range={metrics.range}
             selectedOfficeId={metrics.selectedOfficeId}
           />
-          <nav
-            aria-label="Overview range"
-            className="inline-flex h-10 w-full rounded-xl border border-[#d8dde8] bg-white p-1 sm:w-fit"
-          >
-            {rangeOptions.map((option) => {
-              const isActive = option.value === metrics.range;
-              return (
-                <Link
-                  key={option.value}
-                  aria-current={isActive ? "page" : undefined}
-                  className={cn(
-                    "flex flex-1 items-center justify-center rounded-lg px-4 text-sm font-medium transition sm:min-w-24",
-                    isActive
-                      ? "bg-[#19203a] text-white shadow-sm hover:text-white"
-                      : "text-[#667085] hover:bg-[#f5f7fb] hover:text-[#1f2937]",
-                  )}
-                  href={overviewHref({
-                    office: metrics.selectedOfficeId,
-                    range: option.value,
-                  })}
-                >
-                  {option.label}
-                </Link>
-              );
-            })}
-          </nav>
+          <section className="flex max-w-full flex-col gap-1.5 lg:items-end">
+            <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+              Date range
+            </p>
+            <nav
+              aria-label="Overview range"
+              className="inline-flex h-10 w-full max-w-full rounded-lg border border-[var(--portal-border)] bg-white p-1 sm:w-fit"
+            >
+              {rangeOptions.map((option) => {
+                const isActive = option.value === metrics.range;
+                return (
+                  <Link
+                    key={option.value}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-md px-4 text-sm font-medium transition sm:min-w-24",
+                      isActive
+                        ? "!bg-[#536a91] !text-white shadow-sm hover:!text-white"
+                        : "text-[#667085] hover:bg-[#f5f7fb] hover:text-[#1f2937]",
+                    )}
+                    href={overviewHref({
+                      office: metrics.selectedOfficeId,
+                      range: option.value,
+                    })}
+                  >
+                    {option.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          </section>
         </div>
       </PracticePageHeader>
 
@@ -299,8 +314,8 @@ export default async function PortalOverviewPage({
           value={formatInteger(metrics.appointmentActions.booked)}
         />
         <MetricCard
-          label="Escalated to Staff"
-          note={`${formatRate(metrics.transferRate)} of handled calls`}
+          label="Sent to Staff"
+          note={`${formatRate(metrics.transferRate)} of calls`}
           value={formatInteger(metrics.transferredCalls)}
         />
         <MetricCard

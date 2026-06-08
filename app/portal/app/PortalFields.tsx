@@ -7,7 +7,7 @@ type BaseFieldProps = {
 };
 
 const fieldClassName =
-  "w-full rounded-[1.15rem] border border-black/8 bg-[#fbfdfc] px-4 py-3 text-sm text-[#10272c] outline-none transition placeholder:text-[#90a0a2] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/12";
+  "w-full rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 text-sm text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/12";
 
 export function PortalInputField({
   defaultValue,
@@ -23,7 +23,7 @@ export function PortalInputField({
 >) {
   return (
     <label className="block space-y-2">
-      <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#6a7b7e]">
+      <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--portal-muted-soft)]">
         {label}
       </span>
       <input
@@ -52,7 +52,7 @@ export function PortalTextareaField({
 >) {
   return (
     <label className="block space-y-2">
-      <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#6a7b7e]">
+      <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--portal-muted-soft)]">
         {label}
       </span>
       <textarea

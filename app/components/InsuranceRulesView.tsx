@@ -49,7 +49,7 @@ function PlanList({
   tone?: "neutral" | "danger";
 }) {
   if (!items.length) {
-    return <p className="text-sm italic text-[#8a9a9d]">{empty}</p>;
+    return <p className="text-sm italic text-[var(--portal-muted-soft)]">{empty}</p>;
   }
 
   return (
@@ -61,7 +61,7 @@ function PlanList({
             "rounded-lg border px-2.5 py-1 text-sm font-medium",
             tone === "danger"
               ? "border-rose-200 bg-rose-50 text-rose-800"
-              : "border-black/8 bg-[#f7fbfa] text-[#10272c]",
+              : "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-ink)]",
           )}
         >
           {item}
@@ -95,7 +95,7 @@ export function InsuranceRulesView({ rules }: { rules: InsuranceRulesPayload }) 
                     key={`${rule.aliases.join("|")}-${rule.clarificationNeeded || ""}`}
                     className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2"
                   >
-                    <p className="text-sm font-semibold text-[#10272c]">
+                    <p className="text-sm font-semibold text-[var(--portal-ink)]">
                       {rule.aliases.join(", ")}
                     </p>
                     <p className="mt-1 text-sm text-amber-900">
@@ -112,17 +112,17 @@ export function InsuranceRulesView({ rules }: { rules: InsuranceRulesPayload }) 
       <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold tracking-[-0.03em] text-[#10272c]">
+            <h3 className="text-lg font-semibold tracking-normal text-[var(--portal-ink)]">
               Alias rules
             </h3>
-            <p className="mt-1 text-sm text-[#617477]">
+            <p className="mt-1 text-sm text-[var(--portal-muted)]">
               {rules.aliasRules.length} caller phrases mapped for {rules.officeLabel}
             </p>
           </div>
         </div>
         <div className="overflow-x-auto rounded-lg border border-black/6">
           <table className="min-w-[920px] divide-y divide-black/6 text-left text-sm">
-            <thead className="bg-[#f7fbfa] text-xs font-semibold uppercase tracking-[0.14em] text-[#748588]">
+            <thead className="bg-[var(--portal-panel-soft)] text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
               <tr>
                 <th className="px-4 py-3">Caller might say</th>
                 <th className="px-4 py-3">Mapped plan</th>
@@ -135,29 +135,32 @@ export function InsuranceRulesView({ rules }: { rules: InsuranceRulesPayload }) 
             <tbody className="divide-y divide-black/6 bg-white">
               {rules.aliasRules.map((rule) => (
                 <tr key={`${rule.aliases.join("|")}-${rule.family || ""}`}>
-                  <td className="px-4 py-3 align-top font-medium text-[#10272c]">
+                  <td className="px-4 py-3 align-top font-medium text-[var(--portal-ink)]">
                     {rule.aliases.join(", ")}
                   </td>
-                  <td className="px-4 py-3 align-top text-[#617477]">
+                  <td className="px-4 py-3 align-top text-[var(--portal-muted)]">
                     {rule.family || rule.callerPlan || "Not mapped"}
                   </td>
                   <td className="px-4 py-3 align-top">
                     <StatusBadge status={rule.status} />
                   </td>
-                  <td className="px-4 py-3 align-top text-[#617477]">
+                  <td className="px-4 py-3 align-top text-[var(--portal-muted)]">
                     {rule.canProceed ? "Yes" : "No"}
                   </td>
-                  <td className="px-4 py-3 align-top text-[#617477]">
+                  <td className="px-4 py-3 align-top text-[var(--portal-muted)]">
                     {rule.needsExactPlanName ? "Yes" : "No"}
                   </td>
-                  <td className="px-4 py-3 align-top text-[#617477]">
+                  <td className="px-4 py-3 align-top text-[var(--portal-muted)]">
                     {rule.clarificationNeeded || "-"}
                   </td>
                 </tr>
               ))}
               {!rules.aliasRules.length ? (
                 <tr>
-                  <td className="px-4 py-5 text-sm italic text-[#8a9a9d]" colSpan={6}>
+                  <td
+                    className="px-4 py-5 text-sm italic text-[var(--portal-muted-soft)]"
+                    colSpan={6}
+                  >
                     No alias rules have been added.
                   </td>
                 </tr>
@@ -170,10 +173,10 @@ export function InsuranceRulesView({ rules }: { rules: InsuranceRulesPayload }) 
       <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.38fr)]">
         <div className="rounded-lg border border-black/6 bg-white px-4 py-4">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
+            <h3 className="text-base font-semibold tracking-normal text-[var(--portal-ink)]">
               Accepted plans
             </h3>
-            <span className="text-sm font-medium text-[#617477]">
+            <span className="text-sm font-medium text-[var(--portal-muted)]">
               {rules.acceptedPlans.length}
             </span>
           </div>
@@ -182,10 +185,10 @@ export function InsuranceRulesView({ rules }: { rules: InsuranceRulesPayload }) 
 
         <div className="rounded-lg border border-rose-100 bg-white px-4 py-4">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
+            <h3 className="text-base font-semibold tracking-normal text-[var(--portal-ink)]">
               Not accepted
             </h3>
-            <span className="text-sm font-medium text-[#617477]">
+            <span className="text-sm font-medium text-[var(--portal-muted)]">
               {rules.notAcceptedPlans.length}
             </span>
           </div>

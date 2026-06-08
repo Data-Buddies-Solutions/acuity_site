@@ -76,15 +76,19 @@ function SidebarLink({
         isCollapsed ? "w-11 justify-center px-0" : "min-w-fit gap-3 px-3 xl:w-full",
         isIndented && !isCollapsed && "xl:rounded-lg xl:pl-4",
         isActive
-          ? "bg-[#edf4ff] text-[#2f58d6]"
-          : "text-[#667085] hover:bg-[#f5f7fb] hover:text-[#1f2937]",
+          ? "bg-[#536a91] text-white shadow-sm hover:text-white"
+          : "text-[#667085] hover:bg-[#edf4ff] hover:text-[#536a91]",
       )}
       href={href}
     >
       <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
       <span className={cn(isCollapsed ? "sr-only" : "truncate")}>{label}</span>
       {isCollapsed ? (
-        <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 rounded-lg border border-[#d8dde8] bg-white px-2.5 py-1.5 text-xs font-medium text-[#1f2937] opacity-0 shadow-[0_8px_24px_rgba(16,24,40,0.12)] transition group-hover:opacity-100 group-focus-visible:opacity-100">
+        <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-lg bg-[#151a24] px-3 py-1.5 text-sm font-medium text-white opacity-0 shadow-[0_10px_30px_rgba(16,24,40,0.18)] transition group-hover:opacity-100 group-focus-visible:opacity-100">
+          <span
+            className="absolute -left-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rotate-45 bg-[#151a24]"
+            aria-hidden="true"
+          />
           {label}
         </span>
       ) : null}
@@ -273,8 +277,8 @@ export default function PortalWorkspaceShell({
                   className={cn(
                     "flex h-11 w-full items-center justify-between rounded-xl px-3 text-sm font-medium transition",
                     hasActiveDocument
-                      ? "bg-[#f5f7fb] text-[#1f2937]"
-                      : "text-[#667085] hover:bg-[#f5f7fb] hover:text-[#1f2937]",
+                      ? "bg-[#536a91] text-white shadow-sm"
+                      : "text-[#667085] hover:bg-[#edf4ff] hover:text-[#536a91]",
                   )}
                   aria-expanded={isDocumentsOpen}
                   onClick={() => setDocumentsOpen((current) => !current)}
