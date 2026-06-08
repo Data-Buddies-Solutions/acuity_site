@@ -1173,11 +1173,15 @@ export async function getPortalBookings(
 
 export type PortalCallTranscript = {
   branding: PracticeBranding;
+  bookedAppointment: PortalBookedAppointment | null;
   callerPhone: string;
   callId: string;
+  durationSec: number | null;
   messages: PortalCallTranscriptMessage[];
+  outcomeSummary: string | null;
   practiceName: string;
   startedAt: Date;
+  transferred: boolean;
 };
 
 export type PortalCallTranscriptMessage = {
@@ -1276,8 +1280,11 @@ export async function getPortalCallTranscript(
     select: {
       callerPhone: true,
       data: true,
+      durationSec: true,
       id: true,
+      outcomeSummary: true,
       startedAt: true,
+      transferred: true,
     },
     where: andAgentCallWhere(
       {
@@ -1297,13 +1304,18 @@ export async function getPortalCallTranscript(
   const sessionItems = Array.isArray(data?.sessionReport?.chat_history?.items)
     ? (data?.sessionReport?.chat_history?.items as ChatHistoryItem[])
     : [];
+  const bookedAppointment = extractBookedAppointment(call);
 
   return {
+    bookedAppointment: isRenderableBooking(bookedAppointment) ? bookedAppointment : null,
     branding: getPracticeBranding(practice),
     callerPhone: call.callerPhone,
     callId: call.id,
+    durationSec: call.durationSec,
     messages: buildPortalCallTranscriptMessages({ sessionItems, turns }),
+    outcomeSummary: call.outcomeSummary,
     practiceName: practice.name,
     startedAt: call.startedAt,
+    transferred: call.transferred,
   };
 }

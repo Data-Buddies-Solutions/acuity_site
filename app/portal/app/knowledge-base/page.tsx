@@ -81,7 +81,7 @@ function KnowledgeDocumentSelector({
 
   return (
     <section className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#748588]">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--portal-muted-soft)]">
         Location
       </p>
       <nav aria-label="Knowledge base location" className="flex gap-2 overflow-x-auto">
@@ -91,8 +91,8 @@ function KnowledgeDocumentSelector({
             className={cn(
               "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
               document.id === selectedId
-                ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
-                : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
+                ? "border-[var(--portal-border)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
+                : "border-[var(--portal-border)] bg-white text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
             )}
             href={`/portal/app/knowledge-base?doc=${encodeURIComponent(document.slug)}`}
           >
@@ -135,7 +135,7 @@ export default async function PortalKnowledgeBasePage({
           title="Knowledge Base"
         />
         <DocumentPanel>
-          <div className="px-5 py-10 text-sm text-[#617477] md:px-7">
+          <div className="px-5 py-10 text-sm text-[var(--portal-muted)] md:px-7">
             No knowledge base document has been created yet.
           </div>
         </DocumentPanel>
@@ -181,11 +181,11 @@ export default async function PortalKnowledgeBasePage({
         <form action={saveKnowledgeDocumentDraftAction} className="space-y-4">
           <input type="hidden" name="documentId" value={selectedDocument.id} />
           <label className="block space-y-2">
-            <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#6a7b7e]">
+            <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--portal-muted-soft)]">
               Markdown
             </span>
             <textarea
-              className="min-h-[620px] w-full rounded-[1.15rem] border border-black/8 bg-[#fbfdfc] px-4 py-3 font-mono text-sm leading-6 text-[#10272c] outline-none transition placeholder:text-[#90a0a2] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/12"
+              className="min-h-[620px] w-full rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 font-mono text-sm leading-6 text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/12"
               defaultValue={currentMarkdown}
               name="markdown"
               required
@@ -229,7 +229,7 @@ export default async function PortalKnowledgeBasePage({
       ) : null}
 
       {unchanged ? (
-        <div className="rounded-lg border border-black/8 bg-white px-4 py-3 text-sm text-[#617477]">
+        <div className="rounded-lg border border-[var(--portal-border)] bg-white px-4 py-3 text-sm text-[var(--portal-muted)]">
           No changes were submitted.
         </div>
       ) : null}
@@ -248,7 +248,7 @@ export default async function PortalKnowledgeBasePage({
       ) : null}
 
       <DocumentPanel>
-        <div className="border-b border-black/6 px-5 py-4 text-xs font-medium uppercase tracking-[0.16em] text-[#7f9093] md:px-7">
+        <div className="border-b border-[var(--portal-border)] px-5 py-4 text-xs font-medium uppercase tracking-[0.16em] text-[var(--portal-muted-soft)] md:px-7">
           Published {formatDate(selectedDocument.publishedRevision.publishedAt)}
         </div>
         <div className="px-5 py-6 md:px-7">

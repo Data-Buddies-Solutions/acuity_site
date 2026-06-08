@@ -53,6 +53,26 @@
     --chart-3: #7b6f9f;
     --chart-4: #7a8492;
     --chart-5: #b4514f;
+    --portal-bg: #fbfbfd;
+    --portal-surface: #ffffff;
+    --portal-ink: #151a24;
+    --portal-ink-soft: #344054;
+    --portal-muted: #667085;
+    --portal-muted-soft: #8a94a6;
+    --portal-border: #d8dde8;
+    --portal-border-strong: #cfd5e2;
+    --portal-panel: #f5f7fb;
+    --portal-panel-soft: #f8fafc;
+    --portal-accent: #536a91;
+    --portal-accent-hover: #435879;
+    --portal-accent-strong: #19203a;
+    --portal-accent-soft: #edf4ff;
+    --portal-live: #0f766e;
+    --portal-live-soft: #ecfdf5;
+    --portal-warning: #b7791f;
+    --portal-warning-soft: #fff7ed;
+    --portal-danger: #b42318;
+    --portal-danger-soft: #fff1f1;
   }
 
   * {

@@ -55,14 +55,14 @@ export function PortalLoginForm() {
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
       <label className="block">
-        <span className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[#61787b]">
+        <span className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[#667085]">
           <Mail className="h-4 w-4 text-accent" aria-hidden="true" />
           Email
         </span>
-        <div className="rounded-[1.35rem] border border-[#0f2b31]/8 bg-white/85 shadow-[0_12px_28px_rgba(16,39,44,0.04),inset_0_1px_0_rgba(255,255,255,0.82)] transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
+        <div className="rounded-xl border border-[#d8dde8] bg-white/90 shadow-[0_12px_28px_rgba(25,32,58,0.04),inset_0_1px_0_rgba(255,255,255,0.82)] transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
           <input
             autoComplete="username"
-            className="w-full rounded-[1.35rem] bg-transparent px-4 py-4 text-base text-[#10272c] outline-none placeholder:text-[#90a0a2]"
+            className="w-full rounded-xl bg-transparent px-4 py-4 text-base text-[#19203a] outline-none placeholder:text-[#8a94a6]"
             name="email"
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@practice.com"
@@ -74,14 +74,14 @@ export function PortalLoginForm() {
       </label>
 
       <label className="block">
-        <span className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[#61787b]">
+        <span className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[#667085]">
           <LockKeyhole className="h-4 w-4 text-accent" aria-hidden="true" />
           Password
         </span>
-        <div className="flex rounded-[1.35rem] border border-[#0f2b31]/8 bg-white/85 shadow-[0_12px_28px_rgba(16,39,44,0.04),inset_0_1px_0_rgba(255,255,255,0.82)] transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
+        <div className="flex rounded-xl border border-[#d8dde8] bg-white/90 shadow-[0_12px_28px_rgba(25,32,58,0.04),inset_0_1px_0_rgba(255,255,255,0.82)] transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
           <input
             autoComplete="current-password"
-            className="min-w-0 flex-1 rounded-l-[1.35rem] bg-transparent px-4 py-4 text-base text-[#10272c] outline-none placeholder:text-[#90a0a2]"
+            className="min-w-0 flex-1 rounded-l-xl bg-transparent px-4 py-4 text-base text-[#19203a] outline-none placeholder:text-[#8a94a6]"
             name="password"
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Enter your password"
@@ -91,7 +91,7 @@ export function PortalLoginForm() {
           />
           <button
             aria-label={showPassword ? "Hide password" : "Show password"}
-            className="inline-flex items-center justify-center px-4 text-[#7d9194] transition hover:text-[#10272c]"
+            className="inline-flex items-center justify-center px-4 text-[#8a94a6] transition hover:text-[#19203a]"
             type="button"
             onClick={() => setShowPassword((current) => !current)}
           >
@@ -115,7 +115,7 @@ export function PortalLoginForm() {
       ) : null}
 
       <Button
-        className="h-13 w-full rounded-[1.35rem] shadow-[0_18px_30px_rgba(13,115,119,0.18)]"
+        className="h-13 w-full rounded-xl shadow-[0_18px_30px_rgba(83,106,145,0.18)]"
         size="lg"
         type="submit"
         variant="primary"
