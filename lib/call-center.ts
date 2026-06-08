@@ -573,6 +573,26 @@ function metadataWithoutPendingBlindTransfer(
   return metadata;
 }
 
+export function metadataWithPendingBlindTransferSourceEnded(
+  value: unknown,
+  details: { endedAt: Date; reason: string },
+) {
+  const metadata = objectMetadata(value);
+  const transfer = pendingBlindTransfer(metadata);
+
+  if (!transfer) {
+    return metadata;
+  }
+
+  metadata.blindTransferPending = {
+    ...transfer,
+    sourceEndedAt: details.endedAt.toISOString(),
+    sourceEndReason: details.reason,
+  };
+
+  return metadata;
+}
+
 function defaultSettingsFromPractice(practice: {
   phoneNumbers: Array<{ isPrimary: boolean; phoneNumber: string }>;
 }) {
@@ -2227,7 +2247,7 @@ async function updateRingAttemptFromPayload({
       await prisma.callCenterQueueItem.update({
         data: {
           metadata: jsonInput(
-            metadataWithoutPendingBlindTransfer(existing.queueItem.metadata, {
+            metadataWithPendingBlindTransferSourceEnded(existing.queueItem.metadata, {
               endedAt: eventAt,
               reason: asString(payload.hangup_cause) || "source_ended",
             }),
@@ -2942,22 +2962,7 @@ export async function takePendingBlindTransfer({
     throw new TelnyxError("Transfer is not assigned to this station", 409);
   }
 
-  if (asString(transfer.sourceEndedAt)) {
-    await prisma.callCenterQueueItem.update({
-      data: {
-        metadata: jsonInput(
-          metadataWithoutPendingBlindTransfer(queueItem.metadata, {
-            endedAt: new Date(),
-            reason: "source_ended",
-          }),
-        ),
-      },
-      where: {
-        id: queueItem.id,
-      },
-    });
-    throw new TelnyxError("Source call is no longer active", 409);
-  }
+  const sourceEndedAt = asString(transfer.sourceEndedAt);
 
   const targetSeat = await prisma.callCenterAgentSeat.findFirst({
     select: {
@@ -3047,21 +3052,23 @@ export async function takePendingBlindTransfer({
   }
 
   const sourceAttemptId = asString(transfer.sourceRingAttemptId);
-  const sourceAttempt = await prisma.callCenterRingAttempt.findFirst({
-    select: {
-      id: true,
-    },
-    where: {
-      ...(sourceAttemptId ? { id: sourceAttemptId } : {}),
-      endedAt: null,
-      queueItemId: queueItem.id,
-      status: {
-        in: ["ANSWERED", "BRIDGED"],
-      },
-    },
-  });
+  const sourceAttempt = sourceEndedAt
+    ? null
+    : await prisma.callCenterRingAttempt.findFirst({
+        select: {
+          id: true,
+        },
+        where: {
+          ...(sourceAttemptId ? { id: sourceAttemptId } : {}),
+          endedAt: null,
+          queueItemId: queueItem.id,
+          status: {
+            in: ["ANSWERED", "BRIDGED"],
+          },
+        },
+      });
 
-  if (!sourceAttempt) {
+  if (!sourceEndedAt && !sourceAttempt) {
     throw new TelnyxError("Source call is no longer active", 409);
   }
 
@@ -3107,7 +3114,7 @@ export async function takePendingBlindTransfer({
     callerNumber: callerNumber || undefined,
     queueItemId: queueItem.id,
     ringAttemptId: targetAttempt.id,
-    sourceRingAttemptId: sourceAttempt.id,
+    sourceRingAttemptId: sourceAttempt?.id || sourceAttemptId || undefined,
     targetSeatId: targetSeat.id,
   });
 
