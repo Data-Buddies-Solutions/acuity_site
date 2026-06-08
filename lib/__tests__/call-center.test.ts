@@ -6,6 +6,7 @@ import {
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
   isRingbackToneActiveAtSecond,
+  metadataWithPendingBlindTransferSourceEnded,
   normalizePhone,
   phoneLookupVariants,
   resolveTelnyxRuntimeSettings,
@@ -90,6 +91,38 @@ describe("call-center phone helpers", () => {
       credentialId: "env-credential",
       inboundPhoneNumber: "+15550000001",
       outboundCallerNumber: "+15550000002",
+    });
+  });
+});
+
+describe("call-center blind transfer metadata", () => {
+  it("keeps pending transfer details when the source station hangs up", () => {
+    const endedAt = new Date("2026-06-07T15:38:00.000Z");
+
+    expect(
+      metadataWithPendingBlindTransferSourceEnded(
+        {
+          blindTransferPending: {
+            callerCallControlId: "caller-ccid",
+            fromSeatId: "source-seat",
+            targetSeatId: "target-seat",
+          },
+          unrelated: true,
+        },
+        {
+          endedAt,
+          reason: "hangup",
+        },
+      ),
+    ).toEqual({
+      blindTransferPending: {
+        callerCallControlId: "caller-ccid",
+        fromSeatId: "source-seat",
+        sourceEndedAt: endedAt.toISOString(),
+        sourceEndReason: "hangup",
+        targetSeatId: "target-seat",
+      },
+      unrelated: true,
     });
   });
 });

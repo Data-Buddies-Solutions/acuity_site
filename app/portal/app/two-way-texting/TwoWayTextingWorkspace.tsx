@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   CheckCheck,
@@ -9,8 +9,10 @@ import {
   Lock,
   MessageSquareText,
   RefreshCw,
+  Search,
   Send,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
@@ -265,12 +267,14 @@ export default function TwoWayTextingWorkspace({
   const [selectedId, setSelectedId] = useState(initialInbox.conversations[0]?.id ?? "");
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [filter, setFilter] = useState<"OPEN" | "UNREAD" | "CLOSED">("OPEN");
+  const [searchQuery, setSearchQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [loadingThread, setLoadingThread] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const searchMountedRef = useRef(false);
 
   const filteredConversations = useMemo(() => {
     if (filter === "UNREAD") {
@@ -285,6 +289,21 @@ export default function TwoWayTextingWorkspace({
     [inbox.conversations, selectedId],
   );
 
+  const conversationListQuery = useCallback(() => {
+    const params = new URLSearchParams();
+
+    if (inbox.selectedInboxId) {
+      params.set("inboxId", inbox.selectedInboxId);
+    }
+
+    if (searchQuery.trim()) {
+      params.set("search", searchQuery.trim());
+    }
+
+    const query = params.toString();
+    return query ? `?${query}` : "";
+  }, [inbox.selectedInboxId, searchQuery]);
+
   const refreshInbox = useCallback(
     async ({ quiet = false } = {}) => {
       if (!quiet) {
@@ -292,12 +311,12 @@ export default function TwoWayTextingWorkspace({
       }
 
       try {
-        const query = inbox.selectedInboxId
-          ? `?inboxId=${encodeURIComponent(inbox.selectedInboxId)}`
-          : "";
-        const next = await fetch(`/api/portal/sms/conversations${query}`, {
-          cache: "no-store",
-        }).then((response) => readJson<InboxState>(response));
+        const next = await fetch(
+          `/api/portal/sms/conversations${conversationListQuery()}`,
+          {
+            cache: "no-store",
+          },
+        ).then((response) => readJson<InboxState>(response));
         setInbox(next);
         setError(null);
 
@@ -317,7 +336,7 @@ export default function TwoWayTextingWorkspace({
         setRefreshing(false);
       }
     },
-    [inbox.selectedInboxId, selectedId],
+    [conversationListQuery, selectedId],
   );
 
   const refreshConversation = useCallback(
@@ -353,6 +372,19 @@ export default function TwoWayTextingWorkspace({
   useEffect(() => {
     void refreshConversation();
   }, [refreshConversation]);
+
+  useEffect(() => {
+    if (!searchMountedRef.current) {
+      searchMountedRef.current = true;
+      return;
+    }
+
+    const handle = setTimeout(() => {
+      void refreshInbox({ quiet: true });
+    }, 300);
+
+    return () => clearTimeout(handle);
+  }, [refreshInbox, searchQuery]);
 
   useEffect(() => {
     const poll = setInterval(() => {
@@ -445,12 +477,12 @@ export default function TwoWayTextingWorkspace({
         method: "DELETE",
       }).then((response) => readJson<{ ok: boolean }>(response));
 
-      const query = inbox.selectedInboxId
-        ? `?inboxId=${encodeURIComponent(inbox.selectedInboxId)}`
-        : "";
-      const next = await fetch(`/api/portal/sms/conversations${query}`, {
-        cache: "no-store",
-      }).then((response) => readJson<InboxState>(response));
+      const next = await fetch(
+        `/api/portal/sms/conversations${conversationListQuery()}`,
+        {
+          cache: "no-store",
+        },
+      ).then((response) => readJson<InboxState>(response));
 
       setInbox(next);
       setSelectedId(next.conversations[0]?.id ?? "");
@@ -465,6 +497,8 @@ export default function TwoWayTextingWorkspace({
       setDeleting(false);
     }
   };
+
+  const trimmedSearch = searchQuery.trim();
 
   if (!inbox.configured) {
     return (
@@ -530,13 +564,43 @@ export default function TwoWayTextingWorkspace({
 
       <div className="grid h-full min-h-0 overflow-hidden md:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b border-black/6 md:border-b-0 md:border-r">
-          <div className="flex h-11 items-center justify-between border-b border-black/6 px-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7d8d90]">
-              Conversations
-            </p>
-            <span className="rounded-full bg-[#e8f4f4] px-2.5 py-1 text-xs font-semibold text-[#0d7377]">
-              {inbox.unreadCount} unread
-            </span>
+          <div className="border-b border-black/6 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7d8d90]">
+                Conversations
+              </p>
+              <span className="rounded-full bg-[#e8f4f4] px-2.5 py-1 text-xs font-semibold text-[#0d7377]">
+                {inbox.unreadCount} unread
+              </span>
+            </div>
+            <label className="sr-only" htmlFor="sms-conversation-search">
+              Search by phone number
+            </label>
+            <div className="relative mt-3">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8aa0a3]"
+                aria-hidden="true"
+              />
+              <input
+                className="h-10 w-full rounded-lg border border-black/10 bg-white px-9 text-sm text-[#10272c] outline-none transition placeholder:text-[#9aa7a9] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/15"
+                id="sms-conversation-search"
+                inputMode="tel"
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search by number"
+                type="search"
+                value={searchQuery}
+              />
+              {searchQuery ? (
+                <button
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[#617477] transition hover:bg-black/5 hover:text-[#10272c]"
+                  onClick={() => setSearchQuery("")}
+                  type="button"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="min-h-0 divide-y divide-black/6 overflow-y-auto">
             {filteredConversations.length ? (
@@ -552,10 +616,14 @@ export default function TwoWayTextingWorkspace({
               <div className="px-6 py-14 text-center">
                 <Circle className="mx-auto h-8 w-8 text-[#b2bfc1]" aria-hidden="true" />
                 <p className="mt-3 text-sm font-medium text-[#10272c]">
-                  No {filter.toLowerCase()} conversations
+                  {trimmedSearch
+                    ? "No matching conversations"
+                    : `No ${filter.toLowerCase()} conversations`}
                 </p>
                 <p className="mt-1 text-sm leading-6 text-[#617477]">
-                  Texts to this inbox will appear here.
+                  {trimmedSearch
+                    ? "Try another phone number."
+                    : "Texts to this inbox will appear here."}
                 </p>
               </div>
             )}
