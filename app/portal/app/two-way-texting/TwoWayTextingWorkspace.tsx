@@ -299,9 +299,7 @@ function DraftConversationRow({ body, phone }: { body: string; phone: string }) 
           <span className="truncate text-sm font-semibold text-[var(--portal-ink)]">
             {phone.trim() || "New text"}
           </span>
-          <span className="shrink-0 text-xs text-[var(--portal-muted-soft)]">
-            Draft
-          </span>
+          <span className="shrink-0 text-xs text-[var(--portal-muted-soft)]">Draft</span>
         </span>
         <span className="mt-1 block truncate text-sm text-[var(--portal-muted)]">
           {body.trim() || "Write the first message"}
