@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CalendarDays, Clock } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Clock } from "lucide-react";
 
 import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 import BookCallButton from "@/app/components/BookCallButton";
@@ -171,6 +171,20 @@ export default async function InsightPostPage({ params }: PageProps) {
                     <li key={bullet}>{bullet}</li>
                   ))}
                 </ul>
+              )}
+              {section.links && (
+                <div className="flex flex-col gap-2 pt-1">
+                  {section.links.map((link) => (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      className="inline-flex w-fit items-center gap-2 text-sm font-medium text-accent hover:text-accent-hover"
+                    >
+                      {link.label}
+                      <ArrowRight className="h-4 w-4" aria-hidden />
+                    </Link>
+                  ))}
+                </div>
               )}
             </section>
           ))}

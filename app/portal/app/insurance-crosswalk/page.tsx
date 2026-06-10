@@ -80,7 +80,7 @@ function InsuranceRuleSetSelector({
 
   return (
     <section className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#748588]">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--portal-muted-soft)]">
         Location
       </p>
       <nav aria-label="Insurance rules location" className="flex gap-2 overflow-x-auto">
@@ -90,8 +90,8 @@ function InsuranceRuleSetSelector({
             className={cn(
               "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
               ruleSet.id === selectedId
-                ? "border-[#0d7377] bg-[#e8f4f4] text-[#0d7377]"
-                : "border-black/8 bg-white text-[#617477] hover:text-[#10272c]",
+                ? "border-[var(--portal-border)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
+                : "border-[var(--portal-border)] bg-white text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
             )}
             href={`/portal/app/insurance-crosswalk?rules=${encodeURIComponent(
               ruleSet.slug,
@@ -136,7 +136,7 @@ export default async function PortalInsuranceRulesPage({
           title="Insurance Rules"
         />
         <DocumentPanel>
-          <div className="px-5 py-10 text-sm text-[#617477] md:px-7">
+          <div className="px-5 py-10 text-sm text-[var(--portal-muted)] md:px-7">
             No insurance rules have been created yet.
           </div>
         </DocumentPanel>
@@ -218,7 +218,7 @@ export default async function PortalInsuranceRulesPage({
       ) : null}
 
       {unchanged ? (
-        <div className="rounded-lg border border-black/8 bg-white px-4 py-3 text-sm text-[#617477]">
+        <div className="rounded-lg border border-[var(--portal-border)] bg-white px-4 py-3 text-sm text-[var(--portal-muted)]">
           No changes were submitted.
         </div>
       ) : null}
@@ -237,7 +237,7 @@ export default async function PortalInsuranceRulesPage({
       ) : null}
 
       <DocumentPanel>
-        <div className="border-b border-black/6 px-5 py-4 text-xs font-medium uppercase tracking-[0.16em] text-[#7f9093] md:px-7">
+        <div className="border-b border-[var(--portal-border)] px-5 py-4 text-xs font-medium uppercase tracking-[0.16em] text-[var(--portal-muted-soft)] md:px-7">
           Published {formatDate(selectedRuleSet.publishedRevision.publishedAt)}
         </div>
         <div className="px-5 py-6 md:px-7">

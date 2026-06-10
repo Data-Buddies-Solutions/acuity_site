@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   CheckCheck,
@@ -10,15 +10,18 @@ import {
   MessageSquareText,
   Plus,
   RefreshCw,
+  Search,
   Send,
   Trash2,
   X,
 } from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
+import { EASTERN_TIME_ZONE } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type SmsConversationStatus = "OPEN" | "CLOSED";
+type ConversationFilter = SmsConversationStatus | "UNREAD";
 type SmsMessageDirection = "INBOUND" | "OUTBOUND";
 type SmsMessageStatus =
   | "QUEUED"
@@ -90,11 +93,20 @@ type StartConversationResponse = {
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
   hour: "numeric",
   minute: "2-digit",
+  timeZone: EASTERN_TIME_ZONE,
 });
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   month: "short",
+  timeZone: EASTERN_TIME_ZONE,
+});
+
+const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {
+  day: "2-digit",
+  month: "2-digit",
+  timeZone: EASTERN_TIME_ZONE,
+  year: "numeric",
 });
 
 function formatMessageTime(value: string) {
@@ -104,11 +116,7 @@ function formatMessageTime(value: string) {
     return "";
   }
 
-  const today = new Date();
-  const sameDay =
-    date.getFullYear() === today.getFullYear() &&
-    date.getMonth() === today.getMonth() &&
-    date.getDate() === today.getDate();
+  const sameDay = dayKeyFormatter.format(date) === dayKeyFormatter.format(new Date());
 
   return sameDay ? timeFormatter.format(date) : dateFormatter.format(date);
 }
@@ -129,6 +137,18 @@ function deliveryLabel(status: SmsMessageStatus) {
   }
 }
 
+function conversationStatusLabel(status: SmsConversationStatus) {
+  return status === "OPEN" ? "Open" : "Done";
+}
+
+function filterEmptyLabel(filter: ConversationFilter) {
+  if (filter === "UNREAD") {
+    return "unread";
+  }
+
+  return filter === "CLOSED" ? "done" : "open";
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null);
 
@@ -145,14 +165,14 @@ async function readJson<T>(response: Response): Promise<T> {
 
 function EmptyThread() {
   return (
-    <div className="flex h-full min-h-72 flex-col items-center justify-center border-l border-black/6 bg-white px-6 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e8f4f4] text-[#0d7377]">
+    <div className="flex h-full min-h-72 flex-col items-center justify-center border-l border-[var(--portal-border)] bg-white px-6 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
         <MessageSquareText className="h-7 w-7" aria-hidden="true" />
       </div>
-      <h2 className="mt-4 text-lg font-semibold text-[#10272c]">
+      <h2 className="mt-4 text-lg font-semibold text-[var(--portal-ink)]">
         No conversation selected
       </h2>
-      <p className="mt-2 max-w-sm text-sm leading-6 text-[#617477]">
+      <p className="mt-2 max-w-sm text-sm leading-6 text-[var(--portal-muted)]">
         Incoming texts will appear in the list. Select one to read and reply.
       </p>
     </div>
@@ -169,15 +189,15 @@ function MessageBubble({ message }: { message: MessageItem }) {
         className={cn(
           "max-w-[92%] rounded-xl px-3.5 py-2.5 shadow-sm",
           outbound
-            ? "rounded-br-sm bg-[#0d7377] text-white"
-            : "rounded-bl-md border border-black/8 bg-white text-[#10272c]",
+            ? "rounded-br-sm border border-[#536a91] bg-[#536a91] text-white"
+            : "rounded-bl-md border border-[var(--portal-border)] bg-white text-[var(--portal-ink)]",
           failed && "bg-[#fff1f1] text-[#8a1f1f]",
         )}
       >
         <p
           className={cn(
             "whitespace-pre-wrap text-sm leading-5",
-            outbound && !failed ? "text-white" : "text-[#10272c]",
+            outbound && !failed ? "!text-white" : "text-[var(--portal-ink)]",
             failed && "text-[#8a1f1f]",
           )}
         >
@@ -186,7 +206,7 @@ function MessageBubble({ message }: { message: MessageItem }) {
         <div
           className={cn(
             "mt-1.5 flex items-center gap-2 text-[11px]",
-            outbound && !failed ? "text-white/80" : "text-[#7d8d90]",
+            outbound && !failed ? "text-white/80" : "text-[var(--portal-muted-soft)]",
             failed && "text-[#8a1f1f]",
           )}
         >
@@ -220,27 +240,31 @@ function ConversationRow({
       type="button"
       className={cn(
         "grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 px-4 py-4 text-left transition",
-        selected ? "bg-[#e8f4f4]" : "bg-white hover:bg-[#f7fbfb]",
+        selected
+          ? "bg-[#edf4ff] shadow-[inset_3px_0_0_#536a91]"
+          : "bg-white hover:bg-[#f6f9ff]",
       )}
       onClick={() => onSelect(conversation.id)}
     >
       <span
         className={cn(
           "mt-1 h-2.5 w-2.5 rounded-full",
-          conversation.unread ? "bg-[#0d7377]" : "bg-transparent ring-1 ring-black/12",
+          conversation.unread
+            ? "bg-[#536a91]"
+            : "bg-transparent ring-1 ring-[var(--portal-border-strong)]",
         )}
         aria-hidden="true"
       />
       <span className="min-w-0">
         <span className="flex items-center justify-between gap-3">
-          <span className="truncate text-sm font-semibold text-[#10272c]">
+          <span className="truncate text-sm font-semibold text-[var(--portal-ink)]">
             {conversation.patientPhoneNumberDisplay}
           </span>
-          <span className="shrink-0 text-xs text-[#7d8d90]">
+          <span className="shrink-0 text-xs text-[var(--portal-muted-soft)]">
             {formatMessageTime(conversation.lastMessageAt)}
           </span>
         </span>
-        <span className="mt-1 block truncate text-sm text-[#617477]">
+        <span className="mt-1 block truncate text-sm text-[var(--portal-muted)]">
           {conversation.lastMessageDirection === "OUTBOUND" ? "You: " : ""}
           {conversation.lastMessagePreview || "No message body"}
         </span>
@@ -249,11 +273,11 @@ function ConversationRow({
             className={cn(
               "rounded-full px-2 py-0.5 text-[11px] font-semibold",
               conversation.status === "OPEN"
-                ? "bg-[#edf8f1] text-[#287a48]"
-                : "bg-[#eef1f2] text-[#617477]",
+                ? "bg-[#edf4ff] text-[#536a91]"
+                : "bg-[#f2f4f7] text-[var(--portal-muted)]",
             )}
           >
-            {conversation.status === "OPEN" ? "Open" : "Closed"}
+            {conversationStatusLabel(conversation.status)}
           </span>
           {conversation.optedOut ? (
             <span className="rounded-full bg-[#fff1f1] px-2 py-0.5 text-[11px] font-semibold text-[#8a1f1f]">
@@ -268,24 +292,147 @@ function ConversationRow({
 
 function DraftConversationRow({ body, phone }: { body: string; phone: string }) {
   return (
-    <div className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 bg-[#e8f4f4] px-4 py-4 text-left transition">
-      <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#0d7377]" aria-hidden="true" />
+    <div className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 bg-[#edf4ff] px-4 py-4 text-left shadow-[inset_3px_0_0_#536a91] transition">
+      <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#536a91]" aria-hidden="true" />
       <span className="min-w-0">
         <span className="flex items-center justify-between gap-3">
-          <span className="truncate text-sm font-semibold text-[#10272c]">
+          <span className="truncate text-sm font-semibold text-[var(--portal-ink)]">
             {phone.trim() || "New text"}
           </span>
-          <span className="shrink-0 text-xs text-[#7d8d90]">Draft</span>
+          <span className="shrink-0 text-xs text-[var(--portal-muted-soft)]">
+            Draft
+          </span>
         </span>
-        <span className="mt-1 block truncate text-sm text-[#617477]">
+        <span className="mt-1 block truncate text-sm text-[var(--portal-muted)]">
           {body.trim() || "Write the first message"}
         </span>
         <span className="mt-2 flex items-center gap-2">
-          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-[#0d7377]">
+          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-[#536a91]">
             New
           </span>
         </span>
       </span>
+    </div>
+  );
+}
+
+function DeleteConversationDialog({
+  deleting,
+  onCancel,
+  onDelete,
+  phoneNumber,
+}: {
+  deleting: boolean;
+  onCancel: () => void;
+  onDelete: () => void;
+  phoneNumber: string;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    cancelButtonRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deleting) {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+
+      if (event.key !== "Tab" || !dialogRef.current) {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+
+      if (!focusableElements.length) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0]!;
+      const lastElement = focusableElements[focusableElements.length - 1]!;
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [deleting, onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#151a24]/35 px-4">
+      <div
+        aria-describedby="delete-conversation-description"
+        aria-labelledby="delete-conversation-title"
+        aria-modal="true"
+        className="w-full max-w-md rounded-xl border border-[var(--portal-border)] bg-white p-5 shadow-[0_24px_80px_rgba(16,24,40,0.18)]"
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--portal-danger-soft)] text-[var(--portal-danger)]">
+            <Trash2 className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <h2
+              className="text-base font-semibold text-[var(--portal-ink)]"
+              id="delete-conversation-title"
+            >
+              Delete conversation permanently?
+            </h2>
+            <p
+              className="mt-2 text-sm leading-6 text-[var(--portal-muted)]"
+              id="delete-conversation-description"
+            >
+              Marking done keeps the thread for reference. Delete permanently removes the
+              done thread for {phoneNumber} from this inbox.
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            className="bg-white"
+            disabled={deleting}
+            onClick={onCancel}
+            ref={cancelButtonRef}
+            type="button"
+            variant="secondary"
+          >
+            Cancel
+          </Button>
+          <Button
+            className="bg-[var(--portal-danger)] text-white hover:bg-[#9f1f17]"
+            disabled={deleting}
+            onClick={onDelete}
+            type="button"
+            variant="primary"
+          >
+            {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Delete permanently
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -312,18 +459,20 @@ function DraftConversationThread({
   const ready = Boolean(phone.trim() && body.trim());
 
   return (
-    <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f6f8f8]">
-      <header className="border-b border-black/6 bg-white px-4 py-3 md:px-5">
+    <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--portal-panel-soft)]">
+      <header className="border-b border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div className="min-w-0">
             <label className="sr-only" htmlFor="new-sms-phone">
               Patient mobile
             </label>
-            <div className="grid max-w-md grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b border-black/12 pb-1.5 transition focus-within:border-[#0d7377]">
-              <span className="text-sm font-semibold text-[#7d8d90]">To</span>
+            <div className="grid max-w-md grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b border-[var(--portal-border-strong)] pb-1.5 transition focus-within:border-[#536a91]">
+              <span className="text-sm font-semibold text-[var(--portal-muted-soft)]">
+                To
+              </span>
               <input
                 autoComplete="tel"
-                className="h-7 w-full min-w-0 bg-transparent text-sm font-semibold text-[#10272c] outline-none placeholder:font-medium placeholder:text-[#9aa7a9]"
+                className="h-7 w-full min-w-0 bg-transparent text-sm font-semibold text-[var(--portal-ink)] outline-none placeholder:font-medium placeholder:text-[var(--portal-muted-soft)]"
                 disabled={sending}
                 id="new-sms-phone"
                 inputMode="tel"
@@ -336,7 +485,7 @@ function DraftConversationThread({
           </div>
           <Button
             aria-label="Close new text"
-            className="h-9 w-9 border-black/10 bg-white p-0 text-[#617477] hover:bg-[#f1f5f5]"
+            className="h-9 w-9 border-[var(--portal-border)] bg-white p-0 text-[var(--portal-muted)] hover:bg-[var(--portal-panel)]"
             onClick={onCancel}
             type="button"
             variant="secondary"
@@ -347,27 +496,27 @@ function DraftConversationThread({
       </header>
 
       {error ? (
-        <div className="border-b border-[#ffd6d6] bg-[#fff7f7] px-4 py-2 text-sm text-[#8a1f1f]">
+        <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
           {error}
         </div>
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-5">
         <div className="grid min-h-[360px] place-items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e8f4f4] text-[#0d7377]">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
             <MessageSquareText className="h-7 w-7" aria-hidden="true" />
           </div>
         </div>
       </div>
 
-      <footer className="border-t border-black/6 bg-white px-4 py-2 md:px-5">
+      <footer className="border-t border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
         <form onSubmit={onSubmit}>
           <label className="sr-only" htmlFor="new-sms-body">
             Message
           </label>
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
             <textarea
-              className="h-10 resize-none rounded-lg border border-black/10 bg-white px-3 py-2 text-sm leading-5 text-[#10272c] outline-none transition placeholder:text-[#9aa7a9] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/15"
+              className="max-h-32 min-h-11 resize-y rounded-xl border border-[var(--portal-border-strong)] bg-white px-3 py-2.5 text-sm leading-5 text-[var(--portal-ink)] shadow-sm outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
               disabled={sending}
               id="new-sms-body"
               maxLength={1000}
@@ -379,10 +528,11 @@ function DraftConversationThread({
               }}
               onChange={(event) => onBodyChange(event.target.value)}
               placeholder="Write the first message..."
+              rows={1}
               value={body}
             />
             <Button
-              className="h-10 px-4"
+              className="h-11 bg-[#536a91] px-4 text-white hover:bg-[#435879]"
               disabled={sending || !ready}
               size="sm"
               type="submit"
@@ -396,12 +546,14 @@ function DraftConversationThread({
               Send text
             </Button>
           </div>
+          <div className="mt-1 flex justify-end text-[11px] font-medium text-[var(--portal-muted-soft)]">
+            {body.length}/1000
+          </div>
         </form>
       </footer>
     </main>
   );
 }
-
 export default function TwoWayTextingWorkspace({
   initialInbox,
 }: {
@@ -410,7 +562,8 @@ export default function TwoWayTextingWorkspace({
   const [inbox, setInbox] = useState(initialInbox);
   const [selectedId, setSelectedId] = useState(initialInbox.conversations[0]?.id ?? "");
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
-  const [filter, setFilter] = useState<"OPEN" | "UNREAD" | "CLOSED">("OPEN");
+  const [filter, setFilter] = useState<ConversationFilter>("OPEN");
+  const [searchQuery, setSearchQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [newPatientPhone, setNewPatientPhone] = useState("");
   const [newDraft, setNewDraft] = useState("");
@@ -418,9 +571,11 @@ export default function TwoWayTextingWorkspace({
   const [loadingThread, setLoadingThread] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [startingOutbound, setStartingOutbound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const searchMountedRef = useRef(false);
 
   const filteredConversations = useMemo(() => {
     if (filter === "UNREAD") {
@@ -441,6 +596,21 @@ export default function TwoWayTextingWorkspace({
     setSelectedId(id);
   }, []);
 
+  const conversationListQuery = useCallback(() => {
+    const params = new URLSearchParams();
+
+    if (inbox.selectedInboxId) {
+      params.set("inboxId", inbox.selectedInboxId);
+    }
+
+    if (searchQuery.trim()) {
+      params.set("search", searchQuery.trim());
+    }
+
+    const query = params.toString();
+    return query ? `?${query}` : "";
+  }, [inbox.selectedInboxId, searchQuery]);
+
   const refreshInbox = useCallback(
     async ({ quiet = false } = {}) => {
       if (!quiet) {
@@ -448,12 +618,12 @@ export default function TwoWayTextingWorkspace({
       }
 
       try {
-        const query = inbox.selectedInboxId
-          ? `?inboxId=${encodeURIComponent(inbox.selectedInboxId)}`
-          : "";
-        const next = await fetch(`/api/portal/sms/conversations${query}`, {
-          cache: "no-store",
-        }).then((response) => readJson<InboxState>(response));
+        const next = await fetch(
+          `/api/portal/sms/conversations${conversationListQuery()}`,
+          {
+            cache: "no-store",
+          },
+        ).then((response) => readJson<InboxState>(response));
         setInbox(next);
         setError(null);
 
@@ -473,7 +643,7 @@ export default function TwoWayTextingWorkspace({
         setRefreshing(false);
       }
     },
-    [inbox.selectedInboxId, selectedId],
+    [conversationListQuery, selectedId],
   );
 
   const refreshConversation = useCallback(
@@ -508,7 +678,21 @@ export default function TwoWayTextingWorkspace({
 
   useEffect(() => {
     void refreshConversation();
+    setDeleteConfirmOpen(false);
   }, [refreshConversation]);
+
+  useEffect(() => {
+    if (!searchMountedRef.current) {
+      searchMountedRef.current = true;
+      return;
+    }
+
+    const handle = setTimeout(() => {
+      void refreshInbox({ quiet: true });
+    }, 300);
+
+    return () => clearTimeout(handle);
+  }, [refreshInbox, searchQuery]);
 
   useEffect(() => {
     const poll = setInterval(() => {
@@ -583,6 +767,7 @@ export default function TwoWayTextingWorkspace({
       }).then((response) => readJson<StartConversationResponse>(response));
 
       setFilter("OPEN");
+      setSearchQuery("");
       setSelectedId(result.conversationId);
       setNewPatientPhone("");
       setNewDraft("");
@@ -639,11 +824,6 @@ export default function TwoWayTextingWorkspace({
       return;
     }
 
-    const confirmed = window.confirm("Delete this closed conversation?");
-    if (!confirmed) {
-      return;
-    }
-
     setDeleting(true);
     setError(null);
 
@@ -652,16 +832,17 @@ export default function TwoWayTextingWorkspace({
         method: "DELETE",
       }).then((response) => readJson<{ ok: boolean }>(response));
 
-      const query = inbox.selectedInboxId
-        ? `?inboxId=${encodeURIComponent(inbox.selectedInboxId)}`
-        : "";
-      const next = await fetch(`/api/portal/sms/conversations${query}`, {
-        cache: "no-store",
-      }).then((response) => readJson<InboxState>(response));
+      const next = await fetch(
+        `/api/portal/sms/conversations${conversationListQuery()}`,
+        {
+          cache: "no-store",
+        },
+      ).then((response) => readJson<InboxState>(response));
 
       setInbox(next);
       setSelectedId(next.conversations[0]?.id ?? "");
       setConversation(null);
+      setDeleteConfirmOpen(false);
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
@@ -673,17 +854,19 @@ export default function TwoWayTextingWorkspace({
     }
   };
 
+  const trimmedSearch = searchQuery.trim();
+
   if (!inbox.configured) {
     return (
-      <section className="grid min-h-[560px] place-items-center border border-black/8 bg-white px-6 py-16 text-center shadow-sm">
+      <section className="grid min-h-[560px] place-items-center rounded-xl border border-[var(--portal-border-strong)] bg-white px-6 py-16 text-center shadow-sm">
         <div className="max-w-lg">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fff6db] text-[#8a6500]">
             <AlertCircle className="h-7 w-7" aria-hidden="true" />
           </div>
-          <h2 className="mt-4 text-xl font-semibold text-[#10272c]">
+          <h2 className="mt-4 text-xl font-semibold text-[var(--portal-ink)]">
             Texting is not linked yet
           </h2>
-          <p className="mt-2 text-sm leading-6 text-[#617477]">
+          <p className="mt-2 text-sm leading-6 text-[var(--portal-muted)]">
             This login does not have an assigned texting number. Add the practice phone
             number for the correct location, then send a test SMS to confirm Telnyx
             webhooks are creating conversations.
@@ -694,35 +877,43 @@ export default function TwoWayTextingWorkspace({
   }
 
   return (
-    <section className="grid h-[calc(100vh-165px)] min-h-[560px] grid-rows-[auto_minmax(0,1fr)] border border-black/8 bg-white shadow-sm">
-      <div className="border-b border-black/6 bg-[#fbfdfd] px-4 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
-            {[
-              ["OPEN", "Open"],
-              ["UNREAD", "Unread"],
-              ["CLOSED", "Closed"],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={cn(
-                  "rounded-lg px-3 py-2 text-sm font-medium transition",
-                  filter === value
-                    ? "bg-[#10272c] text-white"
-                    : "bg-white text-[#617477] ring-1 ring-black/8 hover:text-[#10272c]",
-                )}
-                onClick={() => setFilter(value as typeof filter)}
-              >
-                {label}
-              </button>
-            ))}
+    <section className="grid h-[calc(100vh-190px)] min-h-[560px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-[var(--portal-border-strong)] bg-white shadow-sm">
+      <div className="border-b border-[var(--portal-border)] bg-white px-4 py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="grid gap-1.5">
+            <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+              Status
+            </p>
+            <div className="inline-flex w-full rounded-lg border border-[var(--portal-border)] bg-white p-1 sm:w-fit">
+              {[
+                ["OPEN", "Open"],
+                ["UNREAD", "Unread"],
+                ["CLOSED", "Done"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={cn(
+                    "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
+                    filter === value
+                      ? "!bg-[#536a91] !text-white shadow-sm hover:!text-white"
+                      : "text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
+                  )}
+                  onClick={() => setFilter(value as ConversationFilter)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
-              className="bg-[#0d7377] text-white hover:bg-[#0b6467]"
+              className="h-10 bg-[#536a91] text-white hover:bg-[#435879]"
               onClick={() => {
                 setComposing(true);
+                setSelectedId("");
+                setConversation(null);
+                setDeleteConfirmOpen(false);
                 setError(null);
               }}
               size="sm"
@@ -733,7 +924,7 @@ export default function TwoWayTextingWorkspace({
               New text
             </Button>
             <Button
-              className="border-black/10 bg-white text-[#10272c] hover:bg-[#f1f5f5]"
+              className="h-10 border-[var(--portal-border)] bg-white text-[var(--portal-ink)] hover:bg-[var(--portal-panel)]"
               disabled={refreshing}
               onClick={() => {
                 void refreshInbox();
@@ -751,16 +942,46 @@ export default function TwoWayTextingWorkspace({
       </div>
 
       <div className="grid h-full min-h-0 overflow-hidden md:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b border-black/6 md:border-b-0 md:border-r">
-          <div className="flex h-11 items-center justify-between border-b border-black/6 px-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7d8d90]">
-              Conversations
-            </p>
-            <span className="rounded-full bg-[#e8f4f4] px-2.5 py-1 text-xs font-semibold text-[#0d7377]">
-              {inbox.unreadCount} unread
-            </span>
+        <aside className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b border-[var(--portal-border)] md:border-b-0 md:border-r">
+          <div className="border-b border-[var(--portal-border)] px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+                Conversations
+              </p>
+              <span className="rounded-full bg-[#edf4ff] px-2.5 py-1 text-xs font-semibold text-[#536a91]">
+                {inbox.unreadCount} unread
+              </span>
+            </div>
+            <label className="sr-only" htmlFor="sms-conversation-search">
+              Search by phone number
+            </label>
+            <div className="relative mt-3">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--portal-muted-soft)]"
+                aria-hidden="true"
+              />
+              <input
+                className="h-11 w-full rounded-xl border border-[var(--portal-border-strong)] bg-white px-9 text-sm text-[var(--portal-ink)] shadow-sm outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
+                id="sms-conversation-search"
+                inputMode="tel"
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search by number"
+                type="search"
+                value={searchQuery}
+              />
+              {searchQuery ? (
+                <button
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[var(--portal-muted)] transition hover:bg-[#edf4ff] hover:text-[#536a91]"
+                  onClick={() => setSearchQuery("")}
+                  type="button"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
           </div>
-          <div className="min-h-0 divide-y divide-black/6 overflow-y-auto">
+          <div className="min-h-0 divide-y divide-[var(--portal-border)] overflow-y-auto">
             {composing ? (
               <DraftConversationRow body={newDraft} phone={newPatientPhone} />
             ) : null}
@@ -776,11 +997,15 @@ export default function TwoWayTextingWorkspace({
             ) : composing ? null : (
               <div className="px-6 py-14 text-center">
                 <Circle className="mx-auto h-8 w-8 text-[#b2bfc1]" aria-hidden="true" />
-                <p className="mt-3 text-sm font-medium text-[#10272c]">
-                  No {filter.toLowerCase()} conversations
+                <p className="mt-3 text-sm font-medium text-[var(--portal-ink)]">
+                  {trimmedSearch
+                    ? "No matching conversations"
+                    : `No ${filterEmptyLabel(filter)} conversations`}
                 </p>
-                <p className="mt-1 text-sm leading-6 text-[#617477]">
-                  Texts to this inbox will appear here.
+                <p className="mt-1 text-sm leading-6 text-[var(--portal-muted)]">
+                  {trimmedSearch
+                    ? "Try another phone number."
+                    : "Texts to this inbox will appear here."}
                 </p>
               </div>
             )}
@@ -802,25 +1027,40 @@ export default function TwoWayTextingWorkspace({
             sending={startingOutbound}
           />
         ) : selectedConversation ? (
-          <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f6f8f8]">
+          <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--portal-panel-soft)]">
             {error ? (
-              <div className="border-b border-[#ffd6d6] bg-[#fff7f7] px-4 py-2 text-sm text-[#8a1f1f]">
+              <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
                 {error}
               </div>
             ) : null}
-            <header className="border-b border-black/6 bg-white px-4 py-3 md:px-5">
+            <header className="border-b border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <p className="truncate text-base font-semibold text-[#10272c] md:text-lg">
-                    {selectedConversation.patientPhoneNumberDisplay}
+                  <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+                    Text thread
                   </p>
+                  <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="truncate text-base font-semibold text-[var(--portal-ink)] md:text-lg">
+                      {selectedConversation.patientPhoneNumberDisplay}
+                    </p>
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-xs font-semibold",
+                        selectedConversation.status === "OPEN"
+                          ? "bg-[#edf4ff] text-[#536a91]"
+                          : "bg-[#f2f4f7] text-[var(--portal-muted)]",
+                      )}
+                    >
+                      {conversationStatusLabel(selectedConversation.status)}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {selectedConversation.status === "CLOSED" ? (
                     <Button
                       className="border-[#ffd6d6] bg-white text-[#8a1f1f] hover:bg-[#fff7f7]"
                       disabled={deleting}
-                      onClick={() => void handleDelete()}
+                      onClick={() => setDeleteConfirmOpen(true)}
                       size="sm"
                       type="button"
                       variant="secondary"
@@ -830,11 +1070,11 @@ export default function TwoWayTextingWorkspace({
                       ) : (
                         <Trash2 className="h-4 w-4" />
                       )}
-                      Delete
+                      Delete permanently
                     </Button>
                   ) : null}
                   <Button
-                    className="bg-white"
+                    className="border-[var(--portal-border)] bg-white text-[var(--portal-ink)] hover:bg-[var(--portal-panel)]"
                     onClick={() =>
                       void handleStatus(
                         selectedConversation.status === "OPEN" ? "CLOSED" : "OPEN",
@@ -845,7 +1085,7 @@ export default function TwoWayTextingWorkspace({
                     variant="secondary"
                   >
                     <CheckCheck className="h-4 w-4" />
-                    {selectedConversation.status === "OPEN" ? "Close" : "Reopen"}
+                    {selectedConversation.status === "OPEN" ? "Mark done" : "Reopen"}
                   </Button>
                 </div>
               </div>
@@ -853,7 +1093,7 @@ export default function TwoWayTextingWorkspace({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">
               {loadingThread ? (
-                <div className="grid min-h-[360px] place-items-center text-[#617477]">
+                <div className="grid min-h-[360px] place-items-center text-[var(--portal-muted)]">
                   <Loader2 className="h-6 w-6 animate-spin" aria-label="Loading" />
                 </div>
               ) : conversation?.messages.length ? (
@@ -863,15 +1103,15 @@ export default function TwoWayTextingWorkspace({
                   ))}
                 </div>
               ) : (
-                <div className="grid min-h-[360px] place-items-center text-sm text-[#617477]">
+                <div className="grid min-h-[360px] place-items-center text-sm text-[var(--portal-muted)]">
                   No messages loaded.
                 </div>
               )}
             </div>
 
-            <footer className="border-t border-black/6 bg-white px-4 py-2 md:px-5">
+            <footer className="border-t border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
               {conversation?.optedOut ? (
-                <div className="mb-3 flex items-center gap-2 rounded-lg bg-[#fff1f1] px-3 py-2 text-sm text-[#8a1f1f]">
+                <div className="mb-3 flex items-center gap-2 rounded-lg bg-[var(--portal-danger-soft)] px-3 py-2 text-sm text-[var(--portal-danger)]">
                   <Lock className="h-4 w-4" aria-hidden="true" />
                   This patient opted out. Replies are blocked.
                 </div>
@@ -880,9 +1120,9 @@ export default function TwoWayTextingWorkspace({
                 <label className="sr-only" htmlFor="sms-reply">
                   Reply
                 </label>
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
                   <textarea
-                    className="h-10 resize-none rounded-lg border border-black/10 bg-white px-3 py-2 text-sm leading-5 text-[#10272c] outline-none transition placeholder:text-[#9aa7a9] focus:border-[#0d7377] focus:ring-2 focus:ring-[#0d7377]/15"
+                    className="max-h-32 min-h-11 resize-y rounded-xl border border-[var(--portal-border-strong)] bg-white px-3 py-2.5 text-sm leading-5 text-[var(--portal-ink)] shadow-sm outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
                     disabled={sending || Boolean(conversation?.optedOut)}
                     id="sms-reply"
                     maxLength={1000}
@@ -894,10 +1134,11 @@ export default function TwoWayTextingWorkspace({
                     }}
                     onChange={(event) => setDraft(event.target.value)}
                     placeholder="Write a reply..."
+                    rows={1}
                     value={draft}
                   />
                   <Button
-                    className="h-10 px-4"
+                    className="h-11 bg-[#536a91] px-4 text-white hover:bg-[#435879]"
                     disabled={sending || !draft.trim() || Boolean(conversation?.optedOut)}
                     size="sm"
                     type="submit"
@@ -911,22 +1152,36 @@ export default function TwoWayTextingWorkspace({
                     Send
                   </Button>
                 </div>
+                <div className="mt-1 flex justify-end text-[11px] font-medium text-[var(--portal-muted-soft)]">
+                  {draft.length}/1000
+                </div>
               </form>
             </footer>
+            {deleteConfirmOpen ? (
+              <DeleteConversationDialog
+                deleting={deleting}
+                onCancel={() => setDeleteConfirmOpen(false)}
+                onDelete={() => void handleDelete()}
+                phoneNumber={selectedConversation.patientPhoneNumberDisplay}
+              />
+            ) : null}
           </main>
         ) : (
           <main className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
             {error ? (
-              <div className="border-b border-[#ffd6d6] bg-[#fff7f7] px-4 py-2 text-sm text-[#8a1f1f]">
+              <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
                 {error}
               </div>
             ) : null}
             <div className="relative min-h-0 flex-1">
               <EmptyThread />
               <Button
-                className="absolute left-1/2 top-[calc(50%+5rem)] -translate-x-1/2 bg-[#0d7377] text-white hover:bg-[#0b6467]"
+                className="absolute left-1/2 top-[calc(50%+5rem)] -translate-x-1/2 bg-[#536a91] text-white hover:bg-[#435879]"
                 onClick={() => {
                   setComposing(true);
+                  setSelectedId("");
+                  setConversation(null);
+                  setDeleteConfirmOpen(false);
                   setError(null);
                 }}
                 type="button"

@@ -22,7 +22,10 @@ function flushParagraph(lines: string[], blocks: ReactNode[]) {
   }
 
   blocks.push(
-    <p key={`p-${blocks.length}`} className="text-sm leading-7 text-[#46515f]">
+    <p
+      key={`p-${blocks.length}`}
+      className="text-sm leading-7 text-[var(--portal-ink-soft)]"
+    >
       <InlineMarkdown text={lines.join(" ")} />
     </p>,
   );
@@ -39,7 +42,7 @@ function flushList(
 
   const type = items[0]?.type ?? "ul";
   const className =
-    "ml-5 space-y-1 text-sm leading-7 text-[#46515f] marker:text-[#536a91]";
+    "ml-5 space-y-1 text-sm leading-7 text-[var(--portal-ink-soft)] marker:text-[var(--portal-accent)]";
   const children = items.map((item, index) => (
     <li key={`${item.text}-${index}`}>
       <InlineMarkdown text={item.text} />
@@ -83,10 +86,10 @@ export function MarkdownDocument({ markdown }: { markdown: string }) {
       const text = heading[2];
       const className =
         level === 1
-          ? "text-2xl font-semibold tracking-[-0.04em] text-[#101820]"
+          ? "text-2xl font-semibold tracking-normal text-[var(--portal-ink)]"
           : level === 2
-            ? "text-base font-semibold tracking-[-0.02em] text-[#101820]"
-            : "text-sm font-semibold text-[#101820]";
+            ? "text-base font-semibold tracking-normal text-[var(--portal-ink)]"
+            : "text-sm font-semibold text-[var(--portal-ink)]";
 
       blocks.push(
         <h3 key={`h-${blocks.length}`} className={className}>

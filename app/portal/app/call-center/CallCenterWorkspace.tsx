@@ -74,6 +74,10 @@ export default function CallCenterWorkspace({
   const [selectedSeatId, setSelectedSeatId] = useState(() => seats[0]?.id ?? "");
   const [softphoneBusy, setSoftphoneBusy] = useState(false);
   const [softphoneEngaged, setSoftphoneEngaged] = useState(false);
+  const [takingTransferIds, setTakingTransferIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const takingTransferIdsRef = useRef(new Set<string>());
   const softphoneEngagedRef = useRef(false);
   const softphoneRef = useRef<SoftphoneHandle | null>(null);
   const selectedSeat = useMemo(
@@ -194,6 +198,65 @@ export default function CallCenterWorkspace({
     },
     [browserSessionId, queue, router, selectedSeat],
   );
+  const handleTakeTransfer = useCallback(
+    async (queueItemId: string) => {
+      const selectedSeatId = selectedSeat?.id;
+
+      if (!selectedSeatId) {
+        return;
+      }
+
+      if (takingTransferIdsRef.current.has(queueItemId)) {
+        return;
+      }
+
+      takingTransferIdsRef.current.add(queueItemId);
+      setTakingTransferIds((current) => {
+        const next = new Set(current);
+        next.add(queueItemId);
+        return next;
+      });
+
+      const item = queue.find((entry) => entry.id === queueItemId);
+      const callerKey = normalizeQueueCallerKey(item?.fromPhone);
+      if (callerKey) {
+        softphoneRef.current?.markAnswerPending(callerKey);
+      }
+
+      try {
+        const response = await fetch("/api/portal/call-center/transfer/take", {
+          body: JSON.stringify({
+            browserSessionId,
+            queueItemId,
+            seatId: selectedSeatId,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        });
+
+        if (!response.ok && callerKey) {
+          softphoneRef.current?.clearAnswerPending(callerKey);
+        }
+      } catch (error) {
+        if (callerKey) {
+          softphoneRef.current?.clearAnswerPending(callerKey);
+        }
+
+        console.error("[call-center] failed to take transfer", error);
+      } finally {
+        takingTransferIdsRef.current.delete(queueItemId);
+        setTakingTransferIds((current) => {
+          const next = new Set(current);
+          next.delete(queueItemId);
+          return next;
+        });
+        router.refresh();
+      }
+    },
+    [browserSessionId, queue, router, selectedSeat],
+  );
 
   const hasWaitingCaller = useMemo(
     () =>
@@ -279,7 +342,10 @@ export default function CallCenterWorkspace({
             isAvailable={effectivePresenceStatus === "AVAILABLE"}
             onCallback={handleCallback}
             onTake={handleTakeQueuedCall}
+            onTakeTransfer={handleTakeTransfer}
             queue={queue}
+            selectedSeatId={selectedSeat?.id ?? null}
+            takingTransferIds={takingTransferIds}
           />
         ) : null}
         <ActivityRail activity={activity} onCallback={handleCallback} totals={totals} />
@@ -293,7 +359,8 @@ export default function CallCenterWorkspace({
                 <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
                   Station
                   <select
-                    className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377]"
+                    className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377] disabled:cursor-not-allowed disabled:bg-[#f3f6f6] disabled:text-[#8aa0a3]"
+                    disabled={softphoneEngaged}
                     onChange={(event) => setSelectedSeatId(event.target.value)}
                     value={selectedSeat?.id ?? ""}
                   >
@@ -365,6 +432,7 @@ export default function CallCenterWorkspace({
               seedNumber={seed}
               stationLabel={selectedSeat?.label ?? null}
               stationSeatId={selectedSeat?.id ?? null}
+              transferTargets={seats}
               voicemailTimeoutSec={voicemailTimeoutSec}
             />
           </div>
@@ -561,14 +629,25 @@ function QueuePanel({
   isAvailable,
   onCallback,
   onTake,
+  onTakeTransfer,
   queue,
+  selectedSeatId,
+  takingTransferIds,
 }: {
   canTake: boolean;
   isAvailable: boolean;
   onCallback: (number: string) => void;
   onTake: (queueItemId: string) => void;
+  onTakeTransfer: (queueItemId: string) => void;
   queue: PortalCallQueueItem[];
+  selectedSeatId: string | null;
+  takingTransferIds: Set<string>;
 }) {
+  const visibleQueue = queue.filter(
+    (item) =>
+      !item.transferRequest || item.transferRequest.targetSeatId === selectedSeatId,
+  );
+
   return (
     <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -581,23 +660,27 @@ function QueuePanel({
           </p>
         </div>
         <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
-          {queue.length}
+          {visibleQueue.length}
         </span>
       </div>
 
-      {queue.length ? (
+      {visibleQueue.length ? (
         <ul className="mt-4 divide-y divide-black/6 rounded-lg border border-black/6">
-          {queue.map((item) => (
+          {visibleQueue.map((item) => (
             <li
               className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
               key={item.id}
             >
               {(() => {
                 const liveRingAttempt = hasLiveRingAttempt(item);
+                const isTransferRequest =
+                  item.transferRequest?.targetSeatId === selectedSeatId;
                 const isTakeableStatus = ["WAITING", "RINGING", "ASSIGNED"].includes(
                   item.status,
                 );
                 const canManuallyTake = canTake && isTakeableStatus && !liveRingAttempt;
+                const canTakeTransfer = canTake && isTransferRequest && !liveRingAttempt;
+                const isTakingTransfer = takingTransferIds.has(item.id);
 
                 return (
                   <>
@@ -606,7 +689,12 @@ function QueuePanel({
                         {formatQueuePhone(item.fromPhone)}
                       </p>
                       <p className="mt-1 text-xs text-[#617477]">
-                        {queueStatusLabel(item.status)}
+                        {isTransferRequest
+                          ? "Transfer request"
+                          : queueStatusLabel(item.status)}
+                        {isTransferRequest && item.transferRequest?.fromSeatLabel
+                          ? ` from ${item.transferRequest.fromSeatLabel}`
+                          : ""}
                         {item.locationName ? ` · ${item.locationName}` : ""}
                       </p>
                     </div>
@@ -625,6 +713,17 @@ function QueuePanel({
                           variant="primary"
                         >
                           Take
+                        </Button>
+                      ) : null}
+                      {canTakeTransfer ? (
+                        <Button
+                          className="w-fit"
+                          disabled={!isAvailable || isTakingTransfer}
+                          onClick={() => onTakeTransfer(item.id)}
+                          size="sm"
+                          variant="primary"
+                        >
+                          Take transfer
                         </Button>
                       ) : null}
                       {item.fromPhone ? (

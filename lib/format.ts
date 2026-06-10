@@ -1,5 +1,39 @@
 import { calculateUsageCostBreakdown, microsToDollars } from "@/lib/pricing";
 
+export const EASTERN_TIME_ZONE = "America/New_York";
+
+const easternAppointmentDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  month: "short",
+  timeZone: EASTERN_TIME_ZONE,
+  weekday: "short",
+});
+
+const easternWallClockAppointmentDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  month: "short",
+  timeZone: "UTC",
+  weekday: "short",
+});
+
+const timezoneLessIsoDateTimePattern =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/;
+
+function formatAppointmentDateTimeParts(formatter: Intl.DateTimeFormat, date: Date) {
+  const parts = formatter.formatToParts(date);
+  const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  const dayPeriod = getPart("dayPeriod");
+
+  return `${getPart("weekday")}, ${getPart("month")} ${getPart("day")}, ${getPart(
+    "hour",
+  )}:${getPart("minute")}${dayPeriod ? ` ${dayPeriod}` : ""}`;
+}
+
 export function formatLatencyMs(ms: number): string {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
@@ -23,6 +57,35 @@ export function formatPhone(phone: string): string {
   }
 
   return phone;
+}
+
+export function formatEasternAppointmentDateTime(
+  value: string | null,
+  fallback = "—",
+): string {
+  if (!value) return fallback;
+
+  const localMatch = timezoneLessIsoDateTimePattern.exec(value);
+  if (localMatch) {
+    const [, year, month, day, hour, minute] = localMatch;
+    return formatAppointmentDateTimeParts(
+      easternWallClockAppointmentDateTimeFormatter,
+      new Date(
+        Date.UTC(
+          Number(year),
+          Number(month) - 1,
+          Number(day),
+          Number(hour),
+          Number(minute),
+        ),
+      ),
+    );
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : formatAppointmentDateTimeParts(easternAppointmentDateTimeFormatter, parsed);
 }
 
 export function formatPercent(rate: number): string {

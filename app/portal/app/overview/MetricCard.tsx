@@ -6,7 +6,7 @@ type Direction = "up" | "down" | "flat";
 
 const deltaStyles: Record<Direction, string> = {
   down: "text-rose-600",
-  flat: "text-[#617477]",
+  flat: "text-[var(--portal-muted)]",
   up: "text-emerald-600",
 };
 

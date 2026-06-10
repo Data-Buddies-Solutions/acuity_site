@@ -532,12 +532,16 @@ function conversationWhereForCurrentUser({
   conversationId,
   context,
   practiceNumberId,
+  search,
 }: {
   allowedPracticeNumberIds?: string[];
   conversationId?: string;
   context: PortalPracticeAccessContext;
   practiceNumberId?: string;
+  search?: string | null;
 }): Prisma.SmsConversationWhereInput {
+  const digits = (search || "").replace(/\D/g, "");
+
   return {
     ...(conversationId ? { id: conversationId } : {}),
     practiceId: context.practice.id,
@@ -550,6 +554,13 @@ function conversationWhereForCurrentUser({
             },
           }
         : {}),
+    ...(digits
+      ? {
+          patientPhoneNumber: {
+            contains: digits,
+          },
+        }
+      : {}),
   };
 }
 
@@ -590,7 +601,10 @@ function serializeConversation(
   };
 }
 
-export async function getSmsInbox(practiceNumberId?: string | null) {
+export async function getSmsInbox(
+  practiceNumberId?: string | null,
+  search?: string | null,
+) {
   const resolved = await resolveSmsContext(practiceNumberId);
 
   if (!resolved?.context) {
@@ -631,6 +645,7 @@ export async function getSmsInbox(practiceNumberId?: string | null) {
     where: conversationWhereForCurrentUser({
       context: resolved.context,
       practiceNumberId: resolved.phoneNumber.id,
+      search,
     }),
   });
   const items = conversations.map((conversation) =>

@@ -9,11 +9,105 @@ export type InsightPost = {
     heading: string;
     paragraphs: string[];
     bullets?: string[];
+    links?: {
+      label: string;
+      href: string;
+    }[];
   }[];
   takeaway: string;
 };
 
 export const insightPosts: InsightPost[] = [
+  {
+    slug: "best-ai-answering-service-ophthalmology",
+    title: "The #1 AI Answering Service for Ophthalmology Practices",
+    description:
+      "Looking for an AI answering service for ophthalmology? Acuity answers patient calls, books appointments into the EMR, captures after-hours demand, and helps eye care practices stop losing patients to voicemail.",
+    readingTime: "7 min read",
+    date: "2026-06-09",
+    tags: [
+      "AI answering service",
+      "Ophthalmology answering service",
+      "AI receptionist for ophthalmology",
+      "Medical answering service",
+      "Eye care call center",
+    ],
+    sections: [
+      {
+        heading: "Why ophthalmology needs a different answering service",
+        paragraphs: [
+          "Most answering services were built to pick up the phone, take a message, and pass the work back to the office later. That is not enough for an ophthalmology practice. Eye care calls are full of routing decisions: medical vs. vision, new patient vs. established patient, routine exam vs. urgent symptoms, pediatric scheduling, insurance complexity, provider rules, and location-specific availability.",
+          "That is why the best AI answering service for ophthalmology cannot behave like a generic call center. It has to answer every patient call, understand the front-desk workflow, book the right appointment, and know when to escalate to staff. Acuity Health is built for that exact problem: AI call answering for ophthalmology practices that need fewer missed calls, faster scheduling, and cleaner patient handoffs.",
+        ],
+      },
+      {
+        heading: "What makes Acuity the #1 AI answering service for ophthalmology",
+        paragraphs: [
+          "Acuity is not just a voice bot that says hello. It is an AI receptionist for ophthalmology practices, designed around patient access and front-desk operations. The system can answer inbound calls, capture after-hours demand, schedule appointments, handle multilingual conversations, filter routine requests, and keep the office focused on patients who are already in the building.",
+          "For practices comparing an AI answering service, ophthalmology call center, virtual receptionist, medical answering service, or after-hours answering service, the important question is simple: does the system only take a message, or does it complete the patient workflow? Acuity is built to complete the workflow.",
+        ],
+        bullets: [
+          "Answers patient calls instantly instead of sending patients to voicemail",
+          "Books appointments directly into the EMR when scheduling rules allow it",
+          "Captures after-hours and weekend demand while the front desk is offline",
+          "Supports ophthalmology-specific routing, including medical vs. vision workflows",
+          "Handles Spanish-language answering and booking for multilingual patient demand",
+          "Escalates urgent or exception-heavy situations back to the practice team",
+        ],
+      },
+      {
+        heading: "AI answering service vs. traditional ophthalmology answering service",
+        paragraphs: [
+          "A traditional ophthalmology answering service is usually useful for coverage. It can make sure someone picks up after hours, collects a message, and sends the office a note. But the patient still waits, the front desk still has to call back, and the appointment is still not booked.",
+          "An AI answering service changes the outcome. When a patient calls to schedule, reschedule, ask about insurance, or find the right location, the best system should move the patient forward in real time. That is the difference between message-taking and patient access infrastructure.",
+        ],
+        links: [
+          {
+            label:
+              "Compare AI receptionists with traditional answering services for eye care",
+            href: "/insights/ai-receptionist-vs-traditional-answering-service",
+          },
+        ],
+      },
+      {
+        heading: "The real problem is lost patients, not phone coverage",
+        paragraphs: [
+          "Practices usually start looking for an answering service when the symptoms are already obvious: voicemail is piling up, patients are hanging up after long holds, after-hours calls are going unanswered, and staff is spending the next morning chasing callbacks instead of helping the patients in front of them.",
+          "In ophthalmology, one missed call is rarely just one missed call. It can be a missed new patient appointment, a missed follow-up, a delayed referral, or a patient who books with a competing practice that answered faster. The answering service category matters because it sits directly at the point where patient intent either converts into an appointment or disappears into voicemail.",
+        ],
+      },
+      {
+        heading: "What an ophthalmology practice should look for",
+        paragraphs: [
+          "The best AI answering service for ophthalmology should be judged by operational outcomes, not by whether the demo sounds impressive for two minutes. A strong system should fit the practice's real workflow, handle high call volume, respect scheduling rules, and produce clean handoffs for staff.",
+          "If the product cannot deal with insurance nuance, provider routing, after-hours appointment requests, urgent symptoms, multilingual callers, and EMR booking, it is probably a generic AI phone agent with ophthalmology copy on top. That is not enough for a busy eye care practice.",
+        ],
+        bullets: [
+          "Can it book directly into your EMR or scheduling system?",
+          "Can it distinguish routine scheduling from urgent clinical escalation?",
+          "Can it support medical and vision insurance conversations?",
+          "Can it answer multiple concurrent calls without busy signals or hold time?",
+          "Can it handle after-hours calls without creating a next-day voicemail backlog?",
+          "Can staff review call outcomes, bookings, transfers, and unanswered edge cases?",
+        ],
+      },
+      {
+        heading: "Why Acuity is built for eye care, not generic call answering",
+        paragraphs: [
+          "Acuity Health focuses on ophthalmology because eye care front desks have a specific shape of complexity: high call volume, appointment-heavy demand, medical and vision insurance, multiple locations, pediatric rules, after-hours leakage, and multilingual patient needs. A generic answering service treats those as exceptions. Acuity treats them as the core workflow.",
+          "That is why Acuity is the strongest AI answering service choice for ophthalmology practices that want more than call coverage. The goal is not just to answer the phone. The goal is to keep patients moving, protect staff time, and turn inbound demand into completed appointments.",
+        ],
+        links: [
+          {
+            label: "See Acuity's AI receptionist for ophthalmology practices",
+            href: "/",
+          },
+        ],
+      },
+    ],
+    takeaway:
+      "The best AI answering service for ophthalmology is not a message-taking vendor. It is an AI receptionist that answers every call, books appointments, captures after-hours demand, and understands the workflow of an eye care practice.",
+  },
   {
     slug: "ai-receptionist-vs-traditional-answering-service",
     title:
