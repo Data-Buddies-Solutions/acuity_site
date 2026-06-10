@@ -1,4 +1,4 @@
-# Customer Portal MVP Spec  
+# Customer Portal MVP Spec
 
 ## Objective
 

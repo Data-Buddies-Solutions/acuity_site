@@ -163,6 +163,20 @@ function smsContentKeyword(text: string) {
   return text.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
+function normalizeSmsBody(body: string) {
+  const trimmed = body.replace(/\s+/g, " ").trim();
+
+  if (!trimmed) {
+    throw new TelnyxError("Message body is required", 400);
+  }
+
+  if (trimmed.length > 1_000) {
+    throw new TelnyxError("Message body must be 1,000 characters or fewer", 422);
+  }
+
+  return trimmed;
+}
+
 function isAbitaPractice(practice: { name: string }) {
   return practice.name.trim().toLowerCase() === ABITA_PRACTICE_NAME.toLowerCase();
 }
@@ -820,6 +834,170 @@ export async function deleteSmsConversation(conversationId: string) {
   return { ok: true as const };
 }
 
+async function deliverOutboundSms({
+  body,
+  from,
+  messageId,
+  to,
+}: {
+  body: string;
+  from: string;
+  messageId: string;
+  to: string;
+}) {
+  const response = await telnyxFetch("/v2/messages", {
+    body: JSON.stringify({
+      from,
+      text: body,
+      to,
+      use_profile_webhooks: true,
+    }),
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const detail = await telnyxErrorMessage(response, "Failed to send SMS");
+    await prisma.smsMessage.update({
+      data: {
+        errorDetail: detail,
+        failedAt: new Date(),
+        status: SmsMessageStatus.FAILED,
+      },
+      where: {
+        id: messageId,
+      },
+    });
+    throw new TelnyxError("Failed to send SMS", response.status, detail);
+  }
+
+  const result = (await response.json()) as unknown;
+  const telnyxMessageId =
+    isRecord(result) && isRecord(result.data) ? asString(result.data.id) : "";
+
+  await prisma.smsMessage.update({
+    data: {
+      status: SmsMessageStatus.SENT,
+      telnyxMessageId: telnyxMessageId || null,
+    },
+    where: {
+      id: messageId,
+    },
+  });
+}
+
+export async function startOutboundSmsConversation({
+  body,
+  patientPhoneNumber,
+  practiceNumberId,
+}: {
+  body: string;
+  patientPhoneNumber: string;
+  practiceNumberId: string;
+}) {
+  const resolved = await resolveSmsContext(practiceNumberId);
+
+  if (!resolved?.context) {
+    return null;
+  }
+
+  if (!resolved.phoneNumber || resolved.phoneNumber.id !== practiceNumberId) {
+    return { notFound: true as const };
+  }
+
+  if (!resolved.phoneNumber.smsEnabled) {
+    throw new TelnyxError("This inbox is not enabled for outbound SMS", 403);
+  }
+
+  const toNumber = normalizeSmsPhone(patientPhoneNumber);
+  if (!toNumber) {
+    throw new TelnyxError("Enter a valid patient mobile number", 422);
+  }
+
+  const trimmed = normalizeSmsBody(body);
+  const existingOptOut = await prisma.smsOptOut.findUnique({
+    where: {
+      practiceNumberId_patientPhoneNumber: {
+        patientPhoneNumber: toNumber,
+        practiceNumberId: resolved.phoneNumber.id,
+      },
+    },
+  });
+
+  if (existingOptOut) {
+    throw new TelnyxError("This patient has opted out of SMS replies", 403);
+  }
+
+  const now = new Date();
+  const conversation = await prisma.smsConversation.upsert({
+    create: {
+      lastMessageAt: now,
+      locationId: resolved.phoneNumber.locationId,
+      patientPhoneNumber: toNumber,
+      practiceId: resolved.context.practice.id,
+      practiceNumberId: resolved.phoneNumber.id,
+      status: SmsConversationStatus.OPEN,
+    },
+    update: {
+      status: SmsConversationStatus.OPEN,
+    },
+    where: {
+      practiceNumberId_patientPhoneNumber: {
+        patientPhoneNumber: toNumber,
+        practiceNumberId: resolved.phoneNumber.id,
+      },
+    },
+  });
+
+  if (conversation.optedOut) {
+    throw new TelnyxError("This patient has opted out of SMS replies", 403);
+  }
+
+  const message = await prisma.smsMessage.create({
+    data: {
+      body: trimmed,
+      conversationId: conversation.id,
+      direction: SmsMessageDirection.OUTBOUND,
+      fromNumber: resolved.phoneNumber.phoneNumber,
+      sentByUserId: resolved.context.session.user.id,
+      status: SmsMessageStatus.SENDING,
+      toNumber,
+    },
+  });
+
+  await prisma.smsConversation.update({
+    data: {
+      lastMessageAt: message.createdAt,
+      status: SmsConversationStatus.OPEN,
+    },
+    where: {
+      id: conversation.id,
+    },
+  });
+
+  try {
+    await deliverOutboundSms({
+      body: trimmed,
+      from: resolved.phoneNumber.phoneNumber,
+      messageId: message.id,
+      to: toNumber,
+    });
+  } catch (error) {
+    if (error instanceof TelnyxError) {
+      return {
+        conversationId: conversation.id,
+        detail: error.detail ?? null,
+        error: error.message,
+        messageId: message.id,
+        ok: false,
+      };
+    }
+
+    throw error;
+  }
+
+  return { conversationId: conversation.id, messageId: message.id, ok: true };
+}
+
 export async function sendSmsReply(conversationId: string, body: string) {
   const resolved = await resolveSmsContext();
 
@@ -832,15 +1010,7 @@ export async function sendSmsReply(conversationId: string, body: string) {
     return { notFound: true as const };
   }
 
-  const trimmed = body.replace(/\s+/g, " ").trim();
-
-  if (!trimmed) {
-    throw new TelnyxError("Message body is required", 400);
-  }
-
-  if (trimmed.length > 1_000) {
-    throw new TelnyxError("Message body must be 1,000 characters or fewer", 422);
-  }
+  const trimmed = normalizeSmsBody(body);
 
   const conversation = await prisma.smsConversation.findFirst({
     where: conversationWhereForCurrentUser({
@@ -888,43 +1058,11 @@ export async function sendSmsReply(conversationId: string, body: string) {
     },
   });
 
-  const response = await telnyxFetch("/v2/messages", {
-    body: JSON.stringify({
-      from: practiceNumber.phoneNumber,
-      text: trimmed,
-      to: conversation.patientPhoneNumber,
-      use_profile_webhooks: true,
-    }),
-    method: "POST",
-  });
-
-  if (!response.ok) {
-    const detail = await telnyxErrorMessage(response, "Failed to send SMS");
-    await prisma.smsMessage.update({
-      data: {
-        errorDetail: detail,
-        failedAt: new Date(),
-        status: SmsMessageStatus.FAILED,
-      },
-      where: {
-        id: message.id,
-      },
-    });
-    throw new TelnyxError("Failed to send SMS", response.status, detail);
-  }
-
-  const result = (await response.json()) as unknown;
-  const telnyxMessageId =
-    isRecord(result) && isRecord(result.data) ? asString(result.data.id) : "";
-
-  await prisma.smsMessage.update({
-    data: {
-      status: SmsMessageStatus.SENT,
-      telnyxMessageId: telnyxMessageId || null,
-    },
-    where: {
-      id: message.id,
-    },
+  await deliverOutboundSms({
+    body: trimmed,
+    from: practiceNumber.phoneNumber,
+    messageId: message.id,
+    to: conversation.patientPhoneNumber,
   });
 
   return { messageId: message.id, ok: true };

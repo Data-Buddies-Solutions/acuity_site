@@ -8,6 +8,7 @@ import {
   Loader2,
   Lock,
   MessageSquareText,
+  Plus,
   RefreshCw,
   Search,
   Send,
@@ -79,6 +80,14 @@ type InboxState = {
   practiceNumber: string;
   selectedInboxId: string;
   unreadCount: number;
+};
+
+type StartConversationResponse = {
+  conversationId: string;
+  detail?: string | null;
+  error?: string;
+  messageId: string;
+  ok: boolean;
 };
 
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -281,6 +290,30 @@ function ConversationRow({
   );
 }
 
+function DraftConversationRow({ body, phone }: { body: string; phone: string }) {
+  return (
+    <div className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 bg-[#edf4ff] px-4 py-4 text-left shadow-[inset_3px_0_0_#536a91] transition">
+      <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#536a91]" aria-hidden="true" />
+      <span className="min-w-0">
+        <span className="flex items-center justify-between gap-3">
+          <span className="truncate text-sm font-semibold text-[var(--portal-ink)]">
+            {phone.trim() || "New text"}
+          </span>
+          <span className="shrink-0 text-xs text-[var(--portal-muted-soft)]">Draft</span>
+        </span>
+        <span className="mt-1 block truncate text-sm text-[var(--portal-muted)]">
+          {body.trim() || "Write the first message"}
+        </span>
+        <span className="mt-2 flex items-center gap-2">
+          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-[#536a91]">
+            New
+          </span>
+        </span>
+      </span>
+    </div>
+  );
+}
+
 function DeleteConversationDialog({
   deleting,
   onCancel,
@@ -402,6 +435,123 @@ function DeleteConversationDialog({
   );
 }
 
+function DraftConversationThread({
+  body,
+  error,
+  onBodyChange,
+  onCancel,
+  onPhoneChange,
+  onSubmit,
+  phone,
+  sending,
+}: {
+  body: string;
+  error: string | null;
+  onBodyChange: (value: string) => void;
+  onCancel: () => void;
+  onPhoneChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  phone: string;
+  sending: boolean;
+}) {
+  const ready = Boolean(phone.trim() && body.trim());
+
+  return (
+    <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--portal-panel-soft)]">
+      <header className="border-b border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div className="min-w-0">
+            <label className="sr-only" htmlFor="new-sms-phone">
+              Patient mobile
+            </label>
+            <div className="grid max-w-md grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b border-[var(--portal-border-strong)] pb-1.5 transition focus-within:border-[#536a91]">
+              <span className="text-sm font-semibold text-[var(--portal-muted-soft)]">
+                To
+              </span>
+              <input
+                autoComplete="tel"
+                className="h-7 w-full min-w-0 bg-transparent text-sm font-semibold text-[var(--portal-ink)] outline-none placeholder:font-medium placeholder:text-[var(--portal-muted-soft)]"
+                disabled={sending}
+                id="new-sms-phone"
+                inputMode="tel"
+                onChange={(event) => onPhoneChange(event.target.value)}
+                placeholder="Patient mobile"
+                type="tel"
+                value={phone}
+              />
+            </div>
+          </div>
+          <Button
+            aria-label="Close new text"
+            className="h-9 w-9 border-[var(--portal-border)] bg-white p-0 text-[var(--portal-muted)] hover:bg-[var(--portal-panel)]"
+            onClick={onCancel}
+            type="button"
+            variant="secondary"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
+      </header>
+
+      {error ? (
+        <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-5">
+        <div className="grid min-h-[360px] place-items-center text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
+            <MessageSquareText className="h-7 w-7" aria-hidden="true" />
+          </div>
+        </div>
+      </div>
+
+      <footer className="border-t border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
+        <form onSubmit={onSubmit}>
+          <label className="sr-only" htmlFor="new-sms-body">
+            Message
+          </label>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+            <textarea
+              className="max-h-32 min-h-11 resize-y rounded-xl border border-[var(--portal-border-strong)] bg-white px-3 py-2.5 text-sm leading-5 text-[var(--portal-ink)] shadow-sm outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
+              disabled={sending}
+              id="new-sms-body"
+              maxLength={1000}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              onChange={(event) => onBodyChange(event.target.value)}
+              placeholder="Write the first message..."
+              rows={1}
+              value={body}
+            />
+            <Button
+              className="h-11 bg-[#536a91] px-4 text-white hover:bg-[#435879]"
+              disabled={sending || !ready}
+              size="sm"
+              type="submit"
+              variant="primary"
+            >
+              {sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              Send text
+            </Button>
+          </div>
+          <div className="mt-1 flex justify-end text-[11px] font-medium text-[var(--portal-muted-soft)]">
+            {body.length}/1000
+          </div>
+        </form>
+      </footer>
+    </main>
+  );
+}
 export default function TwoWayTextingWorkspace({
   initialInbox,
 }: {
@@ -413,11 +563,15 @@ export default function TwoWayTextingWorkspace({
   const [filter, setFilter] = useState<ConversationFilter>("OPEN");
   const [searchQuery, setSearchQuery] = useState("");
   const [draft, setDraft] = useState("");
+  const [newPatientPhone, setNewPatientPhone] = useState("");
+  const [newDraft, setNewDraft] = useState("");
+  const [composing, setComposing] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [startingOutbound, setStartingOutbound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const searchMountedRef = useRef(false);
 
@@ -433,6 +587,12 @@ export default function TwoWayTextingWorkspace({
     () => inbox.conversations.find((item) => item.id === selectedId) ?? null,
     [inbox.conversations, selectedId],
   );
+
+  const selectConversation = useCallback((id: string) => {
+    setComposing(false);
+    setError(null);
+    setSelectedId(id);
+  }, []);
 
   const conversationListQuery = useCallback(() => {
     const params = new URLSearchParams();
@@ -583,6 +743,58 @@ export default function TwoWayTextingWorkspace({
     }
   };
 
+  const handleStartOutbound = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!newPatientPhone.trim() || !newDraft.trim()) {
+      return;
+    }
+
+    setStartingOutbound(true);
+    setError(null);
+
+    try {
+      const result = await fetch("/api/portal/sms/conversations", {
+        body: JSON.stringify({
+          body: newDraft,
+          inboxId: inbox.selectedInboxId,
+          patientPhoneNumber: newPatientPhone,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }).then((response) => readJson<StartConversationResponse>(response));
+
+      setFilter("OPEN");
+      setSearchQuery("");
+      setSelectedId(result.conversationId);
+      setNewPatientPhone("");
+      setNewDraft("");
+      setComposing(false);
+
+      const query = inbox.selectedInboxId
+        ? `?inboxId=${encodeURIComponent(inbox.selectedInboxId)}`
+        : "";
+      const [nextInbox, nextConversation] = await Promise.all([
+        fetch(`/api/portal/sms/conversations${query}`, {
+          cache: "no-store",
+        }).then((response) => readJson<InboxState>(response)),
+        fetch(`/api/portal/sms/conversations/${result.conversationId}`, {
+          cache: "no-store",
+        }).then((response) => readJson<ConversationDetail>(response)),
+      ]);
+
+      setInbox(nextInbox);
+      setConversation(nextConversation);
+      if (!result.ok) {
+        setError(result.detail || result.error || "Failed to send text");
+      }
+    } catch (startError) {
+      setError(startError instanceof Error ? startError.message : "Failed to send text");
+    } finally {
+      setStartingOutbound(false);
+    }
+  };
+
   const handleStatus = async (status: SmsConversationStatus) => {
     if (!conversation) {
       return;
@@ -692,20 +904,38 @@ export default function TwoWayTextingWorkspace({
               ))}
             </div>
           </div>
-          <Button
-            className="h-10 border-[var(--portal-border)] bg-white text-[var(--portal-ink)] hover:bg-[var(--portal-panel)]"
-            disabled={refreshing}
-            onClick={() => {
-              void refreshInbox();
-              void refreshConversation();
-            }}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              className="h-10 bg-[#536a91] text-white hover:bg-[#435879]"
+              onClick={() => {
+                setComposing(true);
+                setSelectedId("");
+                setConversation(null);
+                setDeleteConfirmOpen(false);
+                setError(null);
+              }}
+              size="sm"
+              type="button"
+              variant="primary"
+            >
+              <Plus className="h-4 w-4" />
+              New text
+            </Button>
+            <Button
+              className="h-10 border-[var(--portal-border)] bg-white text-[var(--portal-ink)] hover:bg-[var(--portal-panel)]"
+              disabled={refreshing}
+              onClick={() => {
+                void refreshInbox();
+                void refreshConversation();
+              }}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -750,16 +980,19 @@ export default function TwoWayTextingWorkspace({
             </div>
           </div>
           <div className="min-h-0 divide-y divide-[var(--portal-border)] overflow-y-auto">
+            {composing ? (
+              <DraftConversationRow body={newDraft} phone={newPatientPhone} />
+            ) : null}
             {filteredConversations.length ? (
               filteredConversations.map((item) => (
                 <ConversationRow
                   conversation={item}
                   key={item.id}
-                  onSelect={setSelectedId}
+                  onSelect={selectConversation}
                   selected={item.id === selectedId}
                 />
               ))
-            ) : (
+            ) : composing ? null : (
               <div className="px-6 py-14 text-center">
                 <Circle className="mx-auto h-8 w-8 text-[#b2bfc1]" aria-hidden="true" />
                 <p className="mt-3 text-sm font-medium text-[var(--portal-ink)]">
@@ -777,10 +1010,24 @@ export default function TwoWayTextingWorkspace({
           </div>
         </aside>
 
-        {selectedConversation ? (
+        {composing ? (
+          <DraftConversationThread
+            body={newDraft}
+            error={error}
+            onBodyChange={setNewDraft}
+            onCancel={() => {
+              setComposing(false);
+              setError(null);
+            }}
+            onPhoneChange={setNewPatientPhone}
+            onSubmit={handleStartOutbound}
+            phone={newPatientPhone}
+            sending={startingOutbound}
+          />
+        ) : selectedConversation ? (
           <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--portal-panel-soft)]">
             {error ? (
-              <div className="border-b border-[#ffd6d6] bg-[#fff7f7] px-4 py-2 text-sm text-[#8a1f1f]">
+              <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
                 {error}
               </div>
             ) : null}
@@ -918,14 +1165,31 @@ export default function TwoWayTextingWorkspace({
             ) : null}
           </main>
         ) : (
-          <>
+          <main className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
             {error ? (
-              <div className="border-b border-[#ffd6d6] bg-[#fff7f7] px-4 py-2 text-sm text-[#8a1f1f]">
+              <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
                 {error}
               </div>
             ) : null}
-            <EmptyThread />
-          </>
+            <div className="relative min-h-0 flex-1">
+              <EmptyThread />
+              <Button
+                className="absolute left-1/2 top-[calc(50%+5rem)] -translate-x-1/2 bg-[#536a91] text-white hover:bg-[#435879]"
+                onClick={() => {
+                  setComposing(true);
+                  setSelectedId("");
+                  setConversation(null);
+                  setDeleteConfirmOpen(false);
+                  setError(null);
+                }}
+                type="button"
+                variant="primary"
+              >
+                <Plus className="h-4 w-4" />
+                New text
+              </Button>
+            </div>
+          </main>
         )}
       </div>
     </section>
