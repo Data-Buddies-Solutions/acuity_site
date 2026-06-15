@@ -62,6 +62,57 @@ export function isSuccessfulRescheduleAppointmentTool(tool: ToolActionLike) {
   );
 }
 
+export function isSuccessfulTransferCallTool(tool: ToolActionLike) {
+  if (tool.name !== "transfer_call" || tool.isError === true) return false;
+
+  const result = parseToolResult(tool.result);
+  const resultText = asString(tool.result)?.toLowerCase() ?? null;
+  if (!result && !resultText) return false;
+
+  if (result) {
+    const status = asString(result.status)?.toLowerCase();
+    const outputClass = asString(result.outputClass)?.toLowerCase();
+    const resultClass = asString(result.result)?.toLowerCase();
+
+    if (status === "error" || outputClass === "error" || resultClass === "error") {
+      return false;
+    }
+
+    return (
+      result.ok === true ||
+      result.transferred === true ||
+      result.transferStarted === true ||
+      result.transfer_started === true ||
+      status === "transfer_started" ||
+      status === "started" ||
+      status === "transferred" ||
+      outputClass === "transfer_started" ||
+      resultClass === "transfer_started"
+    );
+  }
+
+  if (resultText) {
+    if (
+      resultText.includes("could not transfer") ||
+      resultText.includes("transfer failed") ||
+      resultText.includes("transfer was interrupted") ||
+      resultText.includes("no active sip session")
+    ) {
+      return false;
+    }
+
+    if (
+      resultText === "ok" ||
+      resultText.includes("transfer started") ||
+      resultText.includes("transfer already started")
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function isSuccessfulAppointmentBookingTool(tool: ToolActionLike) {
   return (
     isSuccessfulBookAppointmentTool(tool) || isSuccessfulRescheduleAppointmentTool(tool)
@@ -74,5 +125,6 @@ export function isSuccessfulToolAction(tool: ToolActionLike) {
   if (tool.name === "reschedule_appt") {
     return isSuccessfulRescheduleAppointmentTool(tool);
   }
+  if (tool.name === "transfer_call") return isSuccessfulTransferCallTool(tool);
   return true;
 }

@@ -616,6 +616,204 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(normalized.toolActions.cancelledAppointment).toBe(true);
   });
 
+  it("does not mark empty non-error transfer turn output as transferred", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_empty_transfer_turn",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      endedAt: "2026-05-20T14:01:00.000Z",
+      startedAt: "2026-05-20T14:00:30.000Z",
+      turns: [
+        {
+          cachedTokens: 0,
+          callerText: "Can I talk to someone?",
+          completionTokens: 0,
+          promptTokens: 0,
+          sttLatencyMs: 0,
+          agentText: "I'll transfer you.",
+          toolCalls: [
+            {
+              args: "{}",
+              durationMs: 100,
+              isError: false,
+              name: "transfer_call",
+              result: "",
+            },
+          ],
+          ttftMs: 0,
+          ttsttfbMs: 0,
+          turn: 1,
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.transferred).toBe(false);
+    expect(normalized.status).toBe("COMPLETED");
+  });
+
+  it("marks successful transfer execution evidence as transferred", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_transfer_execution",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      endedAt: "2026-05-20T14:01:00.000Z",
+      startedAt: "2026-05-20T14:00:30.000Z",
+      toolExecutions: [
+        {
+          outputClass: "transfer_started",
+          status: "success",
+          toolName: "transfer_call",
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.transferred).toBe(true);
+    expect(normalized.status).toBe("ESCALATED");
+  });
+
+  it("marks explicit transfer turn result evidence as transferred", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_transfer_turn",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      endedAt: "2026-05-20T14:01:00.000Z",
+      startedAt: "2026-05-20T14:00:30.000Z",
+      turns: [
+        {
+          cachedTokens: 0,
+          callerText: "Can I talk to someone?",
+          completionTokens: 0,
+          promptTokens: 0,
+          sttLatencyMs: 0,
+          agentText: "The transfer is starting.",
+          toolCalls: [
+            {
+              args: "{}",
+              durationMs: 100,
+              isError: false,
+              name: "transfer_call",
+              result: JSON.stringify({ status: "transfer_started" }),
+            },
+          ],
+          ttftMs: 0,
+          ttsttfbMs: 0,
+          turn: 1,
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.transferred).toBe(true);
+    expect(normalized.status).toBe("ESCALATED");
+  });
+
+  it("marks plain-text transfer started turn output as transferred", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_transfer_text_turn",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      endedAt: "2026-05-20T14:01:00.000Z",
+      startedAt: "2026-05-20T14:00:30.000Z",
+      turns: [
+        {
+          cachedTokens: 0,
+          callerText: "Can I talk to someone?",
+          completionTokens: 0,
+          promptTokens: 0,
+          sttLatencyMs: 0,
+          agentText: "The transfer is starting.",
+          toolCalls: [
+            {
+              args: "{}",
+              durationMs: 100,
+              isError: false,
+              name: "transfer_call",
+              result: "Transfer started to the Spring Hill office.",
+            },
+          ],
+          ttftMs: 0,
+          ttsttfbMs: 0,
+          turn: 1,
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.transferred).toBe(true);
+    expect(normalized.status).toBe("ESCALATED");
+  });
+
+  it("does not mark plain-text transfer failure output as transferred", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_transfer_failed_text_turn",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      endedAt: "2026-05-20T14:01:00.000Z",
+      startedAt: "2026-05-20T14:00:30.000Z",
+      turns: [
+        {
+          cachedTokens: 0,
+          callerText: "Can I talk to someone?",
+          completionTokens: 0,
+          promptTokens: 0,
+          sttLatencyMs: 0,
+          agentText: "I couldn't transfer you.",
+          toolCalls: [
+            {
+              args: "{}",
+              durationMs: 100,
+              isError: false,
+              name: "transfer_call",
+              result: "Could not transfer the call.",
+            },
+          ],
+          ttftMs: 0,
+          ttsttfbMs: 0,
+          turn: 1,
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.transferred).toBe(false);
+    expect(normalized.status).toBe("COMPLETED");
+  });
+
+  it("does not let structured transfer errors pass through message text", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_transfer_structured_error",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      endedAt: "2026-05-20T14:01:00.000Z",
+      startedAt: "2026-05-20T14:00:30.000Z",
+      turns: [
+        {
+          cachedTokens: 0,
+          callerText: "Can I talk to someone?",
+          completionTokens: 0,
+          promptTokens: 0,
+          sttLatencyMs: 0,
+          agentText: "I couldn't transfer you.",
+          toolCalls: [
+            {
+              args: "{}",
+              durationMs: 100,
+              isError: false,
+              name: "transfer_call",
+              result: JSON.stringify({
+                message: "Transfer started but the downstream bridge failed.",
+                status: "error",
+              }),
+            },
+          ],
+          ttftMs: 0,
+          ttsttfbMs: 0,
+          turn: 1,
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.transferred).toBe(false);
+    expect(normalized.status).toBe("COMPLETED");
+  });
+
   it("marks structured reschedule tool calls as booked and cancelled actions", () => {
     const normalized = normalizeLiveKitCallPayload({
       callId: "call_rescheduled_turn",
