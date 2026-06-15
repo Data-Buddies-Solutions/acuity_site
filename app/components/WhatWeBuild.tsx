@@ -29,11 +29,12 @@ export default function WhatWeBuild() {
           <Image
             alt="Acuity practice portal — overview dashboard"
             className="h-auto w-full rounded-2xl shadow-[0_40px_100px_rgba(23,32,51,0.14)] ring-1 ring-[#e1e5eb]"
-            height={949}
+            height={1432}
+            loading="eager"
             quality={95}
             sizes="(max-width: 1280px) 100vw, 1280px"
-            src="/portal-overview.png"
-            width={1603}
+            src="/platform-dashboard-overview.png"
+            width={2694}
           />
         </motion.div>
       </div>
