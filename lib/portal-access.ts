@@ -1,6 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 
 import { getAuthSession } from "@/lib/auth";
+import { phoneNationalDigits } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
 const portalPracticeAccessInclude = {
@@ -45,18 +46,8 @@ type PortalPracticeAccessMembership = Prisma.PracticeMembershipGetPayload<{
 
 type PortalPracticeAccessPractice = PortalPracticeAccessMembership["practice"];
 
-function normalizePhoneKey(phone: string | null | undefined) {
-  const digits = (phone || "").replace(/\D/g, "");
-
-  if (digits.length === 11 && digits.startsWith("1")) {
-    return digits.slice(1);
-  }
-
-  return digits;
-}
-
 export function portalPhoneLookupVariants(phone: string | null | undefined) {
-  const digits = normalizePhoneKey(phone);
+  const digits = phoneNationalDigits(phone);
   const variants = new Set<string>();
 
   if (!digits) {

@@ -5,6 +5,7 @@ import {
   getCurrentPortalPracticeContext,
 } from "@/lib/portal-access";
 import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
+import { phoneDigits, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
 import { isSuccessfulAppointmentBookingTool } from "@/lib/tool-action-status";
@@ -196,10 +197,6 @@ const hourLabelFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: PRACTICE_TIMEZONE,
 });
 
-function normalizePhoneKey(phone: string | null | undefined) {
-  return phone?.replace(/\D/g, "") ?? "";
-}
-
 function normalizePortalBookingSearch(value: string | string[] | null | undefined) {
   const raw = Array.isArray(value) ? value[0] : value;
   if (!raw) {
@@ -208,30 +205,6 @@ function normalizePortalBookingSearch(value: string | string[] | null | undefine
 
   const query = raw.replace(/\s+/g, " ").trim();
   return query ? query.slice(0, 80) : null;
-}
-
-function phoneLookupVariants(phone: string | null | undefined) {
-  const variants = new Set<string>();
-  const trimmed = phone?.trim() ?? "";
-  const digits = normalizePhoneKey(trimmed);
-
-  if (trimmed) variants.add(trimmed);
-
-  if (digits) {
-    variants.add(digits);
-    variants.add(`+${digits}`);
-  }
-
-  if (digits.length === 10) {
-    variants.add(`+1${digits}`);
-    variants.add(`1${digits}`);
-  }
-
-  if (digits.length === 11 && digits.startsWith("1")) {
-    variants.add(digits.slice(1));
-  }
-
-  return [...variants].filter(Boolean);
 }
 
 function buildPortalOverviewOfficeFilters(
@@ -245,7 +218,7 @@ function buildPortalOverviewOfficeFilters(
   const optionsById = new Map<string, PortalOverviewOfficeFilterOption>();
 
   for (const phone of phoneNumbers) {
-    const key = normalizePhoneKey(phone.phoneNumber);
+    const key = phoneDigits(phone.phoneNumber);
 
     if (!key) {
       continue;
@@ -255,7 +228,7 @@ function buildPortalOverviewOfficeFilters(
     const existing = optionsById.get(id);
 
     if (existing) {
-      if (!existing.phones.some((item) => normalizePhoneKey(item) === key)) {
+      if (!existing.phones.some((item) => phoneDigits(item) === key)) {
         existing.phones.push(phone.phoneNumber);
       }
       continue;
@@ -276,7 +249,7 @@ function resolvePortalOverviewOfficeFilter(
   options: PortalOverviewOfficeFilterOption[],
 ) {
   const office = Array.isArray(officeFilter) ? officeFilter[0] : officeFilter;
-  const key = normalizePhoneKey(office);
+  const key = phoneDigits(office);
 
   if (!office) {
     return null;
@@ -286,7 +259,7 @@ function resolvePortalOverviewOfficeFilter(
     options.find(
       (option) =>
         option.id === office ||
-        (key && option.phones.some((phone) => normalizePhoneKey(phone) === key)),
+        (key && option.phones.some((phone) => phoneDigits(phone) === key)),
     ) ?? null
   );
 }
@@ -917,12 +890,12 @@ export function filterPortalBookingsBySearch(
   }
 
   const textQuery = query.toLowerCase();
-  const digitQuery = normalizePhoneKey(query);
+  const digitQuery = phoneDigits(query);
 
   return bookings.filter((booking) => {
     const patientName = booking.patientName?.toLowerCase() ?? "";
     const callerPhone = booking.callerPhone.toLowerCase();
-    const callerPhoneDigits = normalizePhoneKey(booking.callerPhone);
+    const callerPhoneDigits = phoneDigits(booking.callerPhone);
 
     return (
       patientName.includes(textQuery) ||

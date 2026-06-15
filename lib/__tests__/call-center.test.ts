@@ -7,8 +7,6 @@ import {
   extractTelnyxRecordingUrl,
   isRingbackToneActiveAtSecond,
   metadataWithPendingBlindTransferSourceEnded,
-  normalizePhone,
-  phoneLookupVariants,
   resolveTelnyxRuntimeSettings,
   telnyxSessionDirectionFromPayload,
 } from "@/lib/call-center";
@@ -36,22 +34,7 @@ afterEach(() => {
   }
 });
 
-describe("call-center phone helpers", () => {
-  it("normalizes US phone numbers for Telnyx lookups", () => {
-    expect(normalizePhone("(727) 591-9997")).toBe("+17275919997");
-    expect(normalizePhone("17275919997")).toBe("+17275919997");
-    expect(normalizePhone("+1 727 591 9997")).toBe("+17275919997");
-  });
-
-  it("builds lookup variants for stored practice phone formats", () => {
-    const variants = phoneLookupVariants("(727) 591-9997");
-
-    expect(variants).toContain("(727) 591-9997");
-    expect(variants).toContain("+17275919997");
-    expect(variants).toContain("17275919997");
-    expect(variants).toContain("7275919997");
-  });
-
+describe("call-center settings", () => {
   it("prefers practice settings over Telnyx environment defaults", () => {
     process.env.TELNYX_CONNECTION_ID = "env-connection";
     process.env.TELNYX_CREDENTIAL_ID = "env-credential";

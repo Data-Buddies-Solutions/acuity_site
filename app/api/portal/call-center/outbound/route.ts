@@ -3,10 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getAllowedCallCenterOutboundPhoneNumbers,
   getCurrentPracticeCallCenterContext,
-  normalizePhone,
-  phoneLookupVariants,
   resolveTelnyxRuntimeSettings,
 } from "@/lib/call-center";
+import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { dialTelnyxCall, TelnyxError } from "@/lib/telnyx";
 
 export const dynamic = "force-dynamic";

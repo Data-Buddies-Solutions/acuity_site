@@ -6,6 +6,7 @@ import type {
   VoiceLanguageTelemetry,
 } from "@/lib/call-types";
 import type { AgentCallEvaluationBucket, Prisma } from "@/generated/prisma/client";
+import { phoneDigits, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
@@ -1467,34 +1468,6 @@ function buildRecentCall(call: AdminCallRecord) {
   };
 }
 
-function normalizePhoneKey(phone: string | null | undefined) {
-  return phone?.replace(/\D/g, "") ?? "";
-}
-
-function phoneLookupVariants(phone: string | null | undefined) {
-  const variants = new Set<string>();
-  const trimmed = phone?.trim() ?? "";
-  const digits = normalizePhoneKey(trimmed);
-
-  if (trimmed) variants.add(trimmed);
-
-  if (digits) {
-    variants.add(digits);
-    variants.add(`+${digits}`);
-  }
-
-  if (digits.length === 10) {
-    variants.add(`+1${digits}`);
-    variants.add(`1${digits}`);
-  }
-
-  if (digits.length === 11 && digits.startsWith("1")) {
-    variants.add(digits.slice(1));
-  }
-
-  return [...variants].filter(Boolean);
-}
-
 function buildOfficeFilterOptions(
   phoneNumbers: Array<{
     label: string | null;
@@ -1506,7 +1479,7 @@ function buildOfficeFilterOptions(
   const optionsById = new Map<string, AdminPracticeOfficeFilterOption>();
 
   for (const phone of phoneNumbers) {
-    const key = normalizePhoneKey(phone.phoneNumber);
+    const key = phoneDigits(phone.phoneNumber);
 
     if (!key) {
       continue;
@@ -1516,7 +1489,7 @@ function buildOfficeFilterOptions(
     const existing = optionsById.get(id);
 
     if (existing) {
-      if (!existing.phones.some((item) => normalizePhoneKey(item) === key)) {
+      if (!existing.phones.some((item) => phoneDigits(item) === key)) {
         existing.phones.push(phone.phoneNumber);
       }
 
@@ -1537,7 +1510,7 @@ function resolveOfficeFilter(
   officeFilter: string | null | undefined,
   options: AdminPracticeOfficeFilterOption[],
 ) {
-  const key = normalizePhoneKey(officeFilter);
+  const key = phoneDigits(officeFilter);
 
   if (!officeFilter) {
     return null;
@@ -1547,7 +1520,7 @@ function resolveOfficeFilter(
     options.find(
       (option) =>
         option.id === officeFilter ||
-        (key && option.phones.some((phone) => normalizePhoneKey(phone) === key)),
+        (key && option.phones.some((phone) => phoneDigits(phone) === key)),
     ) ?? null
   );
 }
@@ -1586,7 +1559,7 @@ function buildOfficeNameByPhone(
   const officeNameByPhone = new Map<string, string>();
 
   for (const phone of phoneNumbers) {
-    const key = normalizePhoneKey(phone.phoneNumber);
+    const key = phoneDigits(phone.phoneNumber);
     const name = phone.location?.name ?? phone.label;
 
     if (key && name) {
@@ -1653,9 +1626,7 @@ function buildCallTableRow(
     languageChanged: observability.languageChanged,
     llmModel: call.llmModel ?? "",
     officeName:
-      call.location?.name ??
-      officeNameByPhone.get(normalizePhoneKey(call.officePhone)) ??
-      null,
+      call.location?.name ?? officeNameByPhone.get(phoneDigits(call.officePhone)) ?? null,
     officePhone: call.officePhone,
     overlappingSpeechCount: observability.overlappingSpeechCount,
     p50TotalLatency: median(latency.total),

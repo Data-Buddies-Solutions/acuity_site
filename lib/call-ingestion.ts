@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { normalizeLiveKitCallPayload, toJsonCompatible } from "@/lib/call-normalization";
 import type { CallSummaryData, LiveKitWebhookPayload } from "@/lib/call-types";
+import { phoneLookupVariants } from "@/lib/phone";
 import { ESTIMATED_USAGE_PROVIDERS } from "@/lib/pricing";
 
 export class CallIngestionError extends Error {
@@ -12,33 +13,6 @@ export class CallIngestionError extends Error {
     this.name = "CallIngestionError";
     this.status = status;
   }
-}
-
-function phoneLookupVariants(phone: string) {
-  const variants = new Set<string>();
-  const trimmed = phone.trim();
-  const digits = trimmed.replace(/\D/g, "");
-
-  if (trimmed) {
-    variants.add(trimmed);
-  }
-
-  if (digits) {
-    variants.add(digits);
-    variants.add(`+${digits}`);
-  }
-
-  if (digits.length === 10) {
-    variants.add(`+1${digits}`);
-    variants.add(`1${digits}`);
-  }
-
-  if (digits.length === 11 && digits.startsWith("1")) {
-    variants.add(`+${digits}`);
-    variants.add(digits.slice(1));
-  }
-
-  return [...variants];
 }
 
 async function resolvePracticeForCall(input: {

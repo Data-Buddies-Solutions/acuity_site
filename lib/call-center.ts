@@ -14,6 +14,7 @@ import {
   getCurrentPortalPracticeContext,
   type PortalPracticeAccessContext,
 } from "@/lib/portal-access";
+import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding } from "@/lib/practice-branding";
 import {
@@ -191,48 +192,6 @@ type CallCenterTelnyxRuntimeSettings = {
 
 function env(name: string) {
   return process.env[name]?.trim() || "";
-}
-
-export function normalizePhone(phone: string | null | undefined) {
-  const trimmed = phone?.trim() ?? "";
-  const digits = trimmed.replace(/\D/g, "");
-
-  if (!digits) {
-    return trimmed;
-  }
-
-  if (digits.length === 10) {
-    return `+1${digits}`;
-  }
-
-  if (digits.length === 11 && digits.startsWith("1")) {
-    return `+${digits}`;
-  }
-
-  return trimmed.startsWith("+") ? trimmed : `+${digits}`;
-}
-
-export function phoneLookupVariants(phone: string | null | undefined) {
-  const variants = new Set<string>();
-  const trimmed = phone?.trim() ?? "";
-  const normalized = normalizePhone(trimmed);
-  const digits = trimmed.replace(/\D/g, "");
-
-  if (trimmed) variants.add(trimmed);
-  if (normalized) variants.add(normalized);
-  if (digits) {
-    variants.add(digits);
-    variants.add(`+${digits}`);
-  }
-  if (digits.length === 10) {
-    variants.add(`+1${digits}`);
-    variants.add(`1${digits}`);
-  }
-  if (digits.length === 11 && digits.startsWith("1")) {
-    variants.add(digits.slice(1));
-  }
-
-  return [...variants].filter(Boolean);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
