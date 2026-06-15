@@ -3,6 +3,7 @@ import { MetadataRoute } from "next";
 import { SITE_CONFIG } from "@/lib/config";
 import { insightPosts } from "./insights/posts";
 import { pressReleases } from "./press/posts";
+import { solutionPages } from "./solutions/pages";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = SITE_CONFIG.baseUrl;
@@ -72,5 +73,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
-  return [...staticRoutes, ...insightRoutes, ...pressRoutes];
+  const solutionRoutes: MetadataRoute.Sitemap = solutionPages.map((page) => ({
+    url: `${baseUrl}/${page.slug}`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.85,
+  }));
+
+  return [...staticRoutes, ...solutionRoutes, ...insightRoutes, ...pressRoutes];
 }

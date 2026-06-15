@@ -1,7 +1,6 @@
 "use client";
 
 import { motion, useInView } from "framer-motion";
-import Image from "next/image";
 import { useRef } from "react";
 
 const outcomes = [
@@ -11,25 +10,18 @@ const outcomes = [
   { metric: "400", label: "staff hours returned to the team" },
 ];
 
-const logos = [
-  { name: "AdvancedMD", logo: "/logo-advancedmd.png" },
-  { name: "Jazzy Eyes Optical", logo: "/logo-jazzyeyes.jpg" },
-  { name: "Abita Eye Group", logo: "/logo-abita.png" },
-  { name: "NMB Eye Center", logo: "/logo-nmbeyecenter.jpg" },
-];
-
 export default function ProofNarrative() {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { amount: 0.2, once: true });
 
   return (
-    <section className="bg-[#fbfaf7] py-24 md:py-32" id="results">
+    <section className="bg-[#172033] py-24 text-white md:py-32" id="results">
       <div ref={ref} className="mx-auto max-w-7xl px-4 md:px-6">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="marketing-label text-xs font-medium tracking-[0.16em] text-accent">
+          <p className="marketing-label text-xs font-medium tracking-[0.16em] text-white/65">
             Proof from practice
           </p>
-          <h2 className="mt-4 text-4xl font-semibold leading-[1.05] tracking-[-0.02em] md:text-5xl lg:text-[3.25rem] [text-wrap:balance]">
+          <h2 className="mt-4 text-4xl font-semibold leading-[1.05] tracking-[-0.02em] text-white md:text-5xl lg:text-[3.25rem] [text-wrap:balance]">
             Six locations. Thirty days.
           </h2>
         </div>
@@ -44,10 +36,10 @@ export default function ProofNarrative() {
               key={o.label}
               transition={{ delay: 0.1 + i * 0.12, duration: 0.5, ease: "easeOut" }}
             >
-              <p className="font-display text-5xl font-medium tracking-[-0.052em] text-accent tabular-nums md:text-6xl lg:text-[4rem]">
+              <p className="font-display text-5xl font-medium tracking-[-0.052em] text-white tabular-nums md:text-6xl lg:text-[4rem]">
                 {o.metric}
               </p>
-              <p className="mx-auto mt-3 max-w-[18ch] text-sm leading-relaxed text-muted-foreground md:text-base">
+              <p className="mx-auto mt-3 max-w-[18ch] text-sm leading-relaxed text-white/68 md:text-base">
                 {o.label}
               </p>
             </motion.div>
@@ -63,40 +55,20 @@ export default function ProofNarrative() {
         >
           <span
             aria-hidden="true"
-            className="block text-[6rem] leading-none text-accent/20 md:text-[8rem]"
+            className="block text-[6rem] leading-none text-white/12 md:text-[8rem]"
           >
             &ldquo;
           </span>
-          <blockquote className="-mt-8 text-2xl font-medium leading-[1.35] tracking-[-0.01em] text-[#101820] md:text-3xl lg:text-[2.25rem] [text-wrap:balance]">
+          <blockquote className="-mt-8 text-2xl font-medium leading-[1.35] tracking-[-0.01em] text-white md:text-3xl lg:text-[2.25rem] [text-wrap:balance]">
             I was spending 4+ hours a day on manual admin work. Acuity gave me my life
             back.
           </blockquote>
           <figcaption className="mt-8 flex items-center justify-center gap-3 text-sm">
-            <span className="font-semibold text-[#101820]">Jason Buchwald</span>
-            <span className="h-1 w-1 rounded-full bg-[#c8ced8]" />
-            <span className="text-muted-foreground">Practice Operator</span>
+            <span className="font-semibold text-white">Jason Buchwald</span>
+            <span className="h-1 w-1 rounded-full bg-white/25" />
+            <span className="text-white/65">Practice Operator</span>
           </figcaption>
         </motion.figure>
-
-        {/* Logo strip — quiet trust signal */}
-        <div className="mt-20 border-t border-[#e1e5eb] pt-12 md:mt-28">
-          <p className="marketing-label text-center text-[11px] font-medium tracking-[0.16em] text-muted-foreground/70">
-            Deployed across
-          </p>
-          <div className="mx-auto mt-8 grid max-w-3xl grid-cols-2 items-center justify-items-center gap-x-10 gap-y-6 md:grid-cols-4">
-            {logos.map((logo) => (
-              <div className="relative h-9 w-32" key={logo.name}>
-                <Image
-                  alt={logo.name}
-                  className="object-contain opacity-60 grayscale"
-                  fill
-                  sizes="128px"
-                  src={logo.logo}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </section>
   );

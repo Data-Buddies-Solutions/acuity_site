@@ -14,7 +14,7 @@ export default function Problem() {
   const inView = useInView(ref, { amount: 0.2, once: true });
 
   return (
-    <section className="bg-[#111827] py-24 text-white md:py-32" id="problem">
+    <section className="bg-[#172033] py-24 text-white md:py-32" id="problem">
       <div ref={ref} className="mx-auto max-w-6xl px-4 md:px-6">
         <div className="mx-auto max-w-3xl text-center">
           <p className="marketing-label text-[11px] font-medium tracking-[0.16em] text-[#aebbd0]">

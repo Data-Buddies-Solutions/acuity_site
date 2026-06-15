@@ -4,7 +4,6 @@ import Problem from "./components/Problem";
 import WhatWeBuild from "./components/WhatWeBuild";
 import OfferStory from "./components/OfferStory";
 import ProofNarrative from "./components/ProofNarrative";
-import CTA from "./components/CTA";
 
 export const metadata: Metadata = {
   title: { absolute: "AI Receptionist for Ophthalmology | Acuity Health" },
@@ -21,9 +20,8 @@ export default function Home() {
       <Hero />
       <Problem />
       <OfferStory />
-      <WhatWeBuild />
       <ProofNarrative />
-      <CTA />
+      <WhatWeBuild />
     </>
   );
 }

@@ -32,7 +32,7 @@ const organizationSchema = {
   logo: SITE_CONFIG.logoUrl,
   description: SITE_CONFIG.description,
   email: SITE_CONFIG.email,
-  sameAs: [SITE_CONFIG.social.linkedin],
+  sameAs: Object.values(SITE_CONFIG.social),
   areaServed: {
     "@type": "Country",
     name: "United States",

@@ -35,7 +35,7 @@ export default function OfferStory() {
   const inView = useInView(ref, { amount: 0.25, once: true });
 
   return (
-    <section className="bg-[#edf1f7] py-24 md:py-32" id="offers">
+    <section className="bg-canvas py-24 md:py-32" id="offers">
       <div ref={ref} className="mx-auto max-w-6xl px-4 md:px-6">
         <div className="mx-auto max-w-3xl text-center">
           <p className="marketing-label text-[11px] font-medium tracking-[0.16em] text-accent">

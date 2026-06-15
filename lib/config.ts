@@ -11,6 +11,8 @@ export const SITE_CONFIG = {
     chase: "chasef07",
   },
   social: {
-    linkedin: "https://www.linkedin.com/company/data-buddies-solutions/",
+    linkedin: "https://www.linkedin.com/company/acuityhealth/",
+    instagram: "https://www.instagram.com/acuityhealth.io/",
+    facebook: "https://www.facebook.com/profile.php?id=61590193457478",
   },
 } as const;
