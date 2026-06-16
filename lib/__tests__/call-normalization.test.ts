@@ -534,12 +534,22 @@ describe("normalizeLiveKitCallPayload", () => {
           toolName: "check_insurance",
         },
       ],
+      voiceExperiment: {
+        assignment: "sticky_caller_phone_hash",
+        assignmentHash: "abcdef1234567890",
+        experimentId: "sweetwater_rime_cartesia_2026_06",
+        provider: "rime",
+        scope: "sweetwater",
+        speaker: "luz",
+        variant: "rime",
+      },
     });
     const data = normalized.dataPayload as {
       language?: unknown;
       llmSummary?: unknown;
       sessionEvents?: unknown;
       toolExecutions?: unknown[];
+      voiceExperiment?: unknown;
     };
 
     expect(normalized.fallbackUsed).toBe(true);
@@ -559,6 +569,15 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(data.llmSummary).toBeTruthy();
     expect(data.sessionEvents).toBeTruthy();
     expect(data.toolExecutions?.length).toBe(2);
+    expect(data.voiceExperiment).toEqual({
+      assignment: "sticky_caller_phone_hash",
+      assignmentHash: "abcdef1234567890",
+      experimentId: "sweetwater_rime_cartesia_2026_06",
+      provider: "rime",
+      scope: "sweetwater",
+      speaker: "luz",
+      variant: "rime",
+    });
   });
 
   it("keeps metric token totals when llmSummary is partial", () => {

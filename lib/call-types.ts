@@ -71,6 +71,7 @@ export type CallSummaryData = {
   sessionReport?: SessionReport;
   audioBase64?: string;
   usage?: AgentSessionUsage;
+  voiceExperiment?: VoiceExperimentMetadata;
 };
 
 export type LiveKitMetric = {
@@ -200,11 +201,24 @@ export type LiveKitWebhookPayload = {
   turnMetrics?: TurnMetricRecord[];
   toolExecutions?: ToolExecutionAnalytics[];
   sessionReport?: SessionReport;
+  voiceExperiment?: VoiceExperimentMetadata;
   audioBase64?: string;
   reviewStatus?: string;
   reviewResult?: unknown;
   outcomeSummary?: string;
   [key: string]: unknown;
+};
+
+export type VoiceExperimentMetadata = {
+  assignment?: string;
+  assignmentHash?: string;
+  experimentId: string;
+  model?: string;
+  provider?: string;
+  scope?: string;
+  speaker?: string;
+  variant: string;
+  voiceId?: string;
 };
 
 export type ReviewEvidence = {
