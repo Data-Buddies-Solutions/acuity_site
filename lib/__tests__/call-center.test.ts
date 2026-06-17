@@ -1,13 +1,19 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { CallCenterSessionDirection } from "@/generated/prisma/client";
 import {
+  CallCenterNoteDisposition,
+  CallCenterSessionDirection,
+} from "@/generated/prisma/client";
+import {
+  buildPortalNeedsActionGroups,
   extractAcuityLiveKitHandoff,
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
   isRingbackToneActiveAtSecond,
   metadataWithPendingBlindTransferSourceEnded,
+  type PortalCallActivityItem,
   resolveTelnyxRuntimeSettings,
+  shouldMarkLinkedInboundSessionCompleted,
   telnyxSessionDirectionFromPayload,
 } from "@/lib/call-center";
 
@@ -106,6 +112,176 @@ describe("call-center blind transfer metadata", () => {
         targetSeatId: "target-seat",
       },
       unrelated: true,
+    });
+  });
+});
+
+describe("call-center handled session reconciliation", () => {
+  it("completes inbound ringing or active sessions when a handled queue leg ends", () => {
+    expect(
+      shouldMarkLinkedInboundSessionCompleted({
+        direction: CallCenterSessionDirection.INBOUND,
+        status: "RINGING",
+      }),
+    ).toBe(true);
+    expect(
+      shouldMarkLinkedInboundSessionCompleted({
+        direction: CallCenterSessionDirection.INBOUND,
+        status: "ACTIVE",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not overwrite missed, voicemail, failed, outbound, or already-ended sessions", () => {
+    expect(
+      shouldMarkLinkedInboundSessionCompleted({
+        direction: CallCenterSessionDirection.INBOUND,
+        status: "MISSED",
+      }),
+    ).toBe(false);
+    expect(
+      shouldMarkLinkedInboundSessionCompleted({
+        direction: CallCenterSessionDirection.INBOUND,
+        status: "VOICEMAIL",
+      }),
+    ).toBe(false);
+    expect(
+      shouldMarkLinkedInboundSessionCompleted({
+        direction: CallCenterSessionDirection.INBOUND,
+        status: "FAILED",
+      }),
+    ).toBe(false);
+    expect(
+      shouldMarkLinkedInboundSessionCompleted({
+        direction: CallCenterSessionDirection.OUTBOUND,
+        status: "ACTIVE",
+      }),
+    ).toBe(false);
+    expect(
+      shouldMarkLinkedInboundSessionCompleted({
+        direction: CallCenterSessionDirection.INBOUND,
+        endedAt: new Date("2026-06-16T12:00:00.000Z"),
+        status: "COMPLETED",
+      }),
+    ).toBe(false);
+  });
+});
+
+function needsActionEvent(
+  overrides: Partial<PortalCallActivityItem> & {
+    createdAt: Date;
+    fromPhone: string;
+    kind: PortalCallActivityItem["kind"];
+    recordId: string;
+  },
+): PortalCallActivityItem {
+  return {
+    callerName: null,
+    disposition: null,
+    durationSec: null,
+    id: `${overrides.kind}:${overrides.recordId}`,
+    locationName: null,
+    recordingId: null,
+    resolved: false,
+    ...overrides,
+  };
+}
+
+describe("portal needs-action grouping", () => {
+  it("groups repeated unresolved activity by caller number", () => {
+    const groups = buildPortalNeedsActionGroups([
+      needsActionEvent({
+        createdAt: new Date("2026-06-16T13:00:00.000Z"),
+        fromPhone: "(727) 591-9997",
+        kind: "missed",
+        recordId: "missed-1",
+      }),
+      needsActionEvent({
+        createdAt: new Date("2026-06-16T13:10:00.000Z"),
+        durationSec: 24,
+        fromPhone: "+17275919997",
+        kind: "voicemail",
+        recordId: "voicemail-1",
+        recordingId: "recording-1",
+      }),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      eventCount: 2,
+      fromPhone: "(727) 591-9997",
+      latestKind: "voicemail",
+      latestVoicemailDurationSec: 24,
+      latestVoicemailRecordingId: "recording-1",
+      missedCount: 1,
+      voicemailCount: 1,
+    });
+  });
+
+  it("clears older unresolved events when the caller connects later", () => {
+    const groups = buildPortalNeedsActionGroups(
+      [
+        needsActionEvent({
+          createdAt: new Date("2026-06-16T13:00:00.000Z"),
+          fromPhone: "+17275919997",
+          kind: "missed",
+          recordId: "missed-before",
+        }),
+        needsActionEvent({
+          createdAt: new Date("2026-06-16T14:00:00.000Z"),
+          fromPhone: "+17275919997",
+          kind: "missed",
+          recordId: "missed-after",
+        }),
+      ],
+      [
+        {
+          direction: CallCenterSessionDirection.OUTBOUND,
+          fromPhone: "+17275550000",
+          occurredAt: new Date("2026-06-16T13:30:00.000Z"),
+          toPhone: "+17275919997",
+        },
+      ],
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      eventCount: 1,
+      lastActivityAt: new Date("2026-06-16T14:00:00.000Z"),
+      missedCount: 1,
+      voicemailCount: 0,
+    });
+  });
+
+  it("keeps callback notes visible as one caller follow-up thread", () => {
+    const groups = buildPortalNeedsActionGroups(
+      [
+        needsActionEvent({
+          createdAt: new Date("2026-06-16T15:00:00.000Z"),
+          disposition: CallCenterNoteDisposition.CALLBACK_NEEDED,
+          fromPhone: "+17275919997",
+          kind: "note",
+          recordId: "note-1",
+        }),
+      ],
+      [
+        {
+          direction: CallCenterSessionDirection.OUTBOUND,
+          fromPhone: "+17275550000",
+          occurredAt: new Date("2026-06-16T15:30:00.000Z"),
+          toPhone: "+17275919997",
+        },
+      ],
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      callbackNeededCount: 1,
+      eventCount: 1,
+      latestKind: "note",
+      missedCount: 0,
+      noteCount: 1,
+      voicemailCount: 0,
     });
   });
 });

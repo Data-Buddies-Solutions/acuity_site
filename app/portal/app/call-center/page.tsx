@@ -29,6 +29,7 @@ export default async function PortalCallCenterPage({
   const selectedLocationId = Array.isArray(params.office)
     ? params.office[0]
     : params.office;
+  const initialDialNumber = Array.isArray(params.call) ? params.call[0] : params.call;
 
   const data = await getPortalCallCenterData({
     locationId: selectedLocationId,
@@ -51,7 +52,11 @@ export default async function PortalCallCenterPage({
   const outboundCallerNumber = data.hasAllLocationAccess
     ? practiceWideOutboundCallerNumber
     : selectedLocation?.outboundNumber || "";
-  const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 8);
+  const followUpHref = selectedLocationId
+    ? `/portal/app/call-center/follow-up?office=${encodeURIComponent(selectedLocationId)}`
+    : "/portal/app/call-center/follow-up";
+  const historyHref = "/portal/app/call-center/history";
+  const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 30);
   const hasSeatCredential = data.seats.some((seat) => seat.hasCredential);
   const needsSeatCredential = data.seats.length > 0;
   const configured = Boolean(
@@ -87,12 +92,15 @@ export default async function PortalCallCenterPage({
       </PracticePageHeader>
 
       <CallCenterWorkspace
-        activity={data.activity}
         configured={configured}
         configurationMessage={configurationMessage}
         enabled={enabled}
         eventLocationId={selectedLocation?.locationId}
+        followUpHref={followUpHref}
+        historyHref={historyHref}
+        initialDialNumber={initialDialNumber}
         inboundEnabled={data.inboundEnabled}
+        needsAction={data.needsAction}
         outboundCallerNumber={outboundCallerNumber}
         outboundCallerNumbers={data.outboundCallerNumbers}
         queue={data.queue}

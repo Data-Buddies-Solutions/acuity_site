@@ -1,21 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 import {
-  PhoneCall,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  MessageSquareText,
+  Phone,
   PhoneMissed,
   Play,
-  Trash2,
   Voicemail as VoicemailIcon,
 } from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
-import type { PortalCallActivityItem, PortalCallActivityKind } from "@/lib/call-center";
+import type {
+  PortalCallCenterTotals,
+  PortalNeedsActionGroup,
+} from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
-import { resolveMissedCallAction, resolveVoicemailAction } from "./actions";
+import { resolveNeedsActionGroupAction } from "./actions";
 
-type Filter = "all" | PortalCallActivityKind;
+const FOLLOW_UP_PREVIEW_LIMIT = 25;
 
 function formatPhone(phone: string | null) {
   const digits = (phone || "").replace(/\D/g, "");
@@ -25,7 +32,11 @@ function formatPhone(phone: string | null) {
   if (digits.length === 10) {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
-  return phone || "Unknown";
+  return phone || "No number";
+}
+
+function callerHistoryHref(phone: string | null) {
+  return phone ? `/portal/app/call-center/callers/${encodeURIComponent(phone)}` : null;
 }
 
 function formatDuration(seconds: number | null) {
@@ -53,175 +64,170 @@ function formatRelative(date: Date) {
   }).format(new Date(date));
 }
 
-function kindIcon(kind: PortalCallActivityKind) {
-  switch (kind) {
-    case "voicemail":
-      return { Icon: VoicemailIcon, className: "text-amber-500" };
-    case "missed":
-    default:
-      return { Icon: PhoneMissed, className: "text-red-500" };
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function formatGroupSummary(group: PortalNeedsActionGroup) {
+  const parts: string[] = [];
+
+  if (group.voicemailCount) {
+    parts.push(pluralize(group.voicemailCount, "voicemail"));
   }
+
+  if (group.missedCount) {
+    parts.push(pluralize(group.missedCount, "missed call"));
+  }
+
+  if (group.callbackNeededCount) {
+    parts.push(pluralize(group.callbackNeededCount, "callback needed", "callbacks needed"));
+  }
+
+  if (group.followUpRequiredCount) {
+    parts.push(
+      pluralize(group.followUpRequiredCount, "follow-up required", "follow-ups required"),
+    );
+  }
+
+  return parts.join(" · ");
 }
 
 export default function ActivityRail({
-  activity,
+  followUpHref,
+  needsAction,
   onCallback,
   totals,
 }: {
-  activity: PortalCallActivityItem[];
+  followUpHref: string;
+  needsAction: PortalNeedsActionGroup[];
   onCallback: (number: string) => void;
-  totals: { missedCalls: number; voicemails: number };
+  totals: PortalCallCenterTotals;
 }) {
-  const [filter, setFilter] = useState<Filter>("all");
+  const [isOpen, setIsOpen] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedAudioId, setExpandedAudioId] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
 
-  const filtered = useMemo(() => {
-    if (filter === "all") return activity;
-    return activity.filter((item) => item.kind === filter);
-  }, [activity, filter]);
-
-  const visibleItems = showAll ? filtered : filtered.slice(0, 5);
-  const hiddenCount = Math.max(0, filtered.length - visibleItems.length);
-  const totalActivityCount = totals.missedCalls + totals.voicemails;
-  const selectedTotal =
-    filter === "all"
-      ? totalActivityCount
-      : filter === "missed"
-        ? totals.missedCalls
-        : totals.voicemails;
-  const filters: ReadonlyArray<{ count: number; label: string; value: Filter }> = [
-    { count: totalActivityCount, label: "All", value: "all" },
-    { count: totals.missedCalls, label: "Missed", value: "missed" },
-    { count: totals.voicemails, label: "Voicemail", value: "voicemail" },
-  ];
+  const visibleItems = needsAction.slice(0, FOLLOW_UP_PREVIEW_LIMIT);
+  const ToggleIcon = isOpen ? ChevronDown : ChevronRight;
 
   return (
     <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-black/6 px-4 py-3">
-        <h3 className="text-sm font-semibold tracking-[-0.01em] text-[#10272c]">
-          Activity
-        </h3>
-        <nav
-          aria-label="Activity filter"
-          className="inline-flex rounded-lg border border-black/8 bg-[#fafbfb] p-1"
-        >
-          {filters.map((option) => {
-            const isActive = filter === option.value;
-            return (
-              <button
-                key={option.value}
-                aria-pressed={isActive}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition",
-                  isActive
-                    ? "bg-white text-[#10272c] shadow-sm"
-                    : "text-[#617477] hover:text-[#10272c]",
-                )}
-                onClick={() => setFilter(option.value)}
-                type="button"
-              >
-                {option.label}
-                <span
-                  className={cn(
-                    "ml-1.5 tabular-nums",
-                    isActive ? "text-[#617477]" : "text-[#8a999b]",
-                  )}
-                >
-                  {option.count}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-      </header>
-
-      {selectedTotal > filtered.length || hiddenCount > 0 ? (
-        <div className="flex items-center justify-between gap-3 border-b border-black/5 px-4 py-2 text-xs text-[#617477]">
-          <span>
-            Showing {visibleItems.length} of{" "}
-            {selectedTotal > filtered.length ? selectedTotal : filtered.length}
-          </span>
-          {hiddenCount > 0 || showAll ? (
-            <button
-              className="font-semibold text-[#0d7377] transition hover:text-[#09595c]"
-              onClick={() => setShowAll((current) => !current)}
-              type="button"
+      <header className="border-b border-black/6 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            aria-expanded={isOpen}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            onClick={() => setIsOpen((current) => !current)}
+            type="button"
+          >
+            <ToggleIcon
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-[#617477]"
+            />
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-[#10272c]">Follow-up</span>
+                {totals.needsActionCallers ? (
+                  <span className="rounded-full border border-black/8 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#617477]">
+                    {totals.needsActionCallers}
+                  </span>
+                ) : null}
+              </span>
+              <span className="mt-0.5 block text-xs text-[#617477]">
+                Caller threads that still need a response.
+              </span>
+            </span>
+          </button>
+          {totals.needsActionCallers ? (
+            <Link
+              className="shrink-0 text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
+              href={followUpHref}
             >
-              {showAll ? "Show less" : "View all"}
-            </button>
+              View all
+            </Link>
           ) : null}
         </div>
-      ) : null}
+      </header>
 
-      {filtered.length === 0 ? (
-        <div className="px-5 py-12 text-center text-sm text-[#617477]">
-          No activity in this view yet.
+      {!isOpen ? null : needsAction.length === 0 ? (
+        <div className="px-5 py-8 text-center text-sm text-[#617477]">
+          No caller follow-up needed.
         </div>
       ) : (
         <ul className="divide-y divide-black/5">
-          {visibleItems.map((item) => {
-            const { Icon, className } = kindIcon(item.kind);
-            const callbackTarget = item.fromPhone || "";
-            const duration = formatDuration(item.durationSec);
-            const isSelected = selectedId === item.id;
-            const isAudioOpen = expandedAudioId === item.id;
-            const resolveAction =
-              item.kind === "missed" ? resolveMissedCallAction : resolveVoicemailAction;
-            const title = item.callerName || formatPhone(item.fromPhone);
+          {visibleItems.map((group) => {
+            const hasVoicemail = group.voicemailCount > 0;
+            const hasNote = group.noteCount > 0;
+            const Icon = hasVoicemail
+              ? VoicemailIcon
+              : hasNote
+                ? MessageSquareText
+                : PhoneMissed;
+            const iconClassName = hasVoicemail
+              ? "text-amber-500"
+              : hasNote
+                ? "text-[#0d7377]"
+                : "text-red-500";
+            const callbackTarget = group.fromPhone || "";
+            const duration = formatDuration(group.latestVoicemailDurationSec);
+            const isSelected = selectedId === group.id;
+            const isAudioOpen = expandedAudioId === group.id;
+            const title = group.callerName || formatPhone(group.fromPhone);
+            const phoneLabel = group.callerName ? formatPhone(group.fromPhone) : null;
+            const historyHref = callerHistoryHref(group.fromPhone);
+            const summary = formatGroupSummary(group) || "Needs response";
+
             return (
-              <li key={item.id}>
+              <li key={group.id}>
                 <article
                   className={cn(
-                    "px-4 py-2.5 transition",
-                    isSelected ? "bg-[#f1f5f5]" : "hover:bg-[#fafbfb]",
+                    "group px-4 py-3 transition",
+                    isSelected ? "bg-[#f1f5f5]" : "hover:bg-[#f8fbfb]",
                   )}
                 >
-                  <div className="flex items-center gap-3">
-                    <Icon
-                      aria-hidden="true"
-                      className={cn("h-4 w-4 shrink-0", className)}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-[#10272c]">
-                        {title}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
-                        {item.locationName ? <span>{item.locationName}</span> : null}
-                        {item.locationName && (duration || true) ? (
+                  <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+                    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                      <Icon
+                        aria-hidden="true"
+                        className={cn("mt-0.5 h-4 w-4 shrink-0", iconClassName)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          {historyHref ? (
+                            <Link
+                              className="truncate text-sm font-semibold text-[#10272c] hover:text-[#0d7377]"
+                              href={historyHref}
+                            >
+                              {title}
+                            </Link>
+                          ) : (
+                            <div className="truncate text-sm font-medium text-[#10272c]">
+                              {title}
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[#617477]">
+                          {phoneLabel ? <span>{phoneLabel}</span> : null}
+                          {phoneLabel ? <span aria-hidden="true">·</span> : null}
+                          <span className="font-medium text-[#4e6266]">{summary}</span>
+                          {duration ? (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>{duration}</span>
+                            </>
+                          ) : null}
                           <span aria-hidden="true">·</span>
-                        ) : null}
-                        {duration ? (
-                          <>
-                            <span>{duration}</span>
-                            <span aria-hidden="true">·</span>
-                          </>
-                        ) : null}
-                        <span>{formatRelative(item.createdAt)}</span>
+                          <span>{formatRelative(group.lastActivityAt)}</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {item.kind === "voicemail" && item.recordingId ? (
-                        <Button
-                          aria-label="Play voicemail"
-                          aria-pressed={isAudioOpen}
-                          className="h-8 w-8 p-0"
-                          onClick={() => setExpandedAudioId(isAudioOpen ? null : item.id)}
-                          size="sm"
-                          title="Play voicemail"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <Play className="h-4 w-4" aria-hidden="true" />
-                        </Button>
-                      ) : null}
+                    <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
                       <Button
                         aria-label={`Call back ${title}`}
-                        className="h-8 w-8 p-0"
+                        className="h-8 w-8 p-0 text-[#617477] hover:text-[#0d7377]"
                         disabled={!callbackTarget}
                         onClick={() => {
-                          setSelectedId(item.id);
+                          setSelectedId(group.id);
                           if (callbackTarget) {
                             onCallback(callbackTarget);
                           }
@@ -231,30 +237,45 @@ export default function ActivityRail({
                         type="button"
                         variant="ghost"
                       >
-                        <PhoneCall className="h-4 w-4" aria-hidden="true" />
+                        <Phone className="h-4 w-4" aria-hidden="true" />
                       </Button>
-                      <form action={resolveAction}>
-                        <input type="hidden" name="id" value={item.recordId} />
+                      {group.latestVoicemailRecordingId ? (
                         <Button
-                          aria-label="Dismiss"
-                          className="h-8 w-8 p-0 text-[#617477] hover:text-red-600"
+                          aria-label="Play voicemail"
+                          aria-pressed={isAudioOpen}
+                          className="h-8 w-8 p-0"
+                          onClick={() => setExpandedAudioId(isAudioOpen ? null : group.id)}
                           size="sm"
-                          title="Dismiss"
+                          title="Play voicemail"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Play className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      ) : null}
+                      <form action={resolveNeedsActionGroupAction}>
+                        <input type="hidden" name="phone" value={group.fromPhone ?? ""} />
+                        <Button
+                          aria-label="Mark resolved"
+                          className="h-8 w-8 p-0 text-[#617477] hover:text-[#0d7377]"
+                          disabled={!group.fromPhone}
+                          size="sm"
+                          title="Mark resolved"
                           type="submit"
                           variant="ghost"
                         >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                         </Button>
                       </form>
                     </div>
                   </div>
-                  {item.kind === "voicemail" && item.recordingId && isAudioOpen ? (
+                  {group.latestVoicemailRecordingId && isAudioOpen ? (
                     <audio
                       autoPlay
                       className="mt-2 h-8 w-full max-w-xl"
                       controls
                       preload="none"
-                      src={`/api/portal/call-center/voicemails/${item.recordingId}`}
+                      src={`/api/portal/call-center/voicemails/${group.latestVoicemailRecordingId}`}
                     />
                   ) : null}
                 </article>

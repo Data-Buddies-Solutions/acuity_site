@@ -1,12 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   CirclePause,
   MinusCircle,
-  PhoneCall,
   PhoneIncoming,
   PhoneOutgoing,
 } from "lucide-react";
@@ -14,9 +16,10 @@ import {
 import { Button } from "@/app/components/ui/button";
 
 import type {
-  PortalCallActivityItem,
   PortalCallCenterSeat,
+  PortalCallCenterTotals,
   PortalCallQueueItem,
+  PortalNeedsActionGroup,
   PortalOutboundCallerNumber,
   PortalRecentCallItem,
 } from "@/lib/call-center";
@@ -37,12 +40,15 @@ const presenceOptions: Array<{
 ];
 
 export default function CallCenterWorkspace({
-  activity,
   configured,
   configurationMessage,
   enabled,
   eventLocationId,
+  followUpHref,
+  historyHref,
+  initialDialNumber,
   inboundEnabled,
+  needsAction,
   outboundCallerNumber,
   outboundCallerNumbers,
   queue,
@@ -51,18 +57,21 @@ export default function CallCenterWorkspace({
   totals,
   voicemailTimeoutSec,
 }: {
-  activity: PortalCallActivityItem[];
   configured: boolean;
   configurationMessage: string;
   enabled: boolean;
   eventLocationId?: string | null;
+  followUpHref: string;
+  historyHref: string;
+  initialDialNumber?: string | null;
   inboundEnabled: boolean;
+  needsAction: PortalNeedsActionGroup[];
   outboundCallerNumber: string;
   outboundCallerNumbers: PortalOutboundCallerNumber[];
   queue: PortalCallQueueItem[];
   recentCalls: PortalRecentCallItem[];
   seats: PortalCallCenterSeat[];
-  totals: { missedCalls: number; voicemails: number };
+  totals: PortalCallCenterTotals;
   voicemailTimeoutSec: number;
 }) {
   const router = useRouter();
@@ -71,7 +80,8 @@ export default function CallCenterWorkspace({
   const [seed, setSeed] = useState<{ value: string; token: number } | null>(null);
   const [selectedOutboundCallerNumber, setSelectedOutboundCallerNumber] =
     useState(outboundCallerNumber);
-  const [selectedSeatId, setSelectedSeatId] = useState(() => seats[0]?.id ?? "");
+  const [selectedSeatId, setSelectedSeatId] = useState("");
+  const [seatPreferenceLoaded, setSeatPreferenceLoaded] = useState(false);
   const [softphoneBusy, setSoftphoneBusy] = useState(false);
   const [softphoneEngaged, setSoftphoneEngaged] = useState(false);
   const [takingTransferIds, setTakingTransferIds] = useState<Set<string>>(
@@ -81,14 +91,42 @@ export default function CallCenterWorkspace({
   const softphoneEngagedRef = useRef(false);
   const softphoneRef = useRef<SoftphoneHandle | null>(null);
   const selectedSeat = useMemo(
-    () => seats.find((seat) => seat.id === selectedSeatId) ?? seats[0] ?? null,
+    () => seats.find((seat) => seat.id === selectedSeatId) ?? null,
     [seats, selectedSeatId],
   );
   const effectivePresenceStatus: PresenceStatus = softphoneBusy ? "BUSY" : presenceStatus;
+  const softphoneEnabled = enabled && (!seats.length || Boolean(selectedSeat));
 
   useEffect(() => {
     setSelectedOutboundCallerNumber(outboundCallerNumber);
   }, [outboundCallerNumber]);
+
+  useEffect(() => {
+    if (!initialDialNumber) {
+      return;
+    }
+
+    setSeed({ token: Date.now(), value: initialDialNumber });
+  }, [initialDialNumber]);
+
+  useEffect(() => {
+    setSelectedSeatId((current) => {
+      if (current && seats.some((seat) => seat.id === current)) {
+        return current;
+      }
+
+      return getStoredSelectedSeatId(seats);
+    });
+    setSeatPreferenceLoaded(true);
+  }, [seats]);
+
+  useEffect(() => {
+    if (!seatPreferenceLoaded) {
+      return;
+    }
+
+    rememberSelectedSeatId(selectedSeatId);
+  }, [seatPreferenceLoaded, selectedSeatId]);
 
   useEffect(() => {
     softphoneEngagedRef.current = softphoneEngaged;
@@ -334,120 +372,135 @@ export default function CallCenterWorkspace({
   }, [enabled, hasWaitingCaller, softphoneBusy, softphoneEngaged]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <div className="space-y-4 lg:col-span-2">
-        {inboundEnabled ? (
-          <QueuePanel
-            canTake={Boolean(selectedSeat)}
-            isAvailable={effectivePresenceStatus === "AVAILABLE"}
-            onCallback={handleCallback}
-            onTake={handleTakeQueuedCall}
-            onTakeTransfer={handleTakeTransfer}
-            queue={queue}
-            selectedSeatId={selectedSeat?.id ?? null}
-            takingTransferIds={takingTransferIds}
-          />
-        ) : null}
-        <ActivityRail activity={activity} onCallback={handleCallback} totals={totals} />
-        <RecentCallsPanel calls={recentCalls} onCallback={handleCallback} />
-      </div>
-      <div>
-        {enabled && configured ? (
-          <div className="space-y-3">
-            {seats.length ? (
-              <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
-                <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
-                  Station
-                  <select
-                    className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377] disabled:cursor-not-allowed disabled:bg-[#f3f6f6] disabled:text-[#8aa0a3]"
-                    disabled={softphoneEngaged}
-                    onChange={(event) => setSelectedSeatId(event.target.value)}
-                    value={selectedSeat?.id ?? ""}
-                  >
-                    {seats.map((seat) => (
-                      <option key={seat.id} value={seat.id}>
-                        {seat.extension
-                          ? `${seat.extension} - ${seat.label}`
-                          : seat.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="mt-3 grid grid-cols-3 gap-1.5">
-                  {presenceOptions.map((option) => {
-                    const Icon = option.icon;
-                    const selected = presenceStatus === option.value;
-                    const disabled = softphoneBusy && option.value !== "BUSY";
-
-                    return (
-                      <Button
-                        aria-pressed={selected}
-                        className="px-2"
-                        disabled={disabled}
-                        key={option.value}
-                        onClick={() => setPresenceStatus(option.value)}
-                        size="sm"
-                        variant={
-                          effectivePresenceStatus === option.value
-                            ? "primary"
-                            : "secondary"
-                        }
-                      >
-                        <Icon className="h-4 w-4" aria-hidden="true" />
-                        {option.label}
-                      </Button>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : null}
-            {outboundCallerNumbers.length > 1 ? (
-              <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
-                <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
-                  Outbound number
-                  <select
-                    className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377]"
-                    onChange={(event) =>
-                      setSelectedOutboundCallerNumber(event.target.value)
-                    }
-                    value={selectedOutboundCallerNumber}
-                  >
-                    {outboundCallerNumbers.map((number) => (
-                      <option key={number.phoneNumber} value={number.phoneNumber}>
-                        {number.label} - {formatQueuePhone(number.phoneNumber)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </section>
-            ) : null}
-            <SoftphonePanel
-              browserSessionId={browserSessionId}
-              callerNumber={selectedOutboundCallerNumber || outboundCallerNumber}
-              enabled={enabled}
-              inboundEnabled={inboundEnabled}
-              onActivityChange={setSoftphoneEngaged}
-              onBusyChange={setSoftphoneBusy}
-              ref={softphoneRef}
-              seedNumber={seed}
-              stationLabel={selectedSeat?.label ?? null}
-              stationSeatId={selectedSeat?.id ?? null}
-              transferTargets={seats}
-              voicemailTimeoutSec={voicemailTimeoutSec}
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          {inboundEnabled ? (
+            <QueuePanel
+              canTake={Boolean(selectedSeat)}
+              isAvailable={effectivePresenceStatus === "AVAILABLE"}
+              onTake={handleTakeQueuedCall}
+              onTakeTransfer={handleTakeTransfer}
+              queue={queue}
+              selectedSeatId={selectedSeat?.id ?? null}
+              takingTransferIds={takingTransferIds}
             />
-          </div>
-        ) : (
-          <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
-            <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
-              Softphone standby
-            </h3>
-            <p className="mt-2 text-sm text-[#617477]">
-              {enabled
-                ? configurationMessage
-                : "Enable the call center to start placing and receiving calls in the browser."}
-            </p>
-          </section>
-        )}
+          ) : null}
+          <ActivityRail
+            followUpHref={followUpHref}
+            needsAction={needsAction}
+            onCallback={handleCallback}
+            totals={totals}
+          />
+          <HistoryPanel
+            calls={recentCalls}
+            historyHref={historyHref}
+            total={totals.historyCalls}
+          />
+        </div>
+        <div className="scroll-mt-4" id="softphone">
+          {enabled && configured ? (
+            <div className="space-y-3">
+              {seats.length ? (
+                <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
+                  <div className="mb-3">
+                    <h3 className="text-sm font-semibold text-[#10272c]">
+                      Station console
+                    </h3>
+                  </div>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
+                    Station
+                    <select
+                      className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377] disabled:cursor-not-allowed disabled:bg-[#f3f6f6] disabled:text-[#8aa0a3]"
+                      disabled={softphoneEngaged}
+                      onChange={(event) => setSelectedSeatId(event.target.value)}
+                      value={selectedSeat?.id ?? ""}
+                    >
+                      <option value="">Choose a station</option>
+                      {seats.map((seat) => (
+                        <option key={seat.id} value={seat.id}>
+                          {formatSeatLabel(seat)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="mt-3 grid grid-cols-3 gap-1.5">
+                    {presenceOptions.map((option) => {
+                      const Icon = option.icon;
+                      const selected = presenceStatus === option.value;
+                      const disabled =
+                        !selectedSeat || (softphoneBusy && option.value !== "BUSY");
+
+                      return (
+                        <Button
+                          aria-pressed={selected}
+                          className="px-2"
+                          disabled={disabled}
+                          key={option.value}
+                          onClick={() => setPresenceStatus(option.value)}
+                          size="sm"
+                          variant={
+                            effectivePresenceStatus === option.value
+                              ? "primary"
+                              : "secondary"
+                          }
+                        >
+                          <Icon className="h-4 w-4" aria-hidden="true" />
+                          {option.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+              {outboundCallerNumbers.length > 1 ? (
+                <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
+                    Outbound number
+                    <select
+                      className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377]"
+                      onChange={(event) =>
+                        setSelectedOutboundCallerNumber(event.target.value)
+                      }
+                      value={selectedOutboundCallerNumber}
+                    >
+                      {outboundCallerNumbers.map((number) => (
+                        <option key={number.phoneNumber} value={number.phoneNumber}>
+                          {number.label} - {formatQueuePhone(number.phoneNumber)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </section>
+              ) : null}
+              <SoftphonePanel
+                browserSessionId={browserSessionId}
+                callerNumber={selectedOutboundCallerNumber || outboundCallerNumber}
+                enabled={softphoneEnabled}
+                inboundEnabled={inboundEnabled}
+                onActivityChange={setSoftphoneEngaged}
+                onBusyChange={setSoftphoneBusy}
+                ref={softphoneRef}
+                seedNumber={seed}
+                stationLabel={selectedSeat ? formatSeatLabel(selectedSeat) : null}
+                stationSeatId={selectedSeat?.id ?? null}
+                transferTargets={seats}
+                voicemailTimeoutSec={voicemailTimeoutSec}
+              />
+            </div>
+          ) : (
+            <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
+              <h3 className="text-base font-semibold text-[#10272c]">
+                Softphone standby
+              </h3>
+              <p className="mt-2 text-sm text-[#617477]">
+                {enabled
+                  ? configurationMessage
+                  : "Enable the call center to start placing and receiving calls in the browser."}
+              </p>
+            </section>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -455,6 +508,35 @@ export default function CallCenterWorkspace({
 
 function getInitialBrowserSessionId() {
   return typeof window === "undefined" ? "" : getBrowserSessionId();
+}
+
+function getStoredSelectedSeatId(seats: PortalCallCenterSeat[]) {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    const stored = window.localStorage.getItem("acuity-call-center-selected-seat-id");
+    return stored && seats.some((seat) => seat.id === stored) ? stored : "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberSelectedSeatId(seatId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (seatId) {
+      window.localStorage.setItem("acuity-call-center-selected-seat-id", seatId);
+    } else {
+      window.localStorage.removeItem("acuity-call-center-selected-seat-id");
+    }
+  } catch {
+    // Local storage can be unavailable in private or locked-down browsers.
+  }
 }
 
 function getBrowserSessionId() {
@@ -501,7 +583,15 @@ function formatQueuePhone(phone: string | null) {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
 
-  return phone || "Unknown caller";
+  return phone || "Unknown number";
+}
+
+function callerHistoryHref(phone: string | null) {
+  return phone ? `/portal/app/call-center/callers/${encodeURIComponent(phone)}` : null;
+}
+
+function formatSeatLabel(seat: PortalCallCenterSeat) {
+  return seat.extension ? `${seat.extension} - ${seat.label}` : seat.label;
 }
 
 function queueStatusLabel(status: string) {
@@ -532,61 +622,117 @@ function formatRecentCallTime(date: Date) {
   }).format(value);
 }
 
+function formatCallDuration(seconds: number | null) {
+  if (seconds == null || seconds < 0) {
+    return null;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  return minutes > 0
+    ? `${minutes}m ${remainingSeconds.toString().padStart(2, "0")}s`
+    : `${remainingSeconds}s`;
+}
+
 function hasLiveRingAttempt(item: PortalCallQueueItem) {
   return item.ringAttempts.some((attempt) =>
     ["DIALING", "RINGING", "ANSWERED"].includes(attempt.status),
   );
 }
 
-function RecentCallsPanel({
+function HistoryPanel({
   calls,
-  onCallback,
+  historyHref,
+  total,
 }: {
   calls: PortalRecentCallItem[];
-  onCallback: (number: string) => void;
+  historyHref: string;
+  total: number;
 }) {
-  return (
-    <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
-            Recent calls
-          </h3>
-          <p className="mt-1 text-sm text-[#617477]">
-            Completed inbound calls for this location.
-          </p>
-        </div>
-        <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
-          {calls.length}
-        </span>
-      </div>
+  const [isOpen, setIsOpen] = useState(false);
+  const ToggleIcon = isOpen ? ChevronDown : ChevronRight;
 
-      {calls.length ? (
-        <ul className="mt-4 divide-y divide-black/6 rounded-lg border border-black/6">
+  return (
+    <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
+      <header className="border-b border-black/6 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            aria-expanded={isOpen}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            onClick={() => setIsOpen((current) => !current)}
+            type="button"
+          >
+            <ToggleIcon
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-[#617477]"
+            />
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-[#10272c]">History</span>
+                {total ? (
+                  <span className="rounded-full border border-black/8 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#617477]">
+                    {total}
+                  </span>
+                ) : null}
+              </span>
+              <span className="mt-0.5 block text-xs text-[#617477]">
+                Recent inbound and outbound calls.
+              </span>
+            </span>
+          </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            className="text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
+            href={historyHref}
+          >
+            View all
+          </Link>
+        </div>
+      </div>
+      </header>
+
+      {!isOpen ? null : calls.length ? (
+        <ul className="divide-y divide-black/6">
           {calls.map((call) => {
-            const callbackTarget = call.fromPhone || "";
+            const isOutbound = call.direction === "OUTBOUND";
+            const patientPhone = isOutbound ? call.toPhone : call.fromPhone;
+            const historyHref = callerHistoryHref(patientPhone);
+            const DirectionIcon = isOutbound ? PhoneOutgoing : PhoneIncoming;
+            const duration = formatCallDuration(call.durationSec);
 
             return (
               <li
-                className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
                 key={call.id}
               >
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-2">
-                    <PhoneIncoming
+                    <DirectionIcon
                       aria-hidden="true"
                       className="h-4 w-4 shrink-0 text-[#0d7377]"
                     />
-                    <p className="truncate text-sm font-semibold text-[#10272c]">
-                      {formatQueuePhone(call.fromPhone)}
-                    </p>
+                    {historyHref ? (
+                      <Link
+                        className="block truncate text-sm font-semibold text-[#0d7377] underline-offset-2 hover:underline"
+                        href={historyHref}
+                      >
+                        {formatQueuePhone(patientPhone)}
+                      </Link>
+                    ) : (
+                      <p className="truncate text-sm font-semibold text-[#10272c]">
+                        {formatQueuePhone(patientPhone)}
+                      </p>
+                    )}
                   </div>
                   <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
+                    <span>{isOutbound ? "Outbound" : "Inbound"}</span>
+                    <span aria-hidden="true">·</span>
                     <span>{formatRecentCallTime(call.occurredAt)}</span>
-                    {call.locationName ? (
+                    {duration ? (
                       <>
                         <span aria-hidden="true">·</span>
-                        <span>{call.locationName}</span>
+                        <span>{duration}</span>
                       </>
                     ) : null}
                     {call.answeredBy ? (
@@ -597,27 +743,13 @@ function RecentCallsPanel({
                     ) : null}
                   </p>
                 </div>
-                <Button
-                  className="w-fit"
-                  disabled={!callbackTarget}
-                  onClick={() => {
-                    if (callbackTarget) {
-                      onCallback(callbackTarget);
-                    }
-                  }}
-                  size="sm"
-                  variant="secondary"
-                >
-                  <PhoneCall className="h-4 w-4" aria-hidden="true" />
-                  Call back
-                </Button>
               </li>
             );
           })}
         </ul>
       ) : (
-        <div className="mt-4 rounded-lg border border-dashed border-black/10 px-3 py-6 text-center text-sm text-[#617477]">
-          No completed inbound calls yet.
+        <div className="px-5 py-8 text-center text-sm text-[#617477]">
+          No call history yet.
         </div>
       )}
     </section>
@@ -627,7 +759,6 @@ function RecentCallsPanel({
 function QueuePanel({
   canTake,
   isAvailable,
-  onCallback,
   onTake,
   onTakeTransfer,
   queue,
@@ -636,7 +767,6 @@ function QueuePanel({
 }: {
   canTake: boolean;
   isAvailable: boolean;
-  onCallback: (number: string) => void;
   onTake: (queueItemId: string) => void;
   onTakeTransfer: (queueItemId: string) => void;
   queue: PortalCallQueueItem[];
@@ -652,11 +782,9 @@ function QueuePanel({
     <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold tracking-[-0.02em] text-[#10272c]">
-            Live queue
-          </h3>
+          <h3 className="text-base font-semibold text-[#10272c]">Live queue</h3>
           <p className="mt-1 text-sm text-[#617477]">
-            Inbound callers for this location.
+            Live callers that need an answer.
           </p>
         </div>
         <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
@@ -678,8 +806,8 @@ function QueuePanel({
                 const isTakeableStatus = ["WAITING", "RINGING", "ASSIGNED"].includes(
                   item.status,
                 );
-                const canManuallyTake = canTake && isTakeableStatus && !liveRingAttempt;
-                const canTakeTransfer = canTake && isTransferRequest && !liveRingAttempt;
+                const showTake = isTakeableStatus && !isTransferRequest;
+                const showTakeTransfer = isTransferRequest;
                 const isTakingTransfer = takingTransferIds.has(item.id);
 
                 return (
@@ -699,15 +827,15 @@ function QueuePanel({
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {liveRingAttempt ? (
+                      {liveRingAttempt && !showTake && !showTakeTransfer ? (
                         <Button className="w-fit" disabled size="sm" variant="secondary">
                           Ringing
                         </Button>
                       ) : null}
-                      {canManuallyTake ? (
+                      {showTake ? (
                         <Button
                           className="w-fit"
-                          disabled={!isAvailable}
+                          disabled={!canTake || !isAvailable}
                           onClick={() => onTake(item.id)}
                           size="sm"
                           variant="primary"
@@ -715,26 +843,15 @@ function QueuePanel({
                           Take
                         </Button>
                       ) : null}
-                      {canTakeTransfer ? (
+                      {showTakeTransfer ? (
                         <Button
                           className="w-fit"
-                          disabled={!isAvailable || isTakingTransfer}
+                          disabled={!canTake || !isAvailable || isTakingTransfer}
                           onClick={() => onTakeTransfer(item.id)}
                           size="sm"
                           variant="primary"
                         >
                           Take transfer
-                        </Button>
-                      ) : null}
-                      {item.fromPhone ? (
-                        <Button
-                          className="w-fit"
-                          onClick={() => onCallback(item.fromPhone || "")}
-                          size="sm"
-                          variant="secondary"
-                        >
-                          <PhoneOutgoing className="h-4 w-4" aria-hidden="true" />
-                          Call back
                         </Button>
                       ) : null}
                     </div>
@@ -745,7 +862,7 @@ function QueuePanel({
           ))}
         </ul>
       ) : (
-        <div className="mt-4 rounded-lg border border-dashed border-black/10 px-3 py-6 text-center text-sm text-[#617477]">
+        <div className="mt-4 rounded-lg border border-dashed border-black/10 px-3 py-4 text-center text-sm text-[#617477]">
           No callers waiting.
         </div>
       )}
