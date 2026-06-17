@@ -10,6 +10,7 @@ import {
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
   isRingbackToneActiveAtSecond,
+  isPortalPatientCallSessionMetadata,
   metadataWithPendingBlindTransferSourceEnded,
   type PortalCallActivityItem,
   resolveTelnyxRuntimeSettings,
@@ -283,6 +284,51 @@ describe("portal needs-action grouping", () => {
       noteCount: 1,
       voicemailCount: 0,
     });
+  });
+});
+
+describe("portal patient call session filtering", () => {
+  it("keeps browser-originated outbound call metadata as patient history", () => {
+    expect(
+      isPortalPatientCallSessionMetadata({
+        clientState: {
+          browserSessionId: "browser-1",
+          stationLabel: "101 - Front Desk",
+          stationSeatId: "seat-1",
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("excludes current decoded agent-leg metadata", () => {
+    expect(
+      isPortalPatientCallSessionMetadata({
+        clientState: {
+          queueItemId: "queue-1",
+          ringAttemptId: "ring-1",
+          seatId: "seat-1",
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("excludes older agent-leg metadata stored only as Telnyx client_state", () => {
+    const clientState = Buffer.from(
+      JSON.stringify({
+        queueItemId: "queue-1",
+        ringAttemptId: "ring-1",
+        seatId: "seat-1",
+      }),
+      "utf8",
+    ).toString("base64");
+
+    expect(
+      isPortalPatientCallSessionMetadata({
+        payload: {
+          client_state: clientState,
+        },
+      }),
+    ).toBe(false);
   });
 });
 

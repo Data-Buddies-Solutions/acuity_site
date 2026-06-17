@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
+import { CallCenterNoteDisposition } from "@/generated/prisma/client";
 import {
   buildCallCenterActivityScopeWhere,
+  buildCallCenterPatientSessionScopeWhere,
   buildCallCenterQueueScopeWhere,
   getCurrentPracticeCallCenterContext,
   isSpecialAbitaCallCenterContext,
@@ -31,12 +33,14 @@ async function getCallCenterStateVersion({
   activityScopeWhere,
   practiceId,
   queueScopeWhere,
+  sessionScopeWhere,
 }: {
   activityScopeWhere: ReturnType<typeof buildCallCenterActivityScopeWhere>;
   practiceId: string;
   queueScopeWhere: ReturnType<typeof buildCallCenterQueueScopeWhere>;
+  sessionScopeWhere: ReturnType<typeof buildCallCenterPatientSessionScopeWhere>;
 }) {
-  const [queue, missed, voicemail] = await Promise.all([
+  const [queue, missed, voicemail, note, completedSession] = await Promise.all([
     prisma.callCenterQueueItem.aggregate({
       _count: {
         _all: true,
@@ -79,11 +83,47 @@ async function getCallCenterStateVersion({
         ...activityScopeWhere,
       },
     }),
+    prisma.callCenterNote.aggregate({
+      _count: {
+        _all: true,
+      },
+      _max: {
+        updatedAt: true,
+      },
+      where: {
+        disposition: {
+          in: [
+            CallCenterNoteDisposition.CALLBACK_NEEDED,
+            CallCenterNoteDisposition.FOLLOW_UP_REQUIRED,
+          ],
+        },
+        practiceId,
+        resolvedThread: false,
+        ...activityScopeWhere,
+      },
+    }),
+    prisma.callCenterSession.aggregate({
+      _count: {
+        _all: true,
+      },
+      _max: {
+        updatedAt: true,
+      },
+      where: {
+        practiceId,
+        status: "COMPLETED",
+        ...sessionScopeWhere,
+      },
+    }),
   ]);
 
   return JSON.stringify({
+    completedSessionCount: completedSession._count._all,
+    completedSessionUpdatedAt: completedSession._max.updatedAt?.toISOString() ?? null,
     missedCount: missed._count._all,
     missedUpdatedAt: missed._max.updatedAt?.toISOString() ?? null,
+    noteCount: note._count._all,
+    noteUpdatedAt: note._max.updatedAt?.toISOString() ?? null,
     queueCount: queue._count._all,
     queueUpdatedAt: queue._max.updatedAt?.toISOString() ?? null,
     voicemailCount: voicemail._count._all,
@@ -127,10 +167,13 @@ export async function GET(request: Request) {
     explicitLocationScope ?? buildCallCenterQueueScopeWhere(context);
   const activityScopeWhere =
     explicitLocationScope ?? buildCallCenterActivityScopeWhere(context);
+  const sessionScopeWhere =
+    explicitLocationScope ?? buildCallCenterPatientSessionScopeWhere(context);
   let lastVersion = await getCallCenterStateVersion({
     activityScopeWhere,
     practiceId: context.practice.id,
     queueScopeWhere,
+    sessionScopeWhere,
   });
 
   let closeStream: (() => void) | null = null;
@@ -186,6 +229,7 @@ export async function GET(request: Request) {
             activityScopeWhere,
             practiceId: context.practice.id,
             queueScopeWhere,
+            sessionScopeWhere,
           });
 
           if (nextVersion !== lastVersion) {

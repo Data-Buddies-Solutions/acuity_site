@@ -14,10 +14,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/app/components/ui/button";
-import type {
-  PortalCallCenterTotals,
-  PortalNeedsActionGroup,
-} from "@/lib/call-center";
+import type { PortalCallCenterTotals, PortalNeedsActionGroup } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
 import { resolveNeedsActionGroupAction } from "./actions";
@@ -80,7 +77,9 @@ function formatGroupSummary(group: PortalNeedsActionGroup) {
   }
 
   if (group.callbackNeededCount) {
-    parts.push(pluralize(group.callbackNeededCount, "callback needed", "callbacks needed"));
+    parts.push(
+      pluralize(group.callbackNeededCount, "callback needed", "callbacks needed"),
+    );
   }
 
   if (group.followUpRequiredCount) {
@@ -95,11 +94,13 @@ function formatGroupSummary(group: PortalNeedsActionGroup) {
 export default function ActivityRail({
   followUpHref,
   needsAction,
+  office,
   onCallback,
   totals,
 }: {
   followUpHref: string;
   needsAction: PortalNeedsActionGroup[];
+  office?: string | null;
   onCallback: (number: string) => void;
   totals: PortalCallCenterTotals;
 }) {
@@ -120,10 +121,7 @@ export default function ActivityRail({
             onClick={() => setIsOpen((current) => !current)}
             type="button"
           >
-            <ToggleIcon
-              aria-hidden="true"
-              className="h-4 w-4 shrink-0 text-[#617477]"
-            />
+            <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#617477]" />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-[#10272c]">Follow-up</span>
@@ -244,7 +242,9 @@ export default function ActivityRail({
                           aria-label="Play voicemail"
                           aria-pressed={isAudioOpen}
                           className="h-8 w-8 p-0"
-                          onClick={() => setExpandedAudioId(isAudioOpen ? null : group.id)}
+                          onClick={() =>
+                            setExpandedAudioId(isAudioOpen ? null : group.id)
+                          }
                           size="sm"
                           title="Play voicemail"
                           type="button"
@@ -254,6 +254,9 @@ export default function ActivityRail({
                         </Button>
                       ) : null}
                       <form action={resolveNeedsActionGroupAction}>
+                        {office ? (
+                          <input type="hidden" name="office" value={office} />
+                        ) : null}
                         <input type="hidden" name="phone" value={group.fromPhone ?? ""} />
                         <Button
                           aria-label="Mark resolved"

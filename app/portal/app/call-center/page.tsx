@@ -43,6 +43,7 @@ export default async function PortalCallCenterPage({
   const enabled = settings?.enabled === true;
   const runtimeSettings = settings ? resolveTelnyxRuntimeSettings(settings) : null;
   const selectedLocation = data.selectedLocation;
+  const selectedOfficeId = selectedLocation?.id ?? selectedLocationId ?? null;
   const practiceWideOutboundCallerNumber =
     selectedLocation?.outboundNumber ||
     runtimeSettings?.outboundCallerNumber ||
@@ -52,8 +53,8 @@ export default async function PortalCallCenterPage({
   const outboundCallerNumber = data.hasAllLocationAccess
     ? practiceWideOutboundCallerNumber
     : selectedLocation?.outboundNumber || "";
-  const followUpHref = selectedLocationId
-    ? `/portal/app/call-center/follow-up?office=${encodeURIComponent(selectedLocationId)}`
+  const followUpHref = selectedOfficeId
+    ? `/portal/app/call-center/follow-up?office=${encodeURIComponent(selectedOfficeId)}`
     : "/portal/app/call-center/follow-up";
   const historyHref = "/portal/app/call-center/history";
   const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 30);
@@ -101,6 +102,7 @@ export default async function PortalCallCenterPage({
         initialDialNumber={initialDialNumber}
         inboundEnabled={data.inboundEnabled}
         needsAction={data.needsAction}
+        office={selectedOfficeId}
         outboundCallerNumber={outboundCallerNumber}
         outboundCallerNumbers={data.outboundCallerNumbers}
         queue={data.queue}

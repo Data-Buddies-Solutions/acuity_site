@@ -49,6 +49,7 @@ export default function CallCenterWorkspace({
   initialDialNumber,
   inboundEnabled,
   needsAction,
+  office,
   outboundCallerNumber,
   outboundCallerNumbers,
   queue,
@@ -66,6 +67,7 @@ export default function CallCenterWorkspace({
   initialDialNumber?: string | null;
   inboundEnabled: boolean;
   needsAction: PortalNeedsActionGroup[];
+  office?: string | null;
   outboundCallerNumber: string;
   outboundCallerNumbers: PortalOutboundCallerNumber[];
   queue: PortalCallQueueItem[];
@@ -389,6 +391,7 @@ export default function CallCenterWorkspace({
           <ActivityRail
             followUpHref={followUpHref}
             needsAction={needsAction}
+            office={office}
             onCallback={handleCallback}
             totals={totals}
           />
@@ -478,6 +481,7 @@ export default function CallCenterWorkspace({
                 callerNumber={selectedOutboundCallerNumber || outboundCallerNumber}
                 enabled={softphoneEnabled}
                 inboundEnabled={inboundEnabled}
+                office={office}
                 onActivityChange={setSoftphoneEngaged}
                 onBusyChange={setSoftphoneBusy}
                 ref={softphoneRef}
@@ -663,10 +667,7 @@ function HistoryPanel({
             onClick={() => setIsOpen((current) => !current)}
             type="button"
           >
-            <ToggleIcon
-              aria-hidden="true"
-              className="h-4 w-4 shrink-0 text-[#617477]"
-            />
+            <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#617477]" />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-[#10272c]">History</span>
@@ -681,15 +682,15 @@ function HistoryPanel({
               </span>
             </span>
           </button>
-        <div className="flex shrink-0 items-center gap-2">
-          <Link
-            className="text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
-            href={historyHref}
-          >
-            View all
-          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              className="text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
+              href={historyHref}
+            >
+              View all
+            </Link>
+          </div>
         </div>
-      </div>
       </header>
 
       {!isOpen ? null : calls.length ? (
@@ -783,9 +784,7 @@ function QueuePanel({
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold text-[#10272c]">Live queue</h3>
-          <p className="mt-1 text-sm text-[#617477]">
-            Live callers that need an answer.
-          </p>
+          <p className="mt-1 text-sm text-[#617477]">Live callers that need an answer.</p>
         </div>
         <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
           {visibleQueue.length}
@@ -806,8 +805,9 @@ function QueuePanel({
                 const isTakeableStatus = ["WAITING", "RINGING", "ASSIGNED"].includes(
                   item.status,
                 );
-                const showTake = isTakeableStatus && !isTransferRequest;
-                const showTakeTransfer = isTransferRequest;
+                const showTake =
+                  isTakeableStatus && !isTransferRequest && !liveRingAttempt;
+                const showTakeTransfer = isTransferRequest && !liveRingAttempt;
                 const isTakingTransfer = takingTransferIds.has(item.id);
 
                 return (

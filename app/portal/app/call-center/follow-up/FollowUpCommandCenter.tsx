@@ -16,9 +16,7 @@ import { Button } from "@/app/components/ui/button";
 import type { PortalNeedsActionGroup } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
-import {
-  resolveNeedsActionGroupAction,
-} from "../actions";
+import { resolveNeedsActionGroupAction } from "../actions";
 
 type FollowUpCommandCenterProps = {
   office?: string;
@@ -100,7 +98,9 @@ function FollowUpQueueRow({
   const summary = formatGroupSummary(group) || "Needs response";
   const duration = formatDuration(group.latestVoicemailDurationSec);
   const numberHref = callerHistoryHref(group.fromPhone);
-  const callHref = group.fromPhone ? commandCenterCallHref(group.fromPhone, office) : null;
+  const callHref = group.fromPhone
+    ? commandCenterCallHref(group.fromPhone, office)
+    : null;
 
   return (
     <li
@@ -181,7 +181,7 @@ function FollowUpQueueRow({
               <Phone className="h-4 w-4" aria-hidden="true" />
             </Button>
           )}
-          <ResolveIconButton phone={group.fromPhone} />
+          <ResolveIconButton office={office} phone={group.fromPhone} />
         </div>
       </div>
     </li>
@@ -207,7 +207,9 @@ function FollowUpWorkPanel({
   const title = thread.callerName || formatPhone(thread.fromPhone);
   const phoneLabel = thread.callerName ? formatPhone(thread.fromPhone) : null;
   const summary = formatGroupSummary(thread) || "Needs response";
-  const callHref = thread.fromPhone ? commandCenterCallHref(thread.fromPhone, office) : null;
+  const callHref = thread.fromPhone
+    ? commandCenterCallHref(thread.fromPhone, office)
+    : null;
   const numberHref = callerHistoryHref(thread.fromPhone);
 
   return (
@@ -240,7 +242,7 @@ function FollowUpWorkPanel({
                 </Link>
               </Button>
             ) : null}
-            <ResolveTextButton phone={thread.fromPhone} />
+            <ResolveTextButton office={office} phone={thread.fromPhone} />
             {numberHref ? (
               <Link
                 className="text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
@@ -270,7 +272,6 @@ function FollowUpWorkPanel({
             <ThreadMetric label="Follow-up" value={thread.followUpRequiredCount} />
           </dl>
         </section>
-
       </div>
     </aside>
   );
@@ -287,9 +288,10 @@ function ThreadMetric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ResolveIconButton({ phone }: { phone: string | null }) {
+function ResolveIconButton({ office, phone }: { office?: string; phone: string | null }) {
   return (
     <form action={resolveNeedsActionGroupAction}>
+      {office ? <input type="hidden" name="office" value={office} /> : null}
       <input type="hidden" name="phone" value={phone ?? ""} />
       <Button
         aria-label="Mark resolved"
@@ -306,11 +308,18 @@ function ResolveIconButton({ phone }: { phone: string | null }) {
   );
 }
 
-function ResolveTextButton({ phone }: { phone: string | null }) {
+function ResolveTextButton({ office, phone }: { office?: string; phone: string | null }) {
   return (
     <form action={resolveNeedsActionGroupAction}>
+      {office ? <input type="hidden" name="office" value={office} /> : null}
       <input type="hidden" name="phone" value={phone ?? ""} />
-      <Button className="w-fit" disabled={!phone} size="sm" type="submit" variant="secondary">
+      <Button
+        className="w-fit"
+        disabled={!phone}
+        size="sm"
+        type="submit"
+        variant="secondary"
+      >
         <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
         Resolve
       </Button>
@@ -370,10 +379,7 @@ function PaginationControls({
           title="Next page"
           variant="secondary"
         >
-          <Link
-            aria-label="Next page"
-            href={followUpHref({ office, page: page + 1 })}
-          >
+          <Link aria-label="Next page" href={followUpHref({ office, page: page + 1 })}>
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Button>
@@ -496,7 +502,9 @@ function formatGroupSummary(group: PortalNeedsActionGroup) {
   }
 
   if (group.callbackNeededCount) {
-    parts.push(pluralize(group.callbackNeededCount, "callback needed", "callbacks needed"));
+    parts.push(
+      pluralize(group.callbackNeededCount, "callback needed", "callbacks needed"),
+    );
   }
 
   if (group.followUpRequiredCount) {

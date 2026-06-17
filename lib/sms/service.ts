@@ -277,6 +277,13 @@ async function getAllowedSmsPhoneNumbers(context: PortalPracticeAccessContext) {
     .sort(sortSmsInboxOptions);
 }
 
+export async function getAllowedSmsPracticeNumberIdsForContext(
+  context: PortalPracticeAccessContext,
+) {
+  const phoneNumbers = await getAllowedSmsPhoneNumbers(context);
+  return phoneNumbers.map((phoneNumber) => phoneNumber.id);
+}
+
 function serializeSmsInboxOption(phoneNumber: PracticeSmsPhoneNumber): SmsInboxOption {
   return {
     id: phoneNumber.id,

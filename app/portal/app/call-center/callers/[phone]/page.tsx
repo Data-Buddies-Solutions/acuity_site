@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   MessageSquareText,
   Phone,
@@ -27,6 +29,7 @@ export const dynamic = "force-dynamic";
 type ParamsInput = Promise<{ phone: string }>;
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 type HistoryRange = "24h" | "7d" | "all";
+const CALLER_TIMELINE_PAGE_SIZE = 100;
 
 export default async function PortalCallCenterCallerPage({
   params,
@@ -47,27 +50,36 @@ export default async function PortalCallCenterCallerPage({
   const selectedRange = parseHistoryRange(
     Array.isArray(query.range) ? query.range[0] : query.range,
   );
-  const timeline = await getPortalCallCenterCallerTimeline(phone);
+  const page = parseHistoryPage(Array.isArray(query.page) ? query.page[0] : query.page);
+  const timeline = await getPortalCallCenterCallerTimeline(phone, {
+    page,
+    pageSize: CALLER_TIMELINE_PAGE_SIZE,
+    range: selectedRange,
+  });
 
   if (!timeline) {
     redirect("/portal");
   }
 
-  const needsActionItems = timeline.items.filter(isNeedsActionItem);
-  const latestNeedsActionItem = needsActionItems[0] ?? null;
-  const cutoff = historyRangeCutoff(selectedRange);
-  const filteredItems = cutoff
-    ? timeline.items.filter((item) => item.occurredAt >= cutoff)
-    : timeline.items;
-  const latestItem = filteredItems[0] ?? null;
+  const totalPages = timeline.totalPages;
+
+  if (timeline.page > totalPages) {
+    redirect(historyRangeHref(timeline.phone, selectedRange, totalPages));
+  }
+
+  if (page !== timeline.page) {
+    redirect(historyRangeHref(timeline.phone, selectedRange, timeline.page));
+  }
+
+  const latestNeedsActionItem = timeline.latestNeedsActionItem;
+  const filteredItems = timeline.items;
+  const latestItem = timeline.latestItem;
   const locations = Array.from(
     new Set(filteredItems.map((item) => item.locationName).filter(Boolean)),
   );
-  const inboundCount = filteredItems.filter((item) => item.direction === "inbound").length;
-  const outboundDialedCount = filteredItems.filter(isOutboundCallItem).length;
-  const outboundConnectedCount = filteredItems.filter(
-    (item) => isOutboundCallItem(item) && item.status === "COMPLETED",
-  ).length;
+  const inboundCount = timeline.totals.inboundItems;
+  const outboundDialedCount = timeline.totals.outboundDialedCalls;
+  const outboundConnectedCount = timeline.totals.outboundConnectedCalls;
   const statusLabel = latestNeedsActionItem ? "Needs action" : "No action needed";
   const title = timeline.callerName || formatPhone(timeline.phone);
   const subtitle = timeline.callerName ? formatPhone(timeline.phone) : null;
@@ -84,9 +96,7 @@ export default async function PortalCallCenterCallerPage({
             </Link>
           </Button>
           <p className="text-xs font-semibold uppercase text-[#617477]">Number profile</p>
-          <h1 className="mt-1 truncate text-2xl font-semibold text-[#10272c]">
-            {title}
-          </h1>
+          <h1 className="mt-1 truncate text-2xl font-semibold text-[#10272c]">{title}</h1>
           {subtitle ? <p className="mt-1 text-sm text-[#617477]">{subtitle}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -189,9 +199,18 @@ export default async function PortalCallCenterCallerPage({
               {locations.length ? ` · ${locations.join(", ")}` : ""}
             </p>
           </div>
-          <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
-            {filteredItems.length} {filteredItems.length === 1 ? "item" : "items"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+              {timeline.totals.totalItems}{" "}
+              {timeline.totals.totalItems === 1 ? "item" : "items"}
+            </span>
+            <PaginationControls
+              page={timeline.page}
+              phone={timeline.phone}
+              range={selectedRange}
+              totalPages={totalPages}
+            />
+          </div>
         </header>
 
         {filteredItems.length ? (
@@ -251,7 +270,7 @@ function HistoryRangeTabs({
                 ? "bg-white text-[#10272c] shadow-sm"
                 : "text-[#617477] hover:text-[#10272c]",
             )}
-            href={historyRangeHref(phone, option.value)}
+            href={historyRangeHref(phone, option.value, 1)}
             key={option.value}
           >
             {option.label}
@@ -259,6 +278,80 @@ function HistoryRangeTabs({
         );
       })}
     </nav>
+  );
+}
+
+function PaginationControls({
+  page,
+  phone,
+  range,
+  totalPages,
+}: {
+  page: number;
+  phone: string;
+  range: HistoryRange;
+  totalPages: number;
+}) {
+  const hasPrevious = page > 1;
+  const hasNext = page < totalPages;
+
+  return (
+    <div className="flex items-center gap-2">
+      {hasPrevious ? (
+        <Button
+          asChild
+          className="h-8 w-8 p-0"
+          size="sm"
+          title="Previous page"
+          variant="secondary"
+        >
+          <Link
+            aria-label="Previous page"
+            href={historyRangeHref(phone, range, page - 1)}
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </Button>
+      ) : (
+        <Button
+          aria-label="Previous page"
+          className="h-8 w-8 p-0"
+          disabled
+          size="sm"
+          title="Previous page"
+          variant="secondary"
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      )}
+      <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+        {page} / {totalPages}
+      </span>
+      {hasNext ? (
+        <Button
+          asChild
+          className="h-8 w-8 p-0"
+          size="sm"
+          title="Next page"
+          variant="secondary"
+        >
+          <Link aria-label="Next page" href={historyRangeHref(phone, range, page + 1)}>
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </Button>
+      ) : (
+        <Button
+          aria-label="Next page"
+          className="h-8 w-8 p-0"
+          disabled
+          size="sm"
+          title="Next page"
+          variant="secondary"
+        >
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -509,31 +602,29 @@ function isNeedsActionItem(item: PortalCallerTimelineItem) {
   );
 }
 
-function isOutboundCallItem(item: PortalCallerTimelineItem) {
-  return item.direction === "outbound" && item.kind === "call";
-}
-
 function parseHistoryRange(value: string | undefined): HistoryRange {
   return value === "24h" || value === "7d" ? value : "all";
 }
 
-function historyRangeCutoff(range: HistoryRange) {
-  const now = Date.now();
-
-  if (range === "24h") {
-    return new Date(now - 24 * 60 * 60 * 1000);
-  }
-
-  if (range === "7d") {
-    return new Date(now - 7 * 24 * 60 * 60 * 1000);
-  }
-
-  return null;
+function parseHistoryPage(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "1", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
-function historyRangeHref(phone: string, range: HistoryRange) {
+function historyRangeHref(phone: string, range: HistoryRange, page = 1) {
   const path = `/portal/app/call-center/callers/${encodeURIComponent(phone)}`;
-  return range === "all" ? path : `${path}?range=${range}`;
+  const params = new URLSearchParams();
+
+  if (range !== "all") {
+    params.set("range", range);
+  }
+
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }
 
 function historyRangeLabel(range: HistoryRange) {

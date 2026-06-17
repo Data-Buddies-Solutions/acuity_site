@@ -36,21 +36,21 @@ export default async function PortalCallCenterFollowUpPage({
   );
   const data = await getPortalCallCenterData({
     locationId: selectedLocationId,
+    needsActionPage: page,
+    needsActionPageSize: FOLLOW_UP_PAGE_SIZE,
   });
 
   if (!data) {
     redirect("/portal");
   }
 
-  const totalThreads = data.needsAction.length;
+  const totalThreads = data.needsActionTotal;
   const totalPages = Math.max(1, Math.ceil(totalThreads / FOLLOW_UP_PAGE_SIZE));
+  const selectedOfficeId = data.selectedLocation?.id ?? selectedLocationId;
 
   if (totalThreads > 0 && page > totalPages) {
-    redirect(followUpHref({ office: selectedLocationId, page: totalPages }));
+    redirect(followUpHref({ office: selectedOfficeId, page: totalPages }));
   }
-
-  const start = (page - 1) * FOLLOW_UP_PAGE_SIZE;
-  const visibleThreads = data.needsAction.slice(start, start + FOLLOW_UP_PAGE_SIZE);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -69,7 +69,7 @@ export default async function PortalCallCenterFollowUpPage({
             />
           ) : null}
           <Button asChild variant="secondary">
-            <Link href={commandCenterHref(selectedLocationId)}>
+            <Link href={commandCenterHref(selectedOfficeId)}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Command center
             </Link>
@@ -78,9 +78,9 @@ export default async function PortalCallCenterFollowUpPage({
       </PracticePageHeader>
 
       <FollowUpCommandCenter
-        office={selectedLocationId}
+        office={selectedOfficeId}
         page={page}
-        threads={visibleThreads}
+        threads={data.needsAction}
         totalPages={totalPages}
         totalThreads={totalThreads}
       />

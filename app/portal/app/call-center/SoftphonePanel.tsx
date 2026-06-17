@@ -154,12 +154,10 @@ function callerKeyFor(call: TelnyxCall) {
   return normalizeToE164(callerNumberFor(call)) || callerNumberFor(call);
 }
 
-function postCallPhoneFor(
-  call: TelnyxCall,
-  inbound: boolean,
-  outboundNumber: string,
-) {
-  const rawPhone = inbound ? callerNumberFor(call) : outboundNumber || callerNumberFor(call);
+function postCallPhoneFor(call: TelnyxCall, inbound: boolean, outboundNumber: string) {
+  const rawPhone = inbound
+    ? callerNumberFor(call)
+    : outboundNumber || callerNumberFor(call);
   const normalized = normalizeToE164(rawPhone);
 
   if (normalized) {
@@ -182,7 +180,9 @@ function decodeCallClientState(call: TelnyxCall) {
     const decoded =
       typeof window === "undefined"
         ? Buffer.from(raw, "base64").toString("utf8")
-        : window.atob(raw);
+        : new TextDecoder().decode(
+            Uint8Array.from(window.atob(raw), (char) => char.charCodeAt(0)),
+          );
     const parsed = JSON.parse(decoded);
 
     return parsed && typeof parsed === "object"
@@ -196,9 +196,12 @@ function decodeCallClientState(call: TelnyxCall) {
 function encodeCallClientState(value: Record<string, unknown>) {
   const serialized = JSON.stringify(value);
 
-  return typeof window === "undefined"
-    ? Buffer.from(serialized, "utf8").toString("base64")
-    : window.btoa(serialized);
+  if (typeof window === "undefined") {
+    return Buffer.from(serialized, "utf8").toString("base64");
+  }
+
+  const bytes = new TextEncoder().encode(serialized);
+  return window.btoa(String.fromCharCode(...bytes));
 }
 
 function ringKeyFor(call: TelnyxCall) {
@@ -320,6 +323,7 @@ const SoftphonePanel = forwardRef<
     inboundEnabled: boolean;
     onActivityChange?: (active: boolean) => void;
     onBusyChange?: (busy: boolean) => void;
+    office?: string | null;
     seedNumber?: { value: string; token: number } | null;
     stationLabel?: string | null;
     stationSeatId?: string | null;
@@ -334,6 +338,7 @@ const SoftphonePanel = forwardRef<
     inboundEnabled,
     onActivityChange,
     onBusyChange,
+    office,
     seedNumber,
     stationLabel,
     stationSeatId,
@@ -371,8 +376,7 @@ const SoftphonePanel = forwardRef<
   const [answeringRingKeys, setAnsweringRingKeys] = useState<Set<string>>(
     () => new Set(),
   );
-  const [postCallWrapUp, setPostCallWrapUp] =
-    useState<CompletedCallWrapUp | null>(null);
+  const [postCallWrapUp, setPostCallWrapUp] = useState<CompletedCallWrapUp | null>(null);
 
   // Refs mirror state so the Telnyx notification handler (created once) can read latest values
   const activeCallRef = useRef<TelnyxCall | null>(null);
@@ -393,6 +397,7 @@ const SoftphonePanel = forwardRef<
   const dismissedRingKeysRef = useRef<Set<string>>(new Set());
   const outboundCallIdsRef = useRef<Set<string>>(new Set());
   const expectingOutboundUntilRef = useRef<number>(0);
+  const transferPendingRef = useRef(false);
   const transferPendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incomingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringingCallExpireTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
@@ -905,15 +910,17 @@ const SoftphonePanel = forwardRef<
     (reason: string) => {
       const connected = activeCallConnectedRef.current;
       const wrapUp = activeCallWrapUpRef.current;
+      const transferHandoffPending = transferPendingRef.current;
 
       activeCallConnectedRef.current = false;
       activeCallWrapUpRef.current = null;
 
-      if (!connected || !wrapUp?.phone) {
+      if (!connected || !wrapUp?.phone || transferHandoffPending) {
         debugLog("post-call-wrap-up-skipped", {
           connected,
           hadWrapUp: Boolean(wrapUp),
           reason,
+          transferHandoffPending,
         });
         return;
       }
@@ -947,6 +954,7 @@ const SoftphonePanel = forwardRef<
     setShowKeypad(false);
     setCallDuration(0);
     clearTransferPendingTimer();
+    transferPendingRef.current = false;
     setTransferPending(false);
   }, [clearTimer, clearTransferPendingTimer, debugLog, detachAudio]);
 
@@ -1909,6 +1917,7 @@ const SoftphonePanel = forwardRef<
       return;
     }
 
+    transferPendingRef.current = true;
     setTransferPending(true);
     clearTransferPendingTimer();
     setError(null);
@@ -1947,6 +1956,7 @@ const SoftphonePanel = forwardRef<
           call: callDebugSnapshot(activeCallRef.current),
           targetSeatId: selectedTransferSeatId,
         });
+        transferPendingRef.current = false;
         setTransferPending(false);
       }, AGENT_RING_UI_TIMEOUT_MS + 2000);
     } catch (transferError) {
@@ -1955,6 +1965,7 @@ const SoftphonePanel = forwardRef<
         message: errorMessageFor(transferError),
         targetSeatId: selectedTransferSeatId,
       });
+      transferPendingRef.current = false;
       setTransferPending(false);
       setError(errorMessageFor(transferError) || "Unable to transfer call");
     }
@@ -2172,6 +2183,7 @@ const SoftphonePanel = forwardRef<
               key={postCallWrapUp.token}
               onSubmit={() => setPostCallWrapUp(null)}
             >
+              {office ? <input name="office" type="hidden" value={office} /> : null}
               <input name="phone" type="hidden" value={postCallWrapUp.phone} />
               <input
                 name="stationSeatId"
