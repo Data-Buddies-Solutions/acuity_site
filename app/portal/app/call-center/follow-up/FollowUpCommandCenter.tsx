@@ -97,7 +97,7 @@ function FollowUpQueueRow({
   const phoneLabel = group.callerName ? formatPhone(group.fromPhone) : null;
   const summary = formatGroupSummary(group) || "Needs response";
   const duration = formatDuration(group.latestVoicemailDurationSec);
-  const numberHref = callerHistoryHref(group.fromPhone);
+  const numberHref = callerHistoryHref(group.fromPhone, office);
   const callHref = group.fromPhone
     ? commandCenterCallHref(group.fromPhone, office)
     : null;
@@ -210,7 +210,7 @@ function FollowUpWorkPanel({
   const callHref = thread.fromPhone
     ? commandCenterCallHref(thread.fromPhone, office)
     : null;
-  const numberHref = callerHistoryHref(thread.fromPhone);
+  const numberHref = callerHistoryHref(thread.fromPhone, office);
 
   return (
     <aside className="bg-[#fcfdfd]">
@@ -428,8 +428,21 @@ function formatPhone(phone: string | null) {
   return phone || "No number";
 }
 
-function callerHistoryHref(phone: string | null) {
-  return phone ? `/portal/app/call-center/callers/${encodeURIComponent(phone)}` : null;
+function callerHistoryHref(phone: string | null, office?: string) {
+  if (!phone) {
+    return null;
+  }
+
+  const params = new URLSearchParams();
+
+  if (office) {
+    params.set("office", office);
+  }
+
+  const query = params.toString();
+  return `/portal/app/call-center/callers/${encodeURIComponent(phone)}${
+    query ? `?${query}` : ""
+  }`;
 }
 
 function commandCenterCallHref(phone: string, office?: string) {

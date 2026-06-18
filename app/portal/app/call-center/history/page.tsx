@@ -268,7 +268,7 @@ function HistoryRow({ call }: { call: PortalRecentCallItem }) {
           )}
         </div>
         <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
-          <span>{isOutbound ? "Outbound" : "Inbound"}</span>
+          <span>{historyStatusLabel(call)}</span>
           <span aria-hidden="true">·</span>
           <span>{formatHistoryTime(call.occurredAt)}</span>
           {duration ? (
@@ -373,6 +373,18 @@ function formatHistoryTime(date: Date) {
     month: "short",
     timeZone: "America/New_York",
   }).format(new Date(date));
+}
+
+function historyStatusLabel(call: PortalRecentCallItem) {
+  if (call.status === "MISSED") {
+    return "Missed call";
+  }
+
+  if (call.status === "VOICEMAIL") {
+    return "Voicemail";
+  }
+
+  return call.direction === "OUTBOUND" ? "Outbound" : "Inbound";
 }
 
 function formatCallDuration(seconds: number | null) {

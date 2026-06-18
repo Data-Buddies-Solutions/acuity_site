@@ -63,10 +63,6 @@ const ABITA_SOUTH_FLORIDA_TRANSFER_PHONE = "+16184220360";
 const ABITA_SWEETWATER_OPTICAL_EMAIL = "sweetwateropticals@abitaeye.com";
 const ABITA_SWEETWATER_OPTICAL_PHONE = "+17864657479";
 const ABITA_SWEETWATER_OPTICAL_QUEUE_KEY = "abita-sweetwater-optical";
-const MAX_CALLER_TIMELINE_PAGE = 25;
-const DEFAULT_NEEDS_ACTION_EVENT_FETCH_LIMIT = 300;
-const MAX_NEEDS_ACTION_EVENT_FETCH_LIMIT = 1_000;
-
 const ringbackWavCache = new Map<number, string>();
 const VOICEMAIL_BEEP_WAV_BASE64 = createVoicemailBeepWavBase64();
 
@@ -1125,29 +1121,14 @@ function activityScopeForSpecialAbitaProfile(context: PortalPracticeAccessContex
   const opticalVariants = opticalPhoneVariants();
 
   if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
-    const sweetwaterLocationIds = getAbitaSweetwaterLocationIds(context.practice);
-
     return {
-      OR: [
-        {
-          session: {
-            is: {
-              toPhone: {
-                in: opticalVariants,
-              },
-            },
+      session: {
+        is: {
+          toPhone: {
+            in: opticalVariants,
           },
         },
-        ...(sweetwaterLocationIds.length
-          ? [
-              {
-                locationId: {
-                  in: sweetwaterLocationIds,
-                },
-              },
-            ]
-          : []),
-      ],
+      },
     };
   }
 
@@ -1202,6 +1183,45 @@ export function buildCallCenterActivityScopeWhere(
     activityScopeForSpecialAbitaProfile(context) ??
     callCenterLocationWhere(selectedLocation ?? null, context)
   );
+}
+
+export function buildCallCenterNoteScopeWhere(
+  context: PortalPracticeAccessContext,
+  selectedLocation?: PortalCallCenterLocation | null,
+): Prisma.CallCenterNoteWhereInput {
+  if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
+    const sweetwaterLocationIds = getAbitaSweetwaterLocationIds(context.practice);
+    const createdByOpticalUser: Prisma.CallCenterNoteWhereInput = {
+      createdByUserId: context.session.user.id,
+      ...(sweetwaterLocationIds.length
+        ? {
+            locationId: {
+              in: sweetwaterLocationIds,
+            },
+          }
+        : {}),
+    };
+
+    return {
+      OR: [
+        {
+          session: {
+            is: buildCallCenterPatientSessionScopeWhere(context, selectedLocation),
+          },
+        },
+        {
+          stationSeat: {
+            is: {
+              queueKey: ABITA_SWEETWATER_OPTICAL_QUEUE_KEY,
+            },
+          },
+        },
+        createdByOpticalUser,
+      ],
+    };
+  }
+
+  return buildCallCenterActivityScopeWhere(context, selectedLocation);
 }
 
 export function buildCallCenterSessionScopeWhere(
@@ -1476,7 +1496,7 @@ function buildPortalPatientSessionMetadataWhere(): Prisma.CallCenterSessionWhere
   };
 }
 
-function buildPortalPatientSessionWhere(): Prisma.CallCenterSessionWhereInput {
+export function buildPortalPatientSessionWhere(): Prisma.CallCenterSessionWhereInput {
   return {
     AND: [
       buildPortalPatientSessionMetadataWhere(),
@@ -1572,6 +1592,7 @@ type PortalRecentCallSession = {
 
 type PortalAnswerSignalSession = {
   answeredAt: Date | null;
+  direction: CallCenterSessionDirection;
   queueItems?: Array<{
     answeredAt?: Date | null;
     ringAttempts: Array<{
@@ -1674,8 +1695,8 @@ function portalRecentCallFromSession(
   };
 }
 
-function hasPortalConnectedCallSignal(session: PortalAnswerSignalSession) {
-  if (session.answeredAt) {
+export function hasPortalConnectedCallSignal(session: PortalAnswerSignalSession) {
+  if (session.direction === CallCenterSessionDirection.OUTBOUND && session.answeredAt) {
     return true;
   }
 
@@ -1691,6 +1712,50 @@ function hasPortalConnectedCallSignal(session: PortalAnswerSignalSession) {
         ),
     ),
   );
+}
+
+function portalConnectedCallSignalWhere(): Prisma.CallCenterSessionWhereInput {
+  return {
+    OR: [
+      {
+        answeredAt: {
+          not: null,
+        },
+        direction: CallCenterSessionDirection.OUTBOUND,
+      },
+      {
+        queueItems: {
+          some: {
+            OR: [
+              {
+                answeredAt: {
+                  not: null,
+                },
+              },
+              {
+                ringAttempts: {
+                  some: {
+                    OR: [
+                      {
+                        answeredAt: {
+                          not: null,
+                        },
+                      },
+                      {
+                        status: {
+                          in: ["ANSWERED", "BRIDGED"],
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    ],
+  };
 }
 
 async function findPortalCallHistorySessions({
@@ -1832,6 +1897,68 @@ export function buildPortalNeedsActionGroups(
   );
 }
 
+function needsActionGroupToTimelineItem(
+  group: PortalNeedsActionGroup,
+): PortalCallerTimelineItem {
+  const isVoicemail = group.latestKind === "voicemail";
+  const isMissed = group.latestKind === "missed";
+  const noteDisposition =
+    group.followUpRequiredCount > 0
+      ? CallCenterNoteDisposition.FOLLOW_UP_REQUIRED
+      : CallCenterNoteDisposition.CALLBACK_NEEDED;
+  const status =
+    group.latestKind === "note" ? noteDisposition : "NEEDS_ACTION";
+
+  return {
+    body: null,
+    direction: isMissed || isVoicemail ? "inbound" : null,
+    durationSec: isVoicemail ? group.latestVoicemailDurationSec : null,
+    id: group.id,
+    kind: group.latestKind,
+    locationName: group.locationNames[0] ?? null,
+    note: formatNeedsActionSummary(group) || "Needs response",
+    occurredAt: group.lastActivityAt,
+    phone: group.fromPhone,
+    recordId: null,
+    recordingId: isVoicemail ? group.latestVoicemailRecordingId : null,
+    stationLabel: null,
+    status,
+    title: isVoicemail
+      ? "Voicemail"
+      : isMissed
+        ? "Missed call"
+        : dispositionLabel(noteDisposition),
+  };
+}
+
+function formatNeedsActionSummary(group: PortalNeedsActionGroup) {
+  const parts: string[] = [];
+
+  if (group.voicemailCount) {
+    parts.push(`${group.voicemailCount} voicemail${group.voicemailCount === 1 ? "" : "s"}`);
+  }
+
+  if (group.missedCount) {
+    parts.push(
+      `${group.missedCount} missed call${group.missedCount === 1 ? "" : "s"}`,
+    );
+  }
+
+  if (group.callbackNeededCount) {
+    parts.push(
+      `${group.callbackNeededCount} callback${group.callbackNeededCount === 1 ? "" : "s"} needed`,
+    );
+  }
+
+  if (group.followUpRequiredCount) {
+    parts.push(
+      `${group.followUpRequiredCount} follow-up${group.followUpRequiredCount === 1 ? "" : "s"} required`,
+    );
+  }
+
+  return parts.join(" · ");
+}
+
 export async function getPortalCallCenterData(options?: {
   locationId?: string;
   needsActionPage?: number;
@@ -1848,6 +1975,7 @@ export async function getPortalCallCenterData(options?: {
     getPortalCallCenterLocationState(context, options);
   const queueFilter = buildCallCenterQueueScopeWhere(context, selectedLocation);
   const activityFilter = buildCallCenterActivityScopeWhere(context, selectedLocation);
+  const noteFilter = buildCallCenterNoteScopeWhere(context, selectedLocation);
   const sessionFilter = buildCallCenterPatientSessionScopeWhere(
     context,
     selectedLocation,
@@ -1887,15 +2015,6 @@ export async function getPortalCallCenterData(options?: {
   const needsActionPageSize = options?.needsActionPageSize
     ? Math.min(100, Math.max(1, Math.round(options.needsActionPageSize)))
     : null;
-  const needsActionEventFetchLimit = needsActionPageSize
-    ? Math.min(
-        MAX_NEEDS_ACTION_EVENT_FETCH_LIMIT,
-        Math.max(
-          DEFAULT_NEEDS_ACTION_EVENT_FETCH_LIMIT,
-          needsActionPage * needsActionPageSize * 3,
-        ),
-      )
-    : DEFAULT_NEEDS_ACTION_EVENT_FETCH_LIMIT;
 
   const [missedCalls, voicemails, unresolvedNotes, seats, queue, recentHistory] =
     await Promise.all([
@@ -1917,7 +2036,6 @@ export async function getPortalCallCenterData(options?: {
           resolvedAt: true,
           sessionId: true,
         },
-        take: needsActionEventFetchLimit,
         where: {
           calledBack: false,
           practiceId: practice.id,
@@ -1948,7 +2066,6 @@ export async function getPortalCallCenterData(options?: {
           resolvedAt: true,
           sessionId: true,
         },
-        take: needsActionEventFetchLimit,
         where: {
           practiceId: practice.id,
           resolvedAt: null,
@@ -1970,7 +2087,6 @@ export async function getPortalCallCenterData(options?: {
             },
           },
         },
-        take: needsActionEventFetchLimit,
         where: {
           disposition: {
             in: [
@@ -1980,7 +2096,7 @@ export async function getPortalCallCenterData(options?: {
           },
           practiceId: practice.id,
           resolvedThread: false,
-          ...activityFilter,
+          ...noteFilter,
         },
       }),
       prisma.callCenterAgentSeat.findMany({
@@ -2457,6 +2573,7 @@ function isNeedsActionTimelineItem(item: PortalCallerTimelineItem) {
 export async function getPortalCallCenterCallerTimeline(
   phone: string,
   options?: {
+    locationId?: string;
     page?: number;
     pageSize?: number;
     range?: PortalCallCenterHistoryRange;
@@ -2468,13 +2585,9 @@ export async function getPortalCallCenterCallerTimeline(
     return null;
   }
 
-  const page = Math.min(
-    MAX_CALLER_TIMELINE_PAGE,
-    Math.max(1, Math.round(options?.page ?? 1)),
-  );
+  const requestedPage = Math.max(1, Math.round(options?.page ?? 1));
   const pageSize = Math.min(100, Math.max(25, Math.round(options?.pageSize ?? 100)));
   const range = options?.range ?? "all";
-  const sourceTake = page * pageSize;
   const normalizedPhone = normalizePhone(phone) || phone.trim();
   const variants = phoneLookupVariants(normalizedPhone).filter(Boolean);
 
@@ -2484,7 +2597,7 @@ export async function getPortalCallCenterCallerTimeline(
       items: [],
       latestItem: null,
       latestNeedsActionItem: null,
-      page,
+      page: 1,
       pageSize,
       phone: phone.trim(),
       range,
@@ -2499,9 +2612,29 @@ export async function getPortalCallCenterCallerTimeline(
   }
 
   const { practice } = context;
-  const activityFilter = buildCallCenterActivityScopeWhere(context);
-  const sessionFilter = buildCallCenterPatientSessionScopeWhere(context);
-  const portalLocationFilter = buildPortalLocationScopeWhere(context);
+  const locationState =
+    options?.locationId === undefined
+      ? null
+      : getPortalCallCenterLocationState(context, {
+          locationId: options.locationId,
+        });
+  const selectedLocation =
+    locationState?.locations.find((location) => location.id === options?.locationId) ??
+    null;
+
+  if (options?.locationId !== undefined && !selectedLocation) {
+    return null;
+  }
+
+  const activityFilter = buildCallCenterActivityScopeWhere(context, selectedLocation);
+  const noteFilter = buildCallCenterNoteScopeWhere(context, selectedLocation);
+  const sessionFilter = buildCallCenterPatientSessionScopeWhere(
+    context,
+    selectedLocation,
+  );
+  const portalLocationFilter = selectedLocation
+    ? callCenterLocationWhere(selectedLocation, context)
+    : buildPortalLocationScopeWhere(context);
   const allowedSmsPracticeNumberIds =
     await getAllowedSmsPracticeNumberIdsForContext(context);
   const phoneSessionFilter = {
@@ -2547,6 +2680,36 @@ export async function getPortalCallCenterCallerTimeline(
     practiceId: practice.id,
   } satisfies Prisma.CallCenterSessionWhereInput;
   const rangedSessionWhere = applyPortalCallHistoryRange(sessionWhere, range);
+  const openMissedCallWhere = {
+    AND: [
+      activityFilter,
+      fromPhoneFilter,
+      {
+        voicemails: {
+          none: {},
+        },
+      },
+    ],
+    calledBack: false,
+    practiceId: practice.id,
+    resolvedAt: null,
+  } satisfies Prisma.CallCenterMissedCallWhereInput;
+  const openVoicemailWhere = {
+    AND: [activityFilter, fromPhoneFilter],
+    practiceId: practice.id,
+    resolvedAt: null,
+  } satisfies Prisma.CallCenterVoicemailWhereInput;
+  const openNoteWhere = {
+    AND: [noteFilter, fromPhoneFilter],
+    disposition: {
+      in: [
+        CallCenterNoteDisposition.CALLBACK_NEEDED,
+        CallCenterNoteDisposition.FOLLOW_UP_REQUIRED,
+      ],
+    },
+    practiceId: practice.id,
+    resolvedThread: false,
+  } satisfies Prisma.CallCenterNoteWhereInput;
   const missedCallWhere = applyCreatedAtRange(
     {
       AND: [
@@ -2571,11 +2734,21 @@ export async function getPortalCallCenterCallerTimeline(
   ) satisfies Prisma.CallCenterVoicemailWhereInput;
   const noteWhere = applyCreatedAtRange(
     {
-      AND: [activityFilter, fromPhoneFilter],
+      AND: [noteFilter, fromPhoneFilter],
       practiceId: practice.id,
     } satisfies Prisma.CallCenterNoteWhereInput,
     range,
   ) satisfies Prisma.CallCenterNoteWhereInput;
+  const currentConnectedSessionWhere = {
+    AND: [
+      sessionFilter,
+      phoneSessionFilter,
+      buildPortalPatientSessionWhere(),
+      portalConnectedCallSignalWhere(),
+    ],
+    practiceId: practice.id,
+    status: "COMPLETED",
+  } satisfies Prisma.CallCenterSessionWhereInput;
   const smsMessageWhere = applyCreatedAtRange(
     {
       conversation: {
@@ -2599,11 +2772,6 @@ export async function getPortalCallCenterCallerTimeline(
   ) satisfies Prisma.SmsMessageWhereInput;
 
   const [
-    sessions,
-    missedCalls,
-    voicemails,
-    notes,
-    smsMessages,
     sessionCount,
     missedCallCount,
     voicemailCount,
@@ -2613,7 +2781,69 @@ export async function getPortalCallCenterCallerTimeline(
     inboundSmsMessageCount,
     outboundDialedCallCount,
     outboundConnectedCallCount,
+  ] = await Promise.all([
+    prisma.callCenterSession.count({
+      where: rangedSessionWhere,
+    }),
+    prisma.callCenterMissedCall.count({
+      where: missedCallWhere,
+    }),
+    prisma.callCenterVoicemail.count({
+      where: voicemailWhere,
+    }),
+    prisma.callCenterNote.count({
+      where: noteWhere,
+    }),
+    prisma.smsMessage.count({
+      where: smsMessageWhere,
+    }),
+    prisma.callCenterSession.count({
+      where: {
+        AND: [rangedSessionWhere, { direction: CallCenterSessionDirection.INBOUND }],
+      },
+    }),
+    prisma.smsMessage.count({
+      where: {
+        AND: [smsMessageWhere, { direction: "INBOUND" }],
+      },
+    }),
+    prisma.callCenterSession.count({
+      where: {
+        AND: [rangedSessionWhere, { direction: CallCenterSessionDirection.OUTBOUND }],
+      },
+    }),
+    prisma.callCenterSession.count({
+      where: {
+        AND: [
+          rangedSessionWhere,
+          {
+            answeredAt: {
+              not: null,
+            },
+            direction: CallCenterSessionDirection.OUTBOUND,
+            status: "COMPLETED",
+          },
+        ],
+      },
+    }),
+  ]);
+  const totalItems =
+    sessionCount + missedCallCount + voicemailCount + noteCount + smsMessageCount;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const sourceTake = page * pageSize;
+
+  const [
+    sessions,
+    missedCalls,
+    voicemails,
+    notes,
+    smsMessages,
     callerNameSource,
+    currentMissedCalls,
+    currentVoicemails,
+    currentNotes,
+    currentConnectedSession,
   ] = await Promise.all([
     prisma.callCenterSession.findMany({
       orderBy: [{ startedAt: "desc" }],
@@ -2746,50 +2976,6 @@ export async function getPortalCallCenterCallerTimeline(
       take: sourceTake,
       where: smsMessageWhere,
     }),
-    prisma.callCenterSession.count({
-      where: rangedSessionWhere,
-    }),
-    prisma.callCenterMissedCall.count({
-      where: missedCallWhere,
-    }),
-    prisma.callCenterVoicemail.count({
-      where: voicemailWhere,
-    }),
-    prisma.callCenterNote.count({
-      where: noteWhere,
-    }),
-    prisma.smsMessage.count({
-      where: smsMessageWhere,
-    }),
-    prisma.callCenterSession.count({
-      where: {
-        AND: [rangedSessionWhere, { direction: CallCenterSessionDirection.INBOUND }],
-      },
-    }),
-    prisma.smsMessage.count({
-      where: {
-        AND: [smsMessageWhere, { direction: "INBOUND" }],
-      },
-    }),
-    prisma.callCenterSession.count({
-      where: {
-        AND: [rangedSessionWhere, { direction: CallCenterSessionDirection.OUTBOUND }],
-      },
-    }),
-    prisma.callCenterSession.count({
-      where: {
-        AND: [
-          rangedSessionWhere,
-          {
-            answeredAt: {
-              not: null,
-            },
-            direction: CallCenterSessionDirection.OUTBOUND,
-            status: "COMPLETED",
-          },
-        ],
-      },
-    }),
     prisma.callCenterSession.findFirst({
       orderBy: [{ startedAt: "desc" }],
       select: {
@@ -2809,7 +2995,128 @@ export async function getPortalCallCenterCallerTimeline(
         practiceId: practice.id,
       },
     }),
+    prisma.callCenterMissedCall.findMany({
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        callerName: true,
+        createdAt: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      where: openMissedCallWhere,
+    }),
+    prisma.callCenterVoicemail.findMany({
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        callerName: true,
+        createdAt: true,
+        durationSec: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
+          },
+        },
+        recordingId: true,
+      },
+      where: openVoicemailWhere,
+    }),
+    prisma.callCenterNote.findMany({
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        createdAt: true,
+        disposition: true,
+        fromPhone: true,
+        id: true,
+        location: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      where: openNoteWhere,
+    }),
+    prisma.callCenterSession.findFirst({
+      orderBy: [{ endedAt: "desc" }, { answeredAt: "desc" }, { startedAt: "desc" }],
+      select: {
+        answeredAt: true,
+        direction: true,
+        endedAt: true,
+        fromPhone: true,
+        startedAt: true,
+        toPhone: true,
+      },
+      where: currentConnectedSessionWhere,
+    }),
   ]);
+
+  const currentActivity: PortalCallActivityItem[] = [
+    ...currentMissedCalls.map((missed) => ({
+      callerName: missed.callerName,
+      createdAt: missed.createdAt,
+      disposition: null,
+      durationSec: null,
+      fromPhone: missed.fromPhone,
+      id: `missed:${missed.id}`,
+      kind: "missed" as const,
+      locationName: missed.location?.name ?? null,
+      recordingId: null,
+      recordId: missed.id,
+      resolved: false,
+    })),
+    ...currentVoicemails.map((voicemail) => ({
+      callerName: voicemail.callerName,
+      createdAt: voicemail.createdAt,
+      disposition: null,
+      durationSec: voicemail.durationSec,
+      fromPhone: voicemail.fromPhone,
+      id: `voicemail:${voicemail.id}`,
+      kind: "voicemail" as const,
+      locationName: voicemail.location?.name ?? null,
+      recordingId: voicemail.recordingId,
+      recordId: voicemail.id,
+      resolved: false,
+    })),
+    ...currentNotes.map((note) => ({
+      callerName: null,
+      createdAt: note.createdAt,
+      disposition: note.disposition,
+      durationSec: null,
+      fromPhone: note.fromPhone,
+      id: `note:${note.id}`,
+      kind: "note" as const,
+      locationName: note.location?.name ?? null,
+      recordingId: null,
+      recordId: note.id,
+      resolved: false,
+    })),
+  ];
+  const currentNeedsActionGroup =
+    buildPortalNeedsActionGroups(
+      currentActivity,
+      currentConnectedSession
+        ? [
+            {
+              direction: currentConnectedSession.direction,
+              fromPhone: currentConnectedSession.fromPhone,
+              occurredAt:
+                currentConnectedSession.endedAt ??
+                currentConnectedSession.answeredAt ??
+                currentConnectedSession.startedAt,
+              toPhone: currentConnectedSession.toPhone,
+            },
+          ]
+        : [],
+    )[0] ?? null;
+  const currentNeedsActionItem = currentNeedsActionGroup
+    ? needsActionGroupToTimelineItem(currentNeedsActionGroup)
+    : null;
 
   const voicemailMissedCallIds = new Set(
     voicemails
@@ -3030,15 +3337,9 @@ export async function getPortalCallCenterCallerTimeline(
 
   items.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
   const pageStart = (page - 1) * pageSize;
-  const totalItems =
-    sessionCount + missedCallCount + voicemailCount + noteCount + smsMessageCount;
-  const totalPages = Math.min(
-    MAX_CALLER_TIMELINE_PAGE,
-    Math.max(1, Math.ceil(totalItems / pageSize)),
-  );
   const latestItem = items[0] ?? null;
   const latestNeedsActionItem =
-    items.find((item) => isNeedsActionTimelineItem(item)) ?? null;
+    currentNeedsActionItem ?? items.find((item) => isNeedsActionTimelineItem(item)) ?? null;
 
   return {
     callerName:
@@ -3367,6 +3668,28 @@ export function telnyxSessionDirectionFromPayload(payload: Record<string, unknow
   return toSessionDirection(asString(payload.direction));
 }
 
+function callCenterSessionDirectionFromPayloadClientState(
+  payload: Record<string, unknown>,
+  clientState: Record<string, unknown> | null,
+) {
+  if (isCallCenterAgentLegClientState(clientState)) {
+    return CallCenterSessionDirection.INTERNAL;
+  }
+
+  return telnyxSessionDirectionFromPayload(payload);
+}
+
+export function callCenterSessionDirectionFromPayload(
+  payload: Record<string, unknown>,
+  existingMetadata?: unknown,
+) {
+  return callCenterSessionDirectionFromPayloadClientState(
+    payload,
+    decodeClientState(payload.client_state) ??
+      clientStateFromSessionMetadata(existingMetadata),
+  );
+}
+
 function mergeSessionDirection({
   existingDirection,
   payloadDirection,
@@ -3400,11 +3723,7 @@ async function upsertSessionFromPayload({
   const eventAt = asDate(payload.occurred_at) ?? now;
   const agentCallId = await resolveAgentCallIdFromPayload(practiceId, payload);
   const handoff = extractAcuityLiveKitHandoff(payload);
-  const payloadDirection = telnyxSessionDirectionFromPayload(payload);
   const clientState = decodeClientState(payload.client_state);
-  const sessionPayloadDirection = isCallCenterAgentLegClientState(clientState)
-    ? CallCenterSessionDirection.INTERNAL
-    : payloadDirection;
   const existingSession = callControlId
     ? await prisma.callCenterSession.findUnique({
         select: {
@@ -3434,6 +3753,11 @@ async function upsertSessionFromPayload({
         })
       : null;
   const existingClientState = clientStateFromSessionMetadata(existingSession?.metadata);
+  const effectiveClientState = clientState ?? existingClientState;
+  const sessionPayloadDirection = callCenterSessionDirectionFromPayloadClientState(
+    payload,
+    effectiveClientState,
+  );
   // Some Telnyx event payloads (notably call.recording.saved and
   // call.playback.ended) don't include from/to/direction. Don't clobber
   // the values that were already set on the original call.initiated event.
@@ -3463,7 +3787,7 @@ async function upsertSessionFromPayload({
     fromPhone: payloadFromPhone ?? existingSession?.fromPhone ?? null,
     locationId: locationId ?? existingSession?.locationId ?? null,
     metadata: jsonInput({
-      clientState: clientState ?? existingClientState,
+      clientState: effectiveClientState,
       lastEventType: eventType,
       payload,
     }),

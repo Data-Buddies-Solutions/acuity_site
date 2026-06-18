@@ -5,10 +5,14 @@ import {
   CallCenterSessionDirection,
 } from "@/generated/prisma/client";
 import {
+  buildCallCenterActivityScopeWhere,
+  buildCallCenterNoteScopeWhere,
   buildPortalNeedsActionGroups,
+  callCenterSessionDirectionFromPayload,
   extractAcuityLiveKitHandoff,
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
+  hasPortalConnectedCallSignal,
   isRingbackToneActiveAtSecond,
   isPortalPatientCallSessionMetadata,
   metadataWithPendingBlindTransferSourceEnded,
@@ -168,6 +172,92 @@ describe("call-center handled session reconciliation", () => {
   });
 });
 
+describe("call-center special activity scoping", () => {
+  it("keeps Sweetwater Optical activity limited to optical-number sessions", () => {
+    const context = {
+      allowedLocationIds: ["sweetwater-location"],
+      allowedPhoneNumbers: [],
+      hasAllLocationAccess: false,
+      membership: {},
+      practice: {
+        callCenterSettings: null,
+        locations: [{ id: "sweetwater-location", name: "Sweetwater" }],
+        name: "Abita Eye Group",
+        phoneNumbers: [],
+      },
+      session: {
+        user: {
+          email: "sweetwateropticals@abitaeye.com",
+          id: "user-1",
+          name: null,
+        },
+      },
+    } as never;
+    const scope = buildCallCenterActivityScopeWhere(context);
+    const where = scope as {
+      locationId?: unknown;
+      OR?: unknown;
+      session?: { is?: { toPhone?: { in?: string[] } } };
+    };
+
+    expect(where.OR).toBeUndefined();
+    expect(where.locationId).toBeUndefined();
+    expect(where.session?.is?.toPhone?.in).toContain("+17864657479");
+    expect(where.session?.is?.toPhone?.in).toContain("7864657479");
+    expect(JSON.stringify(where)).not.toContain("sweetwater-location");
+  });
+
+  it("includes Sweetwater Optical outbound and standalone follow-up notes", () => {
+    const scope = buildCallCenterNoteScopeWhere({
+      allowedLocationIds: ["sweetwater-location"],
+      allowedPhoneNumbers: [],
+      hasAllLocationAccess: false,
+      membership: {},
+      practice: {
+        callCenterSettings: null,
+        locations: [{ id: "sweetwater-location", name: "Sweetwater" }],
+        name: "Abita Eye Group",
+        phoneNumbers: [],
+      },
+      session: {
+        user: {
+          email: "sweetwateropticals@abitaeye.com",
+          id: "user-1",
+          name: null,
+        },
+      },
+    } as never);
+    const where = scope as {
+      OR?: Array<{
+        createdByUserId?: string;
+        locationId?: { in?: string[] };
+        session?: {
+          is?: {
+            OR?: Array<{
+              fromPhone?: { in?: string[] };
+              toPhone?: { in?: string[] };
+            }>;
+          };
+        };
+      }>;
+    };
+
+    expect(where.OR).toHaveLength(3);
+    expect(where.OR?.[0].session?.is?.OR?.[0].toPhone?.in).toContain(
+      "+17864657479",
+    );
+    expect(where.OR?.[0].session?.is?.OR?.[1].fromPhone?.in).toContain(
+      "+17864657479",
+    );
+    expect(where.OR?.[2]).toMatchObject({
+      createdByUserId: "user-1",
+      locationId: {
+        in: ["sweetwater-location"],
+      },
+    });
+  });
+});
+
 function needsActionEvent(
   overrides: Partial<PortalCallActivityItem> & {
     createdAt: Date;
@@ -284,6 +374,75 @@ describe("portal needs-action grouping", () => {
       noteCount: 1,
       voicemailCount: 0,
     });
+  });
+
+  it("keeps older caller threads when one caller has many newer events", () => {
+    const repeatedCallerEvents = Array.from({ length: 300 }, (_, index) =>
+      needsActionEvent({
+        createdAt: new Date(Date.UTC(2026, 5, 16, 16, 0, index)),
+        fromPhone: "+17275919997",
+        kind: "missed",
+        recordId: `missed-repeat-${index}`,
+      }),
+    );
+    const groups = buildPortalNeedsActionGroups([
+      ...repeatedCallerEvents,
+      needsActionEvent({
+        createdAt: new Date("2026-06-16T15:00:00.000Z"),
+        fromPhone: "+17275550123",
+        kind: "missed",
+        recordId: "missed-older-caller",
+      }),
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({
+      eventCount: 300,
+      fromPhone: "+17275919997",
+    });
+    expect(groups[1]).toMatchObject({
+      eventCount: 1,
+      fromPhone: "+17275550123",
+    });
+  });
+});
+
+describe("portal connected call signal", () => {
+  it("does not count inbound caller-leg answer without a staff answer", () => {
+    expect(
+      hasPortalConnectedCallSignal({
+        answeredAt: new Date("2026-06-16T13:00:00.000Z"),
+        direction: CallCenterSessionDirection.INBOUND,
+        queueItems: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("counts outbound answered calls and inbound staff answers", () => {
+    expect(
+      hasPortalConnectedCallSignal({
+        answeredAt: new Date("2026-06-16T13:00:00.000Z"),
+        direction: CallCenterSessionDirection.OUTBOUND,
+        queueItems: [],
+      }),
+    ).toBe(true);
+    expect(
+      hasPortalConnectedCallSignal({
+        answeredAt: new Date("2026-06-16T13:00:00.000Z"),
+        direction: CallCenterSessionDirection.INBOUND,
+        queueItems: [
+          {
+            answeredAt: null,
+            ringAttempts: [
+              {
+                answeredAt: null,
+                status: "BRIDGED",
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 });
 
@@ -469,5 +628,22 @@ describe("LiveKit SIP handoff parsing", () => {
         ],
       }),
     ).toBe(CallCenterSessionDirection.INBOUND);
+  });
+
+  it("preserves stored agent-leg client state when later webhooks omit client_state", () => {
+    expect(
+      callCenterSessionDirectionFromPayload(
+        {
+          direction: "outgoing",
+        },
+        {
+          clientState: {
+            queueItemId: "queue-1",
+            ringAttemptId: "ring-1",
+            seatId: "seat-1",
+          },
+        },
+      ),
+    ).toBe(CallCenterSessionDirection.INTERNAL);
   });
 });

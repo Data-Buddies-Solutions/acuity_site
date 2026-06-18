@@ -32,8 +32,21 @@ function formatPhone(phone: string | null) {
   return phone || "No number";
 }
 
-function callerHistoryHref(phone: string | null) {
-  return phone ? `/portal/app/call-center/callers/${encodeURIComponent(phone)}` : null;
+function callerHistoryHref(phone: string | null, office?: string | null) {
+  if (!phone) {
+    return null;
+  }
+
+  const params = new URLSearchParams();
+
+  if (office) {
+    params.set("office", office);
+  }
+
+  const query = params.toString();
+  return `/portal/app/call-center/callers/${encodeURIComponent(phone)}${
+    query ? `?${query}` : ""
+  }`;
 }
 
 function formatDuration(seconds: number | null) {
@@ -96,12 +109,16 @@ export default function ActivityRail({
   needsAction,
   office,
   onCallback,
+  stationLabel,
+  stationSeatId,
   totals,
 }: {
   followUpHref: string;
   needsAction: PortalNeedsActionGroup[];
   office?: string | null;
   onCallback: (number: string) => void;
+  stationLabel?: string | null;
+  stationSeatId?: string | null;
   totals: PortalCallCenterTotals;
 }) {
   const [isOpen, setIsOpen] = useState(true);
@@ -172,7 +189,7 @@ export default function ActivityRail({
             const isAudioOpen = expandedAudioId === group.id;
             const title = group.callerName || formatPhone(group.fromPhone);
             const phoneLabel = group.callerName ? formatPhone(group.fromPhone) : null;
-            const historyHref = callerHistoryHref(group.fromPhone);
+            const historyHref = callerHistoryHref(group.fromPhone, office);
             const summary = formatGroupSummary(group) || "Needs response";
 
             return (
@@ -256,6 +273,20 @@ export default function ActivityRail({
                       <form action={resolveNeedsActionGroupAction}>
                         {office ? (
                           <input type="hidden" name="office" value={office} />
+                        ) : null}
+                        {stationLabel ? (
+                          <input
+                            type="hidden"
+                            name="stationLabel"
+                            value={stationLabel}
+                          />
+                        ) : null}
+                        {stationSeatId ? (
+                          <input
+                            type="hidden"
+                            name="stationSeatId"
+                            value={stationSeatId}
+                          />
                         ) : null}
                         <input type="hidden" name="phone" value={group.fromPhone ?? ""} />
                         <Button

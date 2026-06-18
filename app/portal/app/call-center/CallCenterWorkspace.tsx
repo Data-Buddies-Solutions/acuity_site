@@ -393,11 +393,14 @@ export default function CallCenterWorkspace({
             needsAction={needsAction}
             office={office}
             onCallback={handleCallback}
+            stationLabel={selectedSeat ? formatSeatLabel(selectedSeat) : null}
+            stationSeatId={selectedSeat?.id ?? null}
             totals={totals}
           />
           <HistoryPanel
             calls={recentCalls}
             historyHref={historyHref}
+            office={office}
             total={totals.historyCalls}
           />
         </div>
@@ -590,8 +593,21 @@ function formatQueuePhone(phone: string | null) {
   return phone || "Unknown number";
 }
 
-function callerHistoryHref(phone: string | null) {
-  return phone ? `/portal/app/call-center/callers/${encodeURIComponent(phone)}` : null;
+function callerHistoryHref(phone: string | null, office?: string | null) {
+  if (!phone) {
+    return null;
+  }
+
+  const params = new URLSearchParams();
+
+  if (office) {
+    params.set("office", office);
+  }
+
+  const query = params.toString();
+  return `/portal/app/call-center/callers/${encodeURIComponent(phone)}${
+    query ? `?${query}` : ""
+  }`;
 }
 
 function formatSeatLabel(seat: PortalCallCenterSeat) {
@@ -639,6 +655,18 @@ function formatCallDuration(seconds: number | null) {
     : `${remainingSeconds}s`;
 }
 
+function recentCallStatusLabel(call: PortalRecentCallItem) {
+  if (call.status === "MISSED") {
+    return "Missed call";
+  }
+
+  if (call.status === "VOICEMAIL") {
+    return "Voicemail";
+  }
+
+  return call.direction === "OUTBOUND" ? "Outbound" : "Inbound";
+}
+
 function hasLiveRingAttempt(item: PortalCallQueueItem) {
   return item.ringAttempts.some((attempt) =>
     ["DIALING", "RINGING", "ANSWERED"].includes(attempt.status),
@@ -648,10 +676,12 @@ function hasLiveRingAttempt(item: PortalCallQueueItem) {
 function HistoryPanel({
   calls,
   historyHref,
+  office,
   total,
 }: {
   calls: PortalRecentCallItem[];
   historyHref: string;
+  office?: string | null;
   total: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -698,7 +728,7 @@ function HistoryPanel({
           {calls.map((call) => {
             const isOutbound = call.direction === "OUTBOUND";
             const patientPhone = isOutbound ? call.toPhone : call.fromPhone;
-            const historyHref = callerHistoryHref(patientPhone);
+            const historyHref = callerHistoryHref(patientPhone, office);
             const DirectionIcon = isOutbound ? PhoneOutgoing : PhoneIncoming;
             const duration = formatCallDuration(call.durationSec);
 
@@ -727,7 +757,7 @@ function HistoryPanel({
                     )}
                   </div>
                   <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
-                    <span>{isOutbound ? "Outbound" : "Inbound"}</span>
+                    <span>{recentCallStatusLabel(call)}</span>
                     <span aria-hidden="true">·</span>
                     <span>{formatRecentCallTime(call.occurredAt)}</span>
                     {duration ? (

@@ -51,7 +51,9 @@ export default async function PortalCallCenterCallerPage({
     Array.isArray(query.range) ? query.range[0] : query.range,
   );
   const page = parseHistoryPage(Array.isArray(query.page) ? query.page[0] : query.page);
+  const office = firstQueryValue(query.office);
   const timeline = await getPortalCallCenterCallerTimeline(phone, {
+    locationId: office,
     page,
     pageSize: CALLER_TIMELINE_PAGE_SIZE,
     range: selectedRange,
@@ -64,11 +66,11 @@ export default async function PortalCallCenterCallerPage({
   const totalPages = timeline.totalPages;
 
   if (timeline.page > totalPages) {
-    redirect(historyRangeHref(timeline.phone, selectedRange, totalPages));
+    redirect(historyRangeHref(timeline.phone, selectedRange, totalPages, office));
   }
 
   if (page !== timeline.page) {
-    redirect(historyRangeHref(timeline.phone, selectedRange, timeline.page));
+    redirect(historyRangeHref(timeline.phone, selectedRange, timeline.page, office));
   }
 
   const latestNeedsActionItem = timeline.latestNeedsActionItem;
@@ -84,13 +86,14 @@ export default async function PortalCallCenterCallerPage({
   const title = timeline.callerName || formatPhone(timeline.phone);
   const subtitle = timeline.callerName ? formatPhone(timeline.phone) : null;
   const rangeLabel = historyRangeLabel(selectedRange);
+  const callHref = commandCenterHref({ call: timeline.phone, office });
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <Button asChild className="mb-3 w-fit" size="sm" variant="secondary">
-            <Link href="/portal/app/call-center">
+            <Link href={commandCenterHref({ office })}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Command center
             </Link>
@@ -111,11 +114,7 @@ export default async function PortalCallCenterCallerPage({
             {statusLabel}
           </span>
           <Button asChild className="w-fit" size="sm" variant="primary">
-            <Link
-              href={`/portal/app/call-center?call=${encodeURIComponent(
-                timeline.phone,
-              )}#softphone`}
-            >
+            <Link href={callHref}>
               <Phone className="h-4 w-4" aria-hidden="true" />
               Call
             </Link>
@@ -131,7 +130,11 @@ export default async function PortalCallCenterCallerPage({
               Totals and activity for this number.
             </p>
           </div>
-          <HistoryRangeTabs phone={timeline.phone} selectedRange={selectedRange} />
+          <HistoryRangeTabs
+            office={office}
+            phone={timeline.phone}
+            selectedRange={selectedRange}
+          />
         </div>
       </section>
 
@@ -171,21 +174,19 @@ export default async function PortalCallCenterCallerPage({
                 >
                   <Link
                     aria-label={`Call back ${formatPhone(timeline.phone)}`}
-                    href={`/portal/app/call-center?call=${encodeURIComponent(
-                      timeline.phone,
-                    )}#softphone`}
+                    href={callHref}
                   >
                     <Phone className="h-4 w-4" aria-hidden="true" />
                   </Link>
                 </Button>
-                <ResolveActionForm iconOnly phone={timeline.phone} />
+                <ResolveActionForm iconOnly office={office} phone={timeline.phone} />
               </div>
             </div>
           </CardContent>
         </Card>
       ) : null}
 
-      <OutcomePanel phone={timeline.phone} />
+      <OutcomePanel office={office} phone={timeline.phone} />
 
       <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
         <header
@@ -205,6 +206,7 @@ export default async function PortalCallCenterCallerPage({
               {timeline.totals.totalItems === 1 ? "item" : "items"}
             </span>
             <PaginationControls
+              office={office}
               page={timeline.page}
               phone={timeline.phone}
               range={selectedRange}
@@ -241,9 +243,11 @@ export default async function PortalCallCenterCallerPage({
 }
 
 function HistoryRangeTabs({
+  office,
   phone,
   selectedRange,
 }: {
+  office?: string;
   phone: string;
   selectedRange: HistoryRange;
 }) {
@@ -270,7 +274,7 @@ function HistoryRangeTabs({
                 ? "bg-white text-[#10272c] shadow-sm"
                 : "text-[#617477] hover:text-[#10272c]",
             )}
-            href={historyRangeHref(phone, option.value, 1)}
+            href={historyRangeHref(phone, option.value, 1, office)}
             key={option.value}
           >
             {option.label}
@@ -282,11 +286,13 @@ function HistoryRangeTabs({
 }
 
 function PaginationControls({
+  office,
   page,
   phone,
   range,
   totalPages,
 }: {
+  office?: string;
   page: number;
   phone: string;
   range: HistoryRange;
@@ -307,7 +313,7 @@ function PaginationControls({
         >
           <Link
             aria-label="Previous page"
-            href={historyRangeHref(phone, range, page - 1)}
+            href={historyRangeHref(phone, range, page - 1, office)}
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </Link>
@@ -335,7 +341,10 @@ function PaginationControls({
           title="Next page"
           variant="secondary"
         >
-          <Link aria-label="Next page" href={historyRangeHref(phone, range, page + 1)}>
+          <Link
+            aria-label="Next page"
+            href={historyRangeHref(phone, range, page + 1, office)}
+          >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Button>
@@ -459,13 +468,16 @@ function TimelineRowContent({
 
 function ResolveActionForm({
   iconOnly = false,
+  office,
   phone,
 }: {
   iconOnly?: boolean;
+  office?: string;
   phone: string;
 }) {
   return (
     <form action={resolveNeedsActionGroupAction}>
+      {office ? <input type="hidden" name="office" value={office} /> : null}
       <input type="hidden" name="phone" value={phone} />
       <Button
         aria-label={iconOnly ? "Mark resolved" : undefined}
@@ -482,7 +494,7 @@ function ResolveActionForm({
   );
 }
 
-function OutcomePanel({ phone }: { phone: string }) {
+function OutcomePanel({ office, phone }: { office?: string; phone: string }) {
   return (
     <Card className="border-black/6 bg-white p-4 shadow-sm">
       <CardContent className="p-0">
@@ -490,6 +502,7 @@ function OutcomePanel({ phone }: { phone: string }) {
           action={saveCallCenterNoteAction}
           className="grid w-full gap-2 sm:grid-cols-[minmax(180px,220px)_1fr_auto]"
         >
+          {office ? <input type="hidden" name="office" value={office} /> : null}
           <input type="hidden" name="phone" value={phone} />
           <label className="flex flex-col gap-1 text-xs font-semibold text-[#617477]">
             Status
@@ -611,9 +624,18 @@ function parseHistoryPage(value: string | undefined) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
-function historyRangeHref(phone: string, range: HistoryRange, page = 1) {
+function historyRangeHref(
+  phone: string,
+  range: HistoryRange,
+  page = 1,
+  office?: string,
+) {
   const path = `/portal/app/call-center/callers/${encodeURIComponent(phone)}`;
   const params = new URLSearchParams();
+
+  if (office) {
+    params.set("office", office);
+  }
 
   if (range !== "all") {
     params.set("range", range);
@@ -625,6 +647,35 @@ function historyRangeHref(phone: string, range: HistoryRange, page = 1) {
 
   const query = params.toString();
   return query ? `${path}?${query}` : path;
+}
+
+function commandCenterHref({
+  call,
+  office,
+}: {
+  call?: string | null;
+  office?: string;
+}) {
+  const params = new URLSearchParams();
+
+  if (office) {
+    params.set("office", office);
+  }
+
+  if (call) {
+    params.set("call", call);
+  }
+
+  const query = params.toString();
+  return `/portal/app/call-center${query ? `?${query}` : ""}${
+    call ? "#softphone" : ""
+  }`;
+}
+
+function firstQueryValue(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const trimmed = raw?.trim();
+  return trimmed || undefined;
 }
 
 function historyRangeLabel(range: HistoryRange) {

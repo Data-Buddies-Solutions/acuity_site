@@ -2,10 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 
-import { CallCenterNoteDisposition } from "@/generated/prisma/client";
+import {
+  CallCenterNoteDisposition,
+  CallCenterSessionDirection,
+} from "@/generated/prisma/client";
 import {
   buildCallCenterActivityScopeWhere,
+  buildCallCenterNoteScopeWhere,
   buildCallCenterPatientSessionScopeWhere,
+  buildPortalPatientSessionWhere,
   getCurrentPracticeCallCenterContext,
   isAbitaSouthFloridaCallCenterContext,
   isAbitaSweetwaterOpticalCallCenterContext,
@@ -33,6 +38,7 @@ type CallCenterActionContext = NonNullable<
 type CallCenterActionScope = {
   activityWhere: ReturnType<typeof buildCallCenterActivityScopeWhere>;
   locationId?: string | null;
+  noteWhere: ReturnType<typeof buildCallCenterNoteScopeWhere>;
   sessionWhere: ReturnType<typeof buildCallCenterPatientSessionScopeWhere>;
 };
 
@@ -88,6 +94,7 @@ function resolveActionScopeFromForm(
     return {
       activityWhere: buildCallCenterActivityScopeWhere(context),
       locationId: defaultStandaloneNoteLocationId(context),
+      noteWhere: buildCallCenterNoteScopeWhere(context),
       sessionWhere: buildCallCenterPatientSessionScopeWhere(context),
     };
   }
@@ -100,6 +107,7 @@ function resolveActionScopeFromForm(
     return {
       activityWhere: { locationId: officeId },
       locationId: officeId,
+      noteWhere: { locationId: officeId },
       sessionWhere: { locationId: officeId },
     };
   }
@@ -113,6 +121,7 @@ function resolveActionScopeFromForm(
     return {
       activityWhere: { locationId: null },
       locationId: null,
+      noteWhere: { locationId: null },
       sessionWhere: { locationId: null },
     };
   }
@@ -170,6 +179,7 @@ async function inferNoteSource(
       where: {
         AND: [
           scope.sessionWhere,
+          buildPortalPatientSessionWhere(),
           {
             OR: [
               {
@@ -183,6 +193,14 @@ async function inferNoteSource(
                 },
               },
             ],
+          },
+          {
+            direction: {
+              in: [
+                CallCenterSessionDirection.INBOUND,
+                CallCenterSessionDirection.OUTBOUND,
+              ],
+            },
           },
         ],
         practiceId: context.practice.id,
@@ -292,7 +310,7 @@ async function closeNeedsActionThread(
         },
         practiceId: context.practice.id,
         resolvedThread: false,
-        ...scope.activityWhere,
+        ...scope.noteWhere,
       },
     }),
   ]);
@@ -398,6 +416,14 @@ async function resolveNoteStation({
     };
   }
 
+  return noteStationFromSeat(seat);
+}
+
+function noteStationFromSeat(seat: {
+  extension: string | null;
+  id: string;
+  label: string;
+}) {
   return {
     stationLabelSnapshot: seat.extension
       ? `${seat.extension} - ${seat.label}`
@@ -408,6 +434,7 @@ async function resolveNoteStation({
 
 function revalidateCallCenterPaths(phone: string) {
   revalidatePath("/portal/app/call-center");
+  revalidatePath("/portal/app/call-center/follow-up");
   revalidatePath(`/portal/app/call-center/callers/${encodeURIComponent(phone)}`);
   const normalized = normalizePhone(phone);
 
@@ -475,6 +502,11 @@ export async function resolveNeedsActionGroupAction(formData: FormData) {
   const context = await getCurrentPracticeCallCenterContext();
   const phone = String(formData.get("phone") || "");
   const phoneVariants = phoneLookupVariants(phone);
+  const stationLabelSnapshot =
+    String(
+      formData.get("stationLabel") || formData.get("stationLabelSnapshot") || "",
+    ).trim() || null;
+  const stationSeatId = String(formData.get("stationSeatId") || "").trim() || null;
 
   if (!context || !phoneVariants.length) {
     return;
@@ -496,6 +528,8 @@ export async function resolveNeedsActionGroupAction(formData: FormData) {
     phoneVariants,
     resolvedThread: true,
     scope,
+    stationLabelSnapshot,
+    stationSeatId,
   });
   await closeNeedsActionThread(context, phoneVariants, resolvedAt, scope);
 

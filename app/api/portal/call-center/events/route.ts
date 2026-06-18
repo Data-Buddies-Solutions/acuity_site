@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { CallCenterNoteDisposition } from "@/generated/prisma/client";
 import {
   buildCallCenterActivityScopeWhere,
+  buildCallCenterNoteScopeWhere,
   buildCallCenterPatientSessionScopeWhere,
   buildCallCenterQueueScopeWhere,
   getCurrentPracticeCallCenterContext,
@@ -31,11 +32,13 @@ function encodeEvent(event: string, data: unknown) {
 
 async function getCallCenterStateVersion({
   activityScopeWhere,
+  noteScopeWhere,
   practiceId,
   queueScopeWhere,
   sessionScopeWhere,
 }: {
   activityScopeWhere: ReturnType<typeof buildCallCenterActivityScopeWhere>;
+  noteScopeWhere: ReturnType<typeof buildCallCenterNoteScopeWhere>;
   practiceId: string;
   queueScopeWhere: ReturnType<typeof buildCallCenterQueueScopeWhere>;
   sessionScopeWhere: ReturnType<typeof buildCallCenterPatientSessionScopeWhere>;
@@ -99,7 +102,7 @@ async function getCallCenterStateVersion({
         },
         practiceId,
         resolvedThread: false,
-        ...activityScopeWhere,
+        ...noteScopeWhere,
       },
     }),
     prisma.callCenterSession.aggregate({
@@ -167,10 +170,13 @@ export async function GET(request: Request) {
     explicitLocationScope ?? buildCallCenterQueueScopeWhere(context);
   const activityScopeWhere =
     explicitLocationScope ?? buildCallCenterActivityScopeWhere(context);
+  const noteScopeWhere =
+    explicitLocationScope ?? buildCallCenterNoteScopeWhere(context);
   const sessionScopeWhere =
     explicitLocationScope ?? buildCallCenterPatientSessionScopeWhere(context);
   let lastVersion = await getCallCenterStateVersion({
     activityScopeWhere,
+    noteScopeWhere,
     practiceId: context.practice.id,
     queueScopeWhere,
     sessionScopeWhere,
@@ -227,6 +233,7 @@ export async function GET(request: Request) {
         try {
           const nextVersion = await getCallCenterStateVersion({
             activityScopeWhere,
+            noteScopeWhere,
             practiceId: context.practice.id,
             queueScopeWhere,
             sessionScopeWhere,
