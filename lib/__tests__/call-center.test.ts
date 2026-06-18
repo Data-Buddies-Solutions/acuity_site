@@ -7,6 +7,7 @@ import {
 import {
   buildCallCenterActivityScopeWhere,
   buildCallCenterNoteScopeWhere,
+  buildPortalPatientSessionWhere,
   buildPortalNeedsActionGroups,
   callCenterSessionDirectionFromPayload,
   extractAcuityLiveKitHandoff,
@@ -443,6 +444,17 @@ describe("portal connected call signal", () => {
 });
 
 describe("portal patient call session filtering", () => {
+  it("keeps missing metadata paths out of the Prisma patient-session scope", () => {
+    expect(buildPortalPatientSessionWhere()).toEqual({
+      NOT: {
+        toPhone: {
+          mode: "insensitive",
+          startsWith: "sip:",
+        },
+      },
+    });
+  });
+
   it("keeps browser-originated outbound call metadata as patient history", () => {
     expect(
       isPortalPatientCallSessionMetadata({

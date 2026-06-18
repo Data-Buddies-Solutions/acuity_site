@@ -1471,44 +1471,14 @@ function buildPortalOutboundDialedSessionWhere({
   };
 }
 
-function buildPortalPatientSessionMetadataWhere(): Prisma.CallCenterSessionWhereInput {
-  return {
-    NOT: [
-      {
-        metadata: {
-          path: ["clientState", "queueItemId"],
-          not: Prisma.JsonNull,
-        },
-      },
-      {
-        metadata: {
-          path: ["clientState", "ringAttemptId"],
-          not: Prisma.JsonNull,
-        },
-      },
-      {
-        metadata: {
-          path: ["clientState", "seatId"],
-          not: Prisma.JsonNull,
-        },
-      },
-    ],
-  };
-}
-
 export function buildPortalPatientSessionWhere(): Prisma.CallCenterSessionWhereInput {
   return {
-    AND: [
-      buildPortalPatientSessionMetadataWhere(),
-      {
-        NOT: {
-          toPhone: {
-            mode: "insensitive",
-            startsWith: "sip:",
-          },
-        },
+    NOT: {
+      toPhone: {
+        mode: "insensitive",
+        startsWith: "sip:",
       },
-    ],
+    },
   };
 }
 
