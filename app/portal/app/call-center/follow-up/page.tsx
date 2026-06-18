@@ -57,7 +57,7 @@ export default async function PortalCallCenterFollowUpPage({
       <PracticePageHeader
         branding={data.branding}
         practiceName={data.practiceName}
-        title="Follow-up"
+        title="Outstanding Items"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           {data.selectedLocation ? (

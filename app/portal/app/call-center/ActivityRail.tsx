@@ -141,7 +141,9 @@ export default function ActivityRail({
             <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#617477]" />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[#10272c]">Follow-up</span>
+                <span className="text-sm font-semibold text-[#10272c]">
+                  Outstanding items
+                </span>
                 {totals.needsActionCallers ? (
                   <span className="rounded-full border border-black/8 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#617477]">
                     {totals.needsActionCallers}
@@ -149,7 +151,7 @@ export default function ActivityRail({
                 ) : null}
               </span>
               <span className="mt-0.5 block text-xs text-[#617477]">
-                Caller threads that still need a response.
+                Missed calls, voicemails, and notes that still need a response.
               </span>
             </span>
           </button>
@@ -166,7 +168,7 @@ export default function ActivityRail({
 
       {!isOpen ? null : needsAction.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-[#617477]">
-          No caller follow-up needed.
+          No outstanding items.
         </div>
       ) : (
         <ul className="divide-y divide-black/5">

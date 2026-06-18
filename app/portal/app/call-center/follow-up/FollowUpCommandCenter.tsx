@@ -44,9 +44,9 @@ export default function FollowUpCommandCenter({
       <div className="min-w-0 border-b border-black/6 lg:border-b-0 lg:border-r">
         <header className="flex flex-col gap-3 border-b border-black/6 bg-[#fcfdfd] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-[#10272c]">Work queue</h2>
+            <h2 className="text-sm font-semibold text-[#10272c]">Outstanding items</h2>
             <p className="mt-0.5 text-xs text-[#617477]">
-              Select a caller, review context, then close the loop.
+              Missed calls, voicemails, and notes that still need a response.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -71,7 +71,7 @@ export default function FollowUpCommandCenter({
           </ul>
         ) : (
           <div className="px-5 py-12 text-center text-sm text-[#617477]">
-            No caller follow-up needed.
+            No outstanding items.
           </div>
         )}
       </div>
@@ -198,7 +198,7 @@ function FollowUpWorkPanel({
   if (!thread) {
     return (
       <aside className="bg-[#fcfdfd] px-5 py-8 text-center text-sm text-[#617477]">
-        Select a caller to start follow-up.
+        Select an outstanding item to start follow-up.
       </aside>
     );
   }

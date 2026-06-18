@@ -7,6 +7,7 @@ import {
 import {
   buildCallCenterActivityScopeWhere,
   buildCallCenterNoteScopeWhere,
+  buildPortalHistorySessionWhere,
   buildPortalPatientSessionWhere,
   buildPortalNeedsActionGroups,
   callCenterSessionDirectionFromPayload,
@@ -444,6 +445,20 @@ describe("portal connected call signal", () => {
 });
 
 describe("portal patient call session filtering", () => {
+  it("keeps call-center history scoped to connected calls", () => {
+    const where = buildPortalHistorySessionWhere({
+      practiceId: "practice-1",
+      sessionFilter: {},
+    }) as { status?: unknown };
+    const serialized = JSON.stringify(where);
+
+    expect(where.status).toBe("COMPLETED");
+    expect(serialized).toContain("ANSWERED");
+    expect(serialized).toContain("BRIDGED");
+    expect(serialized).not.toContain("MISSED");
+    expect(serialized).not.toContain("VOICEMAIL");
+  });
+
   it("keeps missing metadata paths out of the Prisma patient-session scope", () => {
     expect(buildPortalPatientSessionWhere()).toEqual({
       NOT: {

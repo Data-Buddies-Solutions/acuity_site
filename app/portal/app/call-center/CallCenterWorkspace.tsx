@@ -656,14 +656,6 @@ function formatCallDuration(seconds: number | null) {
 }
 
 function recentCallStatusLabel(call: PortalRecentCallItem) {
-  if (call.status === "MISSED") {
-    return "Missed call";
-  }
-
-  if (call.status === "VOICEMAIL") {
-    return "Voicemail";
-  }
-
   return call.direction === "OUTBOUND" ? "Outbound" : "Inbound";
 }
 
@@ -700,7 +692,7 @@ function HistoryPanel({
             <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#617477]" />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[#10272c]">History</span>
+                <span className="text-sm font-semibold text-[#10272c]">Connections</span>
                 {total ? (
                   <span className="rounded-full border border-black/8 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#617477]">
                     {total}
@@ -708,7 +700,7 @@ function HistoryPanel({
                 ) : null}
               </span>
               <span className="mt-0.5 block text-xs text-[#617477]">
-                Recent inbound and outbound calls.
+                Connected inbound and outbound calls.
               </span>
             </span>
           </button>
@@ -780,7 +772,7 @@ function HistoryPanel({
         </ul>
       ) : (
         <div className="px-5 py-8 text-center text-sm text-[#617477]">
-          No call history yet.
+          No connected calls yet.
         </div>
       )}
     </section>

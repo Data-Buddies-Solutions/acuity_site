@@ -1411,7 +1411,7 @@ function getPortalCallCenterLocationState(
   };
 }
 
-function buildPortalHistorySessionWhere({
+export function buildPortalHistorySessionWhere({
   practiceId,
   sessionFilter,
 }: {
@@ -1422,6 +1422,7 @@ function buildPortalHistorySessionWhere({
     AND: [
       sessionFilter,
       buildPortalPatientSessionWhere(),
+      portalConnectedCallSignalWhere(),
       {
         OR: [
           {
@@ -1442,9 +1443,7 @@ function buildPortalHistorySessionWhere({
       },
     ],
     practiceId,
-    status: {
-      in: ["COMPLETED", "MISSED", "VOICEMAIL"],
-    },
+    status: "COMPLETED",
   };
 }
 

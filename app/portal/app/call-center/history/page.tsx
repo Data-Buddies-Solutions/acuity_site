@@ -64,7 +64,7 @@ export default async function PortalCallCenterHistoryPage({
       <PracticePageHeader
         branding={data.branding}
         practiceName={data.practiceName}
-        title="Call Center History"
+        title="Call Center Connections"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Button asChild variant="secondary">
@@ -77,10 +77,13 @@ export default async function PortalCallCenterHistoryPage({
       </PracticePageHeader>
 
       <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryMetric label="Total calls" value={data.totals.totalCalls} />
-        <SummaryMetric label="Inbound" value={data.totals.inboundCalls} />
-        <SummaryMetric label="Outbound" value={data.totals.outboundCalls} />
-        <SummaryMetric label="Outbound dialed" value={data.totals.outboundDialedCalls} />
+        <SummaryMetric label="Total connections" value={data.totals.totalCalls} />
+        <SummaryMetric label="Inbound connected" value={data.totals.inboundCalls} />
+        <SummaryMetric label="Outbound connected" value={data.totals.outboundCalls} />
+        <SummaryMetric
+          label="Outbound attempts"
+          value={data.totals.outboundDialedCalls}
+        />
       </section>
 
       <section className="rounded-xl border border-black/6 bg-white p-3 shadow-sm">
@@ -98,14 +101,16 @@ export default async function PortalCallCenterHistoryPage({
       <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
         <header className="flex flex-col gap-3 border-b border-black/6 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-[#10272c]">Call history</h2>
+            <h2 className="text-sm font-semibold text-[#10272c]">
+              Inbound and outbound connections
+            </h2>
             <p className="mt-0.5 text-xs text-[#617477]">
-              Inbound and outbound activity for the selected range.
+              Connected call-center calls for the selected range.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
-              {data.totals.totalCalls} calls
+              {data.totals.totalCalls} connections
             </span>
             <PaginationControls
               page={data.page}
@@ -123,7 +128,7 @@ export default async function PortalCallCenterHistoryPage({
           </ul>
         ) : (
           <div className="px-5 py-12 text-center text-sm text-[#617477]">
-            No call history yet.
+            No connected calls yet.
           </div>
         )}
       </section>
@@ -377,14 +382,6 @@ function formatHistoryTime(date: Date) {
 }
 
 function historyStatusLabel(call: PortalRecentCallItem) {
-  if (call.status === "MISSED") {
-    return "Missed call";
-  }
-
-  if (call.status === "VOICEMAIL") {
-    return "Voicemail";
-  }
-
   return call.direction === "OUTBOUND" ? "Outbound" : "Inbound";
 }
 
