@@ -29,8 +29,7 @@ const pressReleasePosts: PressRelease[] = [
     slug: "acuity-health-dr-michael-venincasa-chief-medical-officer",
     dateline: "June 4, 2026",
     date: "2026-06-04",
-    headline:
-      "Acuity Health names Dr. Michael Venincasa as Chief Medical Officer",
+    headline: "Acuity Health names Dr. Michael Venincasa as Chief Medical Officer",
     summary:
       "Dr. Michael Venincasa joins Acuity Health as Chief Medical Officer, strengthening the company's mission to build the leading AI receptionist for ophthalmology practices.",
     image: {

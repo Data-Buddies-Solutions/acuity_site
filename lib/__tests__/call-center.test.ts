@@ -243,12 +243,8 @@ describe("call-center special activity scoping", () => {
     };
 
     expect(where.OR).toHaveLength(3);
-    expect(where.OR?.[0].session?.is?.OR?.[0].toPhone?.in).toContain(
-      "+17864657479",
-    );
-    expect(where.OR?.[0].session?.is?.OR?.[1].fromPhone?.in).toContain(
-      "+17864657479",
-    );
+    expect(where.OR?.[0].session?.is?.OR?.[0].toPhone?.in).toContain("+17864657479");
+    expect(where.OR?.[0].session?.is?.OR?.[1].fromPhone?.in).toContain("+17864657479");
     expect(where.OR?.[2]).toMatchObject({
       createdByUserId: "user-1",
       locationId: {

@@ -624,12 +624,7 @@ function parseHistoryPage(value: string | undefined) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
-function historyRangeHref(
-  phone: string,
-  range: HistoryRange,
-  page = 1,
-  office?: string,
-) {
+function historyRangeHref(phone: string, range: HistoryRange, page = 1, office?: string) {
   const path = `/portal/app/call-center/callers/${encodeURIComponent(phone)}`;
   const params = new URLSearchParams();
 
@@ -649,13 +644,7 @@ function historyRangeHref(
   return query ? `${path}?${query}` : path;
 }
 
-function commandCenterHref({
-  call,
-  office,
-}: {
-  call?: string | null;
-  office?: string;
-}) {
+function commandCenterHref({ call, office }: { call?: string | null; office?: string }) {
   const params = new URLSearchParams();
 
   if (office) {
@@ -667,9 +656,7 @@ function commandCenterHref({
   }
 
   const query = params.toString();
-  return `/portal/app/call-center${query ? `?${query}` : ""}${
-    call ? "#softphone" : ""
-  }`;
+  return `/portal/app/call-center${query ? `?${query}` : ""}${call ? "#softphone" : ""}`;
 }
 
 function firstQueryValue(value: string | string[] | undefined) {

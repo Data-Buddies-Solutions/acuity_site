@@ -1906,8 +1906,7 @@ function needsActionGroupToTimelineItem(
     group.followUpRequiredCount > 0
       ? CallCenterNoteDisposition.FOLLOW_UP_REQUIRED
       : CallCenterNoteDisposition.CALLBACK_NEEDED;
-  const status =
-    group.latestKind === "note" ? noteDisposition : "NEEDS_ACTION";
+  const status = group.latestKind === "note" ? noteDisposition : "NEEDS_ACTION";
 
   return {
     body: null,
@@ -1935,13 +1934,13 @@ function formatNeedsActionSummary(group: PortalNeedsActionGroup) {
   const parts: string[] = [];
 
   if (group.voicemailCount) {
-    parts.push(`${group.voicemailCount} voicemail${group.voicemailCount === 1 ? "" : "s"}`);
+    parts.push(
+      `${group.voicemailCount} voicemail${group.voicemailCount === 1 ? "" : "s"}`,
+    );
   }
 
   if (group.missedCount) {
-    parts.push(
-      `${group.missedCount} missed call${group.missedCount === 1 ? "" : "s"}`,
-    );
+    parts.push(`${group.missedCount} missed call${group.missedCount === 1 ? "" : "s"}`);
   }
 
   if (group.callbackNeededCount) {
@@ -3339,7 +3338,9 @@ export async function getPortalCallCenterCallerTimeline(
   const pageStart = (page - 1) * pageSize;
   const latestItem = items[0] ?? null;
   const latestNeedsActionItem =
-    currentNeedsActionItem ?? items.find((item) => isNeedsActionTimelineItem(item)) ?? null;
+    currentNeedsActionItem ??
+    items.find((item) => isNeedsActionTimelineItem(item)) ??
+    null;
 
   return {
     callerName:

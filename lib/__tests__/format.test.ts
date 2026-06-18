@@ -19,8 +19,6 @@ describe("formatEasternAppointmentDateTime", () => {
   });
 
   it("uses the caller fallback when no appointment was detected", () => {
-    expect(formatEasternAppointmentDateTime(null, "Not detected")).toBe(
-      "Not detected",
-    );
+    expect(formatEasternAppointmentDateTime(null, "Not detected")).toBe("Not detected");
   });
 });

@@ -37,7 +37,9 @@ export default async function PortalCallCenterHistoryPage({
   }
 
   const params = searchParams ? await searchParams : {};
-  const page = parseHistoryPage(Array.isArray(params.page) ? params.page[0] : params.page);
+  const page = parseHistoryPage(
+    Array.isArray(params.page) ? params.page[0] : params.page,
+  );
   const range = parseHistoryRange(
     Array.isArray(params.range) ? params.range[0] : params.range,
   );
@@ -250,10 +252,7 @@ function HistoryRow({ call }: { call: PortalRecentCallItem }) {
     <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <DirectionIcon
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 text-[#0d7377]"
-          />
+          <DirectionIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#0d7377]" />
           {numberHref ? (
             <Link
               className="block truncate text-sm font-semibold text-[#0d7377] underline-offset-2 hover:underline"
@@ -342,7 +341,9 @@ function historyHref({
   }
 
   const query = params.toString();
-  return query ? `/portal/app/call-center/history?${query}` : "/portal/app/call-center/history";
+  return query
+    ? `/portal/app/call-center/history?${query}`
+    : "/portal/app/call-center/history";
 }
 
 function historyRangeLabel(range: PortalCallCenterHistoryRange) {

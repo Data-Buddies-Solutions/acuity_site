@@ -275,11 +275,7 @@ export default function ActivityRail({
                           <input type="hidden" name="office" value={office} />
                         ) : null}
                         {stationLabel ? (
-                          <input
-                            type="hidden"
-                            name="stationLabel"
-                            value={stationLabel}
-                          />
+                          <input type="hidden" name="stationLabel" value={stationLabel} />
                         ) : null}
                         {stationSeatId ? (
                           <input

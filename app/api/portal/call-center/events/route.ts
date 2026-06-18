@@ -170,8 +170,7 @@ export async function GET(request: Request) {
     explicitLocationScope ?? buildCallCenterQueueScopeWhere(context);
   const activityScopeWhere =
     explicitLocationScope ?? buildCallCenterActivityScopeWhere(context);
-  const noteScopeWhere =
-    explicitLocationScope ?? buildCallCenterNoteScopeWhere(context);
+  const noteScopeWhere = explicitLocationScope ?? buildCallCenterNoteScopeWhere(context);
   const sessionScopeWhere =
     explicitLocationScope ?? buildCallCenterPatientSessionScopeWhere(context);
   let lastVersion = await getCallCenterStateVersion({
