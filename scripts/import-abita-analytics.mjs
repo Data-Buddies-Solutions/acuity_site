@@ -582,7 +582,15 @@ async function upsertCall(targetPool, call, practiceId, agentId, locationByPhone
       AND provider = ANY($2)`,
     [
       agentCallId,
-      ["assemblyai", "baseten", "cartesia", "elevenlabs", "livekit", "telnyx", "estimated"],
+      [
+        "assemblyai",
+        "baseten",
+        "cartesia",
+        "elevenlabs",
+        "livekit",
+        "telnyx",
+        "estimated",
+      ],
     ],
   );
 

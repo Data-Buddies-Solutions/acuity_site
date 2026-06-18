@@ -28,6 +28,8 @@ import { Button } from "@/app/components/ui/button";
 import type { PortalCallCenterSeat } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
+import { saveCallCenterNoteAction } from "./actions";
+
 type TelnyxStatus =
   | "initializing"
   | "ready"
@@ -37,6 +39,14 @@ type TelnyxStatus =
   | "offline";
 
 type CallDirection = "inbound" | "outbound" | null;
+
+type CompletedCallWrapUp = {
+  direction: "inbound" | "outbound";
+  phone: string;
+  stationLabel: string | null;
+  stationSeatId: string | null;
+  token: number;
+};
 
 type TelnyxCall = Call;
 
@@ -52,7 +62,7 @@ type TelnyxTokenResponse =
     };
 
 const CALL_CENTER_DEBUG = process.env.NEXT_PUBLIC_CALL_CENTER_DEBUG === "true";
-const AGENT_RING_UI_TIMEOUT_MS = 20_500;
+const AGENT_RING_UI_TIMEOUT_MS = 30_500;
 
 const keypadRows = [
   ["1", "2", "3"],
@@ -144,6 +154,21 @@ function callerKeyFor(call: TelnyxCall) {
   return normalizeToE164(callerNumberFor(call)) || callerNumberFor(call);
 }
 
+function postCallPhoneFor(call: TelnyxCall, inbound: boolean, outboundNumber: string) {
+  const rawPhone = inbound
+    ? callerNumberFor(call)
+    : outboundNumber || callerNumberFor(call);
+  const normalized = normalizeToE164(rawPhone);
+
+  if (normalized) {
+    return normalized;
+  }
+
+  const trimmed = rawPhone.trim();
+
+  return trimmed && !/^(unknown|anonymous)/i.test(trimmed) ? trimmed : "";
+}
+
 function decodeCallClientState(call: TelnyxCall) {
   const raw = call.options?.clientState;
 
@@ -155,7 +180,9 @@ function decodeCallClientState(call: TelnyxCall) {
     const decoded =
       typeof window === "undefined"
         ? Buffer.from(raw, "base64").toString("utf8")
-        : window.atob(raw);
+        : new TextDecoder().decode(
+            Uint8Array.from(window.atob(raw), (char) => char.charCodeAt(0)),
+          );
     const parsed = JSON.parse(decoded);
 
     return parsed && typeof parsed === "object"
@@ -164,6 +191,17 @@ function decodeCallClientState(call: TelnyxCall) {
   } catch {
     return null;
   }
+}
+
+function encodeCallClientState(value: Record<string, unknown>) {
+  const serialized = JSON.stringify(value);
+
+  if (typeof window === "undefined") {
+    return Buffer.from(serialized, "utf8").toString("base64");
+  }
+
+  const bytes = new TextEncoder().encode(serialized);
+  return window.btoa(String.fromCharCode(...bytes));
 }
 
 function ringKeyFor(call: TelnyxCall) {
@@ -285,6 +323,7 @@ const SoftphonePanel = forwardRef<
     inboundEnabled: boolean;
     onActivityChange?: (active: boolean) => void;
     onBusyChange?: (busy: boolean) => void;
+    office?: string | null;
     seedNumber?: { value: string; token: number } | null;
     stationLabel?: string | null;
     stationSeatId?: string | null;
@@ -299,6 +338,7 @@ const SoftphonePanel = forwardRef<
     inboundEnabled,
     onActivityChange,
     onBusyChange,
+    office,
     seedNumber,
     stationLabel,
     stationSeatId,
@@ -336,11 +376,17 @@ const SoftphonePanel = forwardRef<
   const [answeringRingKeys, setAnsweringRingKeys] = useState<Set<string>>(
     () => new Set(),
   );
+  const [postCallWrapUp, setPostCallWrapUp] = useState<CompletedCallWrapUp | null>(null);
 
   // Refs mirror state so the Telnyx notification handler (created once) can read latest values
   const activeCallRef = useRef<TelnyxCall | null>(null);
+  const activeCallConnectedRef = useRef(false);
+  const activeCallWrapUpRef = useRef<CompletedCallWrapUp | null>(null);
+  const dialedNumberRef = useRef("");
   const incomingCallRef = useRef<TelnyxCall | null>(null);
   const queuedCallsRef = useRef<TelnyxCall[]>([]);
+  const stationLabelRef = useRef<string | null>(stationLabel ?? null);
+  const stationSeatIdRef = useRef<string | null>(stationSeatId ?? null);
   const answeringInboundCallIdsRef = useRef<Set<string>>(new Set());
   const answeringRingKeysRef = useRef<Set<string>>(new Set());
   const pendingAnswerExpireTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
@@ -351,6 +397,7 @@ const SoftphonePanel = forwardRef<
   const dismissedRingKeysRef = useRef<Set<string>>(new Set());
   const outboundCallIdsRef = useRef<Set<string>>(new Set());
   const expectingOutboundUntilRef = useRef<number>(0);
+  const transferPendingRef = useRef(false);
   const transferPendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incomingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringingCallExpireTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
@@ -367,7 +414,7 @@ const SoftphonePanel = forwardRef<
   // the caller, but this browser leg should disappear quickly if nobody picks up.
   const ringingTimeoutMs = Math.min(
     AGENT_RING_UI_TIMEOUT_MS,
-    Math.max(5_000, (voicemailTimeoutSec ?? 8) * 1000),
+    Math.max(5_000, (voicemailTimeoutSec ?? 30) * 1000),
   );
 
   const debugLog = useCallback((event: string, details: Record<string, unknown> = {}) => {
@@ -649,6 +696,9 @@ const SoftphonePanel = forwardRef<
     activeCallRef.current = activeCall;
   }, [activeCall]);
   useEffect(() => {
+    dialedNumberRef.current = dialedNumber;
+  }, [dialedNumber]);
+  useEffect(() => {
     onBusyChange?.(Boolean(activeCall));
   }, [activeCall, onBusyChange]);
   useEffect(() => {
@@ -660,6 +710,12 @@ const SoftphonePanel = forwardRef<
   useEffect(() => {
     queuedCallsRef.current = queuedCalls;
   }, [queuedCalls]);
+  useEffect(() => {
+    stationLabelRef.current = stationLabel ?? null;
+  }, [stationLabel]);
+  useEffect(() => {
+    stationSeatIdRef.current = stationSeatId ?? null;
+  }, [stationSeatId]);
 
   useEffect(() => {
     debugLog("ui-state-changed", {
@@ -850,8 +906,44 @@ const SoftphonePanel = forwardRef<
     [debugLog, detachAudio],
   );
 
+  const queuePostCallWrapUp = useCallback(
+    (reason: string) => {
+      const connected = activeCallConnectedRef.current;
+      const wrapUp = activeCallWrapUpRef.current;
+      const transferHandoffPending = transferPendingRef.current;
+
+      activeCallConnectedRef.current = false;
+      activeCallWrapUpRef.current = null;
+
+      if (!connected || !wrapUp?.phone || transferHandoffPending) {
+        debugLog("post-call-wrap-up-skipped", {
+          connected,
+          hadWrapUp: Boolean(wrapUp),
+          reason,
+          transferHandoffPending,
+        });
+        return;
+      }
+
+      const nextWrapUp = {
+        ...wrapUp,
+        token: Date.now(),
+      };
+
+      debugLog("post-call-wrap-up-queued", {
+        direction: nextWrapUp.direction,
+        phone: nextWrapUp.phone,
+        reason,
+      });
+      setPostCallWrapUp(nextWrapUp);
+    },
+    [debugLog],
+  );
+
   const resetActiveCallUi = useCallback(() => {
     debugLog("active-call-reset", { call: callDebugSnapshot(activeCallRef.current) });
+    activeCallConnectedRef.current = false;
+    activeCallWrapUpRef.current = null;
     clearTimer();
     detachAudio();
     setActiveCall(null);
@@ -862,6 +954,7 @@ const SoftphonePanel = forwardRef<
     setShowKeypad(false);
     setCallDuration(0);
     clearTransferPendingTimer();
+    transferPendingRef.current = false;
     setTransferPending(false);
   }, [clearTimer, clearTransferPendingTimer, debugLog, detachAudio]);
 
@@ -952,6 +1045,19 @@ const SoftphonePanel = forwardRef<
         call: callDebugSnapshot(call),
         inbound,
       });
+      const phone = postCallPhoneFor(call, inbound, dialedNumberRef.current);
+
+      activeCallConnectedRef.current = true;
+      activeCallWrapUpRef.current = phone
+        ? {
+            direction: inbound ? "inbound" : "outbound",
+            phone,
+            stationLabel: stationLabelRef.current,
+            stationSeatId: stationSeatIdRef.current,
+            token: Date.now(),
+          }
+        : null;
+
       if (inbound) {
         answeredInboundCallIdsRef.current.add(call.id);
       }
@@ -1115,6 +1221,8 @@ const SoftphonePanel = forwardRef<
 
           if (ringingStates.includes(call.state || "")) {
             if (outbound) {
+              activeCallConnectedRef.current = false;
+              activeCallWrapUpRef.current = null;
               setIncomingCall((current) => (current?.id === call.id ? null : current));
               setQueuedCalls((current) =>
                 current.filter((queued) => queued.id !== call.id),
@@ -1200,7 +1308,11 @@ const SoftphonePanel = forwardRef<
 
           if (call.state === "active") {
             if (activeCallRef.current?.id === call.id) {
-              setActiveCall(call);
+              if (activeCallConnectedRef.current) {
+                setActiveCall(call);
+              } else {
+                promoteToActiveCall(call, inbound);
+              }
               return;
             }
 
@@ -1245,6 +1357,7 @@ const SoftphonePanel = forwardRef<
             if (activeCallRef.current?.id === call.id) {
               clearRingingCallExpiryTimer(ringKey);
               setAnsweringRingPending(ringKey, false);
+              queuePostCallWrapUp("call-terminal");
               resetActiveCallUi();
               setStatus((s) =>
                 incomingCallRef.current || queuedCallsRef.current.length > 0
@@ -1373,6 +1486,7 @@ const SoftphonePanel = forwardRef<
     enabled,
     inboundEnabled,
     promoteToActiveCall,
+    queuePostCallWrapUp,
     resetActiveCallUi,
     scheduleIncomingClear,
     setAnsweringCallPending,
@@ -1497,6 +1611,9 @@ const SoftphonePanel = forwardRef<
       callerNumber,
       destinationNumber: to,
     });
+    activeCallConnectedRef.current = false;
+    activeCallWrapUpRef.current = null;
+    setPostCallWrapUp(null);
     setDialedNumber(to);
     setDirection("outbound");
     setStatus("ringing");
@@ -1507,6 +1624,11 @@ const SoftphonePanel = forwardRef<
     try {
       const call = client.newCall({
         callerNumber,
+        clientState: encodeCallClientState({
+          browserSessionId,
+          stationLabel,
+          stationSeatId,
+        }),
         destinationNumber: to,
       });
       outboundCallIdsRef.current.add(call.id);
@@ -1522,10 +1644,13 @@ const SoftphonePanel = forwardRef<
       setError(callError instanceof Error ? callError.message : "Unable to start call");
     }
   }, [
+    browserSessionId,
     callerNumber,
     debugLog,
     draftNumber,
     ensureMicrophonePermission,
+    stationLabel,
+    stationSeatId,
     status,
     unlockSound,
   ]);
@@ -1754,13 +1879,14 @@ const SoftphonePanel = forwardRef<
           message: errorMessageFor(hangupError),
         });
         if (isStaleTelnyxCallError(hangupError)) {
+          queuePostCallWrapUp("stale-hangup-error");
           resetActiveCallUi();
         } else {
           setError(errorMessageFor(hangupError) || "Unable to end call");
         }
       }
     }
-  }, [activeCall, debugLog, resetActiveCallUi]);
+  }, [activeCall, debugLog, queuePostCallWrapUp, resetActiveCallUi]);
 
   const toggleMute = useCallback(() => {
     if (!activeCall) return;
@@ -1791,6 +1917,7 @@ const SoftphonePanel = forwardRef<
       return;
     }
 
+    transferPendingRef.current = true;
     setTransferPending(true);
     clearTransferPendingTimer();
     setError(null);
@@ -1829,6 +1956,7 @@ const SoftphonePanel = forwardRef<
           call: callDebugSnapshot(activeCallRef.current),
           targetSeatId: selectedTransferSeatId,
         });
+        transferPendingRef.current = false;
         setTransferPending(false);
       }, AGENT_RING_UI_TIMEOUT_MS + 2000);
     } catch (transferError) {
@@ -1837,6 +1965,7 @@ const SoftphonePanel = forwardRef<
         message: errorMessageFor(transferError),
         targetSeatId: selectedTransferSeatId,
       });
+      transferPendingRef.current = false;
       setTransferPending(false);
       setError(errorMessageFor(transferError) || "Unable to transfer call");
     }
@@ -2035,6 +2164,79 @@ const SoftphonePanel = forwardRef<
                 ))}
               </div>
             ) : null}
+          </div>
+        ) : null}
+
+        {postCallWrapUp && !activeCall ? (
+          <div className="rounded-lg border border-[#0d7377]/20 bg-[#f7fbfa] p-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#10272c]">Call outcome</p>
+              <p className="mt-0.5 truncate text-xs text-[#617477]">
+                {formatPhone(postCallWrapUp.phone)} ·{" "}
+                {postCallWrapUp.direction === "inbound" ? "Inbound" : "Outbound"}
+              </p>
+            </div>
+
+            <form
+              action={saveCallCenterNoteAction}
+              className="mt-3 grid gap-2"
+              key={postCallWrapUp.token}
+              onSubmit={() => setPostCallWrapUp(null)}
+            >
+              {office ? <input name="office" type="hidden" value={office} /> : null}
+              <input name="phone" type="hidden" value={postCallWrapUp.phone} />
+              <input
+                name="stationSeatId"
+                type="hidden"
+                value={postCallWrapUp.stationSeatId ?? ""}
+              />
+              <input
+                name="stationLabel"
+                type="hidden"
+                value={postCallWrapUp.stationLabel ?? ""}
+              />
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[#617477]">
+                Outcome
+                <select
+                  className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm font-medium text-[#10272c] outline-none transition focus:border-[#0d7377]"
+                  defaultValue="RESOLVED"
+                  name="disposition"
+                >
+                  <option value="RESOLVED">Resolved</option>
+                  <option value="CALLBACK_NEEDED">Callback needed</option>
+                  <option value="FOLLOW_UP_REQUIRED">Follow-up required</option>
+                  <option value="WRONG_NUMBER">Wrong number</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[#617477]">
+                Note
+                <textarea
+                  className="min-h-20 rounded-lg border border-black/8 bg-white px-3 py-2 text-sm text-[#10272c] outline-none transition placeholder:text-[#8a999b] focus:border-[#0d7377]"
+                  name="note"
+                  placeholder="What happened?"
+                  rows={2}
+                />
+              </label>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  onClick={() => setPostCallWrapUp(null)}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  Skip
+                </Button>
+                <Button
+                  className="h-8 px-3 text-xs"
+                  size="sm"
+                  type="submit"
+                  variant="primary"
+                >
+                  Save
+                </Button>
+              </div>
+            </form>
           </div>
         ) : null}
 

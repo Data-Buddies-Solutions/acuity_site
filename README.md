@@ -241,8 +241,8 @@ Production/shared databases should be migrated with:
 bunx prisma migrate deploy
 ```
 
-Production Vercel builds run this automatically before `prisma generate` and
-`next build` when `VERCEL_ENV=production`.
+Production migrations run from the GitHub Actions workflow
+`.github/workflows/production-migrations.yml`, not from Vercel builds.
 
 Use `prisma migrate dev` only for local migration authoring. Do not use
 `prisma db push` against shared or production databases.
@@ -253,9 +253,10 @@ Prisma checks in CI:
 - `prisma validate` checks schema validity.
 - `next build` catches type and runtime integration issues at the Next/Prisma boundary.
 
-Migration deployment is intentionally not automatic in GitHub Actions. Production
-migrations run in the Vercel production build, where the production
-`DATABASE_URL` is available.
+Migration deployment is intentionally separate from normal PR/push CI. Run the
+manual `Production Migrations` workflow with `confirm` set to `DEPLOY`; it uses
+the `Production` environment and its `DATABASE_URL` secret. Run it from `main`
+after the migration files are merged.
 
 ## CI
 
@@ -300,9 +301,9 @@ Vercel build command should use:
 bun run vercel-build
 ```
 
-The Vercel build command is enforced by `vercel.json`. Preview builds skip
-`prisma migrate deploy` because the script only runs it when
-`VERCEL_ENV=production`.
+The Vercel build command is enforced by `vercel.json`. Vercel builds generate
+the Prisma client and build the Next.js app only; production database migrations
+are deployed separately through GitHub Actions.
 
 ## Operational Runbooks
 

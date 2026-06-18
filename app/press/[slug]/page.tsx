@@ -95,9 +95,7 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
       },
     },
     mainEntityOfPage: { "@type": "WebPage", "@id": url },
-    ...(release.image
-      ? { image: `${SITE_CONFIG.baseUrl}${release.image.src}` }
-      : {}),
+    ...(release.image ? { image: `${SITE_CONFIG.baseUrl}${release.image.src}` } : {}),
   };
 
   return (
@@ -182,7 +180,10 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
                 )}
                 <div className={section.heading ? "mt-3 space-y-4" : "space-y-4"}>
                   {section.paragraphs.map((p, j) => (
-                    <p key={j} className="text-[1.0625rem] leading-[1.75] text-neutral-700">
+                    <p
+                      key={j}
+                      className="text-[1.0625rem] leading-[1.75] text-neutral-700"
+                    >
                       {p}
                     </p>
                   ))}
@@ -227,9 +228,9 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
                 About Acuity Health
               </p>
               <p className="mt-3 text-sm leading-relaxed text-neutral-700">
-                Acuity Health is the AI receptionist for ophthalmology practices.
-                Acuity answers every patient call, books appointments directly into the
-                EMR, and captures after-hours demand.{" "}
+                Acuity Health is the AI receptionist for ophthalmology practices. Acuity
+                answers every patient call, books appointments directly into the EMR, and
+                captures after-hours demand.{" "}
                 <Link
                   href="/"
                   className="text-neutral-900 underline-offset-4 hover:underline"
@@ -254,7 +255,6 @@ export default async function PressReleasePage({ params }: { params: Promise<Par
               </p>
             </div>
           </div>
-
         </div>
       </article>
     </>

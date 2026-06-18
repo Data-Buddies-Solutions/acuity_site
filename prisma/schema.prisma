@@ -16,6 +16,7 @@ model User {
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   accounts             Account[]
+  callCenterNotes      CallCenterNote[]
   callCenterPresence   CallCenterPresence[]
   memberships          PracticeMembership[]
   sessions             Session[]
@@ -179,6 +180,14 @@ enum CallCenterRingAttemptStatus {
   FAILED
 }
 
+enum CallCenterNoteDisposition {
+  RESOLVED
+  CALLBACK_NEEDED
+  FOLLOW_UP_REQUIRED
+  WRONG_NUMBER
+  OTHER
+}
+
 enum WebsiteScanStatus {
   SUCCESS
   FAILED
@@ -272,6 +281,7 @@ model Practice {
   agents               PracticeAgent[]
   callCenterAgentSeats CallCenterAgentSeat[]
   callCenterMissed     CallCenterMissedCall[]
+  callCenterNotes      CallCenterNote[]
   callCenterQueueItems CallCenterQueueItem[]
   callCenterSessions   CallCenterSession[]
   callCenterSettings   PracticeCallCenterSettings?
@@ -482,6 +492,7 @@ model PracticeLocation {
   agentCalls           AgentCall[]
   callCenterAgentSeats CallCenterAgentSeat[]
   callCenterMissed     CallCenterMissedCall[]
+  callCenterNotes      CallCenterNote[]
   callCenterQueueItems CallCenterQueueItem[]
   callCenterSessions   CallCenterSession[]
   callCenterVoicemails CallCenterVoicemail[]
@@ -767,7 +778,7 @@ model PracticeCallCenterSettings {
   inboundPhoneNumber   String?
   outboundCallerNumber String?
   voicemailGreeting    String             @default("Please leave a message after the beep.")
-  voicemailTimeoutSec  Int                @default(15)
+  voicemailTimeoutSec  Int                @default(30)
   recordingEnabled     Boolean            @default(true)
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
@@ -794,6 +805,7 @@ model CallCenterAgentSeat {
   updatedAt          DateTime                @updatedAt
   location           PracticeLocation?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
   practice           Practice                @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  notes              CallCenterNote[]
   presence           CallCenterPresence[]
   ringAttempts       CallCenterRingAttempt[]
 
@@ -902,6 +914,7 @@ model CallCenterSession {
   agentCall           AgentCall?                 @relation(fields: [agentCallId], references: [id], onDelete: SetNull)
   location            PracticeLocation?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
   missedCalls         CallCenterMissedCall[]
+  notes               CallCenterNote[]
   practice            Practice                   @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   queueItems          CallCenterQueueItem[]
   voicemails          CallCenterVoicemail[]
@@ -928,6 +941,7 @@ model CallCenterMissedCall {
   updatedAt   DateTime              @updatedAt
   agentCall   AgentCall?            @relation(fields: [agentCallId], references: [id], onDelete: SetNull)
   location    PracticeLocation?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  notes       CallCenterNote[]
   practice    Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   session     CallCenterSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   voicemails  CallCenterVoicemail[]
@@ -957,6 +971,7 @@ model CallCenterVoicemail {
   updatedAt    DateTime              @updatedAt
   location     PracticeLocation?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
   missedCall   CallCenterMissedCall? @relation(fields: [missedCallId], references: [id], onDelete: SetNull)
+  notes        CallCenterNote[]
   practice     Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   session      CallCenterSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
@@ -967,4 +982,40 @@ model CallCenterVoicemail {
   @@index([sessionId])
   @@index([missedCallId])
   @@map("call_center_voicemail")
+}
+
+model CallCenterNote {
+  id                   String                    @id @default(cuid())
+  practiceId           String
+  locationId           String?
+  fromPhone            String
+  sessionId            String?
+  missedCallId         String?
+  voicemailId          String?
+  stationSeatId        String?
+  stationLabelSnapshot String?
+  createdByUserId      String?
+  createdByLabel       String?
+  disposition          CallCenterNoteDisposition
+  body                 String?                   @db.Text
+  resolvedThread       Boolean                   @default(false)
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  createdBy            User?                     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  location             PracticeLocation?         @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  missedCall           CallCenterMissedCall?     @relation(fields: [missedCallId], references: [id], onDelete: SetNull)
+  practice             Practice                  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  session              CallCenterSession?        @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  stationSeat          CallCenterAgentSeat?      @relation(fields: [stationSeatId], references: [id], onDelete: SetNull)
+  voicemail            CallCenterVoicemail?      @relation(fields: [voicemailId], references: [id], onDelete: SetNull)
+
+  @@index([practiceId, fromPhone, createdAt])
+  @@index([practiceId, disposition, createdAt])
+  @@index([locationId])
+  @@index([sessionId])
+  @@index([missedCallId])
+  @@index([voicemailId])
+  @@index([stationSeatId])
+  @@index([createdByUserId])
+  @@map("call_center_note")
 }

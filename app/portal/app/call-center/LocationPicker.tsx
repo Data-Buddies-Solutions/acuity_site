@@ -7,20 +7,26 @@ import { ChevronDown } from "lucide-react";
 import type { PortalCallCenterLocation } from "@/lib/call-center";
 
 export default function LocationPicker({
+  basePath = "/portal/app/call-center",
   currentId,
   locations,
+  showLabel = true,
 }: {
+  basePath?: string;
   currentId: string;
   locations: ReadonlyArray<PortalCallCenterLocation>;
+  showLabel?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="pl-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8a999b]">
-        Location
-      </span>
+      {showLabel ? (
+        <span className="pl-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8a999b]">
+          Location
+        </span>
+      ) : null}
       <label className="relative inline-flex w-full items-center sm:w-fit">
         <span className="sr-only">Location</span>
         <select
@@ -30,7 +36,7 @@ export default function LocationPicker({
           onChange={(event) => {
             const next = event.target.value;
             startTransition(() => {
-              router.push(`/portal/app/call-center?office=${encodeURIComponent(next)}`);
+              router.push(`${basePath}?office=${encodeURIComponent(next)}`);
             });
           }}
           value={currentId}
