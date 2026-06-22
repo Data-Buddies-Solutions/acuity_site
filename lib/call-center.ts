@@ -757,6 +757,7 @@ export type PortalCallerTimelineItem = {
 };
 
 export type PortalCallerTimeline = {
+  branding: ReturnType<typeof getPracticeBranding>;
   callerName: string | null;
   items: PortalCallerTimelineItem[];
   latestItem: PortalCallerTimelineItem | null;
@@ -764,6 +765,7 @@ export type PortalCallerTimeline = {
   page: number;
   pageSize: number;
   phone: string;
+  practiceName: string;
   range: PortalCallCenterHistoryRange;
   totalPages: number;
   totals: {
@@ -2556,11 +2558,13 @@ export async function getPortalCallCenterCallerTimeline(
   const requestedPage = Math.max(1, Math.round(options?.page ?? 1));
   const pageSize = Math.min(100, Math.max(25, Math.round(options?.pageSize ?? 100)));
   const range = options?.range ?? "all";
+  const { practice } = context;
   const normalizedPhone = normalizePhone(phone) || phone.trim();
   const variants = phoneLookupVariants(normalizedPhone).filter(Boolean);
 
   if (!variants.length) {
     return {
+      branding: getPracticeBranding(practice),
       callerName: null,
       items: [],
       latestItem: null,
@@ -2568,6 +2572,7 @@ export async function getPortalCallCenterCallerTimeline(
       page: 1,
       pageSize,
       phone: phone.trim(),
+      practiceName: practice.name,
       range,
       totalPages: 1,
       totals: {
@@ -2579,7 +2584,6 @@ export async function getPortalCallCenterCallerTimeline(
     } satisfies PortalCallerTimeline;
   }
 
-  const { practice } = context;
   const locationState =
     options?.locationId === undefined
       ? null
@@ -3312,6 +3316,7 @@ export async function getPortalCallCenterCallerTimeline(
     null;
 
   return {
+    branding: getPracticeBranding(practice),
     callerName:
       callerNameSource?.callerName ??
       patientSessions.find((session) => session.callerName)?.callerName ??
@@ -3324,6 +3329,7 @@ export async function getPortalCallCenterCallerTimeline(
     page,
     pageSize,
     phone: normalizedPhone,
+    practiceName: practice.name,
     range,
     totalPages,
     totals: {

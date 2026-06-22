@@ -408,16 +408,16 @@ export default function CallCenterWorkspace({
           {enabled && configured ? (
             <div className="space-y-3">
               {seats.length ? (
-                <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
+                <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
                   <div className="mb-3">
-                    <h3 className="text-sm font-semibold text-[#10272c]">
+                    <h3 className="text-sm font-semibold text-[var(--portal-ink)]">
                       Station console
                     </h3>
                   </div>
-                  <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--portal-ink)]">
                     Station
                     <select
-                      className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377] disabled:cursor-not-allowed disabled:bg-[#f3f6f6] disabled:text-[#8aa0a3]"
+                      className="h-10 rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm text-[var(--portal-ink)] outline-none transition focus:border-[var(--portal-accent)] disabled:cursor-not-allowed disabled:bg-[var(--portal-panel)] disabled:text-[var(--portal-muted-soft)]"
                       disabled={softphoneEngaged}
                       onChange={(event) => setSelectedSeatId(event.target.value)}
                       value={selectedSeat?.id ?? ""}
@@ -460,11 +460,11 @@ export default function CallCenterWorkspace({
                 </section>
               ) : null}
               {outboundCallerNumbers.length > 1 ? (
-                <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
-                  <label className="flex flex-col gap-1.5 text-sm font-medium text-[#10272c]">
+                <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--portal-ink)]">
                     Outbound number
                     <select
-                      className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm text-[#10272c] outline-none transition focus:border-[#0d7377]"
+                      className="h-10 rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm text-[var(--portal-ink)] outline-none transition focus:border-[var(--portal-accent)]"
                       onChange={(event) =>
                         setSelectedOutboundCallerNumber(event.target.value)
                       }
@@ -496,11 +496,11 @@ export default function CallCenterWorkspace({
               />
             </div>
           ) : (
-            <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
-              <h3 className="text-base font-semibold text-[#10272c]">
+            <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5 shadow-sm">
+              <h3 className="text-base font-semibold text-[var(--portal-ink)]">
                 Softphone standby
               </h3>
-              <p className="mt-2 text-sm text-[#617477]">
+              <p className="mt-2 text-sm text-[var(--portal-muted)]">
                 {enabled
                   ? configurationMessage
                   : "Enable the call center to start placing and receiving calls in the browser."}
@@ -680,8 +680,8 @@ function HistoryPanel({
   const ToggleIcon = isOpen ? ChevronDown : ChevronRight;
 
   return (
-    <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
-      <header className="border-b border-black/6 px-4 py-3">
+    <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
+      <header className="border-b border-[var(--portal-border)] px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <button
             aria-expanded={isOpen}
@@ -689,24 +689,24 @@ function HistoryPanel({
             onClick={() => setIsOpen((current) => !current)}
             type="button"
           >
-            <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#617477]" />
+            <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--portal-muted)]" />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[#10272c]">Connections</span>
+                <span className="text-sm font-semibold text-[var(--portal-ink)]">Connections</span>
                 {total ? (
-                  <span className="rounded-full border border-black/8 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#617477]">
+                  <span className="rounded-full border border-[var(--portal-border)] px-2 py-0.5 text-xs font-semibold tabular-nums text-[var(--portal-muted)]">
                     {total}
                   </span>
                 ) : null}
               </span>
-              <span className="mt-0.5 block text-xs text-[#617477]">
+              <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
                 Connected inbound and outbound calls.
               </span>
             </span>
           </button>
           <div className="flex shrink-0 items-center gap-2">
             <Link
-              className="text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
+              className="text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
               href={historyHref}
             >
               View all
@@ -716,7 +716,7 @@ function HistoryPanel({
       </header>
 
       {!isOpen ? null : calls.length ? (
-        <ul className="divide-y divide-black/6">
+        <ul className="divide-y divide-[var(--portal-border)]">
           {calls.map((call) => {
             const isOutbound = call.direction === "OUTBOUND";
             const patientPhone = isOutbound ? call.toPhone : call.fromPhone;
@@ -733,22 +733,22 @@ function HistoryPanel({
                   <div className="flex min-w-0 items-center gap-2">
                     <DirectionIcon
                       aria-hidden="true"
-                      className="h-4 w-4 shrink-0 text-[#0d7377]"
+                      className="h-4 w-4 shrink-0 text-[var(--portal-accent)]"
                     />
                     {historyHref ? (
                       <Link
-                        className="block truncate text-sm font-semibold text-[#0d7377] underline-offset-2 hover:underline"
+                        className="block truncate text-sm font-semibold text-[var(--portal-accent)] underline-offset-2 hover:underline"
                         href={historyHref}
                       >
                         {formatQueuePhone(patientPhone)}
                       </Link>
                     ) : (
-                      <p className="truncate text-sm font-semibold text-[#10272c]">
+                      <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
                         {formatQueuePhone(patientPhone)}
                       </p>
                     )}
                   </div>
-                  <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
+                  <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[var(--portal-muted)]">
                     <span>{recentCallStatusLabel(call)}</span>
                     <span aria-hidden="true">·</span>
                     <span>{formatRecentCallTime(call.occurredAt)}</span>
@@ -771,7 +771,7 @@ function HistoryPanel({
           })}
         </ul>
       ) : (
-        <div className="px-5 py-8 text-center text-sm text-[#617477]">
+        <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
           No connected calls yet.
         </div>
       )}
@@ -802,19 +802,19 @@ function QueuePanel({
   );
 
   return (
-    <section className="rounded-xl border border-black/6 bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-[#10272c]">Live queue</h3>
-          <p className="mt-1 text-sm text-[#617477]">Live callers that need an answer.</p>
+          <h3 className="text-base font-semibold text-[var(--portal-ink)]">Live queue</h3>
+          <p className="mt-1 text-sm text-[var(--portal-muted)]">Live callers that need an answer.</p>
         </div>
-        <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+        <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
           {visibleQueue.length}
         </span>
       </div>
 
       {visibleQueue.length ? (
-        <ul className="mt-4 divide-y divide-black/6 rounded-lg border border-black/6">
+        <ul className="mt-4 divide-y divide-[var(--portal-border)] rounded-lg border border-[var(--portal-border)]">
           {visibleQueue.map((item) => (
             <li
               className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
@@ -835,10 +835,10 @@ function QueuePanel({
                 return (
                   <>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-[#10272c]">
+                      <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
                         {formatQueuePhone(item.fromPhone)}
                       </p>
-                      <p className="mt-1 text-xs text-[#617477]">
+                      <p className="mt-1 text-xs text-[var(--portal-muted)]">
                         {isTransferRequest
                           ? "Transfer request"
                           : queueStatusLabel(item.status)}
@@ -884,7 +884,7 @@ function QueuePanel({
           ))}
         </ul>
       ) : (
-        <div className="mt-4 rounded-lg border border-dashed border-black/10 px-3 py-4 text-center text-sm text-[#617477]">
+        <div className="mt-4 rounded-lg border border-dashed border-[var(--portal-border-strong)] px-3 py-4 text-center text-sm text-[var(--portal-muted)]">
           No callers waiting.
         </div>
       )}

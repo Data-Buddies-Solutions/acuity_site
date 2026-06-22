@@ -121,7 +121,7 @@ export default function ActivityRail({
   stationSeatId?: string | null;
   totals: PortalCallCenterTotals;
 }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedAudioId, setExpandedAudioId] = useState<string | null>(null);
 
@@ -129,8 +129,8 @@ export default function ActivityRail({
   const ToggleIcon = isOpen ? ChevronDown : ChevronRight;
 
   return (
-    <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
-      <header className="border-b border-black/6 px-4 py-3">
+    <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
+      <header className="border-b border-[var(--portal-border)] px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <button
             aria-expanded={isOpen}
@@ -138,26 +138,26 @@ export default function ActivityRail({
             onClick={() => setIsOpen((current) => !current)}
             type="button"
           >
-            <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#617477]" />
+            <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--portal-muted)]" />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[#10272c]">
-                  Outstanding items
+                <span className="text-sm font-semibold text-[var(--portal-ink)]">
+                  Needs action
                 </span>
                 {totals.needsActionCallers ? (
-                  <span className="rounded-full border border-black/8 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#617477]">
+                  <span className="rounded-full border border-[var(--portal-border)] px-2 py-0.5 text-xs font-semibold tabular-nums text-[var(--portal-muted)]">
                     {totals.needsActionCallers}
                   </span>
                 ) : null}
               </span>
-              <span className="mt-0.5 block text-xs text-[#617477]">
+              <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
                 Missed calls, voicemails, and notes that still need a response.
               </span>
             </span>
           </button>
           {totals.needsActionCallers ? (
             <Link
-              className="shrink-0 text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
+              className="shrink-0 text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
               href={followUpHref}
             >
               View all
@@ -167,11 +167,11 @@ export default function ActivityRail({
       </header>
 
       {!isOpen ? null : needsAction.length === 0 ? (
-        <div className="px-5 py-8 text-center text-sm text-[#617477]">
-          No outstanding items.
+        <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
+          No items need action.
         </div>
       ) : (
-        <ul className="divide-y divide-black/5">
+        <ul className="divide-y divide-[var(--portal-border)]">
           {visibleItems.map((group) => {
             const hasVoicemail = group.voicemailCount > 0;
             const hasNote = group.noteCount > 0;
@@ -181,10 +181,10 @@ export default function ActivityRail({
                 ? MessageSquareText
                 : PhoneMissed;
             const iconClassName = hasVoicemail
-              ? "text-amber-500"
+              ? "text-[var(--portal-warning)]"
               : hasNote
-                ? "text-[#0d7377]"
-                : "text-red-500";
+                ? "text-[var(--portal-accent)]"
+                : "text-[var(--portal-danger)]";
             const callbackTarget = group.fromPhone || "";
             const duration = formatDuration(group.latestVoicemailDurationSec);
             const isSelected = selectedId === group.id;
@@ -192,14 +192,14 @@ export default function ActivityRail({
             const title = group.callerName || formatPhone(group.fromPhone);
             const phoneLabel = group.callerName ? formatPhone(group.fromPhone) : null;
             const historyHref = callerHistoryHref(group.fromPhone, office);
-            const summary = formatGroupSummary(group) || "Needs response";
+            const summary = formatGroupSummary(group) || "Needs action";
 
             return (
               <li key={group.id}>
                 <article
                   className={cn(
                     "group px-4 py-3 transition",
-                    isSelected ? "bg-[#f1f5f5]" : "hover:bg-[#f8fbfb]",
+                    isSelected ? "bg-[var(--portal-accent-soft)]" : "hover:bg-[var(--portal-panel-soft)]",
                   )}
                 >
                   <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
@@ -212,21 +212,21 @@ export default function ActivityRail({
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           {historyHref ? (
                             <Link
-                              className="truncate text-sm font-semibold text-[#10272c] hover:text-[#0d7377]"
+                              className="truncate text-sm font-semibold text-[var(--portal-ink)] hover:text-[var(--portal-accent)]"
                               href={historyHref}
                             >
                               {title}
                             </Link>
                           ) : (
-                            <div className="truncate text-sm font-medium text-[#10272c]">
+                            <div className="truncate text-sm font-medium text-[var(--portal-ink)]">
                               {title}
                             </div>
                           )}
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[#617477]">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[var(--portal-muted)]">
                           {phoneLabel ? <span>{phoneLabel}</span> : null}
                           {phoneLabel ? <span aria-hidden="true">·</span> : null}
-                          <span className="font-medium text-[#4e6266]">{summary}</span>
+                          <span className="font-medium text-[var(--portal-ink-soft)]">{summary}</span>
                           {duration ? (
                             <>
                               <span aria-hidden="true">·</span>
@@ -241,7 +241,7 @@ export default function ActivityRail({
                     <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
                       <Button
                         aria-label={`Call back ${title}`}
-                        className="h-8 w-8 p-0 text-[#617477] hover:text-[#0d7377]"
+                        className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
                         disabled={!callbackTarget}
                         onClick={() => {
                           setSelectedId(group.id);
@@ -289,7 +289,7 @@ export default function ActivityRail({
                         <input type="hidden" name="phone" value={group.fromPhone ?? ""} />
                         <Button
                           aria-label="Mark resolved"
-                          className="h-8 w-8 p-0 text-[#617477] hover:text-[#0d7377]"
+                          className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
                           disabled={!group.fromPhone}
                           size="sm"
                           title="Mark resolved"

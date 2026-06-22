@@ -40,17 +40,17 @@ export default function FollowUpCommandCenter({
   );
 
   return (
-    <section className="grid overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm lg:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="min-w-0 border-b border-black/6 lg:border-b-0 lg:border-r">
-        <header className="flex flex-col gap-3 border-b border-black/6 bg-[#fcfdfd] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <section className="grid overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="min-w-0 border-b border-[var(--portal-border)] lg:border-b-0 lg:border-r">
+        <header className="flex flex-col gap-3 border-b border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-[#10272c]">Outstanding items</h2>
-            <p className="mt-0.5 text-xs text-[#617477]">
+            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Needs action</h2>
+            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
               Missed calls, voicemails, and notes that still need a response.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+            <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
               {totalThreads} {totalThreads === 1 ? "thread" : "threads"}
             </span>
             <PaginationControls office={office} page={page} totalPages={totalPages} />
@@ -58,7 +58,7 @@ export default function FollowUpCommandCenter({
         </header>
 
         {threads.length ? (
-          <ul className="divide-y divide-black/5">
+          <ul className="divide-y divide-[var(--portal-border)]">
             {threads.map((group) => (
               <FollowUpQueueRow
                 group={group}
@@ -70,8 +70,8 @@ export default function FollowUpCommandCenter({
             ))}
           </ul>
         ) : (
-          <div className="px-5 py-12 text-center text-sm text-[#617477]">
-            No outstanding items.
+          <div className="px-5 py-12 text-center text-sm text-[var(--portal-muted)]">
+            No items need action.
           </div>
         )}
       </div>
@@ -95,7 +95,7 @@ function FollowUpQueueRow({
   const { Icon, iconClassName } = followUpIcon(group);
   const title = group.callerName || formatPhone(group.fromPhone);
   const phoneLabel = group.callerName ? formatPhone(group.fromPhone) : null;
-  const summary = formatGroupSummary(group) || "Needs response";
+  const summary = formatGroupSummary(group) || "Needs action";
   const duration = formatDuration(group.latestVoicemailDurationSec);
   const numberHref = callerHistoryHref(group.fromPhone, office);
   const callHref = group.fromPhone
@@ -105,13 +105,13 @@ function FollowUpQueueRow({
   return (
     <li
       className={cn(
-        "group px-4 py-3 transition hover:bg-[#f8fbfb]",
-        isSelected ? "bg-[#f1f7f7]" : "",
+        "group px-4 py-3 transition hover:bg-[var(--portal-panel-soft)]",
+        isSelected ? "bg-[var(--portal-accent-soft)]" : "",
       )}
     >
       <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <div
-          className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-[#0d7377]"
+          className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]"
           onClick={onSelect}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -128,12 +128,12 @@ function FollowUpQueueRow({
           />
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="truncate text-sm font-semibold text-[#10272c]">
+              <span className="truncate text-sm font-semibold text-[var(--portal-ink)]">
                 {title}
               </span>
               {numberHref ? (
                 <Link
-                  className="text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
+                  className="text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
                   href={numberHref}
                   onClick={(event) => event.stopPropagation()}
                 >
@@ -141,10 +141,10 @@ function FollowUpQueueRow({
                 </Link>
               ) : null}
             </span>
-            <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[#617477]">
+            <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[var(--portal-muted)]">
               {phoneLabel ? <span>{phoneLabel}</span> : null}
               {phoneLabel ? <span aria-hidden="true">·</span> : null}
-              <span className="font-medium text-[#4e6266]">{summary}</span>
+              <span className="font-medium text-[var(--portal-ink-soft)]">{summary}</span>
               {duration ? (
                 <>
                   <span aria-hidden="true">·</span>
@@ -160,7 +160,7 @@ function FollowUpQueueRow({
           {callHref ? (
             <Button
               asChild
-              className="h-8 w-8 p-0 text-[#617477] hover:text-[#0d7377]"
+              className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
               size="sm"
               title="Call back"
               variant="ghost"
@@ -172,7 +172,7 @@ function FollowUpQueueRow({
           ) : (
             <Button
               aria-label="Call back"
-              className="h-8 w-8 p-0 text-[#617477]"
+              className="h-8 w-8 p-0 text-[var(--portal-muted)]"
               disabled
               size="sm"
               title="Call back"
@@ -197,7 +197,7 @@ function FollowUpWorkPanel({
 }) {
   if (!thread) {
     return (
-      <aside className="bg-[#fcfdfd] px-5 py-8 text-center text-sm text-[#617477]">
+      <aside className="bg-[var(--portal-panel-soft)] px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
         Select an outstanding item to start follow-up.
       </aside>
     );
@@ -206,28 +206,28 @@ function FollowUpWorkPanel({
   const { Icon, iconClassName } = followUpIcon(thread);
   const title = thread.callerName || formatPhone(thread.fromPhone);
   const phoneLabel = thread.callerName ? formatPhone(thread.fromPhone) : null;
-  const summary = formatGroupSummary(thread) || "Needs response";
+  const summary = formatGroupSummary(thread) || "Needs action";
   const callHref = thread.fromPhone
     ? commandCenterCallHref(thread.fromPhone, office)
     : null;
   const numberHref = callerHistoryHref(thread.fromPhone, office);
 
   return (
-    <aside className="bg-[#fcfdfd]">
+    <aside className="bg-[var(--portal-panel-soft)]">
       <div className="sticky top-4 space-y-4 p-4">
-        <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
+        <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <Icon
               aria-hidden="true"
               className={cn("mt-1 h-4 w-4 shrink-0", iconClassName)}
             />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-semibold text-[#10272c]">{title}</p>
+              <p className="truncate text-base font-semibold text-[var(--portal-ink)]">{title}</p>
               {phoneLabel ? (
-                <p className="mt-0.5 text-sm text-[#617477]">{phoneLabel}</p>
+                <p className="mt-0.5 text-sm text-[var(--portal-muted)]">{phoneLabel}</p>
               ) : null}
-              <p className="mt-2 text-sm font-medium text-[#4e6266]">{summary}</p>
-              <p className="mt-1 text-xs text-[#617477]">
+              <p className="mt-2 text-sm font-medium text-[var(--portal-ink-soft)]">{summary}</p>
+              <p className="mt-1 text-xs text-[var(--portal-muted)]">
                 Last activity {formatRelative(thread.lastActivityAt)}
               </p>
             </div>
@@ -245,7 +245,7 @@ function FollowUpWorkPanel({
             <ResolveTextButton office={office} phone={thread.fromPhone} />
             {numberHref ? (
               <Link
-                className="text-xs font-semibold text-[#0d7377] transition hover:text-[#09595c]"
+                className="text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
                 href={numberHref}
               >
                 Full history
@@ -263,8 +263,8 @@ function FollowUpWorkPanel({
           ) : null}
         </section>
 
-        <section className="rounded-xl border border-black/6 bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-[#10272c]">Thread context</h3>
+        <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-[var(--portal-ink)]">Thread context</h3>
           <dl className="mt-3 grid grid-cols-2 gap-2">
             <ThreadMetric label="Missed" value={thread.missedCount} />
             <ThreadMetric label="Voicemail" value={thread.voicemailCount} />
@@ -279,11 +279,11 @@ function FollowUpWorkPanel({
 
 function ThreadMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8a999b]">
+    <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-3 py-2">
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-[var(--portal-muted-soft)]">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm font-semibold text-[#10272c]">{value}</dd>
+      <dd className="mt-0.5 text-sm font-semibold text-[var(--portal-ink)]">{value}</dd>
     </div>
   );
 }
@@ -295,7 +295,7 @@ function ResolveIconButton({ office, phone }: { office?: string; phone: string |
       <input type="hidden" name="phone" value={phone ?? ""} />
       <Button
         aria-label="Mark resolved"
-        className="h-8 w-8 p-0 text-[#617477] hover:text-[#0d7377]"
+        className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
         disabled={!phone}
         size="sm"
         title="Mark resolved"
@@ -368,7 +368,7 @@ function PaginationControls({
           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
-      <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+      <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
         {page} / {totalPages}
       </span>
       {hasNext ? (
@@ -404,14 +404,14 @@ function followUpIcon(group: PortalNeedsActionGroup) {
   const hasNote = group.noteCount > 0;
 
   if (hasVoicemail) {
-    return { Icon: VoicemailIcon, iconClassName: "text-amber-500" };
+    return { Icon: VoicemailIcon, iconClassName: "text-[var(--portal-warning)]" };
   }
 
   if (hasNote) {
-    return { Icon: MessageSquareText, iconClassName: "text-[#0d7377]" };
+    return { Icon: MessageSquareText, iconClassName: "text-[var(--portal-accent)]" };
   }
 
-  return { Icon: PhoneMissed, iconClassName: "text-red-500" };
+  return { Icon: PhoneMissed, iconClassName: "text-[var(--portal-danger)]" };
 }
 
 function formatPhone(phone: string | null) {

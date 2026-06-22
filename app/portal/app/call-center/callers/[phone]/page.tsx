@@ -82,7 +82,6 @@ export default async function PortalCallCenterCallerPage({
   const inboundCount = timeline.totals.inboundItems;
   const outboundDialedCount = timeline.totals.outboundDialedCalls;
   const outboundConnectedCount = timeline.totals.outboundConnectedCalls;
-  const statusLabel = latestNeedsActionItem ? "Needs action" : "No action needed";
   const title = timeline.callerName || formatPhone(timeline.phone);
   const subtitle = timeline.callerName ? formatPhone(timeline.phone) : null;
   const rangeLabel = historyRangeLabel(selectedRange);
@@ -90,29 +89,33 @@ export default async function PortalCallCenterCallerPage({
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <Button asChild className="mb-3 w-fit" size="sm" variant="secondary">
+      <section className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Button
+            asChild
+            className="mt-1 h-9 w-9 shrink-0 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
+            size="sm"
+            variant="ghost"
+          >
             <Link href={commandCenterHref({ office })}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              Command center
+              <span className="sr-only">Back to call center</span>
             </Link>
           </Button>
-          <p className="text-xs font-semibold uppercase text-[#617477]">Number profile</p>
-          <h1 className="mt-1 truncate text-2xl font-semibold text-[#10272c]">{title}</h1>
-          {subtitle ? <p className="mt-1 text-sm text-[#617477]">{subtitle}</p> : null}
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="break-words text-3xl font-semibold leading-tight tracking-normal text-[var(--portal-ink)] md:text-4xl">
+                {title}
+              </h1>
+              {subtitle ? (
+                <span className="text-lg font-medium text-[var(--portal-muted)]">
+                  {subtitle}
+                </span>
+              ) : null}
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "w-fit rounded-full border px-2.5 py-1 text-xs font-semibold",
-              latestNeedsActionItem
-                ? "border-amber-200 bg-amber-50 text-amber-700"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700",
-            )}
-          >
-            {statusLabel}
-          </span>
+        <div className="flex shrink-0 items-center gap-2 sm:pt-1">
           <Button asChild className="w-fit" size="sm" variant="primary">
             <Link href={callHref}>
               <Phone className="h-4 w-4" aria-hidden="true" />
@@ -120,28 +123,15 @@ export default async function PortalCallCenterCallerPage({
             </Link>
           </Button>
         </div>
-      </div>
-
-      <section className="rounded-xl border border-black/6 bg-white p-3 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-[#10272c]">History range</h2>
-            <p className="mt-0.5 text-xs text-[#617477]">
-              Totals and activity for this number.
-            </p>
-          </div>
-          <HistoryRangeTabs
-            office={office}
-            phone={timeline.phone}
-            selectedRange={selectedRange}
-          />
-        </div>
       </section>
 
-      <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-2 sm:grid-cols-3">
         <SummaryMetric label="Inbound" value={inboundCount} />
-        <SummaryMetric label="Outbound" value={outboundConnectedCount} />
-        <SummaryMetric label="Outbound dialed" value={outboundDialedCount} />
+        <SummaryMetric
+          detail={`${outboundDialedCount} dialed`}
+          label="Outbound connected"
+          value={outboundConnectedCount}
+        />
         <SummaryMetric
           label="Last activity"
           value={latestItem ? formatTimelineTime(latestItem.occurredAt) : "None"}
@@ -149,25 +139,25 @@ export default async function PortalCallCenterCallerPage({
       </section>
 
       {latestNeedsActionItem ? (
-        <Card className="overflow-hidden border-black/8 bg-white p-0 shadow-sm">
-          <CardHeader className="mb-0 flex flex-row items-center justify-between border-b border-black/6 px-4 py-3">
-            <h2 className="text-sm font-semibold text-[#10272c]">Follow-up</h2>
+        <Card className="overflow-hidden border-[var(--portal-border)] bg-white p-0 shadow-sm">
+          <CardHeader className="mb-0 flex flex-row items-center justify-between border-b border-[var(--portal-border)] px-4 py-3">
+            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Follow-up</h2>
             <Badge
-              className="border-black/8 bg-white px-2.5 py-1 text-[11px] text-[#617477]"
+              className="border-[var(--portal-border)] bg-white px-2.5 py-1 text-[11px] text-[var(--portal-muted)]"
               variant="outline"
             >
-              Needs response
+              Needs action
             </Badge>
           </CardHeader>
           <CardContent className="p-0">
             <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 border-l-2 border-amber-300 pl-3">
+              <div className="min-w-0 border-l-2 border-[var(--portal-warning)] pl-3">
                 <TimelineRowContent compact hideStatus item={latestNeedsActionItem} />
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 <Button
                   asChild
-                  className="h-8 w-8 p-0 text-[#617477] hover:text-[#0d7377]"
+                  className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
                   size="sm"
                   title="Call back"
                   variant="ghost"
@@ -188,42 +178,51 @@ export default async function PortalCallCenterCallerPage({
 
       <OutcomePanel office={office} phone={timeline.phone} />
 
-      <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
         <header
-          className="flex items-center justify-between border-b border-black/6 px-4 py-3"
+          className="flex flex-col gap-3 border-b border-[var(--portal-border)] px-4 py-3"
           id="activity"
         >
-          <div>
-            <h2 className="text-sm font-semibold text-[#10272c]">All activity</h2>
-            <p className="mt-0.5 text-xs text-[#617477]">
-              {rangeLabel}
-              {locations.length ? ` · ${locations.join(", ")}` : ""}
-            </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--portal-ink)]">All activity</h2>
+              <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
+                {rangeLabel}
+                {locations.length ? ` · ${locations.join(", ")}` : ""}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
+                {timeline.totals.totalItems}{" "}
+                {timeline.totals.totalItems === 1 ? "item" : "items"}
+              </span>
+              <PaginationControls
+                office={office}
+                page={timeline.page}
+                phone={timeline.phone}
+                range={selectedRange}
+                totalPages={totalPages}
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
-              {timeline.totals.totalItems}{" "}
-              {timeline.totals.totalItems === 1 ? "item" : "items"}
-            </span>
-            <PaginationControls
+          <div>
+            <HistoryRangeTabs
               office={office}
-              page={timeline.page}
               phone={timeline.phone}
-              range={selectedRange}
-              totalPages={totalPages}
+              selectedRange={selectedRange}
             />
           </div>
         </header>
 
         {filteredItems.length ? (
-          <ul className="divide-y divide-black/5">
+          <ul className="divide-y divide-[var(--portal-border)]">
             {filteredItems.map((item: PortalCallerTimelineItem) => {
               const Icon = iconForTimelineKind(item.kind);
 
               return (
                 <li key={item.id} className="px-4 py-3">
                   <div className="flex gap-3">
-                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-black/8 bg-[#f7fbfa] text-[#0d7377]">
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
                       <Icon className="h-4 w-4" aria-hidden="true" />
                     </div>
                     <TimelineRowContent item={item} />
@@ -233,7 +232,7 @@ export default async function PortalCallCenterCallerPage({
             })}
           </ul>
         ) : (
-          <div className="px-5 py-12 text-center text-sm text-[#617477]">
+          <div className="px-5 py-12 text-center text-sm text-[var(--portal-muted)]">
             No activity found for this range.
           </div>
         )}
@@ -260,7 +259,7 @@ function HistoryRangeTabs({
   return (
     <nav
       aria-label="History range"
-      className="inline-flex w-fit rounded-lg border border-black/8 bg-[#fafbfb] p-1"
+      className="inline-flex w-fit rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-1"
     >
       {options.map((option) => {
         const selected = option.value === selectedRange;
@@ -271,8 +270,8 @@ function HistoryRangeTabs({
             className={cn(
               "rounded-md px-3 py-1.5 text-xs font-semibold transition",
               selected
-                ? "bg-white text-[#10272c] shadow-sm"
-                : "text-[#617477] hover:text-[#10272c]",
+                ? "bg-white text-[var(--portal-ink)] shadow-sm"
+                : "text-[var(--portal-muted)] hover:text-[var(--portal-ink)]",
             )}
             href={historyRangeHref(phone, option.value, 1, office)}
             key={option.value}
@@ -330,7 +329,7 @@ function PaginationControls({
           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
-      <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+      <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
         {page} / {totalPages}
       </span>
       {hasNext ? (
@@ -365,25 +364,30 @@ function PaginationControls({
 }
 
 function SummaryMetric({
+  detail,
   label,
   tone = "default",
   value,
 }: {
+  detail?: string;
   label: string;
   tone?: "default" | "warning";
   value: number | string;
 }) {
   return (
-    <div className="rounded-xl border border-black/6 bg-white px-4 py-3 shadow-sm">
-      <p className="text-xs font-medium text-[#617477]">{label}</p>
+    <div className="rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 shadow-sm">
+      <p className="text-xs font-medium text-[var(--portal-muted)]">{label}</p>
       <p
         className={cn(
           "mt-1 truncate text-sm font-semibold",
-          tone === "warning" ? "text-amber-700" : "text-[#10272c]",
+          tone === "warning" ? "text-[var(--portal-warning)]" : "text-[var(--portal-ink)]",
         )}
       >
         {value}
       </p>
+      {detail ? (
+        <p className="mt-1 text-xs font-medium text-[var(--portal-muted)]">{detail}</p>
+      ) : null}
     </div>
   );
 }
@@ -407,21 +411,21 @@ function TimelineRowContent({
   return (
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p className="text-sm font-semibold text-[#10272c]">{item.title}</p>
+        <p className="text-sm font-semibold text-[var(--portal-ink)]">{item.title}</p>
         {visibleStatus ? (
           <span
             className={cn(
               "rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase",
               isNeedsActionItem(item)
-                ? "border-amber-200 bg-amber-50 text-amber-700"
-                : "border-black/8 text-[#617477]",
+                ? "border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] text-[var(--portal-warning)]"
+                : "border-[var(--portal-border)] text-[var(--portal-muted)]",
             )}
           >
             {formatStatus(visibleStatus)}
           </span>
         ) : null}
       </div>
-      <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
+      <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[var(--portal-muted)]">
         <span>{formatTimelineTime(item.occurredAt)}</span>
         {duration ? (
           <>
@@ -445,14 +449,14 @@ function TimelineRowContent({
       {item.body ? (
         <p
           className={cn(
-            "mt-2 rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2 text-sm text-[#10272c]",
+            "mt-2 rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-3 py-2 text-sm text-[var(--portal-ink)]",
             compact ? "max-w-2xl" : "",
           )}
         >
           {item.body}
         </p>
       ) : note ? (
-        <p className="mt-1 text-sm text-[#617477]">{note}</p>
+        <p className="mt-1 text-sm text-[var(--portal-muted)]">{note}</p>
       ) : null}
       {item.kind === "voicemail" && item.recordingId ? (
         <audio
@@ -481,7 +485,7 @@ function ResolveActionForm({
       <input type="hidden" name="phone" value={phone} />
       <Button
         aria-label={iconOnly ? "Mark resolved" : undefined}
-        className={iconOnly ? "h-8 w-8 p-0 text-[#617477] hover:text-[#0d7377]" : "w-fit"}
+        className={iconOnly ? "h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]" : "w-fit"}
         size="sm"
         title={iconOnly ? "Mark resolved" : undefined}
         type="submit"
@@ -496,7 +500,7 @@ function ResolveActionForm({
 
 function OutcomePanel({ office, phone }: { office?: string; phone: string }) {
   return (
-    <Card className="border-black/6 bg-white p-4 shadow-sm">
+    <Card className="border-[var(--portal-border)] bg-white p-4 shadow-sm">
       <CardContent className="p-0">
         <form
           action={saveCallCenterNoteAction}
@@ -504,10 +508,10 @@ function OutcomePanel({ office, phone }: { office?: string; phone: string }) {
         >
           {office ? <input type="hidden" name="office" value={office} /> : null}
           <input type="hidden" name="phone" value={phone} />
-          <label className="flex flex-col gap-1 text-xs font-semibold text-[#617477]">
+          <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--portal-muted)]">
             Status
             <select
-              className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm font-medium text-[#10272c] outline-none transition focus:border-[#0d7377]"
+              className="h-10 rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm font-medium text-[var(--portal-ink)] outline-none transition focus:border-[var(--portal-accent)]"
               defaultValue="RESOLVED"
               name="disposition"
             >
@@ -518,10 +522,10 @@ function OutcomePanel({ office, phone }: { office?: string; phone: string }) {
               <option value="OTHER">Other</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold text-[#617477]">
+          <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--portal-muted)]">
             Note
             <textarea
-              className="min-h-10 rounded-lg border border-black/8 bg-white px-3 py-2 text-sm text-[#10272c] outline-none transition placeholder:text-[#8a999b] focus:border-[#0d7377]"
+              className="min-h-10 rounded-lg border border-[var(--portal-border)] bg-white px-3 py-2 text-sm text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[var(--portal-accent)]"
               name="note"
               placeholder="What happened?"
               rows={1}
