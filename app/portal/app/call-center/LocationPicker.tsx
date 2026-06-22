@@ -23,7 +23,7 @@ export default function LocationPicker({
   return (
     <div className="flex flex-col gap-1.5">
       {showLabel ? (
-        <span className="pl-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8a999b]">
+        <span className="pl-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--portal-muted-soft)]">
           Location
         </span>
       ) : null}
@@ -31,7 +31,7 @@ export default function LocationPicker({
         <span className="sr-only">Location</span>
         <select
           aria-label="Location"
-          className="h-10 w-full appearance-none rounded-lg border border-black/8 bg-white pl-4 pr-10 text-sm font-medium text-[#10272c] shadow-sm outline-none transition focus:border-[#0d7377] sm:min-w-56"
+          className="h-10 w-full appearance-none rounded-lg border border-[var(--portal-border)] bg-white pl-4 pr-10 text-sm font-medium text-[var(--portal-ink)] shadow-sm outline-none transition focus:border-[var(--portal-accent)] sm:min-w-56"
           disabled={pending}
           onChange={(event) => {
             const next = event.target.value;
@@ -49,7 +49,7 @@ export default function LocationPicker({
         </select>
         <ChevronDown
           aria-hidden="true"
-          className="pointer-events-none absolute right-3 h-4 w-4 text-[#617477]"
+          className="pointer-events-none absolute right-3 h-4 w-4 text-[var(--portal-muted)]"
         />
       </label>
     </div>

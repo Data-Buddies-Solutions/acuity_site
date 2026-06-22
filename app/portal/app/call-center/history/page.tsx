@@ -64,7 +64,8 @@ export default async function PortalCallCenterHistoryPage({
       <PracticePageHeader
         branding={data.branding}
         practiceName={data.practiceName}
-        title="Call Center Connections"
+        showLogo={false}
+        title="Connections"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Button asChild variant="secondary">
@@ -86,11 +87,11 @@ export default async function PortalCallCenterHistoryPage({
         />
       </section>
 
-      <section className="rounded-xl border border-black/6 bg-white p-3 shadow-sm">
+      <section className="rounded-xl border border-[var(--portal-border)] bg-white p-3 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-[#10272c]">Time range</h2>
-            <p className="mt-0.5 text-xs text-[#617477]">
+            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Time range</h2>
+            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
               {historyRangeLabel(data.range)}
             </p>
           </div>
@@ -98,18 +99,18 @@ export default async function PortalCallCenterHistoryPage({
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-black/6 bg-white shadow-sm">
-        <header className="flex flex-col gap-3 border-b border-black/6 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
+        <header className="flex flex-col gap-3 border-b border-[var(--portal-border)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-[#10272c]">
+            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
               Inbound and outbound connections
             </h2>
-            <p className="mt-0.5 text-xs text-[#617477]">
+            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
               Connected call-center calls for the selected range.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+            <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
               {data.totals.totalCalls} connections
             </span>
             <PaginationControls
@@ -121,13 +122,13 @@ export default async function PortalCallCenterHistoryPage({
         </header>
 
         {data.calls.length ? (
-          <ul className="divide-y divide-black/5">
+          <ul className="divide-y divide-[var(--portal-border)]">
             {data.calls.map((call) => (
               <HistoryRow call={call} key={call.id} />
             ))}
           </ul>
         ) : (
-          <div className="px-5 py-12 text-center text-sm text-[#617477]">
+          <div className="px-5 py-12 text-center text-sm text-[var(--portal-muted)]">
             No connected calls yet.
           </div>
         )}
@@ -150,7 +151,7 @@ function HistoryRangeTabs({
   return (
     <nav
       aria-label="History range"
-      className="inline-flex w-fit rounded-lg border border-black/8 bg-[#fafbfb] p-1"
+      className="inline-flex w-fit rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-1"
     >
       {options.map((option) => {
         const selected = option.value === selectedRange;
@@ -161,8 +162,8 @@ function HistoryRangeTabs({
             className={cn(
               "rounded-md px-3 py-1.5 text-xs font-semibold transition",
               selected
-                ? "bg-white text-[#10272c] shadow-sm"
-                : "text-[#617477] hover:text-[#10272c]",
+                ? "bg-white text-[var(--portal-ink)] shadow-sm"
+                : "text-[var(--portal-muted)] hover:text-[var(--portal-ink)]",
             )}
             href={historyHref({ page: 1, range: option.value })}
             key={option.value}
@@ -213,7 +214,7 @@ function PaginationControls({
           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
-      <span className="rounded-full border border-black/8 px-2.5 py-1 text-xs font-semibold text-[#617477]">
+      <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
         {page} / {totalPages}
       </span>
       {hasNext ? (
@@ -257,21 +258,21 @@ function HistoryRow({ call }: { call: PortalRecentCallItem }) {
     <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <DirectionIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#0d7377]" />
+          <DirectionIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--portal-accent)]" />
           {numberHref ? (
             <Link
-              className="block truncate text-sm font-semibold text-[#0d7377] underline-offset-2 hover:underline"
+              className="block truncate text-sm font-semibold text-[var(--portal-accent)] underline-offset-2 hover:underline"
               href={numberHref}
             >
               {formatPhone(patientPhone)}
             </Link>
           ) : (
-            <p className="truncate text-sm font-semibold text-[#10272c]">
+            <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
               {formatPhone(patientPhone)}
             </p>
           )}
         </div>
-        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[#617477]">
+        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[var(--portal-muted)]">
           <span>{historyStatusLabel(call)}</span>
           <span aria-hidden="true">·</span>
           <span>{formatHistoryTime(call.occurredAt)}</span>
@@ -303,9 +304,9 @@ function HistoryRow({ call }: { call: PortalRecentCallItem }) {
 
 function SummaryMetric({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-xl border border-black/6 bg-white px-4 py-3 shadow-sm">
-      <p className="text-xs font-medium text-[#617477]">{label}</p>
-      <p className="mt-1 truncate text-sm font-semibold text-[#10272c]">{value}</p>
+    <div className="rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 shadow-sm">
+      <p className="text-xs font-medium text-[var(--portal-muted)]">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-[var(--portal-ink)]">{value}</p>
     </div>
   );
 }

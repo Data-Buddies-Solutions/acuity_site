@@ -1989,28 +1989,28 @@ const SoftphonePanel = forwardRef<
   const incomingCallAnswering = incomingCall ? isAnsweringCall(incomingCall) : false;
 
   return (
-    <section className="rounded-lg border border-black/8 bg-white shadow-[0_14px_40px_rgba(16,39,44,0.04)]">
-      <div className="flex flex-col gap-3 border-b border-black/8 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <section className="rounded-lg border border-[var(--portal-border)] bg-white shadow-[0_14px_40px_rgba(16,39,44,0.04)]">
+      <div className="flex flex-col gap-3 border-b border-[var(--portal-border)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6f8083]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--portal-muted)]">
             Softphone
           </p>
-          <p className="mt-1 text-sm font-medium text-[#10272c]">
+          <p className="mt-1 text-sm font-medium text-[var(--portal-ink)]">
             {formatPhone(callerNumber)}
           </p>
           {stationLabel ? (
-            <p className="mt-0.5 text-xs text-[#617477]">{stationLabel}</p>
+            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">{stationLabel}</p>
           ) : null}
         </div>
         <span
           className={cn(
             "inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold",
-            status === "ready" && "border-emerald-200 bg-emerald-50 text-emerald-700",
-            status === "on-call" && "border-blue-200 bg-blue-50 text-blue-700",
-            status === "ringing" && "border-amber-200 bg-amber-50 text-amber-700",
+            status === "ready" && "border-[var(--portal-live)] bg-[var(--portal-live-soft)] text-[var(--portal-live)]",
+            status === "on-call" && "border-[var(--portal-accent)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]",
+            status === "ringing" && "border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] text-[var(--portal-warning)]",
             (status === "error" || status === "offline") &&
-              "border-red-200 bg-red-50 text-red-700",
-            status === "initializing" && "border-slate-200 bg-slate-50 text-slate-700",
+              "border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] text-[var(--portal-danger)]",
+            status === "initializing" && "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]",
           )}
         >
           {statusLabel(status)}
@@ -2021,25 +2021,25 @@ const SoftphonePanel = forwardRef<
         <audio ref={remoteAudioRef} autoPlay className="hidden" playsInline />
 
         {error ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="rounded-lg border border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] px-3 py-2 text-sm text-[var(--portal-danger)]">
             {error}
           </div>
         ) : null}
 
         {incomingCall && !activeCall ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-            <div className="flex items-center gap-2 text-amber-800">
+          <div className="rounded-lg border border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] p-3">
+            <div className="flex items-center gap-2 text-[var(--portal-warning)]">
               <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
               <p className="text-xs font-semibold uppercase tracking-[0.14em]">
                 Patient call
               </p>
             </div>
-            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-amber-100 bg-white px-3 py-2">
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-[var(--portal-warning)] bg-white px-3 py-2">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-[#10272c]">
+                <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
                   {formatPhone(callerNumberFor(incomingCall))}
                 </p>
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#8a999b]">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                   Ringing
                 </p>
               </div>
@@ -2061,7 +2061,7 @@ const SoftphonePanel = forwardRef<
                 </Button>
                 <Button
                   aria-label="Decline incoming call"
-                  className="h-8 w-8 p-0 text-[#617477] hover:text-red-600"
+                  className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-danger)]"
                   onClick={() => declineCall(incomingCall.id)}
                   size="sm"
                   variant="ghost"
@@ -2074,17 +2074,17 @@ const SoftphonePanel = forwardRef<
         ) : null}
 
         {activeCall ? (
-          <div className="rounded-lg border border-black/8 bg-[#f7fbfa] p-4">
+          <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-[#10272c]">
+                <p className="text-sm font-semibold text-[var(--portal-ink)]">
                   {formatPhone(activeNumber)}
                 </p>
-                <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[#6f8083]">
+                <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--portal-muted)]">
                   {direction === "inbound" ? "Patient call" : "Outbound"}
                 </p>
               </div>
-              <p className="font-mono text-lg font-semibold tabular-nums text-[#10272c]">
+              <p className="font-mono text-lg font-semibold tabular-nums text-[var(--portal-ink)]">
                 {formatDuration(callDuration)}
               </p>
             </div>
@@ -2119,11 +2119,11 @@ const SoftphonePanel = forwardRef<
               </Button>
             </div>
 
-            <div className="mt-3 flex flex-col gap-2 rounded-md border border-black/8 bg-white p-3 sm:flex-row sm:items-center">
+            <div className="mt-3 flex flex-col gap-2 rounded-md border border-[var(--portal-border)] bg-white p-3 sm:flex-row sm:items-center">
               <label className="min-w-0 flex-1">
                 <span className="sr-only">Transfer station</span>
                 <select
-                  className="h-9 w-full rounded-md border border-black/10 bg-white px-2.5 text-sm font-medium text-[#10272c] outline-none focus:border-[#0d7377]"
+                  className="h-9 w-full rounded-md border border-[var(--portal-border-strong)] bg-white px-2.5 text-sm font-medium text-[var(--portal-ink)] outline-none focus:border-[var(--portal-accent)]"
                   disabled={transferPending || eligibleTransferTargets.length === 0}
                   onChange={(event) => setSelectedTransferSeatId(event.target.value)}
                   value={selectedTransferSeatId}
@@ -2168,10 +2168,10 @@ const SoftphonePanel = forwardRef<
         ) : null}
 
         {postCallWrapUp && !activeCall ? (
-          <div className="rounded-lg border border-[#0d7377]/20 bg-[#f7fbfa] p-3">
+          <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-3">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-[#10272c]">Call outcome</p>
-              <p className="mt-0.5 truncate text-xs text-[#617477]">
+              <p className="text-sm font-semibold text-[var(--portal-ink)]">Call outcome</p>
+              <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
                 {formatPhone(postCallWrapUp.phone)} ·{" "}
                 {postCallWrapUp.direction === "inbound" ? "Inbound" : "Outbound"}
               </p>
@@ -2195,10 +2195,10 @@ const SoftphonePanel = forwardRef<
                 type="hidden"
                 value={postCallWrapUp.stationLabel ?? ""}
               />
-              <label className="flex flex-col gap-1 text-xs font-semibold text-[#617477]">
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--portal-muted)]">
                 Outcome
                 <select
-                  className="h-10 rounded-lg border border-black/8 bg-white px-3 text-sm font-medium text-[#10272c] outline-none transition focus:border-[#0d7377]"
+                  className="h-10 rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm font-medium text-[var(--portal-ink)] outline-none transition focus:border-[var(--portal-accent)]"
                   defaultValue="RESOLVED"
                   name="disposition"
                 >
@@ -2209,10 +2209,10 @@ const SoftphonePanel = forwardRef<
                   <option value="OTHER">Other</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-xs font-semibold text-[#617477]">
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--portal-muted)]">
                 Note
                 <textarea
-                  className="min-h-20 rounded-lg border border-black/8 bg-white px-3 py-2 text-sm text-[#10272c] outline-none transition placeholder:text-[#8a999b] focus:border-[#0d7377]"
+                  className="min-h-20 rounded-lg border border-[var(--portal-border)] bg-white px-3 py-2 text-sm text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[var(--portal-accent)]"
                   name="note"
                   placeholder="What happened?"
                   rows={2}
@@ -2241,8 +2241,8 @@ const SoftphonePanel = forwardRef<
         ) : null}
 
         {queuedCalls.length > 0 ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-            <div className="flex items-center gap-2 text-amber-800">
+          <div className="rounded-lg border border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] p-3">
+            <div className="flex items-center gap-2 text-[var(--portal-warning)]">
               <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
               <p className="text-xs font-semibold uppercase tracking-[0.14em]">
                 In queue · {queuedCalls.length}
@@ -2255,13 +2255,13 @@ const SoftphonePanel = forwardRef<
                 return (
                   <li
                     key={call.id}
-                    className="flex items-center justify-between gap-2 rounded-md border border-amber-100 bg-white px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded-md border border-[var(--portal-warning)] bg-white px-3 py-2"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-[#10272c]">
+                      <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
                         {formatPhone(callerNumberFor(call))}
                       </p>
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#8a999b]">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                         Ringing
                       </p>
                     </div>
@@ -2283,7 +2283,7 @@ const SoftphonePanel = forwardRef<
                       </Button>
                       <Button
                         aria-label="Decline queued call"
-                        className="h-8 w-8 p-0 text-[#617477] hover:text-red-600"
+                        className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-danger)]"
                         onClick={() => declineCall(call.id)}
                         size="sm"
                         variant="ghost"
@@ -2299,21 +2299,21 @@ const SoftphonePanel = forwardRef<
         ) : null}
 
         {heldCalls.length > 0 ? (
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6f8083]">
+          <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted)]">
               On hold · {heldCalls.length}
             </p>
             <ul className="mt-2 space-y-2">
               {heldCalls.map((call) => (
                 <li
                   key={call.id}
-                  className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
+                  className="flex items-center justify-between gap-2 rounded-md border border-[var(--portal-border)] bg-white px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-[#10272c]">
+                    <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
                       {formatPhone(callerNumberFor(call))}
                     </p>
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#8a999b]">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       Holding
                     </p>
                   </div>
@@ -2330,7 +2330,7 @@ const SoftphonePanel = forwardRef<
                     </Button>
                     <Button
                       aria-label="End held call"
-                      className="h-8 w-8 p-0 text-[#617477] hover:text-red-600"
+                      className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-danger)]"
                       onClick={() => endHeld(call.id)}
                       size="sm"
                       variant="ghost"
@@ -2349,7 +2349,7 @@ const SoftphonePanel = forwardRef<
             <div className="flex gap-2">
               <input
                 aria-label="Phone number"
-                className="h-10 min-w-0 flex-1 rounded-lg border border-black/10 bg-white px-3 text-sm font-medium text-[#10272c] outline-none focus:border-[#0d7377]"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--portal-border-strong)] bg-white px-3 text-sm font-medium text-[var(--portal-ink)] outline-none focus:border-[var(--portal-accent)]"
                 inputMode="tel"
                 onChange={(event) => setDraftNumber(event.target.value)}
                 onKeyDown={(event) => {

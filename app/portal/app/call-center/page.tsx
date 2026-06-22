@@ -78,6 +78,7 @@ export default async function PortalCallCenterPage({
       <PracticePageHeader
         branding={data.branding}
         practiceName={data.practiceName}
+        showLogo={false}
         title="Call Center"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
