@@ -490,7 +490,7 @@ export default async function AdminCallDetailPage({
   const evaluationBucket = evaluationLabel?.bucket ?? null;
 
   return (
-    <main className="mx-auto max-w-4xl space-y-6 px-4 py-8">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card/80 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <Link
           href={backHref}
@@ -1070,6 +1070,6 @@ export default async function AdminCallDetailPage({
           {rawJson}
         </pre>
       </details>
-    </main>
+    </div>
   );
 }

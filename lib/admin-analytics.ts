@@ -865,18 +865,6 @@ function sumCostByPractice(calls: CallMetric[], since: Date) {
   return costs;
 }
 
-function needsReviewByPractice(calls: CallMetric[]) {
-  const counts = new Map<string, number>();
-
-  for (const call of calls) {
-    if (call.needsReview) {
-      addMapValue(counts, call.practiceId, 1);
-    }
-  }
-
-  return counts;
-}
-
 function latestCallByPractice(calls: CallMetric[]) {
   const latest = new Map<string, CallMetric>();
 
@@ -1807,7 +1795,6 @@ export async function getAdminPracticeSummaries() {
   const calls24 = countCallsByPractice(calls, since1);
   const calls7 = countCallsByPractice(calls, since7);
   const costs7 = sumCostByPractice(calls, since7);
-  const reviewCounts = needsReviewByPractice(calls);
   const latestCalls = latestCallByPractice(calls);
 
   return practices.map((practice) => {
@@ -1825,7 +1812,6 @@ export async function getAdminPracticeSummaries() {
       id: practice.id,
       lastCallAt: lastCall?.startedAt ?? null,
       launchedAt: practice.launchedAt,
-      needsReviewCount: reviewCounts.get(practice.id) ?? 0,
       onboardingStatus: practice.onboardingStatus,
       phoneNumber: primaryPhone?.phoneNumber ?? null,
       practiceType: practice.practiceType,

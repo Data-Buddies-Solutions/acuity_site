@@ -2,11 +2,11 @@ import type { CostCategoryValue, CostLineEstimate } from "@/lib/call-types";
 
 export const USAGE_PRICING_RATES = {
   assemblyAiSttPerMinute: 0.0075,
-  basetenCachedInputPerMillionTokens: 0.12,
-  basetenInputPerMillionTokens: 0.6,
-  basetenOutputPerMillionTokens: 2.2,
-  cartesiaSonic35PerMillionCharacters: 39,
+  basetenCachedInputPerMillionTokens: 0.3,
+  basetenInputPerMillionTokens: 1.5,
+  basetenOutputPerMillionTokens: 4.5,
   liveKitPerMinute: 0.01,
+  rimeCodaPerThousandCharacters: 0.05,
   telnyxSipInboundPerMinute: 0.0035,
 } as const;
 
@@ -18,6 +18,7 @@ export const ESTIMATED_USAGE_PROVIDERS = [
   "livekit",
   "telnyx",
   "estimated",
+  "rime",
 ] as const;
 
 type PricingUnit = "characters" | "minutes" | "tokens";
@@ -124,11 +125,11 @@ export function calculateUsageCostBreakdown(
       costDollars:
         (uncachedInputTokens / 1_000_000) *
         USAGE_PRICING_RATES.basetenInputPerMillionTokens,
-      label: "Baseten GLM-4.7 input",
-      model: input.llmModel ?? "GLM-4.7",
+      label: "Baseten GLM-5.2 input",
+      model: input.llmModel ?? "GLM-5.2",
       provider: "baseten",
       quantity: uncachedInputTokens,
-      rateLabel: "$0.60 / 1M tok",
+      rateLabel: "$1.50 / 1M tok",
       unit: "tokens",
     }),
     costItem({
@@ -137,10 +138,10 @@ export function calculateUsageCostBreakdown(
         (cachedTokens / 1_000_000) *
         USAGE_PRICING_RATES.basetenCachedInputPerMillionTokens,
       label: "Baseten cached input",
-      model: input.llmModel ?? "GLM-4.7",
+      model: input.llmModel ?? "GLM-5.2",
       provider: "baseten",
       quantity: cachedTokens,
-      rateLabel: "$0.12 / 1M tok",
+      rateLabel: "$0.30 / 1M tok",
       unit: "tokens",
     }),
     costItem({
@@ -148,20 +149,20 @@ export function calculateUsageCostBreakdown(
       costDollars:
         (outputTokens / 1_000_000) * USAGE_PRICING_RATES.basetenOutputPerMillionTokens,
       label: "Baseten output",
-      model: input.llmModel ?? "GLM-4.7",
+      model: input.llmModel ?? "GLM-5.2",
       provider: "baseten",
       quantity: outputTokens,
-      rateLabel: "$2.20 / 1M tok",
+      rateLabel: "$4.50 / 1M tok",
       unit: "tokens",
     }),
     costItem({
       category: "TEXT_TO_SPEECH",
-      costDollars:
-        (ttsChars / 1_000_000) * USAGE_PRICING_RATES.cartesiaSonic35PerMillionCharacters,
-      label: "Cartesia Sonic 3.5 TTS",
-      provider: "cartesia",
+      costDollars: (ttsChars / 1_000) * USAGE_PRICING_RATES.rimeCodaPerThousandCharacters,
+      label: "Rime Coda TTS",
+      model: "Coda",
+      provider: "rime",
       quantity: ttsChars,
-      rateLabel: "$39 / 1M chars",
+      rateLabel: "$0.05 / 1k chars",
       unit: "characters",
     }),
   ].filter((item) => item.quantity > 0 || item.costMicros > 0);
