@@ -176,7 +176,7 @@ export default async function AdminPracticeDetailPage({
           : "All Calls";
 
   return (
-    <main className="mx-auto max-w-6xl space-y-4 px-3 py-4 sm:px-4 md:space-y-6 md:py-8">
+    <div className="mx-auto max-w-6xl space-y-4 md:space-y-6">
       <Link
         href="/admin/practices"
         className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -248,6 +248,6 @@ export default async function AdminPracticeDetailPage({
           {tab === "tools" && <ToolsTab data={data} />}
         </>
       )}
-    </main>
+    </div>
   );
 }
