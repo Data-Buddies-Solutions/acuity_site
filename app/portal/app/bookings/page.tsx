@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 
 import {
   getPortalBookings,
+  type PortalBookingCategorySummary,
   type PortalBookedAppointment,
   type PortalOverviewRange,
 } from "@/lib/portal-overview";
@@ -142,6 +143,42 @@ function formatCallDate(date: Date) {
   return callDateFormatter.format(date);
 }
 
+function formatCareLane(careLane: PortalBookedAppointment["careLane"]) {
+  if (careLane === "medical") return "Medical";
+  if (careLane === "routine_vision") return "Routine vision";
+  return "Unclassified";
+}
+
+function formatVisitType(visitType: PortalBookedAppointment["visitType"]) {
+  if (visitType === "new") return "New";
+  if (visitType === "follow_up_or_existing") return "Follow-up / existing";
+  return "Unknown visit";
+}
+
+function BookingTypeBadges({ booking }: { booking: PortalBookedAppointment }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <span className="inline-flex items-center rounded-md border border-[#d6dbe6] bg-white px-2 py-1 text-[11px] font-semibold leading-none text-[#344054]">
+        {formatCareLane(booking.careLane)}
+      </span>
+      <span className="inline-flex items-center rounded-md border border-[#e1e5ed] bg-[#f7f8fb] px-2 py-1 text-[11px] font-semibold leading-none text-[#536a91]">
+        {formatVisitType(booking.visitType)}
+      </span>
+    </div>
+  );
+}
+
+function BookingTypeText({ booking }: { booking: PortalBookedAppointment }) {
+  return (
+    <div className="space-y-1.5">
+      <BookingTypeBadges booking={booking} />
+      <p className="max-w-52 truncate text-xs text-[var(--portal-muted)]">
+        {booking.appointmentTypeName ?? "No appointment type"}
+      </p>
+    </div>
+  );
+}
+
 function BookingRow({ booking }: { booking: PortalBookedAppointment }) {
   return (
     <tr className="border-b border-black/5 last:border-0">
@@ -153,6 +190,9 @@ function BookingRow({ booking }: { booking: PortalBookedAppointment }) {
       </td>
       <td className="px-5 py-4 text-sm text-[var(--portal-ink)]">
         {formatAppointment(booking.appointmentStart)}
+      </td>
+      <td className="px-5 py-4 text-sm text-[var(--portal-ink)]">
+        <BookingTypeText booking={booking} />
       </td>
       <td className="px-5 py-4 text-sm text-[var(--portal-ink)]">
         {booking.providerName ?? "—"}
@@ -193,13 +233,21 @@ function BookingCard({ booking }: { booking: PortalBookedAppointment }) {
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
+        <div className="col-span-2 rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
           <p className="text-[10px] font-semibold uppercase text-[var(--portal-muted-soft)]">
             Appointment
           </p>
           <p className="mt-1 text-sm font-medium text-[var(--portal-ink)]">
             {formatAppointment(booking.appointmentStart)}
           </p>
+        </div>
+        <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase text-[var(--portal-muted-soft)]">
+            Type
+          </p>
+          <div className="mt-1">
+            <BookingTypeText booking={booking} />
+          </div>
         </div>
         <div className="rounded-lg border border-black/6 bg-[#fafbfb] px-3 py-2">
           <p className="text-[10px] font-semibold uppercase text-[var(--portal-muted-soft)]">
@@ -230,15 +278,85 @@ function BookingCard({ booking }: { booking: PortalBookedAppointment }) {
   );
 }
 
-function BookingsSummary({ count }: { count: number }) {
+function BookingSummarySplit({ summary }: { summary: PortalBookingCategorySummary }) {
+  if (summary.total === 0) {
+    return null;
+  }
+
+  const rows = [
+    {
+      followLabel: "Follow-up",
+      label: "Medical",
+      value: summary.medical,
+    },
+    {
+      followLabel: "Follow-up",
+      label: "Routine vision",
+      value: summary.routineVision,
+    },
+  ].filter((row) => row.value.total > 0);
+
   return (
-    <div className="mt-4 inline-flex items-end gap-3 rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 shadow-sm">
-      <span className="font-mono text-3xl font-semibold leading-none tabular-nums text-[#536a91]">
-        {count}
-      </span>
-      <span className="pb-0.5 text-sm font-semibold uppercase tracking-normal text-[var(--portal-muted)]">
-        Total {count === 1 ? "appointment" : "appointments"}
-      </span>
+    <div className="rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+        Booking mix
+      </p>
+      <div className="mt-3 grid gap-3 sm:min-w-80 sm:grid-cols-2">
+        {rows.map((row) => {
+          const percent = summary.total > 0 ? row.value.total / summary.total : 0;
+
+          return (
+            <div key={row.label} className="space-y-1.5">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium text-[var(--portal-ink)]">{row.label}</span>
+                <span className="font-semibold tabular-nums text-[#536a91]">
+                  {row.value.total}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-[#edf0f5]">
+                <div
+                  className="h-full rounded-full bg-[#536a91]"
+                  style={{ width: `${Math.max(4, Math.round(percent * 100))}%` }}
+                />
+              </div>
+              <p className="text-xs text-[var(--portal-muted)]">
+                New {row.value.newPatient} / {row.followLabel}{" "}
+                {row.value.followUpOrExisting}
+                {row.value.unknownVisitType > 0
+                  ? ` / Unknown ${row.value.unknownVisitType}`
+                  : ""}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      {summary.unknown.total > 0 ? (
+        <p className="mt-3 border-t border-black/6 pt-2 text-xs text-[var(--portal-muted)]">
+          Unclassified: {summary.unknown.total}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function BookingsSummary({
+  count,
+  summary,
+}: {
+  count: number;
+  summary: PortalBookingCategorySummary;
+}) {
+  return (
+    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-stretch">
+      <div className="inline-flex items-end gap-3 rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 shadow-sm">
+        <span className="font-mono text-3xl font-semibold leading-none tabular-nums text-[#536a91]">
+          {count}
+        </span>
+        <span className="pb-0.5 text-sm font-semibold uppercase tracking-normal text-[var(--portal-muted)]">
+          Total {count === 1 ? "appointment" : "appointments"}
+        </span>
+      </div>
+      <BookingSummarySplit summary={summary} />
     </div>
   );
 }
@@ -271,7 +389,10 @@ export default async function PortalBookingsPage({
           <h1 className="break-words text-4xl font-semibold leading-tight tracking-normal text-[#151a24] md:text-5xl">
             Bookings
           </h1>
-          <BookingsSummary count={result.bookings.length} />
+          <BookingsSummary
+            count={result.bookings.length}
+            summary={result.bookingCategories}
+          />
         </div>
         <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
           <OfficeFilterNav
@@ -377,6 +498,9 @@ export default async function PortalBookingsPage({
                     </th>
                     <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       Appointment
+                    </th>
+                    <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
+                      Type
                     </th>
                     <th className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                       Doctor
