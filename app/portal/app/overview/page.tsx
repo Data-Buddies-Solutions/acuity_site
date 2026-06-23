@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import {
   getPortalOverviewMetrics,
+  type PortalBookingCategorySummary,
   type PortalOverviewRange,
 } from "@/lib/portal-overview";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
@@ -139,6 +140,59 @@ function formatRate(value: number) {
     maximumFractionDigits: 0,
     style: "percent",
   }).format(value);
+}
+
+function BookingCategoryBreakdown({
+  summary,
+}: {
+  summary: PortalBookingCategorySummary;
+}) {
+  if (summary.total === 0) {
+    return null;
+  }
+
+  const rows = [
+    {
+      followLabel: "Follow-up",
+      label: "Medical",
+      value: summary.medical,
+    },
+    {
+      followLabel: "Follow-up",
+      label: "Routine vision",
+      value: summary.routineVision,
+    },
+  ].filter((row) => row.value.total > 0);
+
+  return (
+    <div className="space-y-2 border-t border-[#e5e8ef] pt-3">
+      {rows.map((row) => (
+        <div key={row.label} className="space-y-1">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="font-medium text-[#344054]">{row.label}</span>
+            <span className="font-semibold tabular-nums text-[#151a24]">
+              {formatInteger(row.value.total)}
+            </span>
+          </div>
+          <p className="text-xs leading-5 text-[#7b8494]">
+            New {formatInteger(row.value.newPatient)} / {row.followLabel}{" "}
+            {formatInteger(row.value.followUpOrExisting)}
+            {row.value.unknownVisitType > 0
+              ? ` / Unknown ${formatInteger(row.value.unknownVisitType)}`
+              : ""}
+          </p>
+        </div>
+      ))}
+      {summary.unknown.total > 0 ? (
+        <div className="flex items-center justify-between gap-3 border-t border-[#eef1f6] pt-2 text-xs text-[#7b8494]">
+          <span>Unclassified</span>
+          <span className="font-medium tabular-nums">
+            {formatInteger(summary.unknown.total)}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function formatTodayLabel() {
@@ -312,7 +366,9 @@ export default async function PortalOverviewPage({
         <MetricCard
           label="Appointments Booked"
           value={formatInteger(metrics.appointmentActions.booked)}
-        />
+        >
+          <BookingCategoryBreakdown summary={metrics.bookingCategories} />
+        </MetricCard>
         <MetricCard
           label="Sent to Staff"
           note={`${formatRate(metrics.transferRate)} of calls`}

@@ -18,11 +18,31 @@ export type PortalBookedAppointment = {
   callId: string;
   callStartedAt: Date;
   callerPhone: string;
+  careLane: PortalBookingCareLane;
   duration: number | null;
   locationName: string | null;
   patientName: string | null;
   providerName: string | null;
   summary: string | null;
+  visitType: PortalBookingVisitType;
+};
+
+export type PortalBookingCareLane = "medical" | "routine_vision" | "unknown";
+
+export type PortalBookingVisitType = "follow_up_or_existing" | "new" | "unknown";
+
+export type PortalBookingCategoryCount = {
+  followUpOrExisting: number;
+  newPatient: number;
+  total: number;
+  unknownVisitType: number;
+};
+
+export type PortalBookingCategorySummary = {
+  medical: PortalBookingCategoryCount;
+  routineVision: PortalBookingCategoryCount;
+  total: number;
+  unknown: PortalBookingCategoryCount;
 };
 
 export type PortalOverviewRange = "24h" | "7d" | "30d" | "all";
@@ -53,6 +73,7 @@ export type PortalOverviewMetrics = {
   };
   averageCallDurationSec: number;
   branding: PracticeBranding;
+  bookingCategories: PortalBookingCategorySummary;
   callVolume: PortalCallVolumePoint[];
   officeFilters: PortalOverviewOfficeFilterOption[];
   practiceName: string;
@@ -72,6 +93,7 @@ export type PortalOverviewMetrics = {
 
 export type PortalBookingsResult = {
   bookings: PortalBookedAppointment[];
+  bookingCategories: PortalBookingCategorySummary;
   branding: PracticeBranding;
   officeFilters: PortalOverviewOfficeFilterOption[];
   practiceName: string;
@@ -93,6 +115,10 @@ const PRACTICE_TIMEZONE = "America/New_York";
 const AFTER_HOURS_START = 18;
 const AFTER_HOURS_END = 8;
 
+type PortalPracticeContext = NonNullable<
+  Awaited<ReturnType<typeof getCurrentPortalPracticeContext>>
+>;
+
 type OverviewAggregate = {
   bookedActionCount: number;
   cancelledActionCount: number;
@@ -106,6 +132,110 @@ type OverviewAggregate = {
 };
 
 type RawOverviewAggregate = Record<keyof OverviewAggregate, bigint | number | null>;
+type RawBookingCategoryCount = {
+  appointmentTypeName: string | null;
+  count: bigint | number | null;
+};
+
+function createEmptyBookingCategoryCount(): PortalBookingCategoryCount {
+  return {
+    followUpOrExisting: 0,
+    newPatient: 0,
+    total: 0,
+    unknownVisitType: 0,
+  };
+}
+
+function createEmptyBookingCategorySummary(): PortalBookingCategorySummary {
+  return {
+    medical: createEmptyBookingCategoryCount(),
+    routineVision: createEmptyBookingCategoryCount(),
+    total: 0,
+    unknown: createEmptyBookingCategoryCount(),
+  };
+}
+
+export function classifyBookingAppointmentType(appointmentTypeName: string | null): {
+  careLane: PortalBookingCareLane;
+  visitType: PortalBookingVisitType;
+} {
+  const normalized =
+    appointmentTypeName
+      ?.toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim() ?? "";
+
+  const careLane: PortalBookingCareLane = /\bmedical\b/.test(normalized)
+    ? "medical"
+    : /\b(routine|vision)\b/.test(normalized)
+      ? "routine_vision"
+      : "unknown";
+  const visitType: PortalBookingVisitType = /\bnew\b/.test(normalized)
+    ? "new"
+    : /\b(established|follow|follow up)\b/.test(normalized)
+      ? "follow_up_or_existing"
+      : "unknown";
+
+  return { careLane, visitType };
+}
+
+export function summarizeBookingCategories(
+  bookings: PortalBookedAppointment[],
+): PortalBookingCategorySummary {
+  const summary = createEmptyBookingCategorySummary();
+
+  for (const booking of bookings) {
+    addBookingCategoryCount(summary, booking.careLane, booking.visitType, 1);
+  }
+
+  return summary;
+}
+
+function addBookingCategoryCount(
+  summary: PortalBookingCategorySummary,
+  careLane: PortalBookingCareLane,
+  visitType: PortalBookingVisitType,
+  count: number,
+) {
+  const bucket =
+    careLane === "medical"
+      ? summary.medical
+      : careLane === "routine_vision"
+        ? summary.routineVision
+        : summary.unknown;
+
+  summary.total += count;
+  bucket.total += count;
+
+  if (visitType === "new") {
+    bucket.newPatient += count;
+  } else if (visitType === "follow_up_or_existing") {
+    bucket.followUpOrExisting += count;
+  } else {
+    bucket.unknownVisitType += count;
+  }
+}
+
+function summarizeBookingCategoryTypeCounts(
+  rows: RawBookingCategoryCount[],
+): PortalBookingCategorySummary {
+  const summary = createEmptyBookingCategorySummary();
+
+  for (const row of rows) {
+    const count = numberValue(row.count);
+    if (count <= 0) {
+      continue;
+    }
+
+    const { careLane, visitType } = classifyBookingAppointmentType(
+      asString(row.appointmentTypeName),
+    );
+    addBookingCategoryCount(summary, careLane, visitType, count);
+  }
+
+  return summary;
+}
 
 function buildStaffTimeSaved(
   totalSeconds: number,
@@ -327,6 +457,43 @@ function buildAllTimeOverviewSqlWhere(
 
   if (accessContext) {
     clauses.push(buildPortalAgentCallScopeSql(accessContext));
+  }
+
+  if (officeLocationId) {
+    officeClauses.push(Prisma.sql`"locationId" = ${officeLocationId}`);
+  }
+
+  if (officePhoneVariants.length) {
+    officeClauses.push(
+      Prisma.sql`"officePhone" IN (${Prisma.join(officePhoneVariants)})`,
+    );
+  }
+
+  if (officeClauses.length) {
+    clauses.push(Prisma.sql`(${Prisma.join(officeClauses, " OR ")})`);
+  }
+
+  return Prisma.sql`WHERE ${Prisma.join(clauses, " AND ")}`;
+}
+
+function buildBookedCallsSqlWhere(
+  practiceId: string,
+  accessContext: PortalPracticeContext,
+  officeFilter: PortalOverviewOfficeFilterOption | null,
+  rangeStart: Date | null,
+) {
+  const { officeLocationId, officePhoneVariants } =
+    getPortalOverviewOfficeFilterParts(officeFilter);
+  const clauses = [
+    Prisma.sql`"practiceId" = ${practiceId}`,
+    Prisma.sql`"bookedAppointment" = true`,
+  ];
+  const officeClauses = [];
+
+  clauses.push(buildPortalAgentCallScopeSql(accessContext));
+
+  if (rangeStart) {
+    clauses.push(Prisma.sql`"startedAt" >= ${rangeStart}`);
   }
 
   if (officeLocationId) {
@@ -829,6 +996,11 @@ export function extractBookedAppointment(call: {
     asString(booking?.result?.id) ??
     stateBooking?.appointmentId ??
     null;
+  const appointmentTypeName =
+    asString(booking?.result?.appointmentTypeName) ??
+    stateBooking?.appointmentTypeName ??
+    null;
+  const { careLane, visitType } = classifyBookingAppointmentType(appointmentTypeName);
 
   return {
     appointmentId,
@@ -843,13 +1015,11 @@ export function extractBookedAppointment(call: {
       asString(booking?.result?.status) ??
       stateBooking?.appointmentStatus ??
       (appointmentId ? "booked" : "unknown"),
-    appointmentTypeName:
-      asString(booking?.result?.appointmentTypeName) ??
-      stateBooking?.appointmentTypeName ??
-      null,
+    appointmentTypeName,
     callId: call.id,
     callStartedAt: call.startedAt,
     callerPhone: call.callerPhone,
+    careLane,
     duration:
       asNumber(booking?.result?.duration) ?? asNumber(booking?.args?.duration) ?? null,
     locationName:
@@ -872,6 +1042,7 @@ export function extractBookedAppointment(call: {
       booking?.turnAgentText ??
       fallbackAgentSummary(turns) ??
       "Appointment booked by the AI receptionist.",
+    visitType,
   };
 }
 
@@ -903,6 +1074,189 @@ export function filterPortalBookingsBySearch(
       Boolean(digitQuery && callerPhoneDigits.includes(digitQuery))
     );
   });
+}
+
+async function loadPortalBookedAppointments({
+  context,
+  limit,
+  rangeStart,
+  selectedOffice,
+}: {
+  context: PortalPracticeContext;
+  limit: number | null;
+  rangeStart: Date | null;
+  selectedOffice: PortalOverviewOfficeFilterOption | null;
+}) {
+  const bookedCalls = await prisma.agentCall.findMany({
+    orderBy: {
+      startedAt: "desc",
+    },
+    select: {
+      callerPhone: true,
+      data: true,
+      id: true,
+      outcomeSummary: true,
+      startedAt: true,
+    },
+    ...(typeof limit === "number" ? { take: limit } : {}),
+    where: andAgentCallWhere(
+      {
+        bookedAppointment: true,
+        practiceId: context.practice.id,
+      },
+      rangeStart ? { startedAt: { gte: rangeStart } } : null,
+      buildPortalAgentCallScopeWhere(context),
+      buildPortalOverviewOfficeWhere(selectedOffice),
+    ),
+  });
+
+  return bookedCalls.map(extractBookedAppointment).filter(isRenderableBooking);
+}
+
+async function loadPortalBookingCategorySummary({
+  context,
+  rangeStart,
+  selectedOffice,
+}: {
+  context: PortalPracticeContext;
+  rangeStart: Date | null;
+  selectedOffice: PortalOverviewOfficeFilterOption | null;
+}) {
+  const where = buildBookedCallsSqlWhere(
+    context.practice.id,
+    context,
+    selectedOffice,
+    rangeStart,
+  );
+  // Keep overview summaries aggregated so all-time views do not hydrate every call JSON.
+  const rows = await prisma.$queryRaw<RawBookingCategoryCount[]>`
+    WITH booked AS (
+      SELECT COALESCE("data", '{}'::jsonb) AS "data"
+      FROM "agent_call"
+      ${where}
+    ),
+    typed AS (
+      SELECT
+        COALESCE(tool_type."appointmentTypeName", state_type."appointmentTypeName") AS "appointmentTypeName"
+      FROM booked
+      LEFT JOIN LATERAL (
+        SELECT parsed."appointmentTypeName"
+        FROM (
+          SELECT
+            tool_item.tool ->> 'name' AS name,
+            turn_item.turn_index,
+            tool_item.tool_index,
+            COALESCE(
+              CASE
+                WHEN jsonb_typeof(tool_item.tool -> 'result') = 'object'
+                THEN tool_item.tool -> 'result' ->> 'appointmentTypeName'
+                ELSE NULL
+              END,
+              substring(tool_item.tool ->> 'result' from '"appointmentTypeName"\\s*:\\s*"([^"]+)"')
+            ) AS "appointmentTypeName",
+            COALESCE(
+              CASE
+                WHEN jsonb_typeof(tool_item.tool -> 'result') = 'object'
+                THEN tool_item.tool -> 'result' ->> 'appointmentId'
+                ELSE NULL
+              END,
+              CASE
+                WHEN jsonb_typeof(tool_item.tool -> 'result') = 'object'
+                THEN tool_item.tool -> 'result' ->> 'id'
+                ELSE NULL
+              END,
+              substring(tool_item.tool ->> 'result' from '"appointmentId"\\s*:\\s*"?([^",}]+)"?'),
+              substring(tool_item.tool ->> 'result' from '"id"\\s*:\\s*"?([^",}]+)"?')
+            ) AS "appointmentId",
+            COALESCE(
+              CASE
+                WHEN jsonb_typeof(tool_item.tool -> 'result') = 'object'
+                THEN tool_item.tool -> 'result' ->> 'cancelledAppointmentId'
+                ELSE NULL
+              END,
+              substring(tool_item.tool ->> 'result' from '"cancelledAppointmentId"\\s*:\\s*"?([^",}]+)"?')
+            ) AS "cancelledAppointmentId",
+            COALESCE(
+              CASE
+                WHEN jsonb_typeof(tool_item.tool -> 'result') = 'object'
+                THEN tool_item.tool -> 'result' ->> 'cancellationStatus'
+                ELSE NULL
+              END,
+              substring(tool_item.tool ->> 'result' from '"cancellationStatus"\\s*:\\s*"([^"]+)"')
+            ) AS "cancellationStatus",
+            COALESCE(
+              CASE
+                WHEN
+                  jsonb_typeof(tool_item.tool -> 'result') = 'object'
+                  AND jsonb_typeof(tool_item.tool -> 'result' -> 'ok') = 'boolean'
+                THEN tool_item.tool -> 'result' ->> 'ok'
+                ELSE NULL
+              END,
+              substring(tool_item.tool ->> 'result' from '"ok"\\s*:\\s*(true|false)')
+            ) AS ok,
+            COALESCE(
+              CASE
+                WHEN jsonb_typeof(tool_item.tool -> 'result') = 'object'
+                THEN tool_item.tool -> 'result' ->> 'status'
+                ELSE NULL
+              END,
+              substring(tool_item.tool ->> 'result' from '"status"\\s*:\\s*"([^"]+)"')
+            ) AS status
+          FROM jsonb_array_elements(COALESCE(booked."data" -> 'turns', '[]'::jsonb))
+            WITH ORDINALITY AS turn_item(turn, turn_index)
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(turn_item.turn -> 'toolCalls', '[]'::jsonb))
+            WITH ORDINALITY AS tool_item(tool, tool_index)
+          WHERE tool_item.tool ->> 'name' IN ('book_appt', 'reschedule_appt')
+            AND COALESCE(tool_item.tool ->> 'isError', 'false') <> 'true'
+        ) AS parsed
+        WHERE lower(COALESCE(parsed.status, '')) <> 'error'
+          AND (
+            (
+              parsed.name = 'book_appt'
+              AND (
+                lower(COALESCE(parsed.status, '')) = 'booked'
+                OR parsed."appointmentId" IS NOT NULL
+                OR lower(COALESCE(parsed.ok, '')) = 'true'
+              )
+            )
+            OR (
+              parsed.name = 'reschedule_appt'
+              AND parsed."appointmentId" IS NOT NULL
+              AND (
+                lower(COALESCE(parsed.status, '')) = 'rescheduled'
+                OR parsed."cancelledAppointmentId" IS NOT NULL
+                OR lower(COALESCE(parsed."cancellationStatus", '')) = 'cancelled'
+              )
+            )
+          )
+        ORDER BY parsed.turn_index DESC, parsed.tool_index DESC
+        LIMIT 1
+      ) AS tool_type ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT appointment.item ->> 'type' AS "appointmentTypeName"
+        FROM (
+          SELECT
+            COALESCE(
+              booked."data" -> 'callState' -> 'patient',
+              booked."data" -> 'callState' -> 'identity' -> 'patient'
+            ) AS patient,
+            COALESCE(
+              booked."data" -> 'callState' -> 'private' ->> 'latestBookedAppointmentId',
+              booked."data" -> 'callState' -> 'identity' ->> 'latestBookedAppointmentId'
+            ) AS latest_appointment_id
+        ) AS state
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(state.patient -> 'appointments', '[]'::jsonb))
+          AS appointment(item)
+        WHERE appointment.item ->> 'id' = state.latest_appointment_id
+        LIMIT 1
+      ) AS state_type ON TRUE
+    )
+    SELECT "appointmentTypeName", COUNT(*)::int AS count
+    FROM typed
+    GROUP BY "appointmentTypeName"
+  `;
+
+  return summarizeBookingCategoryTypeCounts(rows);
 }
 
 function extractPatientName(args: Record<string, unknown> | null) {
@@ -964,8 +1318,13 @@ export async function getPortalOverviewMetrics(
   const officeWhere = buildPortalOverviewOfficeWhere(selectedOffice);
 
   if (range === "all") {
-    const [aggregate, callVolume] = await Promise.all([
+    const [aggregate, bookingCategories, callVolume] = await Promise.all([
       getAllTimeOverviewAggregate(practice.id, context, selectedOffice),
+      loadPortalBookingCategorySummary({
+        context,
+        rangeStart: null,
+        selectedOffice,
+      }),
       getAllTimeCallVolume(practice.id, context, selectedOffice),
     ]);
 
@@ -978,6 +1337,7 @@ export async function getPortalOverviewMetrics(
       averageCallDurationSec:
         aggregate.callCount > 0 ? aggregate.totalDurationSec / aggregate.callCount : 0,
       branding: getPracticeBranding(practice),
+      bookingCategories,
       callVolume,
       officeFilters,
       practiceName: practice.name,
@@ -1005,7 +1365,7 @@ export async function getPortalOverviewMetrics(
     officeWhere,
   );
 
-  const [callRows, previousTotalCalls] = await Promise.all([
+  const [callRows, bookingCategories, previousTotalCalls] = await Promise.all([
     prisma.agentCall.findMany({
       orderBy: {
         startedAt: "desc",
@@ -1019,6 +1379,11 @@ export async function getPortalOverviewMetrics(
         transferred: true,
       },
       where: callWhere,
+    }),
+    loadPortalBookingCategorySummary({
+      context,
+      rangeStart,
+      selectedOffice,
     }),
     previousWindow
       ? prisma.agentCall.count({
@@ -1072,6 +1437,7 @@ export async function getPortalOverviewMetrics(
     },
     averageCallDurationSec: callCount > 0 ? totalDurationSec / callCount : 0,
     branding: getPracticeBranding(practice),
+    bookingCategories,
     callVolume,
     officeFilters,
     practiceName: practice.name,
@@ -1108,32 +1474,17 @@ export async function getPortalBookings(
   const { practice } = context;
   const officeFilters = buildPortalOverviewOfficeFilters(context.allowedPhoneNumbers);
   const selectedOffice = resolvePortalOverviewOfficeFilter(office, officeFilters);
-  const bookedCalls = await prisma.agentCall.findMany({
-    orderBy: {
-      startedAt: "desc",
-    },
-    select: {
-      callerPhone: true,
-      data: true,
-      id: true,
-      outcomeSummary: true,
-      startedAt: true,
-    },
-    ...(typeof limit === "number" ? { take: limit } : {}),
-    where: andAgentCallWhere(
-      {
-        bookedAppointment: true,
-        practiceId: practice.id,
-      },
-      rangeStart ? { startedAt: { gte: rangeStart } } : null,
-      buildPortalAgentCallScopeWhere(context),
-      buildPortalOverviewOfficeWhere(selectedOffice),
-    ),
+  const bookings = await loadPortalBookedAppointments({
+    context,
+    limit,
+    rangeStart,
+    selectedOffice,
   });
-  const bookings = bookedCalls.map(extractBookedAppointment).filter(isRenderableBooking);
+  const filteredBookings = filterPortalBookingsBySearch(bookings, searchQuery);
 
   return {
-    bookings: filterPortalBookingsBySearch(bookings, searchQuery),
+    bookings: filteredBookings,
+    bookingCategories: summarizeBookingCategories(filteredBookings),
     branding: getPracticeBranding(practice),
     officeFilters,
     practiceName: practice.name,

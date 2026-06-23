@@ -1,4 +1,5 @@
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -17,11 +18,13 @@ const deltaIcons: Record<Direction, typeof ArrowUpRight> = {
 };
 
 export default function MetricCard({
+  children,
   delta,
   label,
   note,
   value,
 }: {
+  children?: ReactNode;
   delta?: { direction: Direction; label: string } | null;
   label: string;
   note?: string;
@@ -50,6 +53,7 @@ export default function MetricCard({
       ) : note ? (
         <p className="mt-3 text-sm text-[#7b8494]">{note}</p>
       ) : null}
+      {children ? <div className="mt-4">{children}</div> : null}
     </div>
   );
 }

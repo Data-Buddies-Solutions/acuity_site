@@ -2,8 +2,10 @@ import { describe, expect, it } from "bun:test";
 
 import {
   buildPortalCallTranscriptMessages,
+  classifyBookingAppointmentType,
   extractBookedAppointment,
   filterPortalBookingsBySearch,
+  summarizeBookingCategories,
   type PortalBookedAppointment,
 } from "@/lib/portal-overview";
 
@@ -391,11 +393,13 @@ describe("portal booking search", () => {
     callId: "call-1",
     callStartedAt: new Date("2026-05-03T13:00:00.000Z"),
     callerPhone: "+17275551212",
+    careLane: "unknown",
     duration: 30,
     locationName: "Spring Hill",
     patientName: "Jane Smith",
     providerName: "Dr. Austin Bach",
     summary: null,
+    visitType: "follow_up_or_existing",
   };
 
   it("matches patient names case-insensitively", () => {
@@ -421,5 +425,75 @@ describe("portal booking search", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].callerPhone).toBe("+17275551212");
+  });
+});
+
+describe("portal booking categories", () => {
+  it("classifies appointment type names into care lane and visit type", () => {
+    expect(classifyBookingAppointmentType("New Adult Medical")).toEqual({
+      careLane: "medical",
+      visitType: "new",
+    });
+    expect(classifyBookingAppointmentType("Established Pediatric Vision")).toEqual({
+      careLane: "routine_vision",
+      visitType: "follow_up_or_existing",
+    });
+    expect(classifyBookingAppointmentType("Crystal River New Patient")).toEqual({
+      careLane: "unknown",
+      visitType: "new",
+    });
+  });
+
+  it("summarizes medical, routine vision, and unclassified bookings", () => {
+    const baseBooking: PortalBookedAppointment = {
+      appointmentId: "appt-1",
+      appointmentStart: "2026-05-12T11:00",
+      appointmentStatus: "booked",
+      appointmentTypeName: "New Adult Medical",
+      callId: "call-1",
+      callStartedAt: new Date("2026-05-03T13:00:00.000Z"),
+      callerPhone: "+17275551212",
+      careLane: "medical",
+      duration: 30,
+      locationName: "Spring Hill",
+      patientName: "Jane Smith",
+      providerName: "Dr. Austin Bach",
+      summary: null,
+      visitType: "new",
+    };
+
+    const summary = summarizeBookingCategories([
+      baseBooking,
+      {
+        ...baseBooking,
+        appointmentId: "appt-2",
+        appointmentTypeName: "Established Adult Vision",
+        callId: "call-2",
+        careLane: "routine_vision",
+        visitType: "follow_up_or_existing",
+      },
+      {
+        ...baseBooking,
+        appointmentId: "appt-3",
+        appointmentTypeName: "Crystal River New Patient",
+        callId: "call-3",
+        careLane: "unknown",
+        visitType: "new",
+      },
+    ]);
+
+    expect(summary.total).toBe(3);
+    expect(summary.medical).toMatchObject({
+      newPatient: 1,
+      total: 1,
+    });
+    expect(summary.routineVision).toMatchObject({
+      followUpOrExisting: 1,
+      total: 1,
+    });
+    expect(summary.unknown).toMatchObject({
+      newPatient: 1,
+      total: 1,
+    });
   });
 });
