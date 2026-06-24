@@ -5,6 +5,8 @@ import type { CallSummaryData, LiveKitWebhookPayload } from "@/lib/call-types";
 import { phoneLookupVariants } from "@/lib/phone";
 import { ESTIMATED_USAGE_PROVIDERS } from "@/lib/pricing";
 
+const DEMO_PRACTICE_NAME = "Acuity Demo";
+
 export class CallIngestionError extends Error {
   status: number;
 
@@ -19,6 +21,24 @@ async function resolvePracticeForCall(input: {
   officePhone: string;
   practiceId: string | null;
 }) {
+  // Older demo payloads can carry Abita's practiceId; the trunk mapping is authoritative.
+  const demoPhoneMapping = input.officePhone
+    ? await prisma.practicePhoneNumber.findFirst({
+        select: { locationId: true, practiceId: true },
+        where: {
+          phoneNumber: { in: phoneLookupVariants(input.officePhone) },
+          practice: { name: DEMO_PRACTICE_NAME },
+        },
+      })
+    : null;
+
+  if (demoPhoneMapping) {
+    return {
+      locationId: demoPhoneMapping.locationId,
+      practiceId: demoPhoneMapping.practiceId,
+    };
+  }
+
   if (input.practiceId) {
     const practice = await prisma.practice.findUnique({
       select: { id: true },
