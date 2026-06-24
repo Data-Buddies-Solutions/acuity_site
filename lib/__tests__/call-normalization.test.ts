@@ -737,6 +737,32 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(normalized.toolActions.bookedAppointment).toBe(true);
   });
 
+  it("does not count a single existing appointment as a booked appointment", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_existing_appointment_only",
+      callerPhone: "+15551234567",
+      callState: {
+        patient: {
+          appointments: [
+            {
+              date: "2026-05-12",
+              facility: "Spring Hill",
+              id: 98765,
+              provider: "Dr. Austin Bach",
+              time: "11:00 AM",
+              type: "Established Adult",
+            },
+          ],
+          name: "Jane Smith",
+        },
+      },
+      durationSec: 30,
+      startedAt: "2026-05-20T14:00:30.000Z",
+    });
+
+    expect(normalized.toolActions.bookedAppointment).toBe(false);
+  });
+
   it("does not mark empty non-error transfer turn output as transferred", () => {
     const normalized = normalizeLiveKitCallPayload({
       callId: "call_empty_transfer_turn",

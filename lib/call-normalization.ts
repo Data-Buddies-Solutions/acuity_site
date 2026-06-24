@@ -1036,10 +1036,13 @@ function hasRenderableCallStateBookedAppointment(data: unknown) {
   const appointments = Array.isArray(patient?.appointments)
     ? patient.appointments.filter(isRecord)
     : [];
-  const appointment =
-    (latestBookedAppointmentId
-      ? appointments.find((item) => displayString(item.id) === latestBookedAppointmentId)
-      : null) ?? (appointments.length === 1 ? appointments[0] : null);
+  if (!latestBookedAppointmentId) {
+    return false;
+  }
+
+  const appointment = appointments.find(
+    (item) => displayString(item.id) === latestBookedAppointmentId,
+  );
 
   return Boolean(
     appointment &&
