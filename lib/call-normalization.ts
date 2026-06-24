@@ -1,6 +1,7 @@
 import type {
   AgentCallStatusValue,
   AgentSessionUsage,
+  AppointmentActionAnalytics,
   CallSummaryData,
   ChatHistoryItem,
   CostLineEstimate,
@@ -15,6 +16,11 @@ import type {
   TurnMetricRecord,
   TurnRecord,
 } from "@/lib/call-types";
+import {
+  appointmentActionFromToolName,
+  isResolvedAppointmentAction,
+  normalizeAppointmentActions,
+} from "@/lib/appointment-actions";
 import { estimateUsageCostLineItems } from "@/lib/pricing";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
@@ -271,6 +277,7 @@ export function isLiveKitPayload(
       payload.language !== undefined ||
       payload.llmSummary !== undefined ||
       payload.sessionEvents !== undefined ||
+      payload.appointmentActions !== undefined ||
       payload.toolExecutions !== undefined ||
       payload.sessionReport !== undefined)
   );
@@ -917,6 +924,8 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
 export function getToolActions(
   turns: Array<{ toolCalls?: ToolCallRecord[] }>,
   toolExecutions: ToolExecutionAnalytics[] = [],
+  appointmentActions: AppointmentActionAnalytics[] = [],
+  data?: unknown,
 ): ToolActions {
   const actions: ToolActions = {
     bookedAppointment: false,
@@ -924,6 +933,14 @@ export function getToolActions(
     confirmedAppointment: false,
     transferred: false,
   };
+
+  for (const action of appointmentActions) {
+    if (!isResolvedAppointmentAction(action)) {
+      continue;
+    }
+
+    applyAppointmentAction(actions, action.action);
+  }
 
   for (const tool of toolExecutions) {
     if (tool.status !== "success") {
@@ -952,23 +969,19 @@ export function getToolActions(
     }
   }
 
+  if (hasRenderableCallStateBookedAppointment(data)) {
+    actions.bookedAppointment = true;
+  }
+
   for (const turn of turns) {
     for (const tool of turn.toolCalls ?? []) {
       if (!isSuccessfulToolAction(tool)) {
         continue;
       }
 
-      if (tool.name === "book_appt") {
-        actions.bookedAppointment = true;
-      }
-
-      if (tool.name === "reschedule_appt") {
-        actions.bookedAppointment = true;
-        actions.cancelledAppointment = true;
-      }
-
-      if (tool.name === "cancel_appt") {
-        actions.cancelledAppointment = true;
+      const appointmentAction = appointmentActionFromToolName(tool.name);
+      if (appointmentAction) {
+        applyAppointmentAction(actions, appointmentAction);
       }
 
       if (tool.name === "confirm_appt") {
@@ -982,6 +995,62 @@ export function getToolActions(
   }
 
   return actions;
+}
+
+function applyAppointmentAction(
+  actions: ToolActions,
+  action: AppointmentActionAnalytics["action"],
+) {
+  if (action === "booked") {
+    actions.bookedAppointment = true;
+  } else if (action === "rescheduled") {
+    actions.bookedAppointment = true;
+    actions.cancelledAppointment = true;
+  } else if (action === "cancelled") {
+    actions.cancelledAppointment = true;
+  }
+}
+
+function displayString(value: unknown) {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function hasRenderableCallStateBookedAppointment(data: unknown) {
+  if (!isRecord(data) || !isRecord(data.callState)) {
+    return false;
+  }
+
+  const callState = data.callState;
+  const identity = isRecord(callState.identity) ? callState.identity : null;
+  const patient = isRecord(callState.patient)
+    ? callState.patient
+    : isRecord(identity?.patient)
+      ? identity.patient
+      : null;
+  const privateState = isRecord(callState.private) ? callState.private : null;
+  const latestBookedAppointmentId =
+    displayString(privateState?.latestBookedAppointmentId) ??
+    displayString(identity?.latestBookedAppointmentId);
+  const appointments = Array.isArray(patient?.appointments)
+    ? patient.appointments.filter(isRecord)
+    : [];
+  const appointment =
+    (latestBookedAppointmentId
+      ? appointments.find((item) => displayString(item.id) === latestBookedAppointmentId)
+      : null) ?? (appointments.length === 1 ? appointments[0] : null);
+
+  return Boolean(
+    appointment &&
+    (displayString(appointment.id) ||
+      displayString(appointment.date) ||
+      displayString(appointment.time) ||
+      displayString(appointment.type) ||
+      displayString(appointment.facility) ||
+      displayString(appointment.provider) ||
+      displayString(patient?.name)),
+  );
 }
 
 export function getReviewAverageScore(result: unknown) {
@@ -1199,6 +1268,9 @@ export function normalizeLiveKitCallPayload(
     startedAt: summary.startedAt,
   };
   const toolExecutions = normalizedToolExecutions(normalizedBody.toolExecutions);
+  const appointmentActions = normalizeAppointmentActions(
+    normalizedBody.appointmentActions,
+  );
   const llmSummary = normalizedLlmSummary(normalizedBody.llmSummary);
   const latencyValues = buildLatencyValues(summary, normalizedBody);
   const llm = deriveLlmInfo({
@@ -1210,7 +1282,12 @@ export function normalizeLiveKitCallPayload(
   });
   const reviewResult = getReviewResult(normalizedBody);
   const reviewAverageScore = getReviewAverageScore(reviewResult);
-  const toolActions = getToolActions(summary.turns ?? [], toolExecutions);
+  const toolActions = getToolActions(
+    summary.turns ?? [],
+    toolExecutions,
+    appointmentActions,
+    normalizedBody,
+  );
   const ttsChars = getTtsChars(summary, normalizedBody);
   const interruptionCount = getInterruptionCount(summary, normalizedBody);
   const startedAt = asDate(summary.startedAt, new Date()) ?? new Date();
@@ -1253,6 +1330,7 @@ export function normalizeLiveKitCallPayload(
   const observabilityPayload = {
     ...(normalizedBody.llmSummary !== undefined ? { llmSummary: llmSummary ?? {} } : {}),
     ...(normalizedBody.toolExecutions !== undefined ? { toolExecutions } : {}),
+    ...(normalizedBody.appointmentActions !== undefined ? { appointmentActions } : {}),
   };
   const dataPayload = liveKitPayload
     ? toJsonCompatible({ ...strippedBody, ...summary, ...observabilityPayload })

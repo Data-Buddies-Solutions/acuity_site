@@ -6,6 +6,12 @@ import type {
   VoiceLanguageTelemetry,
 } from "@/lib/call-types";
 import type { AgentCallEvaluationBucket, Prisma } from "@/generated/prisma/client";
+import {
+  appointmentActionFromOutputClass,
+  appointmentActionFromToolName,
+  getAppointmentActions,
+  isResolvedAppointmentAction,
+} from "@/lib/appointment-actions";
 import { phoneDigits, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
@@ -585,6 +591,19 @@ function getObservabilitySignals(data: unknown) {
   };
 }
 
+function addAppointmentActionLabel(
+  labels: Set<string>,
+  action: "booked" | "rescheduled" | "cancelled",
+) {
+  if (action === "booked") labels.add("Booked");
+  if (action === "rescheduled") {
+    labels.add("Booked");
+    labels.add("Cancelled");
+    labels.add("Rescheduled");
+  }
+  if (action === "cancelled") labels.add("Cancelled");
+}
+
 function getToolActionLabels(call: {
   bookedAppointment: boolean;
   cancelledAppointment: boolean;
@@ -599,19 +618,20 @@ function getToolActionLabels(call: {
   if (call.cancelledAppointment) actions.add("Cancelled");
   if (call.transferred) actions.add("Transferred");
 
+  for (const action of getAppointmentActions(call.data)) {
+    if (isResolvedAppointmentAction(action)) {
+      addAppointmentActionLabel(actions, action.action);
+    }
+  }
+
   for (const tool of getToolCalls(call.data)) {
     if (!isSuccessfulToolAction(tool)) {
       continue;
     }
 
-    if (tool.name === "book_appt") actions.add("Booked");
-    if (tool.name === "reschedule_appt") {
-      actions.add("Booked");
-      actions.add("Cancelled");
-      actions.add("Rescheduled");
-    }
+    const appointmentAction = appointmentActionFromToolName(tool.name);
+    if (appointmentAction) addAppointmentActionLabel(actions, appointmentAction);
     if (tool.name === "confirm_appt") actions.add("Confirmed");
-    if (tool.name === "cancel_appt") actions.add("Cancelled");
     if (tool.name === "transfer_call") actions.add("Transferred");
   }
 
@@ -620,14 +640,9 @@ function getToolActionLabels(call: {
       continue;
     }
 
-    if (tool.outputClass === "appointment_booked") actions.add("Booked");
-    if (tool.outputClass === "appointment_rescheduled") {
-      actions.add("Booked");
-      actions.add("Cancelled");
-      actions.add("Rescheduled");
-    }
+    const appointmentAction = appointmentActionFromOutputClass(tool.outputClass);
+    if (appointmentAction) addAppointmentActionLabel(actions, appointmentAction);
     if (tool.outputClass === "appointment_confirmed") actions.add("Confirmed");
-    if (tool.outputClass === "appointment_cancelled") actions.add("Cancelled");
     if (tool.outputClass === "transfer_started") actions.add("Transferred");
   }
 
@@ -684,12 +699,15 @@ function normalizeReviewStatus(status: string | null): AdminCallTableRow["review
 function formatToolAction(name: string) {
   switch (name) {
     case "book_appt":
+    case "book_appointment":
       return "Book";
     case "reschedule_appt":
+    case "reschedule_appointment":
       return "Reschedule";
     case "confirm_appt":
       return "Confirm";
     case "cancel_appt":
+    case "cancel_appointment":
       return "Cancel";
     default:
       return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -1139,14 +1157,15 @@ function buildPracticeAnalyticsData(
         continue;
       }
 
+      const appointmentAction = appointmentActionFromToolName(tool.name);
       if (tool.name === "transfer_call") transferred = true;
-      if (tool.name === "book_appt") booked = Math.max(booked, 1);
-      if (tool.name === "reschedule_appt") {
+      if (appointmentAction === "booked") booked = Math.max(booked, 1);
+      if (appointmentAction === "rescheduled") {
         booked = Math.max(booked, 1);
         cancelled = Math.max(cancelled, 1);
       }
       if (tool.name === "confirm_appt") confirmed = Math.max(confirmed, 1);
-      if (tool.name === "cancel_appt") cancelled = Math.max(cancelled, 1);
+      if (appointmentAction === "cancelled") cancelled = Math.max(cancelled, 1);
     }
 
     if (transferred) {
@@ -1372,13 +1391,14 @@ function buildPracticeDashboardData(
         continue;
       }
 
-      if (tool.name === "book_appt") booked = Math.max(booked, 1);
-      if (tool.name === "reschedule_appt") {
+      const appointmentAction = appointmentActionFromToolName(tool.name);
+      if (appointmentAction === "booked") booked = Math.max(booked, 1);
+      if (appointmentAction === "rescheduled") {
         booked = Math.max(booked, 1);
         cancelled = Math.max(cancelled, 1);
       }
       if (tool.name === "confirm_appt") confirmed = Math.max(confirmed, 1);
-      if (tool.name === "cancel_appt") cancelled = Math.max(cancelled, 1);
+      if (appointmentAction === "cancelled") cancelled = Math.max(cancelled, 1);
       if (tool.name === "transfer_call") transferred = true;
     }
 

@@ -635,6 +635,108 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(normalized.toolActions.cancelledAppointment).toBe(true);
   });
 
+  it("normalizes appointment actions and marks success without appointment id", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      appointmentActions: [
+        {
+          action: "rescheduled",
+          appointment: {
+            appointmentDate: "2026-05-12",
+            appointmentTime: "11:00 AM",
+            appointmentTypeName: "Established Adult Medical",
+            patientName: "Jane Smith",
+            providerName: "Dr. Austin Bach",
+          },
+          cancelledAppointment: {
+            appointmentId: "old-appt-1",
+            appointmentDate: "2026-05-05",
+          },
+          status: "success",
+          toolName: "reschedule_appointment",
+        },
+      ],
+      callId: "call_appointment_actions",
+      callerPhone: "+15551234567",
+      durationSec: 30,
+      startedAt: "2026-05-20T14:00:30.000Z",
+    });
+    const data = normalized.dataPayload as {
+      appointmentActions?: Array<Record<string, unknown>>;
+    };
+
+    expect(normalized.toolActions.bookedAppointment).toBe(true);
+    expect(normalized.toolActions.cancelledAppointment).toBe(true);
+    expect(data.appointmentActions).toEqual([
+      {
+        action: "rescheduled",
+        appointment: {
+          appointmentDate: "2026-05-12",
+          appointmentTime: "11:00 AM",
+          appointmentTypeName: "Established Adult Medical",
+          patientName: "Jane Smith",
+          providerName: "Dr. Austin Bach",
+        },
+        cancelledAppointment: {
+          appointmentDate: "2026-05-05",
+          appointmentId: "old-appt-1",
+        },
+        status: "success",
+        toolName: "reschedule_appointment",
+      },
+    ]);
+  });
+
+  it("uses call state as booked evidence when tool output is plain speech", () => {
+    const normalized = normalizeLiveKitCallPayload({
+      callId: "call_state_booking",
+      callerPhone: "+15551234567",
+      callState: {
+        patient: {
+          appointments: [
+            {
+              date: "2026-05-12",
+              facility: "Spring Hill",
+              id: 98765,
+              provider: "Dr. Austin Bach",
+              time: "11:00 AM",
+              type: "Established Adult",
+            },
+          ],
+          name: "Jane Smith",
+        },
+        private: {
+          latestBookedAppointmentId: 98765,
+        },
+      },
+      durationSec: 30,
+      startedAt: "2026-05-20T14:00:30.000Z",
+      turns: [
+        {
+          cachedTokens: 0,
+          callerText: "I need an appointment.",
+          completionTokens: 0,
+          promptTokens: 0,
+          sttLatencyMs: 0,
+          agentText: "You are booked.",
+          toolCalls: [
+            {
+              args: "{}",
+              durationMs: 100,
+              isError: false,
+              name: "book_appointment",
+              result: "Booked May 12 at 11:00 AM.",
+            },
+          ],
+          ttftMs: 0,
+          ttsttfbMs: 0,
+          turn: 1,
+        },
+      ],
+    });
+
+    expect(normalized.toolActions.bookedAppointment).toBe(true);
+  });
+
   it("does not mark empty non-error transfer turn output as transferred", () => {
     const normalized = normalizeLiveKitCallPayload({
       callId: "call_empty_transfer_turn",

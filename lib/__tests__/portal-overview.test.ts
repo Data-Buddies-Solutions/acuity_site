@@ -167,6 +167,123 @@ describe("portal booking extraction", () => {
     });
   });
 
+  it("prefers structured appointment actions without requiring appointment ids", () => {
+    const booking = extractBookedAppointment({
+      callerPhone: "+17275551212",
+      data: {
+        appointmentActions: [
+          {
+            action: "booked",
+            appointment: {
+              appointmentDate: "2026-05-12",
+              appointmentTime: "11:00 AM",
+              appointmentTypeName: "New Adult Medical",
+              careLane: "medical",
+              locationName: "Spring Hill",
+              patientName: "SMITH,JANE",
+              providerName: "Dr. Austin Bach",
+            },
+            status: "success",
+            toolName: "book_appointment",
+          },
+        ],
+        turns: [
+          {
+            agentText: "Old raw tool response.",
+            toolCalls: [
+              {
+                args: "{}",
+                isError: false,
+                name: "book_appt",
+                result: JSON.stringify({
+                  appointmentId: "old-id",
+                  patientName: "Wrong Patient",
+                  status: "booked",
+                }),
+              },
+            ],
+          },
+        ],
+      },
+      id: "call-1",
+      outcomeSummary: null,
+      startedAt: new Date("2026-05-03T13:00:00.000Z"),
+    });
+
+    expect(booking).toMatchObject({
+      appointmentId: null,
+      appointmentStart: "2026-05-12T11:00",
+      appointmentStatus: "booked",
+      appointmentTypeName: "New Adult Medical",
+      careLane: "medical",
+      locationName: "Spring Hill",
+      patientName: "Jane Smith",
+      providerName: "Dr. Austin Bach",
+    });
+  });
+
+  it("uses output class action with call state details before raw tool output", () => {
+    const booking = extractBookedAppointment({
+      callerPhone: "+17275551212",
+      data: {
+        callState: {
+          patient: {
+            appointments: [
+              {
+                date: "2026-05-12",
+                facility: "Spring Hill",
+                id: 98765,
+                provider: "Dr. Austin Bach",
+                time: "11:00 AM",
+                type: "Established Adult",
+              },
+            ],
+            name: "Jane Smith",
+          },
+          private: {
+            latestBookedAppointmentId: 98765,
+          },
+        },
+        toolExecutions: [
+          {
+            outputClass: "appointment_rescheduled",
+            status: "success",
+            toolName: "reschedule_appointment",
+          },
+        ],
+        turns: [
+          {
+            agentText: "Raw fallback should not win.",
+            toolCalls: [
+              {
+                args: "{}",
+                isError: false,
+                name: "book_appt",
+                result: JSON.stringify({
+                  appointmentId: "raw-id",
+                  patientName: "Wrong Patient",
+                  status: "booked",
+                }),
+              },
+            ],
+          },
+        ],
+      },
+      id: "call-1",
+      outcomeSummary: null,
+      startedAt: new Date("2026-05-03T13:00:00.000Z"),
+    });
+
+    expect(booking).toMatchObject({
+      appointmentId: "98765",
+      appointmentStart: "2026-05-12T11:00",
+      appointmentStatus: "rescheduled",
+      appointmentTypeName: "Established Adult",
+      patientName: "Jane Smith",
+      providerName: "Dr. Austin Bach",
+    });
+  });
+
   it("falls back to availability matches for old booking payloads", () => {
     const booking = extractBookedAppointment({
       callerPhone: "+17275551212",
@@ -214,6 +331,46 @@ describe("portal booking extraction", () => {
     expect(booking.providerName).toBe("Dr. Austin Bach");
     expect(booking.locationName).toBe("ABITA EYE GROUP SPRING HILL");
     expect(booking.patientName).toBe("Jane Smith");
+  });
+
+  it("keeps future raw booking tool names working as fallback", () => {
+    const booking = extractBookedAppointment({
+      callerPhone: "+17275551212",
+      data: {
+        turns: [
+          {
+            toolCalls: [
+              {
+                args: JSON.stringify({
+                  patientName: "Jane Smith",
+                  startDatetime: "2026-05-12T11:00",
+                }),
+                isError: false,
+                name: "book_appointment",
+                result: JSON.stringify({
+                  appointmentId: 98765,
+                  appointmentTypeName: "Established Adult",
+                  providerName: "Dr. Austin Bach",
+                  status: "booked",
+                }),
+              },
+            ],
+          },
+        ],
+      },
+      id: "call-1",
+      outcomeSummary: null,
+      startedAt: new Date("2026-05-03T13:00:00.000Z"),
+    });
+
+    expect(booking).toMatchObject({
+      appointmentId: "98765",
+      appointmentStart: "2026-05-12T11:00",
+      appointmentStatus: "booked",
+      appointmentTypeName: "Established Adult",
+      patientName: "Jane Smith",
+      providerName: "Dr. Austin Bach",
+    });
   });
 
   it("extracts portal booking rows from structured reschedule results", () => {

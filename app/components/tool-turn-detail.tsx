@@ -8,12 +8,15 @@ import { CopyButton } from "@/app/components/copy-button";
 function formatToolLabel(name: string): string {
   switch (name) {
     case "book_appt":
+    case "book_appointment":
       return "Book";
     case "reschedule_appt":
+    case "reschedule_appointment":
       return "Reschedule";
     case "confirm_appt":
       return "Confirm";
     case "cancel_appt":
+    case "cancel_appointment":
       return "Cancel";
     case "transfer_call":
       return "Transfer";
