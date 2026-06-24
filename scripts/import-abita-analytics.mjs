@@ -8,9 +8,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const analyticsRoot = path.resolve(repoRoot, "../call-analytics");
 
-const PRACTICE_NAME = "Abita Eye Group";
+const ABITA_PRACTICE_NAME = "Abita Eye Group";
+const DEMO_PRACTICE_NAME = "Acuity Demo";
 const DEMO_EMAIL = "demo@acuity.local";
-const LIVE_LOCATIONS = [
+const ABITA_LOCATIONS = [
   {
     label: "Crystal River",
     phoneNumber: "+13523202007",
@@ -19,11 +20,12 @@ const LIVE_LOCATIONS = [
     label: "Spring Hill",
     phoneNumber: "+17275919997",
   },
-  {
-    label: "Demo",
-    phoneNumber: "+14843989071",
-  },
 ];
+const DEMO_LOCATION = {
+  label: "Demo",
+  phoneNumber: "+14843989071",
+};
+const LIVE_LOCATIONS = [...ABITA_LOCATIONS, DEMO_LOCATION];
 const BACKFILL_DAYS = 14;
 
 function readEnvFile(filePath) {
@@ -201,11 +203,11 @@ function callNeedsReview(call, reviewResult) {
   );
 }
 
-async function getOrCreatePractice(targetPool) {
+async function getOrCreatePractice(targetPool, practiceName) {
   const now = new Date();
   const existingPractice = await targetPool.query(
     `SELECT id FROM practice WHERE name = $1 ORDER BY "createdAt" ASC LIMIT 1`,
-    [PRACTICE_NAME],
+    [practiceName],
   );
 
   let practiceId = existingPractice.rows[0]?.id;
@@ -223,7 +225,7 @@ async function getOrCreatePractice(targetPool) {
       )
       VALUES ($1, $2, 'LIVE', 'OPHTHALMOLOGY', $3, $3, $3)
       RETURNING id`,
-      [randomUUID(), PRACTICE_NAME, now],
+      [randomUUID(), practiceName, now],
     );
 
     practiceId = created.rows[0].id;
@@ -267,24 +269,37 @@ async function ensureDemoMembership(targetPool, practiceId) {
       "practiceId",
       "userId",
       role,
+      "locationScope",
       "isPrimary",
       "createdAt",
       "updatedAt"
     )
-    VALUES ($1, $2, $3, 'OWNER', true, $4, $4)
+    VALUES ($1, $2, $3, 'OWNER', 'ALL', true, $4, $4)
     ON CONFLICT ("practiceId", "userId")
-    DO UPDATE SET role = 'OWNER', "isPrimary" = true, "updatedAt" = EXCLUDED."updatedAt"`,
+    DO UPDATE SET
+      role = 'OWNER',
+      "locationScope" = 'ALL',
+      "isPrimary" = true,
+      "updatedAt" = EXCLUDED."updatedAt"`,
     [randomUUID(), practiceId, userId, now],
+  );
+
+  await targetPool.query(
+    `UPDATE practice_membership
+    SET "isPrimary" = false, "updatedAt" = $3
+    WHERE "userId" = $1
+      AND "practiceId" <> $2
+      AND "isPrimary" = true`,
+    [userId, practiceId, now],
   );
 }
 
-async function ensureAgent(targetPool, practiceId) {
+async function ensureAgent(targetPool, practiceId, name) {
   const now = new Date();
   const existingAgent = await targetPool.query(
     `SELECT id FROM practice_agent WHERE "practiceId" = $1 ORDER BY "createdAt" ASC LIMIT 1`,
     [practiceId],
   );
-  const name = "Abita Eye Group Voice Agent";
 
   if (existingAgent.rows[0]?.id) {
     await targetPool.query(
@@ -307,11 +322,11 @@ async function ensureAgent(targetPool, practiceId) {
   return created.rows[0].id;
 }
 
-async function ensureLocations(targetPool, practiceId) {
+async function ensureLocations(targetPool, practiceId, locations) {
   const now = new Date();
   const locationByPhone = new Map();
 
-  for (const [index, location] of LIVE_LOCATIONS.entries()) {
+  for (const [index, location] of locations.entries()) {
     const existingLocation = await targetPool.query(
       `SELECT id FROM practice_location
       WHERE "practiceId" = $1 AND name = $2
@@ -432,7 +447,7 @@ async function fetchSourceCalls(sourcePool) {
   return result.rows;
 }
 
-async function upsertCall(targetPool, call, practiceId, agentId, locationByPhone) {
+async function upsertCall(targetPool, call, route) {
   const now = new Date();
   const actions = getToolActions(call.data);
   const reviewAverageScore = getReviewAverageScore(call.reviewResult);
@@ -440,7 +455,6 @@ async function upsertCall(targetPool, call, practiceId, agentId, locationByPhone
   const costItems = estimateCostLineItems(call);
   const estimatedCostMicros = costItems.reduce((sum, item) => sum + item.costMicros, 0);
   const status = actions.transferred ? "ESCALATED" : "COMPLETED";
-  const locationId = locationByPhone.get(call.officePhone) ?? null;
   const dataPayload = {
     ...(call.data && typeof call.data === "object" ? call.data : {}),
     reviewResult: call.reviewResult ?? null,
@@ -535,9 +549,9 @@ async function upsertCall(targetPool, call, practiceId, agentId, locationByPhone
     RETURNING id`,
     [
       randomUUID(),
-      practiceId,
-      locationId,
-      agentId,
+      route.practiceId,
+      route.locationId,
+      route.agentId,
       call.callId,
       call.callerPhone ?? "",
       call.officePhone ?? "",
@@ -600,7 +614,7 @@ async function upsertCall(targetPool, call, practiceId, agentId, locationByPhone
       const base = index * 11;
       values.push(
         randomUUID(),
-        practiceId,
+        route.practiceId,
         agentCallId,
         item.category,
         item.provider,
@@ -656,28 +670,70 @@ async function main() {
   const sourcePool = new Pool({ connectionString: analyticsEnv.DATABASE_URL });
 
   try {
-    const practiceId = await getOrCreatePractice(targetPool);
-    await ensureDemoMembership(targetPool, practiceId);
-    const agentId = await ensureAgent(targetPool, practiceId);
-    const locationByPhone = await ensureLocations(targetPool, practiceId);
+    const abitaPracticeId = await getOrCreatePractice(targetPool, ABITA_PRACTICE_NAME);
+    const demoPracticeId = await getOrCreatePractice(targetPool, DEMO_PRACTICE_NAME);
+    await ensureDemoMembership(targetPool, demoPracticeId);
+    const abitaAgentId = await ensureAgent(
+      targetPool,
+      abitaPracticeId,
+      "Abita Eye Group Voice Agent",
+    );
+    const demoAgentId = await ensureAgent(
+      targetPool,
+      demoPracticeId,
+      "Acuity Demo Voice Agent",
+    );
+    const abitaLocationByPhone = await ensureLocations(
+      targetPool,
+      abitaPracticeId,
+      ABITA_LOCATIONS,
+    );
+    const demoLocationByPhone = await ensureLocations(targetPool, demoPracticeId, [
+      DEMO_LOCATION,
+    ]);
+    const routeByPhone = new Map();
+
+    for (const location of ABITA_LOCATIONS) {
+      routeByPhone.set(location.phoneNumber, {
+        agentId: abitaAgentId,
+        locationId: abitaLocationByPhone.get(location.phoneNumber) ?? null,
+        practiceId: abitaPracticeId,
+      });
+    }
+
+    routeByPhone.set(DEMO_LOCATION.phoneNumber, {
+      agentId: demoAgentId,
+      locationId: demoLocationByPhone.get(DEMO_LOCATION.phoneNumber) ?? null,
+      practiceId: demoPracticeId,
+    });
+
     const calls = await fetchSourceCalls(sourcePool);
 
-    console.log(`Importing ${calls.length} calls for ${PRACTICE_NAME}...`);
+    console.log(`Importing ${calls.length} calls for ${ABITA_PRACTICE_NAME} / demo...`);
 
     let totalCostMicros = 0;
     let reviewCount = 0;
+    const importedByPractice = {
+      abita: 0,
+      demo: 0,
+    };
 
     for (const [index, call] of calls.entries()) {
-      const result = await upsertCall(
-        targetPool,
-        call,
-        practiceId,
-        agentId,
-        locationByPhone,
-      );
+      const route = routeByPhone.get(call.officePhone);
+
+      if (!route) {
+        throw new Error("No import route configured for source call office phone");
+      }
+
+      const result = await upsertCall(targetPool, call, route);
       totalCostMicros += result.estimatedCostMicros;
       if (result.needsReview) {
         reviewCount++;
+      }
+      if (route.practiceId === demoPracticeId) {
+        importedByPractice.demo++;
+      } else {
+        importedByPractice.abita++;
       }
 
       if ((index + 1) % 50 === 0 || index + 1 === calls.length) {
@@ -688,12 +744,15 @@ async function main() {
     console.log(
       JSON.stringify(
         {
-          agentId,
+          abitaAgentId,
+          abitaPracticeId,
           backfillDays: BACKFILL_DAYS,
           callsImported: calls.length,
           demoEmail: DEMO_EMAIL,
+          demoAgentId,
+          demoPracticeId,
+          importedByPractice,
           liveNumbers: LIVE_LOCATIONS.length,
-          practiceId,
           reviewCount,
           totalEstimatedCostMicros: totalCostMicros,
         },
