@@ -26,6 +26,10 @@ import {
   type AdminPracticeRange,
 } from "@/lib/admin-analytics";
 import {
+  getAppointmentActions,
+  isResolvedAppointmentAction,
+} from "@/lib/appointment-actions";
+import {
   getCallListNavigation,
   getPageForCallIndex,
   parseCallTableState,
@@ -142,12 +146,15 @@ function buildToolMap(turns: { toolCalls: ToolCallRecord[] }[]): Map<string, Too
 function formatToolLabel(name: string): string {
   switch (name) {
     case "book_appt":
+    case "book_appointment":
       return "Book";
     case "reschedule_appt":
+    case "reschedule_appointment":
       return "Reschedule";
     case "confirm_appt":
       return "Confirm";
     case "cancel_appt":
+    case "cancel_appointment":
       return "Cancel";
     case "transfer_call":
       return "Transfer";
@@ -475,6 +482,7 @@ export default async function AdminCallDetailPage({
   const languageTelemetry = getLanguageTelemetry(data);
   const sessionEvents = getSessionEvents(data);
   const toolExecutions = getToolExecutions(data);
+  const appointmentActions = getAppointmentActions(data);
   const llmSummary = getLlmSummary(data);
   const runtimeErrors = Array.isArray(sessionEvents?.errors) ? sessionEvents.errors : [];
   const falseInterruptions = Array.isArray(sessionEvents?.falseInterruptions)
@@ -666,6 +674,7 @@ export default async function AdminCallDetailPage({
       {(languageTelemetry ||
         sessionEvents ||
         llmSummary ||
+        appointmentActions.length > 0 ||
         toolExecutions.length > 0) && (
         <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
           <Card className="border-border/70 bg-card/80 shadow-sm">
@@ -767,6 +776,32 @@ export default async function AdminCallDetailPage({
                   No sanitized tool execution records were posted.
                 </p>
               )}
+
+              {appointmentActions.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">
+                    Appointment Actions
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {appointmentActions.map((action, index) => (
+                      <Badge
+                        key={`${action.action}-${action.createdAt ?? index}`}
+                        variant={
+                          action.status === "error"
+                            ? "destructive"
+                            : isResolvedAppointmentAction(action)
+                              ? "secondary"
+                              : "outline"
+                        }
+                      >
+                        {action.action}
+                        {action.status ? ` · ${action.status}` : ""}
+                        {action.toolName ? ` · ${formatToolLabel(action.toolName)}` : ""}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </div>

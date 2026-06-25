@@ -1,3 +1,9 @@
+import {
+  isBookAppointmentToolName,
+  isCancelAppointmentToolName,
+  isRescheduleAppointmentToolName,
+} from "@/lib/appointment-actions";
+
 export type ToolActionLike = {
   isError?: boolean | null;
   name?: string | null;
@@ -27,7 +33,7 @@ function parseToolResult(value: unknown) {
 }
 
 export function isSuccessfulBookAppointmentTool(tool: ToolActionLike) {
-  if (tool.name !== "book_appt" || tool.isError === true) return false;
+  if (!isBookAppointmentToolName(tool.name) || tool.isError === true) return false;
 
   const result = parseToolResult(tool.result);
   if (!result) return false;
@@ -44,7 +50,9 @@ export function isSuccessfulBookAppointmentTool(tool: ToolActionLike) {
 }
 
 export function isSuccessfulRescheduleAppointmentTool(tool: ToolActionLike) {
-  if (tool.name !== "reschedule_appt" || tool.isError === true) return false;
+  if (!isRescheduleAppointmentToolName(tool.name) || tool.isError === true) {
+    return false;
+  }
 
   const result = parseToolResult(tool.result);
   if (!result) return false;
@@ -59,6 +67,31 @@ export function isSuccessfulRescheduleAppointmentTool(tool: ToolActionLike) {
     status === "rescheduled" ||
     asString(result.cancelledAppointmentId) !== null ||
     asString(result.cancellationStatus)?.toLowerCase() === "cancelled"
+  );
+}
+
+export function isSuccessfulCancelAppointmentTool(tool: ToolActionLike) {
+  if (!isCancelAppointmentToolName(tool.name) || tool.isError === true) return false;
+
+  const result = parseToolResult(tool.result);
+  if (!result) return true;
+
+  const status = asString(result.status)?.toLowerCase();
+  const outputClass = asString(result.outputClass)?.toLowerCase();
+  const resultClass = asString(result.result)?.toLowerCase();
+
+  if (status === "error" || outputClass === "error" || resultClass === "error") {
+    return false;
+  }
+
+  return (
+    result.ok === true ||
+    status === "cancelled" ||
+    status === "appointment_cancelled" ||
+    outputClass === "appointment_cancelled" ||
+    resultClass === "appointment_cancelled" ||
+    asString(result.cancelledAppointmentId) !== null ||
+    asString(result.appointmentId) !== null
   );
 }
 
@@ -121,9 +154,12 @@ export function isSuccessfulAppointmentBookingTool(tool: ToolActionLike) {
 
 export function isSuccessfulToolAction(tool: ToolActionLike) {
   if (tool.isError === true) return false;
-  if (tool.name === "book_appt") return isSuccessfulBookAppointmentTool(tool);
-  if (tool.name === "reschedule_appt") {
+  if (isBookAppointmentToolName(tool.name)) return isSuccessfulBookAppointmentTool(tool);
+  if (isRescheduleAppointmentToolName(tool.name)) {
     return isSuccessfulRescheduleAppointmentTool(tool);
+  }
+  if (isCancelAppointmentToolName(tool.name)) {
+    return isSuccessfulCancelAppointmentTool(tool);
   }
   if (tool.name === "transfer_call") return isSuccessfulTransferCallTool(tool);
   return true;

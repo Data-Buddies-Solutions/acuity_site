@@ -72,6 +72,7 @@ export type CallSummaryData = {
   audioBase64?: string;
   usage?: AgentSessionUsage;
   voiceExperiment?: VoiceExperimentMetadata;
+  appointmentActions?: AppointmentActionAnalytics[];
 };
 
 export type LiveKitMetric = {
@@ -112,6 +113,28 @@ export type ModelUsageRecord = {
 export type AgentSessionUsage = {
   modelUsage?: ModelUsageRecord[];
   [key: string]: unknown;
+};
+
+export type AppointmentAnalytics = {
+  appointmentId?: string;
+  patientName?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
+  startDatetime?: string;
+  providerName?: string;
+  locationName?: string;
+  appointmentTypeName?: string;
+  careLane?: string;
+};
+
+export type AppointmentActionAnalytics = {
+  action: "booked" | "rescheduled" | "cancelled";
+  status: "success" | "partial" | "error";
+  toolName?: string;
+  createdAt?: string;
+  message?: string;
+  appointment?: AppointmentAnalytics;
+  cancelledAppointment?: AppointmentAnalytics;
 };
 
 export type VoiceLanguageTelemetry = {
@@ -200,6 +223,7 @@ export type LiveKitWebhookPayload = {
   sessionEvents?: SessionEventAnalytics;
   turnMetrics?: TurnMetricRecord[];
   toolExecutions?: ToolExecutionAnalytics[];
+  appointmentActions?: AppointmentActionAnalytics[];
   sessionReport?: SessionReport;
   voiceExperiment?: VoiceExperimentMetadata;
   audioBase64?: string;

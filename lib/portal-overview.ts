@@ -4,7 +4,20 @@ import {
   buildPortalAgentCallScopeWhere,
   getCurrentPortalPracticeContext,
 } from "@/lib/portal-access";
-import type { CallSummaryData, ChatHistoryItem, TurnRecord } from "@/lib/call-types";
+import type {
+  AppointmentActionAnalytics,
+  AppointmentAnalytics,
+  CallSummaryData,
+  ChatHistoryItem,
+  ToolExecutionAnalytics,
+  TurnRecord,
+} from "@/lib/call-types";
+import {
+  appointmentActionFromOutputClass,
+  getAppointmentActions,
+  hasRenderableAppointmentDetails,
+  isResolvedAppointmentAction,
+} from "@/lib/appointment-actions";
 import { phoneDigits, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
@@ -788,6 +801,22 @@ function getTurns(data: unknown) {
   return data.turns.filter(isRecord);
 }
 
+function getToolExecutions(data: unknown): ToolExecutionAnalytics[] {
+  if (!isRecord(data) || !Array.isArray(data.toolExecutions)) {
+    return [];
+  }
+
+  return data.toolExecutions.filter(isRecord).map((tool) => ({
+    ...(typeof tool.callId === "string" ? { callId: tool.callId } : {}),
+    ...(typeof tool.createdAt === "string" ? { createdAt: tool.createdAt } : {}),
+    ...(typeof tool.outputClass === "string" ? { outputClass: tool.outputClass } : {}),
+    ...(tool.status === "success" || tool.status === "error"
+      ? { status: tool.status }
+      : {}),
+    ...(typeof tool.toolName === "string" ? { toolName: tool.toolName } : {}),
+  }));
+}
+
 type AvailabilityMatch = {
   columnId: string | null;
   locationName: string | null;
@@ -864,6 +893,11 @@ type StateBookedAppointment = {
   providerName: string | null;
 };
 
+type BookingAction = Extract<
+  AppointmentActionAnalytics["action"],
+  "booked" | "rescheduled"
+>;
+
 function extractStateBookedAppointment(data: unknown): StateBookedAppointment | null {
   if (!isRecord(data) || !isRecord(data.callState)) {
     return null;
@@ -901,6 +935,157 @@ function extractStateBookedAppointment(data: unknown): StateBookedAppointment | 
     locationName: asString(appointment.facility),
     patientName: normalizeDisplayName(asString(patient?.name)),
     providerName: asString(appointment.provider),
+  };
+}
+
+function appointmentStartFromAnalytics(appointment: AppointmentAnalytics | undefined) {
+  if (!appointment) {
+    return null;
+  }
+
+  if (appointment.startDatetime) {
+    return appointment.startDatetime;
+  }
+
+  if (!appointment.appointmentDate) {
+    return null;
+  }
+
+  const localTime = localTimeForAppointment(appointment.appointmentTime ?? null);
+  return localTime
+    ? `${appointment.appointmentDate}T${localTime}`
+    : appointment.appointmentTime
+      ? `${appointment.appointmentDate} ${appointment.appointmentTime}`
+      : appointment.appointmentDate;
+}
+
+function careLaneFromAnalytics(value: string | undefined): PortalBookingCareLane | null {
+  const normalized = value
+    ?.toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalized === "medical") return "medical";
+  if (normalized === "routine vision" || normalized === "vision") {
+    return "routine_vision";
+  }
+  return null;
+}
+
+function appointmentStatusFromAction(action: BookingAction) {
+  return action === "rescheduled" ? "rescheduled" : "booked";
+}
+
+function extractLatestStructuredBookingAction(
+  data: unknown,
+): AppointmentActionAnalytics | null {
+  const actions = getAppointmentActions(data);
+
+  for (let index = actions.length - 1; index >= 0; index--) {
+    const action = actions[index];
+    if (
+      !isResolvedAppointmentAction(action) ||
+      (action.action !== "booked" && action.action !== "rescheduled") ||
+      !hasRenderableAppointmentDetails(action.appointment ?? null)
+    ) {
+      continue;
+    }
+
+    return action;
+  }
+
+  return null;
+}
+
+function extractLatestAppointmentExecutionAction(data: unknown): BookingAction | null {
+  const toolExecutions = getToolExecutions(data);
+
+  for (let index = toolExecutions.length - 1; index >= 0; index--) {
+    const tool = toolExecutions[index];
+    if (tool.status !== "success") {
+      continue;
+    }
+
+    const action = appointmentActionFromOutputClass(tool.outputClass);
+    if (action === "booked" || action === "rescheduled") {
+      return action;
+    }
+  }
+
+  return null;
+}
+
+function portalBookingFromAppointmentAction(
+  action: AppointmentActionAnalytics,
+  call: {
+    callerPhone: string;
+    id: string;
+    outcomeSummary: string | null;
+    startedAt: Date;
+  },
+  turns: Record<string, unknown>[],
+): PortalBookedAppointment {
+  const appointment = action.appointment;
+  const appointmentTypeName = appointment?.appointmentTypeName ?? null;
+  const classified = classifyBookingAppointmentType(appointmentTypeName);
+  const careLane = careLaneFromAnalytics(appointment?.careLane) ?? classified.careLane;
+
+  return {
+    appointmentId: appointment?.appointmentId ?? null,
+    appointmentStart: appointmentStartFromAnalytics(appointment),
+    appointmentStatus: appointmentStatusFromAction(action.action as BookingAction),
+    appointmentTypeName,
+    callId: call.id,
+    callStartedAt: call.startedAt,
+    callerPhone: call.callerPhone,
+    careLane,
+    duration: null,
+    locationName: appointment?.locationName ?? null,
+    patientName: normalizeDisplayName(appointment?.patientName ?? null),
+    providerName: appointment?.providerName ?? null,
+    summary:
+      call.outcomeSummary ??
+      action.message ??
+      fallbackAgentSummary(turns) ??
+      "Appointment booked by the AI receptionist.",
+    visitType: classified.visitType,
+  };
+}
+
+function portalBookingFromState(
+  stateBooking: StateBookedAppointment,
+  call: {
+    callerPhone: string;
+    id: string;
+    outcomeSummary: string | null;
+    startedAt: Date;
+  },
+  turns: Record<string, unknown>[],
+  action?: BookingAction | null,
+): PortalBookedAppointment {
+  const appointmentTypeName = stateBooking.appointmentTypeName;
+  const { careLane, visitType } = classifyBookingAppointmentType(appointmentTypeName);
+
+  return {
+    appointmentId: stateBooking.appointmentId,
+    appointmentStart: stateBooking.appointmentStart,
+    appointmentStatus: action
+      ? appointmentStatusFromAction(action)
+      : stateBooking.appointmentStatus,
+    appointmentTypeName,
+    callId: call.id,
+    callStartedAt: call.startedAt,
+    callerPhone: call.callerPhone,
+    careLane,
+    duration: null,
+    locationName: stateBooking.locationName,
+    patientName: stateBooking.patientName,
+    providerName: stateBooking.providerName,
+    summary:
+      call.outcomeSummary ??
+      fallbackAgentSummary(turns) ??
+      "Appointment booked by the AI receptionist.",
+    visitType,
   };
 }
 
@@ -948,6 +1133,17 @@ export function extractBookedAppointment(call: {
   startedAt: Date;
 }): PortalBookedAppointment {
   const turns = getTurns(call.data);
+  const structuredAction = extractLatestStructuredBookingAction(call.data);
+  if (structuredAction) {
+    return portalBookingFromAppointmentAction(structuredAction, call, turns);
+  }
+
+  const stateBooking = extractStateBookedAppointment(call.data);
+  const executionAction = extractLatestAppointmentExecutionAction(call.data);
+  if (stateBooking) {
+    return portalBookingFromState(stateBooking, call, turns, executionAction);
+  }
+
   const availabilityMatches: AvailabilityMatch[] = [];
   let booking: {
     args: Record<string, unknown> | null;
@@ -986,20 +1182,13 @@ export function extractBookedAppointment(call: {
     }
   }
 
-  const stateBooking = extractStateBookedAppointment(call.data);
   const matchedAvailability = findAvailabilityMatch(
     booking?.args ?? null,
     availabilityMatches,
   );
   const appointmentId =
-    asString(booking?.result?.appointmentId) ??
-    asString(booking?.result?.id) ??
-    stateBooking?.appointmentId ??
-    null;
-  const appointmentTypeName =
-    asString(booking?.result?.appointmentTypeName) ??
-    stateBooking?.appointmentTypeName ??
-    null;
+    asString(booking?.result?.appointmentId) ?? asString(booking?.result?.id) ?? null;
+  const appointmentTypeName = asString(booking?.result?.appointmentTypeName) ?? null;
   const { careLane, visitType } = classifyBookingAppointmentType(appointmentTypeName);
 
   return {
@@ -1009,11 +1198,10 @@ export function extractBookedAppointment(call: {
       asString(booking?.args?.startDatetime) ??
       asString(booking?.args?.startDateTime) ??
       asString(booking?.args?.datetime) ??
-      stateBooking?.appointmentStart ??
       null,
     appointmentStatus:
+      (executionAction ? appointmentStatusFromAction(executionAction) : null) ??
       asString(booking?.result?.status) ??
-      stateBooking?.appointmentStatus ??
       (appointmentId ? "booked" : "unknown"),
     appointmentTypeName,
     callId: call.id,
@@ -1025,17 +1213,14 @@ export function extractBookedAppointment(call: {
     locationName:
       asString(booking?.result?.locationName) ??
       matchedAvailability?.locationName ??
-      stateBooking?.locationName ??
       null,
     patientName:
       normalizeDisplayName(asString(booking?.result?.patientName)) ??
       extractPatientName(booking?.args ?? null) ??
-      stateBooking?.patientName ??
       null,
     providerName:
       asString(booking?.result?.providerName) ??
       matchedAvailability?.providerName ??
-      stateBooking?.providerName ??
       null,
     summary:
       call.outcomeSummary ??
@@ -1047,7 +1232,17 @@ export function extractBookedAppointment(call: {
 }
 
 function isRenderableBooking(booking: PortalBookedAppointment) {
-  return booking.appointmentStatus !== "error" && Boolean(booking.appointmentId);
+  return (
+    booking.appointmentStatus !== "error" &&
+    Boolean(
+      booking.appointmentId ||
+      booking.appointmentStart ||
+      booking.appointmentTypeName ||
+      booking.locationName ||
+      booking.patientName ||
+      booking.providerName,
+    )
+  );
 }
 
 export function filterPortalBookingsBySearch(
@@ -1137,8 +1332,23 @@ async function loadPortalBookingCategorySummary({
     ),
     typed AS (
       SELECT
-        COALESCE(tool_type."appointmentTypeName", state_type."appointmentTypeName") AS "appointmentTypeName"
+        COALESCE(
+          action_type."appointmentTypeName",
+          tool_type."appointmentTypeName",
+          state_type."appointmentTypeName"
+        ) AS "appointmentTypeName"
       FROM booked
+      LEFT JOIN LATERAL (
+        SELECT action_item.item -> 'appointment' ->> 'appointmentTypeName' AS "appointmentTypeName"
+        FROM jsonb_array_elements(COALESCE(booked."data" -> 'appointmentActions', '[]'::jsonb))
+          WITH ORDINALITY AS action_item(item, action_index)
+        WHERE action_item.item ->> 'action' IN ('booked', 'rescheduled')
+          AND COALESCE(action_item.item ->> 'status', '') <> 'error'
+          AND jsonb_typeof(action_item.item -> 'appointment') = 'object'
+          AND action_item.item -> 'appointment' ->> 'appointmentTypeName' IS NOT NULL
+        ORDER BY action_item.action_index DESC
+        LIMIT 1
+      ) AS action_type ON TRUE
       LEFT JOIN LATERAL (
         SELECT parsed."appointmentTypeName"
         FROM (
@@ -1206,13 +1416,18 @@ async function loadPortalBookingCategorySummary({
             WITH ORDINALITY AS turn_item(turn, turn_index)
           CROSS JOIN LATERAL jsonb_array_elements(COALESCE(turn_item.turn -> 'toolCalls', '[]'::jsonb))
             WITH ORDINALITY AS tool_item(tool, tool_index)
-          WHERE tool_item.tool ->> 'name' IN ('book_appt', 'reschedule_appt')
+          WHERE tool_item.tool ->> 'name' IN (
+            'book_appt',
+            'book_appointment',
+            'reschedule_appt',
+            'reschedule_appointment'
+          )
             AND COALESCE(tool_item.tool ->> 'isError', 'false') <> 'true'
         ) AS parsed
         WHERE lower(COALESCE(parsed.status, '')) <> 'error'
           AND (
             (
-              parsed.name = 'book_appt'
+              parsed.name IN ('book_appt', 'book_appointment')
               AND (
                 lower(COALESCE(parsed.status, '')) = 'booked'
                 OR parsed."appointmentId" IS NOT NULL
@@ -1220,7 +1435,7 @@ async function loadPortalBookingCategorySummary({
               )
             )
             OR (
-              parsed.name = 'reschedule_appt'
+              parsed.name IN ('reschedule_appt', 'reschedule_appointment')
               AND parsed."appointmentId" IS NOT NULL
               AND (
                 lower(COALESCE(parsed.status, '')) = 'rescheduled'
