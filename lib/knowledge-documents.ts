@@ -60,6 +60,12 @@ Photo ID, insurance card, list of current medications, previous eye records (if 
 
 New patient visits may take 1-2 hours. Eye dilation may occur, causing temporary blurry vision and light sensitivity. The practice typically sends an email confirmation after scheduling.`;
 
+const ABITA_CRYSTAL_RIVER_LEGACY_CATARACT_SCOPE =
+  "This is an **ophthalmology** practice - not optometry. Crystal River sees medical eye conditions such as glaucoma, eyelid concerns, and flashes/floaters. Crystal River does **not** see pediatric ophthalmology and does **not** schedule cataract evaluations or cataract surgery workups there. For pediatrics or cataract-related visits, schedule the patient at Spring Hill. We do **not** perform routine eye exams or vision-only checkups. If a caller is looking for a routine eye exam or glasses prescription, let them know we're an ophthalmology office and they'd want to see an optometrist for that.";
+
+const ABITA_CRYSTAL_RIVER_SCOPE =
+  "This is an **ophthalmology** practice - not optometry. Crystal River sees medical eye conditions such as cataract evaluations, glaucoma, eyelid concerns, and flashes/floaters. Crystal River does **not** see pediatric ophthalmology and does **not** schedule cataract surgery workups there. For pediatrics or cataract surgery workups, schedule the patient at Spring Hill. We do **not** perform routine eye exams or vision-only checkups. If a caller is looking for a routine eye exam or glasses prescription, let them know we're an ophthalmology office and they'd want to see an optometrist for that.";
+
 const ABITA_CRYSTAL_RIVER_MARKDOWN = `# Knowledge Base: Eye Radiance powered by Abeeta Eye Group
 
 ## Emergency Notice
@@ -91,7 +97,7 @@ Hours:
 
 ## Scope of Services
 
-This is an **ophthalmology** practice - not optometry. Crystal River sees medical eye conditions such as glaucoma, eyelid concerns, and flashes/floaters. Crystal River does **not** see pediatric ophthalmology and does **not** schedule cataract evaluations or cataract surgery workups there. For pediatrics or cataract-related visits, schedule the patient at Spring Hill. We do **not** perform routine eye exams or vision-only checkups. If a caller is looking for a routine eye exam or glasses prescription, let them know we're an ophthalmology office and they'd want to see an optometrist for that.
+${ABITA_CRYSTAL_RIVER_SCOPE}
 
 ## Providers
 
@@ -136,6 +142,11 @@ Photo ID, insurance card, list of current medications, previous eye records (if 
 This knowledge base provides general practice information only.
 It does not provide diagnosis, medical advice, or treatment recommendations.
 All medical decisions must be made by a licensed physician during an in-person evaluation.`;
+
+const ABITA_CRYSTAL_RIVER_LEGACY_CATARACT_MARKDOWN = ABITA_CRYSTAL_RIVER_MARKDOWN.replace(
+  ABITA_CRYSTAL_RIVER_SCOPE,
+  ABITA_CRYSTAL_RIVER_LEGACY_CATARACT_SCOPE,
+);
 
 type KnowledgeDocumentRevisionStatus = "PENDING_APPROVAL" | "PUBLISHED" | "REJECTED";
 
@@ -548,6 +559,72 @@ async function ensureDefaultKnowledgeDocument(practiceId: string) {
       },
     });
   }
+
+  await ensureAbitaKnowledgeSeedRevisions(practiceId);
+}
+
+async function ensureAbitaKnowledgeSeedRevisions(practiceId: string) {
+  const crystalRiverDocument = await prisma.practiceKnowledgeDocument.findFirst({
+    include: {
+      revisions: {
+        orderBy: [{ createdAt: "desc" }],
+        take: 25,
+        where: {
+          status: {
+            in: ["PUBLISHED", "PENDING_APPROVAL"],
+          },
+        },
+      },
+    },
+    where: {
+      practiceId,
+      slug: "eye-radiance-crystal-river",
+      status: "ACTIVE",
+    },
+  });
+
+  if (!crystalRiverDocument) {
+    return;
+  }
+
+  const hasPendingPracticeEdit = crystalRiverDocument.revisions.some(
+    (revision) => revision.status === "PENDING_APPROVAL",
+  );
+  if (hasPendingPracticeEdit) {
+    return;
+  }
+
+  const latestPublished = crystalRiverDocument.revisions.find(
+    (revision) => revision.status === "PUBLISHED",
+  );
+  if (
+    latestPublished?.markdown.trim() !==
+    ABITA_CRYSTAL_RIVER_LEGACY_CATARACT_MARKDOWN.trim()
+  ) {
+    return;
+  }
+
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.practiceKnowledgeDocumentRevision.create({
+      data: {
+        documentId: crystalRiverDocument.id,
+        markdown: ABITA_CRYSTAL_RIVER_MARKDOWN,
+        publishedAt: now,
+        source: "IMPORT",
+        status: "PUBLISHED",
+      },
+    });
+
+    await tx.practiceKnowledgeDocument.update({
+      data: {
+        updatedAt: now,
+      },
+      where: {
+        id: crystalRiverDocument.id,
+      },
+    });
+  });
 }
 
 export async function getPortalKnowledgeDocumentState(
