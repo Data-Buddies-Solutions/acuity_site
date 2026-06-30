@@ -114,6 +114,58 @@ function SectionHeading({ description, title }: { description?: string; title: s
   );
 }
 
+function BookingCategoryBreakdown({
+  summary,
+}: {
+  summary: AdminPracticeDashboardData["bookingCategories"];
+}) {
+  if (summary.total === 0) {
+    return null;
+  }
+
+  const rows = [
+    {
+      followLabel: "Follow-up",
+      label: "Medical",
+      value: summary.medical,
+    },
+    {
+      followLabel: "Follow-up",
+      label: "Routine vision",
+      value: summary.routineVision,
+    },
+  ].filter((row) => row.value.total > 0);
+
+  return (
+    <div className="space-y-2 border-t border-border/70 pt-3">
+      {rows.map((row) => (
+        <div key={row.label} className="space-y-1">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="font-medium text-foreground">{row.label}</span>
+            <span className="font-mono font-semibold tabular-nums text-foreground">
+              {row.value.total}
+            </span>
+          </div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            New {row.value.newPatient} / {row.followLabel} {row.value.followUpOrExisting}
+            {row.value.unknownVisitType > 0
+              ? ` / Unknown ${row.value.unknownVisitType}`
+              : ""}
+          </p>
+        </div>
+      ))}
+      {summary.unknown.total > 0 ? (
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+          <span>Unclassified</span>
+          <span className="font-mono font-medium tabular-nums">
+            {summary.unknown.total}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
   const toolFailureRate =
     data.toolCallCount > 0 ? (data.toolFailureCount / data.toolCallCount) * 100 : null;
@@ -172,26 +224,22 @@ export function HealthKPIs({ data }: { data: AdminPracticeDashboardData }) {
         <Card className="border-border/70 bg-card/80 shadow-sm">
           <CardHeader className="px-4 py-4 sm:px-6">
             <CardTitle>Appointment Actions</CardTitle>
-            <CardDescription>
-              What actually happened inside appointment flows.
-            </CardDescription>
+            <CardDescription>Booked and cancelled appointment outcomes.</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-3 gap-2 px-4 pb-4 sm:gap-3 sm:px-6">
-            <InlineMetric
-              label="Booked"
-              value={String(data.bookApptSuccesses)}
-              sub="Successful bookings"
-            />
-            <InlineMetric
-              label="Confirmed"
-              value={String(data.confirmApptSuccesses)}
-              sub="Successful confirmations"
-            />
-            <InlineMetric
-              label="Cancelled"
-              value={String(data.cancelApptSuccesses)}
-              sub="Successful cancellations"
-            />
+          <CardContent className="space-y-3 px-4 pb-4 sm:px-6">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              <InlineMetric
+                label="Booked"
+                value={String(data.bookApptSuccesses)}
+                sub="Successful bookings"
+              />
+              <InlineMetric
+                label="Cancelled"
+                value={String(data.cancelApptSuccesses)}
+                sub="Successful cancellations"
+              />
+            </div>
+            <BookingCategoryBreakdown summary={data.bookingCategories} />
           </CardContent>
         </Card>
 

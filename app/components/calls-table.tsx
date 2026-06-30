@@ -60,48 +60,6 @@ function formatLocalTime(value: string) {
   return localTimeFormatter.format(new Date(value));
 }
 
-function formatReviewScore(score: number | null): string {
-  return score === null ? "--" : `${score.toFixed(1)}/5`;
-}
-
-function getReviewBadge(call: AdminCallTableRow) {
-  if (call.reviewStatus === "failed") {
-    return (
-      <Badge variant="destructive" className="gap-1 text-[10px]">
-        <AlertTriangle className="h-3 w-3" />
-        Review failed
-      </Badge>
-    );
-  }
-
-  if (call.reviewStatus === "pending") {
-    return (
-      <Badge variant="outline" className="text-[10px]">
-        Pending
-      </Badge>
-    );
-  }
-
-  if (call.reviewStatus !== "completed") {
-    return <span className="text-muted-foreground">--</span>;
-  }
-
-  if (call.reviewNeedsAttention) {
-    return (
-      <Badge variant="destructive" className="gap-1 text-[10px]">
-        <AlertTriangle className="h-3 w-3" />
-        Needs review
-      </Badge>
-    );
-  }
-
-  return (
-    <Badge variant="secondary" className="text-[10px]">
-      OK
-    </Badge>
-  );
-}
-
 function getEvaluationBadge(call: AdminCallTableRow) {
   if (call.evaluationBucket === "GOLDEN") {
     return (
@@ -142,7 +100,6 @@ function MobileCallCard({
   callHref,
   showFallback,
   showLanguage,
-  showReview,
   showRuntimeEvents,
   showToolErrors,
 }: {
@@ -150,7 +107,6 @@ function MobileCallCard({
   callHref: string;
   showFallback: boolean;
   showLanguage: boolean;
-  showReview: boolean;
   showRuntimeEvents: boolean;
   showToolErrors: boolean;
 }) {
@@ -247,12 +203,6 @@ function MobileCallCard({
       <div className="space-y-2">
         <div className="flex flex-wrap gap-1.5">
           {getEvaluationBadge(call)}
-          {showReview && getReviewBadge(call)}
-          {showReview && call.reviewStatus === "completed" && (
-            <Badge variant="outline" className="text-[10px]">
-              Score {formatReviewScore(call.reviewAverageScore)}
-            </Badge>
-          )}
           {call.transferred && (
             <Badge variant="outline" className="text-[10px]">
               Transfer
@@ -339,7 +289,6 @@ export function CallsTable({
   const [sortState, setSortState] = React.useState<CallSortState>(stateFromUrl.sortState);
   const [page, setPage] = React.useState(stateFromUrl.page);
   const showFallback = false;
-  const showReview = false;
   const showLanguage = React.useMemo(
     () => calls.some((call) => hasLanguageSignal(call)),
     [calls],
@@ -385,7 +334,6 @@ export function CallsTable({
     if (filter.id === "fallback") return showFallback;
     if (filter.id === "language") return showLanguage;
     if (filter.id === "runtime") return showRuntimeEvents;
-    if (filter.id === "needs_review") return showReview;
     return true;
   });
   const pageCount = getCallTablePageCount(filteredCalls.length);
@@ -397,7 +345,6 @@ export function CallsTable({
   );
   const tableColumnCount =
     9 +
-    (showReview ? 1 : 0) +
     (showToolErrors ? 1 : 0) +
     (showFallback ? 1 : 0) +
     (showLanguage ? 1 : 0) +
@@ -495,7 +442,6 @@ export function CallsTable({
                 callHref={getCallHref(call.id)}
                 showFallback={showFallback}
                 showLanguage={showLanguage}
-                showReview={showReview}
                 showRuntimeEvents={showRuntimeEvents}
                 showToolErrors={showToolErrors}
               />
@@ -535,17 +481,6 @@ export function CallsTable({
                     Duration
                   </SortButton>
                 </TableHead>
-                {showReview && (
-                  <TableHead>
-                    <SortButton
-                      sortKey="review"
-                      sortState={sortState}
-                      onSort={handleSort}
-                    >
-                      Review
-                    </SortButton>
-                  </TableHead>
-                )}
                 {showToolErrors && <TableHead>Tool Errors</TableHead>}
                 <TableHead>P50 TTFT</TableHead>
                 <TableHead>P50 TTS</TableHead>
@@ -609,18 +544,6 @@ export function CallsTable({
                       </div>
                     </TableCell>
                     <TableCell>{formatDuration(call.durationSec)}</TableCell>
-                    {showReview && (
-                      <TableCell>
-                        <div className="space-y-1">
-                          {getReviewBadge(call)}
-                          {call.reviewStatus === "completed" && (
-                            <p className="text-xs font-medium tabular-nums text-foreground">
-                              {formatReviewScore(call.reviewAverageScore)}
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
                     {showToolErrors && (
                       <TableCell>
                         {call.toolErrors > 0 ? (

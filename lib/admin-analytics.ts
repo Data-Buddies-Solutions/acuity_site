@@ -13,6 +13,11 @@ import {
   isResolvedAppointmentAction,
 } from "@/lib/appointment-actions";
 import { phoneDigits, phoneLookupVariants } from "@/lib/phone";
+import {
+  extractBookedAppointment,
+  summarizeBookingCategories,
+  type PortalBookingCategorySummary,
+} from "@/lib/portal-overview";
 import { prisma } from "@/lib/prisma";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
@@ -30,12 +35,8 @@ type CostCategory =
 export type AdminPracticeRange = "24h" | "7d" | "30d" | "all";
 
 type CallMetric = {
-  bookedAppointment: boolean;
-  cancelledAppointment: boolean;
-  confirmedAppointment: boolean;
   durationSec: number;
   estimatedCostMicros: number;
-  needsReview: boolean;
   practiceId: string;
   startedAt: Date;
   status: string;
@@ -62,6 +63,8 @@ const DURATION_BUCKETS = [
   { label: "10m+", max: Infinity },
 ];
 
+const HIDDEN_ADMIN_TOOL_NAMES = new Set(["confirm_appt"]);
+
 type BucketGranularity = "hour" | "day" | "week";
 
 interface BucketInfo {
@@ -76,7 +79,6 @@ interface AnalyticsBucketStats {
   cachedTokens: number;
   calls: number;
   cancelled: number;
-  confirmed: number;
   durationSec: number;
   inputTokens: number;
   interruptions: number;
@@ -115,8 +117,8 @@ export interface AdminPracticeDashboardData {
   avgTokensPerSec: number;
   avgTtsChars: number;
   bookApptSuccesses: number;
+  bookingCategories: PortalBookingCategorySummary;
   cancelApptSuccesses: number;
-  confirmApptSuccesses: number;
   toolCallCount: number;
   toolFailureCount: number;
   totalCachedTokens: number;
@@ -135,7 +137,6 @@ export interface AdminPracticeAnalyticsData {
   actionTrendData: (TrendDatum & {
     booked: number;
     cancelled: number;
-    confirmed: number;
   })[];
   avgCacheHitRate: number;
   avgDurationSec: number;
@@ -148,7 +149,6 @@ export interface AdminPracticeAnalyticsData {
   })[];
   callVolumeTrendData: (TrendDatum & { count: number })[];
   cancelApptSuccesses: number;
-  confirmApptSuccesses: number;
   durationDistributionData: { bucket: string; count: number }[];
   interruptionRateTrendData: (TrendDatum & {
     calls: number;
@@ -224,10 +224,6 @@ export interface AdminCallTableRow {
   p50Ttft: number;
   p50Ttsttfb: number;
   peakContext: number;
-  reviewAverageScore: number | null;
-  reviewNeedsAttention: boolean;
-  reviewPassed: boolean | null;
-  reviewStatus: "pending" | "completed" | "failed" | "not_created";
   startedAt: string;
   runtimeErrorCount: number;
   toolActions: string[];
@@ -426,7 +422,6 @@ function createEmptyAnalyticsBucket(): AnalyticsBucketStats {
     cachedTokens: 0,
     calls: 0,
     cancelled: 0,
-    confirmed: 0,
     durationSec: 0,
     inputTokens: 0,
     interruptions: 0,
@@ -607,14 +602,12 @@ function addAppointmentActionLabel(
 function getToolActionLabels(call: {
   bookedAppointment: boolean;
   cancelledAppointment: boolean;
-  confirmedAppointment: boolean;
   data: unknown;
   transferred: boolean;
 }) {
   const actions = new Set<string>();
 
   if (call.bookedAppointment) actions.add("Booked");
-  if (call.confirmedAppointment) actions.add("Confirmed");
   if (call.cancelledAppointment) actions.add("Cancelled");
   if (call.transferred) actions.add("Transferred");
 
@@ -631,7 +624,6 @@ function getToolActionLabels(call: {
 
     const appointmentAction = appointmentActionFromToolName(tool.name);
     if (appointmentAction) addAppointmentActionLabel(actions, appointmentAction);
-    if (tool.name === "confirm_appt") actions.add("Confirmed");
     if (tool.name === "transfer_call") actions.add("Transferred");
   }
 
@@ -642,58 +634,10 @@ function getToolActionLabels(call: {
 
     const appointmentAction = appointmentActionFromOutputClass(tool.outputClass);
     if (appointmentAction) addAppointmentActionLabel(actions, appointmentAction);
-    if (tool.outputClass === "appointment_confirmed") actions.add("Confirmed");
     if (tool.outputClass === "transfer_started") actions.add("Transferred");
   }
 
   return [...actions];
-}
-
-function getReviewSummary(call: { data: unknown; reviewResult: unknown }) {
-  if (isRecord(call.reviewResult) && typeof call.reviewResult.summary === "string") {
-    return call.reviewResult.summary;
-  }
-
-  if (isRecord(call.data) && isRecord(call.data.reviewResult)) {
-    const summary = call.data.reviewResult.summary;
-    return typeof summary === "string" ? summary : null;
-  }
-
-  return null;
-}
-
-function getReviewAverage(call: {
-  reviewAverageScore: number | null;
-  reviewResult: unknown;
-}) {
-  if (typeof call.reviewAverageScore === "number") {
-    return call.reviewAverageScore;
-  }
-
-  const result = call.reviewResult;
-  if (!isRecord(result) || !isRecord(result.scores)) {
-    return null;
-  }
-
-  const values = Object.values(result.scores).filter(
-    (value): value is number => typeof value === "number" && Number.isFinite(value),
-  );
-
-  return values.length > 0 ? average(values) : null;
-}
-
-function getReviewPassed(reviewResult: unknown) {
-  return isRecord(reviewResult) && typeof reviewResult.passed === "boolean"
-    ? reviewResult.passed
-    : null;
-}
-
-function normalizeReviewStatus(status: string | null): AdminCallTableRow["reviewStatus"] {
-  if (status === "pending" || status === "completed" || status === "failed") {
-    return status;
-  }
-
-  return "not_created";
 }
 
 function formatToolAction(name: string) {
@@ -705,13 +649,17 @@ function formatToolAction(name: string) {
     case "reschedule_appointment":
       return "Reschedule";
     case "confirm_appt":
-      return "Confirm";
+      return null;
     case "cancel_appt":
     case "cancel_appointment":
       return "Cancel";
     default:
       return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
   }
+}
+
+function isAdminVisibleToolName(name: string | null | undefined) {
+  return Boolean(name && !HIDDEN_ADMIN_TOOL_NAMES.has(name));
 }
 
 function median(values: number[]) {
@@ -934,7 +882,6 @@ function buildTrendBuckets(calls: AdminCallRecord[], range: AdminPracticeRange) 
       calls: 0,
       costMicros: 0,
       end: bucketEnd,
-      needsReview: 0,
       start: bucketStart,
       transfers: 0,
     };
@@ -954,12 +901,7 @@ function buildTrendBuckets(calls: AdminCallRecord[], range: AdminPracticeRange) 
     bucket.calls++;
     bucket.costMicros += call.estimatedCostMicros;
     if (call.transferred) bucket.transfers++;
-    if (call.needsReview) bucket.needsReview++;
-    if (
-      call.bookedAppointment ||
-      call.confirmedAppointment ||
-      call.cancelledAppointment
-    ) {
+    if (call.bookedAppointment || call.cancelledAppointment) {
       bucket.appointments++;
     }
   }
@@ -994,6 +936,10 @@ function buildToolStats(calls: AdminCallRecord[]) {
     if (toolExecutions.length > 0) {
       for (const tool of toolExecutions) {
         const name = tool.toolName ?? "unknown";
+        if (!isAdminVisibleToolName(name)) {
+          continue;
+        }
+
         const current = stats.get(name) ?? { count: 0, durations: [], errors: 0 };
         current.count++;
         if (tool.status === "error") current.errors++;
@@ -1003,6 +949,10 @@ function buildToolStats(calls: AdminCallRecord[]) {
     }
 
     for (const tool of getToolCalls(call.data)) {
+      if (!isAdminVisibleToolName(tool.name)) {
+        continue;
+      }
+
       const current = stats.get(tool.name) ?? { count: 0, durations: [], errors: 0 };
       current.count++;
       if (tool.isError) current.errors++;
@@ -1046,7 +996,6 @@ function buildPracticeAnalyticsData(
   let totalToolCalls = 0;
   let totalToolErrors = 0;
   let bookApptSuccesses = 0;
-  let confirmApptSuccesses = 0;
   let cancelApptSuccesses = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -1073,23 +1022,28 @@ function buildPracticeAnalyticsData(
 
     const toolExecutions = getToolExecutions(call.data);
     const toolCalls = getToolCalls(call.data);
+    const visibleToolExecutions = toolExecutions.filter((tool) =>
+      isAdminVisibleToolName(tool.toolName),
+    );
+    const visibleToolCalls = toolCalls.filter((tool) =>
+      isAdminVisibleToolName(tool.name),
+    );
     const callToolCalls =
       toolExecutions.length > 0
-        ? toolExecutions.length
+        ? visibleToolExecutions.length
         : toolCalls.length > 0
-          ? toolCalls.length
+          ? visibleToolCalls.length
           : call.toolCalls;
     const callToolErrors =
       toolExecutions.length > 0
-        ? toolExecutions.filter((tool) => tool.status === "error").length
+        ? visibleToolExecutions.filter((tool) => tool.status === "error").length
         : toolCalls.length > 0
-          ? toolCalls.filter((tool) => tool.isError).length
+          ? visibleToolCalls.filter((tool) => tool.isError).length
           : call.toolErrors;
     const latencyValues = getLatencyArrays(call);
     const peakContext = getPeakContext(call);
 
     let booked = call.bookedAppointment ? 1 : 0;
-    let confirmed = call.confirmedAppointment ? 1 : 0;
     let cancelled = call.cancelledAppointment ? 1 : 0;
     let transferred = call.transferred;
 
@@ -1140,7 +1094,7 @@ function buildPracticeAnalyticsData(
     const trafficKey = `${day}-${hour}`;
     peakTrafficMap.set(trafficKey, (peakTrafficMap.get(trafficKey) ?? 0) + 1);
 
-    for (const tool of toolCalls) {
+    for (const tool of visibleToolCalls) {
       toolCounts.set(tool.name, (toolCounts.get(tool.name) ?? 0) + 1);
 
       const durations = toolDurations.get(tool.name) ?? [];
@@ -1164,7 +1118,6 @@ function buildPracticeAnalyticsData(
         booked = Math.max(booked, 1);
         cancelled = Math.max(cancelled, 1);
       }
-      if (tool.name === "confirm_appt") confirmed = Math.max(confirmed, 1);
       if (appointmentAction === "cancelled") cancelled = Math.max(cancelled, 1);
     }
 
@@ -1174,10 +1127,8 @@ function buildPracticeAnalyticsData(
     }
 
     bookApptSuccesses += booked;
-    confirmApptSuccesses += confirmed;
     cancelApptSuccesses += cancelled;
     bucket.booked += booked;
-    bucket.confirmed += confirmed;
     bucket.cancelled += cancelled;
   }
 
@@ -1204,7 +1155,6 @@ function buildPracticeAnalyticsData(
     return {
       booked: data.booked,
       cancelled: data.cancelled,
-      confirmed: data.confirmed,
       label: bucket.label,
       tooltipLabel: bucket.tooltipLabel,
     };
@@ -1293,7 +1243,6 @@ function buildPracticeAnalyticsData(
     cacheEfficiencyTrendData,
     callVolumeTrendData,
     cancelApptSuccesses,
-    confirmApptSuccesses,
     durationDistributionData: DURATION_BUCKETS.map((bucket, index) => ({
       bucket: bucket.label,
       count: bucketCounts[index] ?? 0,
@@ -1351,7 +1300,6 @@ function buildPracticeDashboardData(
   let totalTtsChars = 0;
   let totalInterruptions = 0;
   let bookApptSuccesses = 0;
-  let confirmApptSuccesses = 0;
   let cancelApptSuccesses = 0;
   let toolCallCount = 0;
   let toolFailureCount = 0;
@@ -1365,25 +1313,28 @@ function buildPracticeDashboardData(
   for (const call of calls) {
     const toolExecutions = getToolExecutions(call.data);
     const tools = getToolCalls(call.data);
+    const visibleToolExecutions = toolExecutions.filter((tool) =>
+      isAdminVisibleToolName(tool.toolName),
+    );
+    const visibleTools = tools.filter((tool) => isAdminVisibleToolName(tool.name));
     const latency = getLatencyArrays(call);
     const callToolCalls =
       toolExecutions.length > 0
-        ? toolExecutions.length
+        ? visibleToolExecutions.length
         : tools.length > 0
-          ? tools.length
+          ? visibleTools.length
           : call.toolCalls;
     const callToolErrors =
       toolExecutions.length > 0
-        ? toolExecutions.filter((tool) => tool.status === "error").length
+        ? visibleToolExecutions.filter((tool) => tool.status === "error").length
         : tools.length > 0
-          ? tools.filter((tool) => tool.isError).length
+          ? visibleTools.filter((tool) => tool.isError).length
           : call.toolErrors;
     let booked = call.bookedAppointment ? 1 : 0;
-    let confirmed = call.confirmedAppointment ? 1 : 0;
     let cancelled = call.cancelledAppointment ? 1 : 0;
     let transferred = call.transferred;
 
-    for (const tool of tools) {
+    for (const tool of visibleTools) {
       if (tool.isError) {
         continue;
       }
@@ -1397,7 +1348,6 @@ function buildPracticeDashboardData(
         booked = Math.max(booked, 1);
         cancelled = Math.max(cancelled, 1);
       }
-      if (tool.name === "confirm_appt") confirmed = Math.max(confirmed, 1);
       if (appointmentAction === "cancelled") cancelled = Math.max(cancelled, 1);
       if (tool.name === "transfer_call") transferred = true;
     }
@@ -1411,7 +1361,6 @@ function buildPracticeDashboardData(
     totalTtsChars += call.ttsChars;
     totalInterruptions += call.interruptionCount;
     bookApptSuccesses += booked;
-    confirmApptSuccesses += confirmed;
     cancelApptSuccesses += cancelled;
     toolCallCount += callToolCalls;
     toolFailureCount += callToolErrors;
@@ -1435,8 +1384,20 @@ function buildPracticeDashboardData(
     avgTokensPerSec: average(allTokensPerSec),
     avgTtsChars: calls.length > 0 ? totalTtsChars / calls.length : 0,
     bookApptSuccesses,
+    bookingCategories: summarizeBookingCategories(
+      calls
+        .filter((call) => call.bookedAppointment)
+        .map((call) =>
+          extractBookedAppointment({
+            callerPhone: call.callerPhone,
+            data: call.data,
+            id: call.id,
+            outcomeSummary: call.outcomeSummary,
+            startedAt: call.startedAt,
+          }),
+        ),
+    ),
     cancelApptSuccesses,
-    confirmApptSuccesses,
     toolCallCount,
     toolFailureCount,
     totalCachedTokens,
@@ -1453,6 +1414,9 @@ function buildPracticeDashboardData(
 }
 
 function buildRecentCall(call: AdminCallRecord) {
+  const tools = getToolCalls(call.data);
+  const visibleTools = tools.filter((tool) => isAdminVisibleToolName(tool.name));
+
   return {
     actions: getToolActionLabels(call),
     cacheHitRate: getCacheHitRate(call),
@@ -1462,14 +1426,11 @@ function buildRecentCall(call: AdminCallRecord) {
     fallbackUsed: call.fallbackUsed,
     id: call.id,
     llmModel: call.llmModel,
-    needsReview: call.needsReview,
     officePhone: call.officePhone,
     outcomeSummary: call.outcomeSummary,
-    reviewAverageScore: getReviewAverage(call),
-    reviewStatus: call.reviewStatus,
     startedAt: call.startedAt,
     status: call.status,
-    toolCalls: call.toolCalls || getToolCalls(call.data).length,
+    toolCalls: tools.length > 0 ? visibleTools.length : call.toolCalls,
     toolErrors: call.toolErrors,
     totalTurns: getCallTotalTurns(call),
     transferred: call.transferred,
@@ -1595,23 +1556,30 @@ function buildCallTableRow(
   const latency = getLatencyArrays(call);
   const tools = getToolCalls(call.data);
   const toolExecutions = getToolExecutions(call.data);
+  const visibleTools = tools.filter((tool) => isAdminVisibleToolName(tool.name));
+  const visibleToolExecutions = toolExecutions.filter((tool) =>
+    isAdminVisibleToolName(tool.toolName),
+  );
   const observability = getObservabilitySignals(call.data);
   const toolActions = new Set<string>();
 
-  for (const tool of tools) {
-    toolActions.add(formatToolAction(tool.name));
+  for (const tool of visibleTools) {
+    const label = formatToolAction(tool.name);
+    if (label) {
+      toolActions.add(label);
+    }
   }
 
-  for (const tool of toolExecutions) {
+  for (const tool of visibleToolExecutions) {
     if (tool.toolName) {
-      toolActions.add(formatToolAction(tool.toolName));
+      const label = formatToolAction(tool.toolName);
+      if (label) {
+        toolActions.add(label);
+      }
     }
   }
 
   const apptActions = getToolActionLabels(call);
-  const reviewStatus = normalizeReviewStatus(call.reviewStatus);
-  const reviewPassed = getReviewPassed(call.reviewResult);
-  const reviewAverageScore = getReviewAverage(call);
   const evaluationLabel = getEvaluationLabel(call.evaluationLabels);
 
   return {
@@ -1641,23 +1609,20 @@ function buildCallTableRow(
     p50Ttft: median(latency.ttft),
     p50Ttsttfb: median(latency.tts),
     peakContext: getPeakContext(call),
-    reviewAverageScore,
-    reviewNeedsAttention:
-      call.needsReview ||
-      reviewStatus === "failed" ||
-      (reviewStatus === "completed" && reviewPassed === false),
-    reviewPassed,
-    reviewStatus,
     runtimeErrorCount: observability.runtimeErrorCount,
     startedAt: call.startedAt.toISOString(),
     toolActions: [...toolActions],
     toolCalls:
-      toolExecutions.length > 0 ? toolExecutions.length : call.toolCalls || tools.length,
+      toolExecutions.length > 0
+        ? visibleToolExecutions.length
+        : tools.length > 0
+          ? visibleTools.length
+          : call.toolCalls,
     toolErrors:
       toolExecutions.length > 0
-        ? toolExecutions.filter((tool) => tool.status === "error").length
-        : tools.length > 0
-          ? tools.filter((tool) => tool.isError).length
+        ? visibleToolExecutions.filter((tool) => tool.status === "error").length
+        : visibleTools.length > 0
+          ? visibleTools.filter((tool) => tool.isError).length
           : call.toolErrors,
     totalTurns: getCallTotalTurns(call),
     transcriptText: extractTranscriptText(call.data),
@@ -1687,7 +1652,6 @@ async function loadPracticeCalls(
       callId: true,
       callerPhone: true,
       cancelledAppointment: true,
-      confirmedAppointment: true,
       data: true,
       durationSec: true,
       estimatedCostMicros: true,
@@ -1708,15 +1672,11 @@ async function loadPracticeCalls(
           name: true,
         },
       },
-      needsReview: true,
       officePhone: true,
       outcomeSummary: true,
       outputTokens: true,
       peakContext: true,
       practiceId: true,
-      reviewAverageScore: true,
-      reviewResult: true,
-      reviewStatus: true,
       startedAt: true,
       status: true,
       toolCalls: true,
@@ -1793,12 +1753,8 @@ export async function getAdminPracticeSummaries() {
         startedAt: "desc",
       },
       select: {
-        bookedAppointment: true,
-        cancelledAppointment: true,
-        confirmedAppointment: true,
         durationSec: true,
         estimatedCostMicros: true,
-        needsReview: true,
         practiceId: true,
         startedAt: true,
         status: true,
@@ -1921,10 +1877,8 @@ export async function getAdminPracticeDetail(
     tts: [] as number[],
     ttft: [] as number[],
   };
-  const reviewScores: number[] = [];
   let bookedAppointments = 0;
   let cancelledAppointments = 0;
-  let confirmedAppointments = 0;
   let totalDurationSec = 0;
   let totalToolCalls = 0;
   let totalToolErrors = 0;
@@ -1942,29 +1896,32 @@ export async function getAdminPracticeDetail(
 
   for (const call of calls) {
     const toolExecutions = getToolExecutions(call.data);
+    const tools = getToolCalls(call.data);
+    const visibleToolExecutions = toolExecutions.filter((tool) =>
+      isAdminVisibleToolName(tool.toolName),
+    );
+    const visibleTools = tools.filter((tool) => isAdminVisibleToolName(tool.name));
     const callLatency = getLatencyArrays(call);
     latency.stt.push(...callLatency.stt);
     latency.total.push(...callLatency.total);
     latency.tts.push(...callLatency.tts);
     latency.ttft.push(...callLatency.ttft);
 
-    const reviewAverage = getReviewAverage(call);
-    if (typeof reviewAverage === "number") {
-      reviewScores.push(reviewAverage);
-    }
-
     bookedAppointments += call.bookedAppointment ? 1 : 0;
-    confirmedAppointments += call.confirmedAppointment ? 1 : 0;
     cancelledAppointments += call.cancelledAppointment ? 1 : 0;
     totalDurationSec += call.durationSec;
     totalToolCalls +=
       toolExecutions.length > 0
-        ? toolExecutions.length
-        : call.toolCalls || getToolCalls(call.data).length;
+        ? visibleToolExecutions.length
+        : tools.length > 0
+          ? visibleTools.length
+          : call.toolCalls;
     totalToolErrors +=
       toolExecutions.length > 0
-        ? toolExecutions.filter((tool) => tool.status === "error").length
-        : call.toolErrors;
+        ? visibleToolExecutions.filter((tool) => tool.status === "error").length
+        : tools.length > 0
+          ? visibleTools.filter((tool) => tool.isError).length
+          : call.toolErrors;
     totalInputTokens += call.inputTokens;
     totalOutputTokens += call.outputTokens;
     totalCachedTokens += call.cachedTokens;
@@ -1975,13 +1932,12 @@ export async function getAdminPracticeDetail(
   }
 
   const transfers = calls.filter((call) => call.transferred).length;
-  const needsReview = calls.filter((call) => call.needsReview);
   const failedCalls = calls.filter((call) => call.status === "FAILED");
   const estimatedCostMicros = calls.reduce(
     (sum, call) => sum + call.estimatedCostMicros,
     0,
   );
-  const appointments = bookedAppointments + confirmedAppointments + cancelledAppointments;
+  const appointments = bookedAppointments + cancelledAppointments;
   const officeNameByPhone = buildOfficeNameByPhone(practice.phoneNumbers);
 
   return {
@@ -2001,13 +1957,6 @@ export async function getAdminPracticeDetail(
         ttftP95: percentile(latency.ttft, 95),
       },
       peakTraffic: buildPeakTraffic(calls),
-      reviewQueue: calls
-        .filter((call) => call.needsReview || call.reviewStatus === "failed")
-        .slice(0, 12)
-        .map((call) => ({
-          ...buildRecentCall(call),
-          reviewSummary: getReviewSummary(call),
-        })),
       toolStats: buildToolStats(calls),
       trendBuckets: buildTrendBuckets(calls, range),
     },
@@ -2023,18 +1972,14 @@ export async function getAdminPracticeDetail(
       appointments,
       avgCacheHitRate: calls.length > 0 ? totalCacheHitRate / calls.length : 0,
       avgDurationSec: calls.length > 0 ? totalDurationSec / calls.length : 0,
-      avgReviewScore: average(reviewScores),
       bookedAppointments,
       cancelledAppointments,
       calls: calls.length,
-      confirmedAppointments,
       costPerCallMicros: calls.length > 0 ? estimatedCostMicros / calls.length : 0,
       estimatedCostMicros,
       failedCalls: failedCalls.length,
       fallbackCalls,
       maxPeakContext,
-      needsReview: needsReview.length,
-      reviewCompleted: reviewScores.length,
       totalCachedTokens,
       totalDurationSec,
       totalInputTokens,

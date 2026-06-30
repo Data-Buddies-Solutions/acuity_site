@@ -361,10 +361,6 @@ model AgentCall {
   bookedAppointment    Boolean                    @default(false)
   confirmedAppointment Boolean                    @default(false)
   cancelledAppointment Boolean                    @default(false)
-  needsReview          Boolean                    @default(false)
-  reviewStatus         String?
-  reviewAverageScore   Float?
-  reviewResult         Json?
   llmModel             String?
   fallbackUsed         Boolean                    @default(false)
   totalTurns           Int                        @default(0)
@@ -396,7 +392,6 @@ model AgentCall {
   practice             Practice                   @relation(fields: [practiceId], references: [id], onDelete: Cascade)
 
   @@index([practiceId, startedAt])
-  @@index([practiceId, needsReview])
   @@index([practiceId, status])
   @@index([locationId])
   @@index([agentId])

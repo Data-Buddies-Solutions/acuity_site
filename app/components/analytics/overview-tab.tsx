@@ -11,8 +11,7 @@ export function OverviewTab({ data }: { data: AnalyticsData }) {
     data.totalCalls > 0
       ? ((data.transferCount / data.totalCalls) * 100).toFixed(1)
       : null;
-  const totalActions =
-    data.bookApptSuccesses + data.confirmApptSuccesses + data.cancelApptSuccesses;
+  const totalActions = data.bookApptSuccesses + data.cancelApptSuccesses;
 
   return (
     <div className="space-y-6">
@@ -41,7 +40,7 @@ export function OverviewTab({ data }: { data: AnalyticsData }) {
         <StatCard
           label="Actions"
           value={String(totalActions)}
-          sub={`${data.bookApptSuccesses} booked / ${data.confirmApptSuccesses} confirmed / ${data.cancelApptSuccesses} cancelled`}
+          sub={`${data.bookApptSuccesses} booked / ${data.cancelApptSuccesses} cancelled`}
           size="hero"
         />
       </div>

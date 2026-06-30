@@ -18,7 +18,6 @@ import {
 
 const chartConfig = {
   booked: { label: "Booked", color: "var(--chart-1)" },
-  confirmed: { label: "Confirmed", color: "var(--chart-4)" },
   cancelled: { label: "Cancelled", color: "var(--chart-5)" },
 } satisfies ChartConfig;
 
@@ -30,22 +29,19 @@ export function ActionTrendChart({
     label: string;
     tooltipLabel: string;
     booked: number;
-    confirmed: number;
     cancelled: number;
   }[];
   granularityLabel: string;
 }) {
-  const hasData = data.some(
-    (row) => row.booked > 0 || row.confirmed > 0 || row.cancelled > 0,
-  );
+  const hasData = data.some((row) => row.booked > 0 || row.cancelled > 0);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Action Totals</CardTitle>
         <CardDescription>
-          {granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} booked,
-          confirmed, and cancelled totals
+          {granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} booked and
+          cancelled totals
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -74,7 +70,6 @@ export function ActionTrendChart({
                       <p className="font-medium">{row.tooltipLabel}</p>
                       <div className="mt-1 space-y-0.5 font-mono">
                         <p>{row.booked} booked</p>
-                        <p>{row.confirmed} confirmed</p>
                         <p>{row.cancelled} cancelled</p>
                       </div>
                     </div>
@@ -83,7 +78,6 @@ export function ActionTrendChart({
               />
               <ChartLegend content={<ChartLegendContent />} />
               <Bar dataKey="booked" stackId="actions" fill="var(--color-booked)" />
-              <Bar dataKey="confirmed" stackId="actions" fill="var(--color-confirmed)" />
               <Bar
                 dataKey="cancelled"
                 stackId="actions"

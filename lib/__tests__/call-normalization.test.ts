@@ -89,7 +89,7 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(JSON.stringify(normalized.dataPayload)).not.toContain("audioBase64");
   });
 
-  it("marks failed review results as needing review", () => {
+  it("drops stale review payload fields", () => {
     const normalized = normalizeLiveKitCallPayload({
       callId: "call_review",
       callerPhone: "+15551234567",
@@ -117,10 +117,11 @@ describe("normalizeLiveKitCallPayload", () => {
       },
       turns: [],
     });
+    const data = normalized.dataPayload as Record<string, unknown>;
 
-    expect(normalized.needsReview).toBe(true);
-    expect(normalized.reviewAverageScore).toBe(4);
-    expect(normalized.outcomeSummary).toBe("The call did not resolve.");
+    expect("reviewResult" in data).toBe(false);
+    expect("reviewStatus" in data).toBe(false);
+    expect(normalized.outcomeSummary).toBe(null);
   });
 
   it("normalizes the current LiveKit observability payload shape", () => {
@@ -563,7 +564,6 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(normalized.toolCalls).toBe(2);
     expect(normalized.toolErrors).toBe(1);
     expect(normalized.toolActions.bookedAppointment).toBe(true);
-    expect(normalized.needsReview).toBe(true);
     expect(normalized.interruptionCount).toBe(2);
     expect(data.language).toBeTruthy();
     expect(data.llmSummary).toBeTruthy();

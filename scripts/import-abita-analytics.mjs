@@ -170,37 +170,20 @@ function getToolActions(data) {
   return actions;
 }
 
-function getReviewAverageScore(result) {
-  const scores = result?.scores;
-
-  if (!scores || typeof scores !== "object") {
-    return null;
+function stripReviewFields(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return data;
   }
 
-  const values = Object.values(scores).filter((value) => typeof value === "number");
+  const {
+    needsReview: _needsReview,
+    reviewAverageScore: _reviewAverageScore,
+    reviewResult: _reviewResult,
+    reviewStatus: _reviewStatus,
+    ...withoutReviewFields
+  } = data;
 
-  if (values.length === 0) {
-    return null;
-  }
-
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function callNeedsReview(call, reviewResult) {
-  if (Number(call.toolErrors ?? 0) > 0 || call.reviewStatus === "failed") {
-    return true;
-  }
-
-  if (!reviewResult || typeof reviewResult !== "object") {
-    return false;
-  }
-
-  return Boolean(
-    reviewResult.passed === false ||
-    reviewResult.labels?.hallucination !== "none" ||
-    reviewResult.labels?.toolPath === "incorrect" ||
-    reviewResult.labels?.resolutionPath === "failed",
-  );
+  return withoutReviewFields;
 }
 
 async function getOrCreatePractice(targetPool, practiceName) {
@@ -433,11 +416,8 @@ async function fetchSourceCalls(sourcePool) {
       c."avgTokensPerSec",
       c."interruptionCount",
       c."latencyValues",
-      c.data,
-      r.status AS "reviewStatus",
-      r.result AS "reviewResult"
+      c.data
     FROM "CallEvent" c
-    LEFT JOIN "CallReview" r ON r."callEventId" = c.id
     WHERE c."officePhone" = ANY($1)
       AND c."startedAt" >= $2
     ORDER BY c."startedAt" ASC`,
@@ -450,15 +430,10 @@ async function fetchSourceCalls(sourcePool) {
 async function upsertCall(targetPool, call, route) {
   const now = new Date();
   const actions = getToolActions(call.data);
-  const reviewAverageScore = getReviewAverageScore(call.reviewResult);
-  const needsReview = callNeedsReview(call, call.reviewResult);
   const costItems = estimateCostLineItems(call);
   const estimatedCostMicros = costItems.reduce((sum, item) => sum + item.costMicros, 0);
   const status = actions.transferred ? "ESCALATED" : "COMPLETED";
-  const dataPayload = {
-    ...(call.data && typeof call.data === "object" ? call.data : {}),
-    reviewResult: call.reviewResult ?? null,
-  };
+  const dataPayload = stripReviewFields(call.data) ?? {};
 
   const upserted = await targetPool.query(
     `INSERT INTO agent_call (
@@ -477,10 +452,6 @@ async function upsertCall(targetPool, call, route) {
       "bookedAppointment",
       "confirmedAppointment",
       "cancelledAppointment",
-      "needsReview",
-      "reviewStatus",
-      "reviewAverageScore",
-      "reviewResult",
       "llmModel",
       "fallbackUsed",
       "totalTurns",
@@ -504,9 +475,9 @@ async function upsertCall(targetPool, call, route) {
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-      $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20,
+      $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
       $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-      $31, $32, $33, $34, $35, $36::jsonb, $37::jsonb, $38, $38
+      $31, $32::jsonb, $33::jsonb, $34, $34
     )
     ON CONFLICT ("callId")
     DO UPDATE SET
@@ -523,10 +494,6 @@ async function upsertCall(targetPool, call, route) {
       "bookedAppointment" = EXCLUDED."bookedAppointment",
       "confirmedAppointment" = EXCLUDED."confirmedAppointment",
       "cancelledAppointment" = EXCLUDED."cancelledAppointment",
-      "needsReview" = EXCLUDED."needsReview",
-      "reviewStatus" = EXCLUDED."reviewStatus",
-      "reviewAverageScore" = EXCLUDED."reviewAverageScore",
-      "reviewResult" = EXCLUDED."reviewResult",
       "llmModel" = EXCLUDED."llmModel",
       "fallbackUsed" = EXCLUDED."fallbackUsed",
       "totalTurns" = EXCLUDED."totalTurns",
@@ -563,10 +530,6 @@ async function upsertCall(targetPool, call, route) {
       actions.bookedAppointment,
       actions.confirmedAppointment,
       actions.cancelledAppointment,
-      needsReview,
-      call.reviewStatus ?? null,
-      reviewAverageScore,
-      JSON.stringify(call.reviewResult ?? null),
       call.llmModel ?? null,
       Boolean(call.fallbackUsed),
       Number(call.totalTurns ?? 0),
@@ -660,7 +623,7 @@ async function upsertCall(targetPool, call, route) {
     );
   }
 
-  return { estimatedCostMicros, needsReview };
+  return { estimatedCostMicros };
 }
 
 async function main() {
@@ -712,7 +675,6 @@ async function main() {
     console.log(`Importing ${calls.length} calls for ${ABITA_PRACTICE_NAME} / demo...`);
 
     let totalCostMicros = 0;
-    let reviewCount = 0;
     const importedByPractice = {
       abita: 0,
       demo: 0,
@@ -727,9 +689,6 @@ async function main() {
 
       const result = await upsertCall(targetPool, call, route);
       totalCostMicros += result.estimatedCostMicros;
-      if (result.needsReview) {
-        reviewCount++;
-      }
       if (route.practiceId === demoPracticeId) {
         importedByPractice.demo++;
       } else {
@@ -753,7 +712,6 @@ async function main() {
           demoPracticeId,
           importedByPractice,
           liveNumbers: LIVE_LOCATIONS.length,
-          reviewCount,
           totalEstimatedCostMicros: totalCostMicros,
         },
         null,

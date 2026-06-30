@@ -5,7 +5,6 @@ import type {
   CallSummaryData,
   ChatHistoryItem,
   CostLineEstimate,
-  JudgeResult,
   LiveKitMetric,
   LiveKitWebhookPayload,
   LlmSummary,
@@ -58,15 +57,11 @@ export type NormalizedPortalCall = {
     tokensPerSec: number[];
   };
   llmModel: string | null;
-  needsReview: boolean;
   officePhone: string;
   outcomeSummary: string | null;
   outputTokens: number;
   peakContext: number;
   practiceId: string | null;
-  reviewAverageScore: number | null;
-  reviewResult: unknown;
-  reviewStatus: string | null;
   startedAt: Date;
   status: AgentCallStatusValue;
   summary: CallSummaryData;
@@ -1056,42 +1051,6 @@ function hasRenderableCallStateBookedAppointment(data: unknown) {
   );
 }
 
-export function getReviewAverageScore(result: unknown) {
-  if (!isRecord(result) || !isRecord(result.scores)) {
-    return null;
-  }
-
-  const values = Object.values(result.scores).filter(
-    (value): value is number => typeof value === "number" && Number.isFinite(value),
-  );
-
-  return values.length > 0 ? average(values) : null;
-}
-
-export function callNeedsReview(call: {
-  reviewResult?: unknown;
-  reviewStatus?: string | null;
-  toolErrors: number;
-}) {
-  if (call.toolErrors > 0 || call.reviewStatus === "failed") {
-    return true;
-  }
-
-  const result = call.reviewResult;
-  if (!isRecord(result)) {
-    return false;
-  }
-
-  const labels = isRecord(result.labels) ? result.labels : {};
-
-  return Boolean(
-    result.passed === false ||
-    labels.hallucination !== "none" ||
-    labels.toolPath === "incorrect" ||
-    labels.resolutionPath === "failed",
-  );
-}
-
 export function estimateCostLineItems(call: {
   cachedTokens: number;
   durationSec: number;
@@ -1212,19 +1171,6 @@ function getInterruptionCount(summary: CallSummaryData, body: LiveKitWebhookPayl
   return interruptionCount;
 }
 
-function getReviewResult(body: LiveKitWebhookPayload) {
-  if ("reviewResult" in body) {
-    return body.reviewResult ?? null;
-  }
-
-  const data = body.data;
-  if (isRecord(data) && "reviewResult" in data) {
-    return data.reviewResult ?? null;
-  }
-
-  return null;
-}
-
 function normalizedStatus(input: {
   endedAt: Date | null;
   explicitStatus?: string;
@@ -1248,9 +1194,29 @@ function normalizedStatus(input: {
   return input.transferred ? "ESCALATED" : "COMPLETED";
 }
 
-function stripAudioPayload(body: LiveKitWebhookPayload) {
-  const { audioBase64: _audioBase64, ...withoutAudio } = body;
-  return withoutAudio;
+function stripIgnoredPayloadFields(body: LiveKitWebhookPayload) {
+  const {
+    audioBase64: _audioBase64,
+    needsReview: _needsReview,
+    reviewAverageScore: _reviewAverageScore,
+    reviewResult: _reviewResult,
+    reviewStatus: _reviewStatus,
+    ...withoutIgnoredFields
+  } = body;
+
+  if (isRecord(withoutIgnoredFields.data)) {
+    const {
+      needsReview: _nestedNeedsReview,
+      reviewAverageScore: _nestedReviewAverageScore,
+      reviewResult: _nestedReviewResult,
+      reviewStatus: _nestedReviewStatus,
+      ...data
+    } = withoutIgnoredFields.data;
+
+    return { ...withoutIgnoredFields, data };
+  }
+
+  return withoutIgnoredFields;
 }
 
 export function normalizeLiveKitCallPayload(
@@ -1283,8 +1249,6 @@ export function normalizeLiveKitCallPayload(
     usage: summary.usage ?? normalizedBody.usage,
     sessionReport: summary.sessionReport ?? normalizedBody.sessionReport,
   });
-  const reviewResult = getReviewResult(normalizedBody);
-  const reviewAverageScore = getReviewAverageScore(reviewResult);
   const toolActions = getToolActions(
     summary.turns ?? [],
     toolExecutions,
@@ -1323,13 +1287,7 @@ export function normalizeLiveKitCallPayload(
     outputTokens,
     ttsChars,
   });
-  const reviewStatus = normalizedBody.reviewStatus ?? null;
-  const needsReview = callNeedsReview({
-    reviewResult,
-    reviewStatus,
-    toolErrors,
-  });
-  const strippedBody = stripAudioPayload(normalizedBody);
+  const strippedBody = stripIgnoredPayloadFields(normalizedBody);
   const observabilityPayload = {
     ...(normalizedBody.llmSummary !== undefined ? { llmSummary: llmSummary ?? {} } : {}),
     ...(normalizedBody.toolExecutions !== undefined ? { toolExecutions } : {}),
@@ -1359,12 +1317,8 @@ export function normalizeLiveKitCallPayload(
     interruptionCount,
     latencyValues,
     llmModel,
-    needsReview,
     officePhone: summary.officePhone ?? "",
-    outcomeSummary:
-      asString(normalizedBody.outcomeSummary) ||
-      asString((reviewResult as JudgeResult | null)?.summary) ||
-      null,
+    outcomeSummary: asString(normalizedBody.outcomeSummary) || null,
     outputTokens,
     peakContext: Math.max(
       0,
@@ -1373,9 +1327,6 @@ export function normalizeLiveKitCallPayload(
       ),
     ),
     practiceId: asString(normalizedBody.practiceId) || null,
-    reviewAverageScore,
-    reviewResult,
-    reviewStatus,
     startedAt,
     status: normalizedStatus({
       endedAt,
