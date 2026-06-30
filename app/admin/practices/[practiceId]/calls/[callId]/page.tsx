@@ -133,7 +133,7 @@ function buildToolMap(turns: { toolCalls: ToolCallRecord[] }[]): Map<string, Too
   return map;
 }
 
-function formatToolLabel(name: string): string {
+function formatToolLabel(name: string): string | null {
   switch (name) {
     case "book_appt":
     case "book_appointment":
@@ -142,7 +142,7 @@ function formatToolLabel(name: string): string {
     case "reschedule_appointment":
       return "Reschedule";
     case "confirm_appt":
-      return "Confirm";
+      return null;
     case "cancel_appt":
     case "cancel_appointment":
       return "Cancel";
@@ -409,25 +409,26 @@ export default async function AdminCallDetailPage({
     totalLatencyValues.length ? totalLatencyValues : latencyFallback.total,
   ).p50;
   const toolMap = buildToolMap(turns);
-  const totalFailures = [...toolMap.values()].reduce(
-    (sum, info) => sum + info.failures,
-    0,
-  );
   const successfulActions = [...toolMap.entries()]
     .filter(([, info]) => info.count > info.failures)
     .map(([tool]) => formatToolLabel(tool))
+    .filter((label): label is string => Boolean(label))
     .filter((label) => label !== "Transfer");
   const failedTools = [...toolMap.entries()]
     .filter(([, info]) => info.failures > 0)
-    .map(([tool, info]) => ({
-      failures: info.failures,
-      label: formatToolLabel(tool),
-    }));
+    .flatMap(([tool, info]) => {
+      const label = formatToolLabel(tool);
+      return label ? [{ failures: info.failures, label }] : [];
+    });
+  const totalFailures = failedTools.reduce((sum, tool) => sum + tool.failures, 0);
   const rawJson = JSON.stringify(data, null, 2);
   const sessionItems = data.sessionReport?.chat_history?.items ?? [];
   const languageTelemetry = getLanguageTelemetry(data);
   const sessionEvents = getSessionEvents(data);
   const toolExecutions = getToolExecutions(data);
+  const visibleToolExecutions = toolExecutions.filter((tool) =>
+    Boolean(formatToolLabel(tool.toolName ?? "unknown")),
+  );
   const appointmentActions = getAppointmentActions(data);
   const llmSummary = getLlmSummary(data);
   const runtimeErrors = Array.isArray(sessionEvents?.errors) ? sessionEvents.errors : [];
@@ -621,7 +622,7 @@ export default async function AdminCallDetailPage({
         sessionEvents ||
         llmSummary ||
         appointmentActions.length > 0 ||
-        toolExecutions.length > 0) && (
+        visibleToolExecutions.length > 0) && (
         <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
           <Card className="border-border/70 bg-card/80 shadow-sm">
             <CardHeader>
@@ -702,19 +703,24 @@ export default async function AdminCallDetailPage({
                 </div>
               ) : null}
 
-              {toolExecutions.length > 0 ? (
+              {visibleToolExecutions.length > 0 ? (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-foreground">Tool Executions</p>
                   <div className="flex flex-wrap gap-2">
-                    {toolExecutions.map((tool, index) => (
-                      <Badge
-                        key={`${tool.callId ?? tool.toolName}-${index}`}
-                        variant={tool.status === "error" ? "destructive" : "outline"}
-                      >
-                        {formatToolLabel(tool.toolName ?? "unknown")}
-                        {tool.outputClass ? ` · ${tool.outputClass}` : ""}
-                      </Badge>
-                    ))}
+                    {visibleToolExecutions.map((tool, index) => {
+                      const label = formatToolLabel(tool.toolName ?? "unknown");
+                      if (!label) return null;
+
+                      return (
+                        <Badge
+                          key={`${tool.callId ?? tool.toolName}-${index}`}
+                          variant={tool.status === "error" ? "destructive" : "outline"}
+                        >
+                          {label}
+                          {tool.outputClass ? ` · ${tool.outputClass}` : ""}
+                        </Badge>
+                      );
+                    })}
                   </div>
                 </div>
               ) : (
@@ -729,22 +735,28 @@ export default async function AdminCallDetailPage({
                     Appointment Actions
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {appointmentActions.map((action, index) => (
-                      <Badge
-                        key={`${action.action}-${action.createdAt ?? index}`}
-                        variant={
-                          action.status === "error"
-                            ? "destructive"
-                            : isResolvedAppointmentAction(action)
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {action.action}
-                        {action.status ? ` · ${action.status}` : ""}
-                        {action.toolName ? ` · ${formatToolLabel(action.toolName)}` : ""}
-                      </Badge>
-                    ))}
+                    {appointmentActions.map((action, index) => {
+                      const toolLabel = action.toolName
+                        ? formatToolLabel(action.toolName)
+                        : null;
+
+                      return (
+                        <Badge
+                          key={`${action.action}-${action.createdAt ?? index}`}
+                          variant={
+                            action.status === "error"
+                              ? "destructive"
+                              : isResolvedAppointmentAction(action)
+                                ? "secondary"
+                                : "outline"
+                          }
+                        >
+                          {action.action}
+                          {action.status ? ` · ${action.status}` : ""}
+                          {toolLabel ? ` · ${toolLabel}` : ""}
+                        </Badge>
+                      );
+                    })}
                   </div>
                 </div>
               ) : null}

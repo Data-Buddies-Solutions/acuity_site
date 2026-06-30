@@ -36,14 +36,6 @@ export function QualityTab({ data }: { data: AnalyticsData }) {
             </div>
             <div className="flex items-baseline gap-1.5">
               <span className="text-2xl font-mono font-semibold leading-none tabular-nums tracking-tight text-gray-900 dark:text-gray-100">
-                <AnimatedValue value={String(data.confirmApptSuccesses)} />
-              </span>
-              <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500">
-                confirmed
-              </span>
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-mono font-semibold leading-none tabular-nums tracking-tight text-gray-900 dark:text-gray-100">
                 <AnimatedValue value={String(data.cancelApptSuccesses)} />
               </span>
               <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500">

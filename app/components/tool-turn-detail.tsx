@@ -5,7 +5,7 @@ import type { ToolCallRecord } from "@/lib/types";
 import { formatLatencyMs } from "@/lib/format";
 import { CopyButton } from "@/app/components/copy-button";
 
-function formatToolLabel(name: string): string {
+function formatToolLabel(name: string): string | null {
   switch (name) {
     case "book_appt":
     case "book_appointment":
@@ -14,7 +14,7 @@ function formatToolLabel(name: string): string {
     case "reschedule_appointment":
       return "Reschedule";
     case "confirm_appt":
-      return "Confirm";
+      return null;
     case "cancel_appt":
     case "cancel_appointment":
       return "Cancel";
@@ -83,6 +83,11 @@ function CollapsibleJson({
 }
 
 function ToolBlock({ tc }: { tc: ToolCallRecord }) {
+  const label = formatToolLabel(tc.name);
+  if (!label) {
+    return null;
+  }
+
   return (
     <div>
       {/* Header: name + status + latency */}
@@ -94,7 +99,7 @@ function ToolBlock({ tc }: { tc: ToolCallRecord }) {
               : "text-gray-700 dark:text-gray-300"
           }`}
         >
-          {tc.isError ? "\u2717" : "\u2713"} {formatToolLabel(tc.name)}
+          {tc.isError ? "\u2717" : "\u2713"} {label}
         </span>
         {tc.durationMs > 0 && (
           <span className="rounded border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400">
@@ -120,12 +125,16 @@ function ToolBlock({ tc }: { tc: ToolCallRecord }) {
 }
 
 export function ToolTurnDetail({ toolCalls }: { toolCalls: ToolCallRecord[] }) {
-  if (toolCalls.length === 0) return null;
+  const visibleToolCalls = toolCalls.filter((toolCall) =>
+    Boolean(formatToolLabel(toolCall.name)),
+  );
+
+  if (visibleToolCalls.length === 0) return null;
 
   return (
     <div className="my-1 max-w-full rounded-md bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 px-3 py-2 sm:max-w-[80%]">
       <div className="space-y-2">
-        {toolCalls.map((tc, i) => (
+        {visibleToolCalls.map((tc, i) => (
           <ToolBlock key={i} tc={tc} />
         ))}
       </div>
