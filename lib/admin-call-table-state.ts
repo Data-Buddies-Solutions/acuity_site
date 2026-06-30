@@ -6,7 +6,6 @@ export const CALL_TABLE_PAGE_SIZE = 15;
 export const callQuickFilters = [
   { id: "all", label: "All" },
   { id: "booking", label: "Booked" },
-  { id: "needs_review", label: "Needs Review" },
   { id: "transfers", label: "Transfers" },
   { id: "language", label: "Language" },
   { id: "runtime", label: "Runtime" },
@@ -19,7 +18,6 @@ export type CallSortKey =
   | "actions"
   | "durationSec"
   | "office"
-  | "review"
   | "startedAt"
   | "totalLatency"
   | "transferred";
@@ -66,7 +64,6 @@ function parseSortKey(value: string | null): CallSortKey {
     case "actions":
     case "durationSec":
     case "office":
-    case "review":
     case "startedAt":
     case "totalLatency":
     case "transferred":
@@ -185,7 +182,6 @@ function matchesQuickFilter(call: AdminCallTableRow, quickFilter: CallQuickFilte
   if (quickFilter === "errors") return call.toolErrors > 0;
   if (quickFilter === "fallback") return call.fallbackUsed;
   if (quickFilter === "language") return hasLanguageSignal(call);
-  if (quickFilter === "needs_review") return call.reviewNeedsAttention;
   if (quickFilter === "runtime") {
     return (
       call.runtimeErrorCount > 0 ||
@@ -245,8 +241,6 @@ function getSortValue(call: AdminCallTableRow, key: CallSortKey) {
       return call.durationSec;
     case "office":
       return getCallOfficeLabel(call);
-    case "review":
-      return call.reviewNeedsAttention ? 1 : (call.reviewAverageScore ?? -1);
     case "startedAt":
       return new Date(call.startedAt).getTime();
     case "totalLatency":

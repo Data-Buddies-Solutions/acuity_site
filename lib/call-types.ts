@@ -227,8 +227,6 @@ export type LiveKitWebhookPayload = {
   sessionReport?: SessionReport;
   voiceExperiment?: VoiceExperimentMetadata;
   audioBase64?: string;
-  reviewStatus?: string;
-  reviewResult?: unknown;
   outcomeSummary?: string;
   [key: string]: unknown;
 };
@@ -243,41 +241,6 @@ export type VoiceExperimentMetadata = {
   speaker?: string;
   variant: string;
   voiceId?: string;
-};
-
-export type ReviewEvidence = {
-  turns?: number[] | null;
-  quote?: string | null;
-  toolName?: string | null;
-};
-
-export type JudgeResult = {
-  summary: string;
-  passed: boolean;
-  outcome: string;
-  labels?: {
-    hallucination?: string;
-    toolPath?: string;
-    resolutionPath?: string;
-  };
-  scores?: Record<string, number>;
-  topIssue?: {
-    type?: string;
-    title?: string;
-  } | null;
-  findings?: Array<{
-    type?: string;
-    severity?: string;
-    title: string;
-    whyItMatters?: string;
-    evidence?: ReviewEvidence;
-  }>;
-  nearMisses?: string[];
-  recommendedActions?: Array<{
-    owner?: string;
-    priority?: string;
-    action: string;
-  }> | null;
 };
 
 export type CostLineEstimate = {

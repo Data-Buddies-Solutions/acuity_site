@@ -165,8 +165,6 @@ export async function ingestLiveKitCallPayload(
   });
   const jsonData = nullableJsonInput(normalized.dataPayload);
   const latencyValues = jsonInput(normalized.latencyValues);
-  const reviewResult =
-    normalized.reviewResult == null ? undefined : jsonInput(normalized.reviewResult);
   const audioData = normalized.audioData ? Buffer.from(normalized.audioData) : null;
   const baseWrite = {
     agentId,
@@ -189,14 +187,11 @@ export async function ingestLiveKitCallPayload(
     latencyValues,
     llmModel: normalized.llmModel,
     locationId: practice.locationId,
-    needsReview: normalized.needsReview,
     officePhone: normalized.officePhone,
     outcomeSummary: normalized.outcomeSummary,
     outputTokens: normalized.outputTokens,
     peakContext: normalized.peakContext,
     practiceId: practice.practiceId,
-    reviewAverageScore: normalized.reviewAverageScore,
-    reviewStatus: normalized.reviewStatus,
     startedAt: normalized.startedAt,
     status: normalized.status,
     toolCalls: normalized.toolCalls,
@@ -204,7 +199,6 @@ export async function ingestLiveKitCallPayload(
     totalTurns: normalized.totalTurns,
     transferred: normalized.toolActions.transferred,
     ttsChars: normalized.ttsChars,
-    ...(reviewResult === undefined ? {} : { reviewResult }),
   };
   const updateWrite = {
     ...baseWrite,

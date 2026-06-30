@@ -40,7 +40,6 @@ import {
 import type {
   CallSummaryData,
   ChatHistoryItem,
-  JudgeResult,
   LlmSummary,
   SessionEventAnalytics,
   ToolCallRecord,
@@ -65,15 +64,6 @@ interface ToolInfo {
 
 type CallDetail = NonNullable<Awaited<ReturnType<typeof getAdminCallDetail>>>;
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
-
-const REVIEW_SCORE_ITEMS = [
-  { key: "grounding", label: "Grounding" },
-  { key: "toolUseCorrectness", label: "Tool Use" },
-  { key: "workflowEfficiency", label: "Workflow" },
-  { key: "intentHandling", label: "Intent" },
-  { key: "resolutionQuality", label: "Resolution" },
-  { key: "conversationQuality", label: "Conversation" },
-] as const;
 
 export const dynamic = "force-dynamic";
 
@@ -163,12 +153,6 @@ function formatToolLabel(name: string): string {
   }
 }
 
-function getReviewScoreTone(score: number) {
-  if (score >= 4.5) return "bg-emerald-500";
-  if (score >= 3.5) return "bg-amber-500";
-  return "bg-red-500";
-}
-
 function getSummary(call: CallDetail): CallSummaryData {
   if (isRecord(call.data)) {
     return call.data as CallSummaryData;
@@ -192,37 +176,6 @@ function getSummary(call: CallDetail): CallSummaryData {
     },
     turns: [],
   };
-}
-
-function getReviewResult(call: CallDetail): JudgeResult | null {
-  if (isRecord(call.reviewResult)) {
-    return call.reviewResult as JudgeResult;
-  }
-
-  if (isRecord(call.data) && isRecord(call.data.reviewResult)) {
-    return call.data.reviewResult as JudgeResult;
-  }
-
-  return null;
-}
-
-function getReviewAverageScore(call: CallDetail, reviewResult: JudgeResult | null) {
-  if (typeof call.reviewAverageScore === "number") {
-    return call.reviewAverageScore;
-  }
-
-  const scores = reviewResult?.scores;
-  if (!scores) {
-    return null;
-  }
-
-  const values = Object.values(scores).filter(
-    (value): value is number => typeof value === "number" && Number.isFinite(value),
-  );
-
-  return values.length > 0
-    ? values.reduce((sum, value) => sum + value, 0) / values.length
-    : null;
 }
 
 function getToolCalls(turns: TurnRecord[]) {
@@ -471,13 +424,6 @@ export default async function AdminCallDetailPage({
       label: formatToolLabel(tool),
     }));
   const rawJson = JSON.stringify(data, null, 2);
-  const reviewResult = getReviewResult(call);
-  const reviewAverageScore = getReviewAverageScore(call, reviewResult);
-  const reviewStatus =
-    call.reviewStatus ?? (call.needsReview ? "needs_review" : "not_created");
-  const reviewFindings = Array.isArray(reviewResult?.findings)
-    ? reviewResult.findings
-    : [];
   const sessionItems = data.sessionReport?.chat_history?.items ?? [];
   const languageTelemetry = getLanguageTelemetry(data);
   const sessionEvents = getSessionEvents(data);
@@ -728,7 +674,7 @@ export default async function AdminCallDetailPage({
             <CardHeader>
               <CardTitle>Model And Tool Signals</CardTitle>
               <CardDescription>
-                Sanitized execution data for dashboards and review inputs.
+                Sanitized execution data for dashboards and diagnostics.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -806,183 +752,6 @@ export default async function AdminCallDetailPage({
           </Card>
         </div>
       )}
-
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card className="border-border/70 bg-card/80 shadow-sm">
-          <CardHeader>
-            <CardTitle>Review</CardTitle>
-            <CardDescription>
-              Post-call review for grounding, tool use, and path quality.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!reviewResult && reviewStatus === "not_created" ? (
-              <p className="text-sm text-muted-foreground">
-                No review has been created for this call yet.
-              </p>
-            ) : reviewStatus === "pending" ? (
-              <p className="text-sm text-muted-foreground">Review pending.</p>
-            ) : reviewStatus === "failed" ? (
-              <div className="space-y-2">
-                <Badge variant="destructive">Review failed</Badge>
-              </div>
-            ) : reviewResult ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant={reviewResult.passed ? "secondary" : "destructive"}>
-                    {reviewResult.passed ? "Pass" : "Fail"}
-                  </Badge>
-                  {reviewResult.labels?.hallucination ? (
-                    <Badge variant="outline">
-                      Hallucination: {reviewResult.labels.hallucination}
-                    </Badge>
-                  ) : null}
-                  {reviewResult.labels?.toolPath ? (
-                    <Badge variant="outline">Tools: {reviewResult.labels.toolPath}</Badge>
-                  ) : null}
-                  {reviewResult.labels?.resolutionPath ? (
-                    <Badge variant="outline">
-                      Path: {reviewResult.labels.resolutionPath}
-                    </Badge>
-                  ) : null}
-                  {reviewResult.outcome ? (
-                    <Badge variant="outline">
-                      Outcome: {reviewResult.outcome.replace(/_/g, " ")}
-                    </Badge>
-                  ) : null}
-                </div>
-
-                <div>
-                  <p className="text-sm font-medium text-foreground">Summary</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {reviewResult.summary}
-                  </p>
-                </div>
-
-                {reviewResult.topIssue ? (
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Top Issue</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {reviewResult.topIssue.title}
-                    </p>
-                  </div>
-                ) : null}
-
-                {reviewFindings.length > 0 ? (
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium text-foreground">Findings</p>
-                    {reviewFindings.slice(0, 5).map((finding, index) => (
-                      <div
-                        key={`${finding.type}-${index}`}
-                        className="rounded-lg border border-border/70 bg-background/70 p-3"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            variant={
-                              finding.severity === "high" ? "destructive" : "outline"
-                            }
-                          >
-                            {finding.severity ?? "finding"}
-                          </Badge>
-                          <span className="text-sm font-medium text-foreground">
-                            {finding.title}
-                          </span>
-                        </div>
-                        {finding.whyItMatters ? (
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {finding.whyItMatters}
-                          </p>
-                        ) : null}
-                        {finding.evidence?.quote ? (
-                          <p className="mt-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                            {finding.evidence.quote}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Review completed, but no parsed result was available.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {reviewResult ? (
-          <Card className="border-border/70 bg-card/80 shadow-sm">
-            <CardHeader>
-              <CardTitle>Review Scores</CardTitle>
-              <CardDescription>
-                Judge scores across the main review dimensions.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Overall
-                </p>
-                <div className="mt-2 flex items-end justify-between gap-4">
-                  <div>
-                    <p className="text-4xl font-semibold tracking-tight text-foreground">
-                      {reviewAverageScore?.toFixed(1) ?? "--"}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Average score out of 5
-                    </p>
-                  </div>
-                  <Badge
-                    variant={reviewResult.passed ? "secondary" : "destructive"}
-                    className="text-xs"
-                  >
-                    {reviewResult.passed ? "Passing review" : "Needs attention"}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {REVIEW_SCORE_ITEMS.map((item) => {
-                  const score = reviewResult.scores?.[item.key];
-                  if (typeof score !== "number") return null;
-
-                  return (
-                    <div key={item.key} className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-4">
-                        <p className="text-sm font-medium text-foreground">
-                          {item.label}
-                        </p>
-                        <p className="font-mono text-sm tabular-nums text-muted-foreground">
-                          {score}/5
-                        </p>
-                      </div>
-                      <div className="h-2.5 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className={`h-full rounded-full ${getReviewScoreTone(score)}`}
-                          style={{ width: `${(score / 5) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="border-border/70 bg-card/80 shadow-sm">
-            <CardHeader>
-              <CardTitle>Review Status</CardTitle>
-              <CardDescription>
-                The review runner stores its latest state here.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>Status: {reviewStatus}</p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
 
       {(successfulActions.length > 0 || failedTools.length > 0) && (
         <div className="grid gap-6 lg:grid-cols-2">

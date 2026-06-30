@@ -35,7 +35,6 @@ type CallMetric = {
   confirmedAppointment: boolean;
   durationSec: number;
   estimatedCostMicros: number;
-  needsReview: boolean;
   practiceId: string;
   startedAt: Date;
   status: string;
@@ -224,10 +223,6 @@ export interface AdminCallTableRow {
   p50Ttft: number;
   p50Ttsttfb: number;
   peakContext: number;
-  reviewAverageScore: number | null;
-  reviewNeedsAttention: boolean;
-  reviewPassed: boolean | null;
-  reviewStatus: "pending" | "completed" | "failed" | "not_created";
   startedAt: string;
   runtimeErrorCount: number;
   toolActions: string[];
@@ -649,53 +644,6 @@ function getToolActionLabels(call: {
   return [...actions];
 }
 
-function getReviewSummary(call: { data: unknown; reviewResult: unknown }) {
-  if (isRecord(call.reviewResult) && typeof call.reviewResult.summary === "string") {
-    return call.reviewResult.summary;
-  }
-
-  if (isRecord(call.data) && isRecord(call.data.reviewResult)) {
-    const summary = call.data.reviewResult.summary;
-    return typeof summary === "string" ? summary : null;
-  }
-
-  return null;
-}
-
-function getReviewAverage(call: {
-  reviewAverageScore: number | null;
-  reviewResult: unknown;
-}) {
-  if (typeof call.reviewAverageScore === "number") {
-    return call.reviewAverageScore;
-  }
-
-  const result = call.reviewResult;
-  if (!isRecord(result) || !isRecord(result.scores)) {
-    return null;
-  }
-
-  const values = Object.values(result.scores).filter(
-    (value): value is number => typeof value === "number" && Number.isFinite(value),
-  );
-
-  return values.length > 0 ? average(values) : null;
-}
-
-function getReviewPassed(reviewResult: unknown) {
-  return isRecord(reviewResult) && typeof reviewResult.passed === "boolean"
-    ? reviewResult.passed
-    : null;
-}
-
-function normalizeReviewStatus(status: string | null): AdminCallTableRow["reviewStatus"] {
-  if (status === "pending" || status === "completed" || status === "failed") {
-    return status;
-  }
-
-  return "not_created";
-}
-
 function formatToolAction(name: string) {
   switch (name) {
     case "book_appt":
@@ -934,7 +882,6 @@ function buildTrendBuckets(calls: AdminCallRecord[], range: AdminPracticeRange) 
       calls: 0,
       costMicros: 0,
       end: bucketEnd,
-      needsReview: 0,
       start: bucketStart,
       transfers: 0,
     };
@@ -954,7 +901,6 @@ function buildTrendBuckets(calls: AdminCallRecord[], range: AdminPracticeRange) 
     bucket.calls++;
     bucket.costMicros += call.estimatedCostMicros;
     if (call.transferred) bucket.transfers++;
-    if (call.needsReview) bucket.needsReview++;
     if (
       call.bookedAppointment ||
       call.confirmedAppointment ||
@@ -1462,11 +1408,8 @@ function buildRecentCall(call: AdminCallRecord) {
     fallbackUsed: call.fallbackUsed,
     id: call.id,
     llmModel: call.llmModel,
-    needsReview: call.needsReview,
     officePhone: call.officePhone,
     outcomeSummary: call.outcomeSummary,
-    reviewAverageScore: getReviewAverage(call),
-    reviewStatus: call.reviewStatus,
     startedAt: call.startedAt,
     status: call.status,
     toolCalls: call.toolCalls || getToolCalls(call.data).length,
@@ -1609,9 +1552,6 @@ function buildCallTableRow(
   }
 
   const apptActions = getToolActionLabels(call);
-  const reviewStatus = normalizeReviewStatus(call.reviewStatus);
-  const reviewPassed = getReviewPassed(call.reviewResult);
-  const reviewAverageScore = getReviewAverage(call);
   const evaluationLabel = getEvaluationLabel(call.evaluationLabels);
 
   return {
@@ -1641,13 +1581,6 @@ function buildCallTableRow(
     p50Ttft: median(latency.ttft),
     p50Ttsttfb: median(latency.tts),
     peakContext: getPeakContext(call),
-    reviewAverageScore,
-    reviewNeedsAttention:
-      call.needsReview ||
-      reviewStatus === "failed" ||
-      (reviewStatus === "completed" && reviewPassed === false),
-    reviewPassed,
-    reviewStatus,
     runtimeErrorCount: observability.runtimeErrorCount,
     startedAt: call.startedAt.toISOString(),
     toolActions: [...toolActions],
@@ -1708,15 +1641,11 @@ async function loadPracticeCalls(
           name: true,
         },
       },
-      needsReview: true,
       officePhone: true,
       outcomeSummary: true,
       outputTokens: true,
       peakContext: true,
       practiceId: true,
-      reviewAverageScore: true,
-      reviewResult: true,
-      reviewStatus: true,
       startedAt: true,
       status: true,
       toolCalls: true,
@@ -1798,7 +1727,6 @@ export async function getAdminPracticeSummaries() {
         confirmedAppointment: true,
         durationSec: true,
         estimatedCostMicros: true,
-        needsReview: true,
         practiceId: true,
         startedAt: true,
         status: true,
@@ -1921,7 +1849,6 @@ export async function getAdminPracticeDetail(
     tts: [] as number[],
     ttft: [] as number[],
   };
-  const reviewScores: number[] = [];
   let bookedAppointments = 0;
   let cancelledAppointments = 0;
   let confirmedAppointments = 0;
@@ -1948,11 +1875,6 @@ export async function getAdminPracticeDetail(
     latency.tts.push(...callLatency.tts);
     latency.ttft.push(...callLatency.ttft);
 
-    const reviewAverage = getReviewAverage(call);
-    if (typeof reviewAverage === "number") {
-      reviewScores.push(reviewAverage);
-    }
-
     bookedAppointments += call.bookedAppointment ? 1 : 0;
     confirmedAppointments += call.confirmedAppointment ? 1 : 0;
     cancelledAppointments += call.cancelledAppointment ? 1 : 0;
@@ -1975,7 +1897,6 @@ export async function getAdminPracticeDetail(
   }
 
   const transfers = calls.filter((call) => call.transferred).length;
-  const needsReview = calls.filter((call) => call.needsReview);
   const failedCalls = calls.filter((call) => call.status === "FAILED");
   const estimatedCostMicros = calls.reduce(
     (sum, call) => sum + call.estimatedCostMicros,
@@ -2001,13 +1922,6 @@ export async function getAdminPracticeDetail(
         ttftP95: percentile(latency.ttft, 95),
       },
       peakTraffic: buildPeakTraffic(calls),
-      reviewQueue: calls
-        .filter((call) => call.needsReview || call.reviewStatus === "failed")
-        .slice(0, 12)
-        .map((call) => ({
-          ...buildRecentCall(call),
-          reviewSummary: getReviewSummary(call),
-        })),
       toolStats: buildToolStats(calls),
       trendBuckets: buildTrendBuckets(calls, range),
     },
@@ -2023,7 +1937,6 @@ export async function getAdminPracticeDetail(
       appointments,
       avgCacheHitRate: calls.length > 0 ? totalCacheHitRate / calls.length : 0,
       avgDurationSec: calls.length > 0 ? totalDurationSec / calls.length : 0,
-      avgReviewScore: average(reviewScores),
       bookedAppointments,
       cancelledAppointments,
       calls: calls.length,
@@ -2033,8 +1946,6 @@ export async function getAdminPracticeDetail(
       failedCalls: failedCalls.length,
       fallbackCalls,
       maxPeakContext,
-      needsReview: needsReview.length,
-      reviewCompleted: reviewScores.length,
       totalCachedTokens,
       totalDurationSec,
       totalInputTokens,
