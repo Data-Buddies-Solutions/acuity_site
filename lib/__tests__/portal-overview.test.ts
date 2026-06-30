@@ -596,8 +596,12 @@ describe("portal booking categories", () => {
       visitType: "follow_up_or_existing",
     });
     expect(classifyBookingAppointmentType("Crystal River New Patient")).toEqual({
-      careLane: "unknown",
+      careLane: "medical",
       visitType: "new",
+    });
+    expect(classifyBookingAppointmentType("Post Op")).toEqual({
+      careLane: "medical",
+      visitType: "follow_up_or_existing",
     });
   });
 
@@ -634,23 +638,23 @@ describe("portal booking categories", () => {
         appointmentId: "appt-3",
         appointmentTypeName: "Crystal River New Patient",
         callId: "call-3",
-        careLane: "unknown",
+        careLane: "medical",
         visitType: "new",
       },
     ]);
 
     expect(summary.total).toBe(3);
     expect(summary.medical).toMatchObject({
-      newPatient: 1,
-      total: 1,
+      newPatient: 2,
+      total: 2,
     });
     expect(summary.routineVision).toMatchObject({
       followUpOrExisting: 1,
       total: 1,
     });
     expect(summary.unknown).toMatchObject({
-      newPatient: 1,
-      total: 1,
+      newPatient: 0,
+      total: 0,
     });
   });
 });

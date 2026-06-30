@@ -179,14 +179,16 @@ export function classifyBookingAppointmentType(appointmentTypeName: string | nul
       .replace(/\s+/g, " ")
       .trim() ?? "";
 
-  const careLane: PortalBookingCareLane = /\bmedical\b/.test(normalized)
+  const careLane: PortalBookingCareLane = /\b(medical|crystal river|post op)\b/.test(
+    normalized,
+  )
     ? "medical"
     : /\b(routine|vision)\b/.test(normalized)
       ? "routine_vision"
       : "unknown";
   const visitType: PortalBookingVisitType = /\bnew\b/.test(normalized)
     ? "new"
-    : /\b(established|follow|follow up)\b/.test(normalized)
+    : /\b(established|follow|follow up|post op)\b/.test(normalized)
       ? "follow_up_or_existing"
       : "unknown";
 
