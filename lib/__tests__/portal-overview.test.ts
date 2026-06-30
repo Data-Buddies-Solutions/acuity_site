@@ -15,25 +15,25 @@ describe("portal transcript messages", () => {
       sessionItems: [
         {
           content: [{ transcript: "I need an appointment." }],
-          createdAt: 1000,
+          created_at: 1000,
           role: "user",
           type: "message",
         },
         {
-          args: '{"patientName":"Jane"}',
-          callId: "call-1",
+          arguments: '{"patientName":"Jane"}',
+          call_id: "call-1",
           name: "book_appt",
           type: "function_call",
         },
         {
-          callId: "call-1",
+          call_id: "call-1",
           name: "book_appt",
           output: '{"appointmentId":"abc"}',
           type: "function_call_output",
         },
         {
           content: ["You are booked for Tuesday."],
-          createdAt: 2000,
+          created_at: 2000,
           role: "assistant",
           type: "message",
         },

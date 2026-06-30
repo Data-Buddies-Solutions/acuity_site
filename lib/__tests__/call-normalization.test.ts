@@ -38,31 +38,31 @@ describe("normalizeLiveKitCallPayload", () => {
           items: [
             {
               content: [{ transcript: "I need an appointment" }],
-              createdAt: 1,
+              created_at: 1,
               id: "user_1",
               role: "user",
               type: "message",
             },
             {
-              args: JSON.stringify({ reason: "follow up" }),
-              callId: "tool_1",
-              createdAt: 2,
+              arguments: JSON.stringify({ reason: "follow up" }),
+              call_id: "tool_1",
+              created_at: 2,
               id: "tool_call_1",
               name: "book_appt",
               type: "function_call",
             },
             {
-              callId: "tool_1",
-              createdAt: 502,
+              call_id: "tool_1",
+              created_at: 502,
               id: "tool_output_1",
-              isError: false,
+              is_error: false,
               name: "book_appt",
               output: JSON.stringify({ ok: true }),
               type: "function_call_output",
             },
             {
               content: [{ transcript: "You're booked." }],
-              createdAt: 600,
+              created_at: 600,
               id: "agent_1",
               role: "assistant",
               type: "message",
@@ -87,6 +87,69 @@ describe("normalizeLiveKitCallPayload", () => {
     expect(normalized.latencyValues.totalLatency).toEqual([840]);
     expect(normalized.audioData?.length).toBe(5);
     expect(JSON.stringify(normalized.dataPayload)).not.toContain("audioBase64");
+  });
+
+  it("normalizes LiveKit snake-case function call report fields", () => {
+    const payload: LiveKitWebhookPayload = {
+      callId: "call_snake_case_tools",
+      callerPhone: "+15551234567",
+      endedAt: "2026-04-27T16:01:00.000Z",
+      officePhone: "+15557654321",
+      sessionReport: {
+        chat_history: {
+          items: [
+            {
+              content: [{ transcript: "I need to cancel." }],
+              created_at: 1,
+              id: "user_1",
+              role: "user",
+              type: "message",
+            },
+            {
+              arguments: JSON.stringify({ appointmentRef: "today at 2" }),
+              call_id: "tool_1",
+              created_at: 2,
+              id: "tool_call_1",
+              name: "cancel_appointment",
+              type: "function_call",
+            },
+            {
+              call_id: "tool_1",
+              created_at: 502,
+              id: "tool_output_1",
+              is_error: false,
+              name: "cancel_appointment",
+              output: JSON.stringify({ status: "cancelled" }),
+              type: "function_call_output",
+            },
+            {
+              content: [{ transcript: "That appointment is cancelled." }],
+              created_at: 600,
+              id: "agent_1",
+              role: "assistant",
+              type: "message",
+            },
+          ],
+        },
+      },
+      startedAt: "2026-04-27T16:00:00.000Z",
+    };
+
+    const normalized = normalizeLiveKitCallPayload(payload);
+    const data = normalized.dataPayload as {
+      turns?: Array<{ toolCalls?: Array<Record<string, unknown>> }>;
+    };
+    const toolCall = data.turns?.[0]?.toolCalls?.[0];
+
+    expect(normalized.toolCalls).toBe(1);
+    expect(normalized.toolErrors).toBe(0);
+    expect(toolCall).toMatchObject({
+      args: JSON.stringify({ appointmentRef: "today at 2" }),
+      durationMs: 500,
+      isError: false,
+      name: "cancel_appointment",
+      result: JSON.stringify({ status: "cancelled" }),
+    });
   });
 
   it("drops stale review payload fields", () => {
@@ -152,31 +215,31 @@ describe("normalizeLiveKitCallPayload", () => {
           items: [
             {
               content: [{ transcript: "I need an appointment" }],
-              createdAt: 1,
+              created_at: 1,
               id: "user_1",
               role: "user",
               type: "message",
             },
             {
-              args: JSON.stringify({ startDatetime: "2026-05-01T14:00:00" }),
-              callId: "tool_1",
-              createdAt: 2,
+              arguments: JSON.stringify({ startDatetime: "2026-05-01T14:00:00" }),
+              call_id: "tool_1",
+              created_at: 2,
               id: "tool_call_1",
               name: "book_appt",
               type: "function_call",
             },
             {
-              callId: "tool_1",
-              createdAt: 502,
+              call_id: "tool_1",
+              created_at: 502,
               id: "tool_output_1",
-              isError: false,
+              is_error: false,
               name: "book_appt",
               output: JSON.stringify({ appointmentId: "appt_123" }),
               type: "function_call_output",
             },
             {
               content: [{ transcript: "You're booked." }],
-              createdAt: 600,
+              created_at: 600,
               id: "agent_1",
               role: "assistant",
               type: "message",
@@ -277,7 +340,7 @@ describe("normalizeLiveKitCallPayload", () => {
           items: [
             {
               content: [{ transcript: "I need an appointment" }],
-              createdAt: 1,
+              created_at: 1,
               id: "user_metrics",
               metrics: {
                 endOfTurnDelay: 0.7,
@@ -288,7 +351,7 @@ describe("normalizeLiveKitCallPayload", () => {
             },
             {
               content: [{ transcript: "I can help with that." }],
-              createdAt: 2,
+              created_at: 2,
               id: "agent_metrics",
               metrics: {
                 e2eLatency: 0.95,
@@ -323,7 +386,7 @@ describe("normalizeLiveKitCallPayload", () => {
           items: [
             {
               content: [{ transcript: "I need an appointment" }],
-              createdAt: 1,
+              created_at: 1,
               id: "user_eou",
               metrics: {
                 endOfTurnDelay: 0.7,
@@ -334,7 +397,7 @@ describe("normalizeLiveKitCallPayload", () => {
             },
             {
               content: [{ transcript: "I can help with that." }],
-              createdAt: 2,
+              created_at: 2,
               id: "agent_eou",
               metrics: {
                 llmNodeTtft: 0.3,
@@ -364,7 +427,7 @@ describe("normalizeLiveKitCallPayload", () => {
           items: [
             {
               content: [{ transcript: "Okay, perfect" }],
-              createdAt: 1780333267569,
+              created_at: 1780333267569,
               id: "user_final",
               role: "user",
               type: "message",
@@ -396,7 +459,7 @@ describe("normalizeLiveKitCallPayload", () => {
           items: [
             {
               content: [{ transcript: "Hi" }],
-              createdAt: 1780333267000,
+              created_at: 1780333267000,
               id: "user_zero",
               role: "user",
               type: "message",
@@ -430,18 +493,18 @@ describe("normalizeLiveKitCallPayload", () => {
         chat_history: {
           items: [
             {
-              args: JSON.stringify({ startDatetime: "2026-05-01T14:00:00" }),
-              callId: "tool_1",
-              createdAt: 1,
+              arguments: JSON.stringify({ startDatetime: "2026-05-01T14:00:00" }),
+              call_id: "tool_1",
+              created_at: 1,
               id: "tool_call_1",
               name: "book_appt",
               type: "function_call",
             },
             {
-              callId: "tool_1",
-              createdAt: 2,
+              call_id: "tool_1",
+              created_at: 2,
               id: "tool_output_1",
-              isError: false,
+              is_error: false,
               name: "book_appt",
               output: JSON.stringify({
                 message: "This time slot is no longer available.",

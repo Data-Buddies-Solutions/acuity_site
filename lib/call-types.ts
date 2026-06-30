@@ -87,13 +87,13 @@ export type ChatHistoryItem = {
   role?: string;
   content?: (string | { type?: string; transcript?: string })[];
   interrupted?: boolean;
-  createdAt?: number;
+  created_at?: number;
   metrics?: Record<string, unknown>;
   name?: string;
-  callId?: string;
-  args?: string;
+  call_id?: string;
+  arguments?: string;
   output?: string;
-  isError?: boolean;
+  is_error?: boolean;
 };
 
 export type SessionReport = {

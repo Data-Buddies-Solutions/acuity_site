@@ -1,5 +1,11 @@
 import type { TurnRecord, ChatHistoryItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
+import {
+  getChatItemCallId,
+  getChatItemCreatedAt,
+  getChatItemIsError,
+  getChatItemToolArgs,
+} from "@/lib/chat-history-items";
 import { formatLatencyMs } from "@/lib/format";
 import { ToolTurnDetail } from "@/app/components/tool-turn-detail";
 import { CopyButton } from "@/app/components/copy-button";
@@ -142,15 +148,16 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
   // Build lookup for tool exec duration: function_call_output by callId
   const outputsByCallId = new Map<string, ChatHistoryItem>();
   for (const item of items) {
-    if (item.type === "function_call_output" && item.callId) {
-      outputsByCallId.set(item.callId, item);
+    const callId = getChatItemCallId(item);
+    if (item.type === "function_call_output" && callId) {
+      outputsByCallId.set(callId, item);
     }
   }
 
   return (
     <div className="space-y-3">
       {items.map((item, i) => {
-        const ts = formatTimestamp(item.createdAt);
+        const ts = formatTimestamp(getChatItemCreatedAt(item));
 
         if (item.type === "message" && item.role === "user") {
           const text = extractText(item.content);
@@ -251,9 +258,13 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
         }
 
         if (item.type === "function_call") {
-          const output = item.callId ? outputsByCallId.get(item.callId) : undefined;
+          const callId = getChatItemCallId(item);
+          const output = callId ? outputsByCallId.get(callId) : undefined;
+          const outputCreatedAt = output ? getChatItemCreatedAt(output) : undefined;
+          const itemCreatedAt = getChatItemCreatedAt(item);
+          const args = getChatItemToolArgs(item);
           const execMs =
-            output?.createdAt && item.createdAt ? output.createdAt - item.createdAt : 0;
+            outputCreatedAt && itemCreatedAt ? outputCreatedAt - itemCreatedAt : 0;
           return (
             <details
               key={item.id ?? i}
@@ -280,13 +291,13 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
                   input
                 </span>
               </summary>
-              {item.args && (
+              {args && (
                 <>
                   <div className="mt-2 flex justify-end">
-                    <CopyButton text={formatJson(item.args)} />
+                    <CopyButton text={formatJson(args)} />
                   </div>
                   <pre className="mt-1 text-[11px] font-mono text-muted-foreground overflow-auto max-h-48 whitespace-pre-wrap break-all">
-                    {formatJson(item.args)}
+                    {formatJson(args)}
                   </pre>
                 </>
               )}
@@ -295,6 +306,7 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
         }
 
         if (item.type === "function_call_output") {
+          const isError = getChatItemIsError(item);
           return (
             <details
               key={item.id ?? i}
@@ -305,9 +317,9 @@ export function SessionTranscriptTimeline({ items }: { items: ChatHistoryItem[] 
                   &#9654;
                 </span>
                 <span
-                  className={`text-xs font-semibold ${item.isError ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}
+                  className={`text-xs font-semibold ${isError ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}
                 >
-                  {item.isError ? "\u2717" : "\u2713"} {item.name ?? "tool result"}
+                  {isError ? "\u2717" : "\u2713"} {item.name ?? "tool result"}
                 </span>
                 <span className="text-[9px] text-muted-foreground/40 sm:ml-auto">
                   output

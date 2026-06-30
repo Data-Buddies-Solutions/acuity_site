@@ -20,6 +20,12 @@ import {
   isResolvedAppointmentAction,
   normalizeAppointmentActions,
 } from "@/lib/appointment-actions";
+import {
+  getChatItemCallId,
+  getChatItemCreatedAt,
+  getChatItemIsError,
+  getChatItemToolArgs,
+} from "@/lib/chat-history-items";
 import { estimateUsageCostLineItems } from "@/lib/pricing";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
@@ -479,7 +485,9 @@ function sttLatencyFromTurnMetrics(input: {
     return transcriptionDelayMs;
   }
 
-  const createdAtMs = timestampMs(input.turnMetric?.createdAt ?? input.item.createdAt);
+  const createdAtMs = timestampMs(
+    input.turnMetric?.createdAt ?? getChatItemCreatedAt(input.item),
+  );
   const stoppedSpeakingAtMs = timestampMs(input.metrics?.stoppedSpeakingAt);
 
   if (createdAtMs != null && stoppedSpeakingAtMs != null) {
@@ -626,8 +634,9 @@ function outputByCallId(items: ChatHistoryItem[]) {
   const outputs = new Map<string, ChatHistoryItem>();
 
   for (const item of items) {
-    if (item.type === "function_call_output" && item.callId) {
-      outputs.set(item.callId, item);
+    const callId = getChatItemCallId(item);
+    if (item.type === "function_call_output" && callId) {
+      outputs.set(callId, item);
     }
   }
 
@@ -842,13 +851,16 @@ export function deriveCallSummary(body: LiveKitWebhookPayload): CallSummaryData 
 
     if (item.type === "function_call") {
       currentTurn ??= emptyTurn();
-      const output = item.callId ? outputs.get(item.callId) : undefined;
+      const callId = getChatItemCallId(item);
+      const output = callId ? outputs.get(callId) : undefined;
+      const outputCreatedAt = output ? getChatItemCreatedAt(output) : undefined;
+      const itemCreatedAt = getChatItemCreatedAt(item);
       const durationMs =
-        output?.createdAt && item.createdAt ? output.createdAt - item.createdAt : 0;
+        outputCreatedAt && itemCreatedAt ? outputCreatedAt - itemCreatedAt : 0;
       currentTurn.toolCalls.push({
-        args: item.args ?? "",
+        args: getChatItemToolArgs(item),
         durationMs,
-        isError: output?.isError ?? false,
+        isError: output ? getChatItemIsError(output) : false,
         name: item.name ?? "unknown",
         result: output?.output ?? "",
       });

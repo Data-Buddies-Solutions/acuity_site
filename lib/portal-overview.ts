@@ -18,6 +18,7 @@ import {
   hasRenderableAppointmentDetails,
   isResolvedAppointmentAction,
 } from "@/lib/appointment-actions";
+import { getChatItemCreatedAt } from "@/lib/chat-history-items";
 import { phoneDigits, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { getPracticeBranding, type PracticeBranding } from "@/lib/practice-branding";
@@ -1764,7 +1765,7 @@ function transcriptMessagesFromSessionItems(
     messages.push({
       role,
       text,
-      timestamp: typeof item.createdAt === "number" ? item.createdAt : null,
+      timestamp: getChatItemCreatedAt(item) ?? null,
     });
   }
 
