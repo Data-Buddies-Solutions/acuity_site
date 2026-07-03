@@ -1076,6 +1076,10 @@ function getSeedRuleSetsForPractice(practice: {
           return null;
         }
 
+        if (!office.insuranceTitle || !office.ruleSlug) {
+          return null;
+        }
+
         return {
           locationId: location.id,
           rules: cloneRules(ABITA_NEW_OFFICE_INSURANCE_RULES, office.name),

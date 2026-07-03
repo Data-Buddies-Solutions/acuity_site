@@ -32,6 +32,10 @@ function parseSeatConfig() {
 }
 
 function rulesForOffice(office) {
+  if (!office.insuranceTitle || !office.ruleSlug) {
+    return null;
+  }
+
   return {
     ...sharedInsuranceRules,
     aliasRules: sharedInsuranceRules.aliasRules.map((rule) => ({
@@ -302,6 +306,11 @@ async function ensurePublishedInsuranceRevision(client, ruleSetId, rules) {
 
 async function upsertInsuranceRuleSet(client, practiceId, locationId, office) {
   const rules = rulesForOffice(office);
+
+  if (!rules || !office.insuranceTitle || !office.ruleSlug) {
+    return null;
+  }
+
   const result = await client.query(
     `
       INSERT INTO practice_insurance_rule_set (
