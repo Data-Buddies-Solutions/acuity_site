@@ -7,6 +7,8 @@ import {
 import {
   buildCallCenterActivityScopeWhere,
   buildCallCenterNoteScopeWhere,
+  buildCallCenterPatientSessionScopeWhere,
+  buildCallCenterQueueScopeWhere,
   buildPortalHistorySessionWhere,
   buildPortalPatientSessionWhere,
   buildPortalNeedsActionGroups,
@@ -15,6 +17,7 @@ import {
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
   hasPortalConnectedCallSignal,
+  getPortalCallCenterLocationState,
   isRingbackToneActiveAtSecond,
   isPortalPatientCallSessionMetadata,
   metadataWithPendingBlindTransferSourceEnded,
@@ -243,8 +246,110 @@ describe("call-center special activity scoping", () => {
     expect(where.OR).toBeUndefined();
     expect(where.locationId).toBeUndefined();
     expect(where.session?.is?.toPhone?.in).toContain("+17864657479");
+    expect(where.session?.is?.toPhone?.in).toContain("+13055095333");
     expect(where.session?.is?.toPhone?.in).toContain("7864657479");
     expect(JSON.stringify(where)).not.toContain("sweetwater-location");
+  });
+
+  it("shows North Miami Beach as a separate Sweetwater Optical account location", () => {
+    const context = {
+      allowedLocationIds: ["sweetwater-location", "nmb-location"],
+      allowedPhoneNumbers: [
+        {
+          isPrimary: true,
+          label: "Sweetwater Optical",
+          locationId: "sweetwater-location",
+          phoneNumber: "+17864657479",
+        },
+        {
+          isPrimary: true,
+          label: "North Miami Beach Optical",
+          locationId: "nmb-location",
+          phoneNumber: "+13055095333",
+        },
+      ],
+      hasAllLocationAccess: false,
+      membership: {},
+      practice: {
+        callCenterSettings: null,
+        locations: [
+          { id: "sweetwater-location", name: "Sweetwater" },
+          { id: "nmb-location", name: "North Miami Beach Optical" },
+          { id: "hollywood-location", name: "Hollywood" },
+        ],
+        name: "Abita Eye Group",
+        phoneNumbers: [],
+      },
+      session: {
+        user: {
+          email: "sweetwateropticals@abitaeye.com",
+          id: "user-1",
+          name: null,
+        },
+      },
+    } as never;
+    const state = getPortalCallCenterLocationState(context, {
+      locationId: "nmb-location",
+    });
+
+    expect(state.locations.map((location) => location.label)).toEqual([
+      "Sweetwater Optical",
+      "North Miami Beach Optical",
+    ]);
+    expect(state.selectedLocation).toMatchObject({
+      id: "nmb-location",
+      label: "North Miami Beach Optical",
+      locationId: "nmb-location",
+      outboundNumber: "+17864657479",
+    });
+  });
+
+  it("scopes North Miami Beach under the Sweetwater Optical account", () => {
+    const context = {
+      allowedLocationIds: ["sweetwater-location", "nmb-location"],
+      allowedPhoneNumbers: [],
+      hasAllLocationAccess: false,
+      membership: {},
+      practice: {
+        callCenterSettings: null,
+        locations: [
+          { id: "sweetwater-location", name: "Sweetwater" },
+          { id: "nmb-location", name: "North Miami Beach Optical" },
+        ],
+        name: "Abita Eye Group",
+        phoneNumbers: [],
+      },
+      session: {
+        user: {
+          email: "sweetwateropticals@abitaeye.com",
+          id: "user-1",
+          name: null,
+        },
+      },
+    } as never;
+    const selectedLocation = {
+      id: "nmb-location",
+      label: "North Miami Beach Optical",
+      locationId: "nmb-location",
+      outboundNumber: "+17864657479",
+    };
+    const queueScope = buildCallCenterQueueScopeWhere(
+      context,
+      selectedLocation,
+    ) as unknown;
+    const patientSessionScope = buildCallCenterPatientSessionScopeWhere(
+      context,
+      selectedLocation,
+    ) as unknown;
+    const noteScope = buildCallCenterNoteScopeWhere(context, selectedLocation) as unknown;
+
+    expect(JSON.stringify(queueScope)).toContain("+13055095333");
+    expect(JSON.stringify(queueScope)).toContain("+17864657479");
+    expect(JSON.stringify(queueScope)).toContain("nmb-location");
+    expect(JSON.stringify(queueScope)).not.toContain("sweetwater-location");
+    expect(JSON.stringify(patientSessionScope)).toContain("nmb-location");
+    expect(JSON.stringify(noteScope)).toContain("nmb-location");
+    expect(JSON.stringify(noteScope)).not.toContain("sweetwater-location");
   });
 
   it("includes Sweetwater Optical outbound and standalone follow-up notes", () => {

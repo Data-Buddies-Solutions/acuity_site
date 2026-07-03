@@ -6,6 +6,7 @@ config({ path: ".env.local", override: true, quiet: true });
 const PRACTICE_NAME = "Abita Eye Group";
 const SPRING_HILL_LOCATIONS = ["Spring Hill"];
 const SOUTH_FLORIDA_LOCATIONS = ["Hollywood", "Sweetwater"];
+const SWEETWATER_OPTICAL_LOCATIONS = ["Sweetwater", "North Miami Beach Optical"];
 
 function usage() {
   return `ABITA_PORTAL_USERS_JSON is required.
@@ -76,7 +77,7 @@ function parseConfig() {
         ...asArray(parsed.sweetwaterOpticals ?? parsed.sweetwater_opticals).map(
           (entry) => ({
             ...entry,
-            locations: entry.locations || ["Sweetwater"],
+            locations: entry.locations || SWEETWATER_OPTICAL_LOCATIONS,
             role: entry.role || "STAFF",
           }),
         ),

@@ -69,7 +69,15 @@ function defaultStandaloneNoteLocationId(context: CallCenterActionContext) {
       ?.id ?? null;
 
   if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
-    return findByName((name) => name === "sweetwater");
+    return (
+      findByName((name) => name === "sweetwater") ??
+      findByName(
+        (name) =>
+          name === "north miami beach optical" ||
+          name === "brightview" ||
+          name === "bright view",
+      )
+    );
   }
 
   if (isAbitaSouthFloridaCallCenterContext(context)) {
@@ -90,25 +98,35 @@ function resolveActionScopeFromForm(
 ): CallCenterActionScope | null {
   const officeId = String(formData.get("office") || "").trim();
 
+  if (context.practice.locations.some((location) => location.id === officeId)) {
+    if (!context.hasAllLocationAccess && !context.allowedLocationIds.includes(officeId)) {
+      return null;
+    }
+
+    const location = context.practice.locations.find((item) => item.id === officeId);
+    const selectedLocation = location
+      ? {
+          id: location.id,
+          label: location.name,
+          locationId: location.id,
+          outboundNumber: "",
+        }
+      : null;
+
+    return {
+      activityWhere: buildCallCenterActivityScopeWhere(context, selectedLocation),
+      locationId: officeId,
+      noteWhere: buildCallCenterNoteScopeWhere(context, selectedLocation),
+      sessionWhere: buildCallCenterPatientSessionScopeWhere(context, selectedLocation),
+    };
+  }
+
   if (!officeId || isSpecialAbitaCallCenterContext(context)) {
     return {
       activityWhere: buildCallCenterActivityScopeWhere(context),
       locationId: defaultStandaloneNoteLocationId(context),
       noteWhere: buildCallCenterNoteScopeWhere(context),
       sessionWhere: buildCallCenterPatientSessionScopeWhere(context),
-    };
-  }
-
-  if (context.practice.locations.some((location) => location.id === officeId)) {
-    if (!context.hasAllLocationAccess && !context.allowedLocationIds.includes(officeId)) {
-      return null;
-    }
-
-    return {
-      activityWhere: { locationId: officeId },
-      locationId: officeId,
-      noteWhere: { locationId: officeId },
-      sessionWhere: { locationId: officeId },
     };
   }
 
