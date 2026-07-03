@@ -62,6 +62,7 @@ const ABITA_SOUTH_FLORIDA_QUEUE_KEY = "abita-south-florida";
 const ABITA_SOUTH_FLORIDA_TRANSFER_PHONE = "+16184220360";
 const ABITA_SWEETWATER_OPTICAL_EMAIL = "sweetwateropticals@abitaeye.com";
 const ABITA_SWEETWATER_OPTICAL_PHONE = "+17864657479";
+const ABITA_NORTH_MIAMI_BEACH_OPTICAL_PHONE = "+13055095333";
 const ABITA_SWEETWATER_OPTICAL_QUEUE_KEY = "abita-sweetwater-optical";
 const ringbackWavCache = new Map<number, string>();
 const VOICEMAIL_BEEP_WAV_BASE64 = createVoicemailBeepWavBase64();
@@ -927,16 +928,84 @@ function getAbitaSouthFloridaLocationIds(practice: {
     .map((location) => location.id);
 }
 
-function getAbitaSweetwaterLocationIds(practice: {
+function isAbitaNorthMiamiBeachOpticalLocationName(name: string) {
+  const normalized = name.trim().toLowerCase();
+  return (
+    normalized === "north miami beach optical" ||
+    normalized === "brightview" ||
+    normalized === "bright view"
+  );
+}
+
+function isAbitaSweetwaterOpticalLocationName(name: string) {
+  return (
+    name.trim().toLowerCase() === "sweetwater" ||
+    isAbitaNorthMiamiBeachOpticalLocationName(name)
+  );
+}
+
+function abitaSweetwaterOpticalLocationLabel(name: string) {
+  return isAbitaNorthMiamiBeachOpticalLocationName(name)
+    ? "North Miami Beach Optical"
+    : "Sweetwater Optical";
+}
+
+function getAbitaSweetwaterOpticalLocationIds(practice: {
   locations: Array<{ id: string; name: string }>;
 }) {
   return practice.locations
-    .filter((location) => location.name.trim().toLowerCase() === "sweetwater")
+    .filter((location) => isAbitaSweetwaterOpticalLocationName(location.name))
     .map((location) => location.id);
 }
 
+function selectedLocationIds(location?: PortalCallCenterLocation | null) {
+  if (!location) {
+    return [];
+  }
+
+  if (location.locationIds?.length) {
+    return location.locationIds;
+  }
+
+  return location.locationId ? [location.locationId] : [];
+}
+
+function selectedLocationScope(location?: PortalCallCenterLocation | null) {
+  const locationIds = selectedLocationIds(location);
+
+  if (locationIds.length) {
+    return {
+      locationId: {
+        in: locationIds,
+      },
+    };
+  }
+
+  if (location && "locationId" in location) {
+    return {
+      locationId: location.locationId ?? null,
+    };
+  }
+
+  return null;
+}
+
+function withSelectedLocationScope<T extends object>(
+  scope: T,
+  location?: PortalCallCenterLocation | null,
+) {
+  const locationScope = selectedLocationScope(location);
+  return locationScope ? { AND: [scope, locationScope] } : scope;
+}
+
 function opticalPhoneVariants() {
-  return phoneLookupVariants(ABITA_SWEETWATER_OPTICAL_PHONE);
+  return [
+    ...new Set(
+      [ABITA_SWEETWATER_OPTICAL_PHONE, ABITA_NORTH_MIAMI_BEACH_OPTICAL_PHONE].flatMap(
+        phoneLookupVariants,
+      ),
+    ),
+  ];
 }
 
 function southFloridaTransferPhoneVariants() {
@@ -977,21 +1046,27 @@ function getAbitaSouthFloridaCallCenterLocation(practice: {
   };
 }
 
-function getAbitaSweetwaterOpticalCallCenterLocation(practice: {
+function getAbitaSweetwaterOpticalCallCenterLocations(practice: {
   locations: Array<{ id: string; name: string }>;
-}): PortalCallCenterLocation | null {
-  const locationIds = getAbitaSweetwaterLocationIds(practice);
+}): PortalCallCenterLocation[] {
+  return practice.locations
+    .filter((location) => isAbitaSweetwaterOpticalLocationName(location.name))
+    .sort((a, b) => {
+      const aIsNorthMiami = isAbitaNorthMiamiBeachOpticalLocationName(a.name);
+      const bIsNorthMiami = isAbitaNorthMiamiBeachOpticalLocationName(b.name);
 
-  if (!locationIds.length) {
-    return null;
-  }
+      if (aIsNorthMiami !== bIsNorthMiami) {
+        return aIsNorthMiami ? 1 : -1;
+      }
 
-  return {
-    id: "abita-sweetwater-optical",
-    label: "Sweetwater Optical",
-    locationIds,
-    outboundNumber: ABITA_SWEETWATER_OPTICAL_PHONE,
-  };
+      return a.name.localeCompare(b.name);
+    })
+    .map((location) => ({
+      id: location.id,
+      label: abitaSweetwaterOpticalLocationLabel(location.name),
+      locationId: location.id,
+      outboundNumber: ABITA_SWEETWATER_OPTICAL_PHONE,
+    }));
 }
 
 function getOutboundCallerNumbers({
@@ -1010,10 +1085,13 @@ function getOutboundCallerNumbers({
   selectedLocation: PortalCallCenterLocation | null;
   visibleLocations: Array<{ id: string; name: string }>;
 }): PortalOutboundCallerNumber[] {
-  if (selectedLocation?.id === "abita-sweetwater-optical") {
+  if (
+    selectedLocation &&
+    selectedLocation.outboundNumber === ABITA_SWEETWATER_OPTICAL_PHONE
+  ) {
     return [
       {
-        label: "Sweetwater Optical",
+        label: selectedLocation.label,
         phoneNumber: ABITA_SWEETWATER_OPTICAL_PHONE,
       },
     ];
@@ -1083,15 +1161,19 @@ function getCallCenterSeatQueueKeyForContext(context: PortalPracticeAccessContex
 
 function queueScopeForSpecialAbitaProfile(
   context: PortalPracticeAccessContext,
+  selectedLocation?: PortalCallCenterLocation | null,
 ): Prisma.CallCenterQueueItemWhereInput | null {
   const opticalVariants = opticalPhoneVariants();
 
   if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
-    return {
-      toPhone: {
-        in: opticalVariants,
+    return withSelectedLocationScope(
+      {
+        toPhone: {
+          in: opticalVariants,
+        },
       },
-    };
+      selectedLocation,
+    );
   }
 
   if (isAbitaSouthFloridaCallCenterContext(context)) {
@@ -1119,19 +1201,25 @@ function queueScopeForSpecialAbitaProfile(
   return null;
 }
 
-function activityScopeForSpecialAbitaProfile(context: PortalPracticeAccessContext) {
+function activityScopeForSpecialAbitaProfile(
+  context: PortalPracticeAccessContext,
+  selectedLocation?: PortalCallCenterLocation | null,
+) {
   const opticalVariants = opticalPhoneVariants();
 
   if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
-    return {
-      session: {
-        is: {
-          toPhone: {
-            in: opticalVariants,
+    return withSelectedLocationScope(
+      {
+        session: {
+          is: {
+            toPhone: {
+              in: opticalVariants,
+            },
           },
         },
       },
-    };
+      selectedLocation,
+    );
   }
 
   if (isAbitaSouthFloridaCallCenterContext(context)) {
@@ -1172,7 +1260,7 @@ export function buildCallCenterQueueScopeWhere(
   selectedLocation?: PortalCallCenterLocation | null,
 ) {
   return (
-    queueScopeForSpecialAbitaProfile(context) ??
+    queueScopeForSpecialAbitaProfile(context, selectedLocation) ??
     callCenterLocationWhere(selectedLocation ?? null, context)
   );
 }
@@ -1182,7 +1270,7 @@ export function buildCallCenterActivityScopeWhere(
   selectedLocation?: PortalCallCenterLocation | null,
 ) {
   return (
-    activityScopeForSpecialAbitaProfile(context) ??
+    activityScopeForSpecialAbitaProfile(context, selectedLocation) ??
     callCenterLocationWhere(selectedLocation ?? null, context)
   );
 }
@@ -1192,16 +1280,21 @@ export function buildCallCenterNoteScopeWhere(
   selectedLocation?: PortalCallCenterLocation | null,
 ): Prisma.CallCenterNoteWhereInput {
   if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
-    const sweetwaterLocationIds = getAbitaSweetwaterLocationIds(context.practice);
-    const createdByOpticalUser: Prisma.CallCenterNoteWhereInput = {
-      createdByUserId: context.session.user.id,
-      ...(sweetwaterLocationIds.length
+    const locationIds =
+      selectedLocationIds(selectedLocation).length > 0
+        ? selectedLocationIds(selectedLocation)
+        : getAbitaSweetwaterOpticalLocationIds(context.practice);
+    const locationScope =
+      locationIds.length > 0
         ? {
             locationId: {
-              in: sweetwaterLocationIds,
+              in: locationIds,
             },
           }
-        : {}),
+        : {};
+    const createdByOpticalUser: Prisma.CallCenterNoteWhereInput = {
+      createdByUserId: context.session.user.id,
+      ...locationScope,
     };
 
     return {
@@ -1212,6 +1305,7 @@ export function buildCallCenterNoteScopeWhere(
           },
         },
         {
+          ...locationScope,
           stationSeat: {
             is: {
               queueKey: ABITA_SWEETWATER_OPTICAL_QUEUE_KEY,
@@ -1233,11 +1327,14 @@ export function buildCallCenterSessionScopeWhere(
   const opticalVariants = opticalPhoneVariants();
 
   if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
-    return {
-      toPhone: {
-        in: opticalVariants,
+    return withSelectedLocationScope(
+      {
+        toPhone: {
+          in: opticalVariants,
+        },
       },
-    };
+      selectedLocation,
+    );
   }
 
   if (isAbitaSouthFloridaCallCenterContext(context)) {
@@ -1272,22 +1369,25 @@ export function buildCallCenterPatientSessionScopeWhere(
   const opticalVariants = opticalPhoneVariants();
 
   if (isAbitaSweetwaterOpticalCallCenterContext(context)) {
-    return {
-      OR: [
-        {
-          direction: CallCenterSessionDirection.INBOUND,
-          toPhone: {
-            in: opticalVariants,
+    return withSelectedLocationScope(
+      {
+        OR: [
+          {
+            direction: CallCenterSessionDirection.INBOUND,
+            toPhone: {
+              in: opticalVariants,
+            },
           },
-        },
-        {
-          direction: CallCenterSessionDirection.OUTBOUND,
-          fromPhone: {
-            in: opticalVariants,
+          {
+            direction: CallCenterSessionDirection.OUTBOUND,
+            fromPhone: {
+              in: opticalVariants,
+            },
           },
-        },
-      ],
-    };
+        ],
+      },
+      selectedLocation,
+    );
   }
 
   return buildCallCenterSessionScopeWhere(context, selectedLocation);
@@ -1372,7 +1472,7 @@ function getDefaultPortalCallCenterLocation(locations: PortalCallCenterLocation[
   );
 }
 
-function getPortalCallCenterLocationState(
+export function getPortalCallCenterLocationState(
   context: PortalPracticeAccessContext,
   options?: { locationId?: string },
 ) {
@@ -1385,15 +1485,15 @@ function getPortalCallCenterLocationState(
         phoneNumbers: visiblePhoneNumbers,
       })
     : null;
-  const sweetwaterOpticalLocation = isAbitaSweetwaterOpticalCallCenterContext(context)
-    ? getAbitaSweetwaterOpticalCallCenterLocation({
+  const sweetwaterOpticalLocations = isAbitaSweetwaterOpticalCallCenterContext(context)
+    ? getAbitaSweetwaterOpticalCallCenterLocations({
         locations: visibleLocations,
       })
-    : null;
+    : [];
   const locations = southFloridaCombinedLocation
     ? [southFloridaCombinedLocation]
-    : sweetwaterOpticalLocation
-      ? [sweetwaterOpticalLocation]
+    : sweetwaterOpticalLocations.length
+      ? sweetwaterOpticalLocations
       : getPortalCallCenterLocations(
           {
             locations: visibleLocations,

@@ -7,7 +7,6 @@ import {
   buildCallCenterPatientSessionScopeWhere,
   buildCallCenterQueueScopeWhere,
   getCurrentPracticeCallCenterContext,
-  isSpecialAbitaCallCenterContext,
 } from "@/lib/call-center";
 import { canAccessPortalLocation } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
@@ -154,18 +153,11 @@ export async function GET(request: Request) {
   const locationParam = url.searchParams.get("locationId");
   const locationId =
     locationParam === NULL_LOCATION ? null : locationParam?.trim() || undefined;
-  if (
-    locationId !== undefined &&
-    !isSpecialAbitaCallCenterContext(context) &&
-    !canAccessPortalLocation(context, locationId)
-  ) {
+  if (locationId !== undefined && !canAccessPortalLocation(context, locationId)) {
     return NextResponse.json({ error: "Location not found" }, { status: 404 });
   }
 
-  const explicitLocationScope =
-    locationId === undefined || isSpecialAbitaCallCenterContext(context)
-      ? null
-      : { locationId };
+  const explicitLocationScope = locationId === undefined ? null : { locationId };
   const queueScopeWhere =
     explicitLocationScope ?? buildCallCenterQueueScopeWhere(context);
   const activityScopeWhere =
