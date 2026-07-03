@@ -175,6 +175,44 @@ describe("call-center handled session reconciliation", () => {
 });
 
 describe("call-center special activity scoping", () => {
+  it("keeps North Miami Beach Optical out of the shared Hollywood/Sweetwater scope", () => {
+    const context = {
+      allowedLocationIds: ["hollywood-location", "sweetwater-location", "nmb-location"],
+      allowedPhoneNumbers: [],
+      hasAllLocationAccess: false,
+      membership: {},
+      practice: {
+        callCenterSettings: null,
+        locations: [
+          { id: "hollywood-location", name: "Hollywood" },
+          { id: "sweetwater-location", name: "Sweetwater" },
+          { id: "nmb-location", name: "North Miami Beach Optical" },
+        ],
+        name: "Abita Eye Group",
+        phoneNumbers: [],
+      },
+      session: {
+        user: {
+          email: "callcenter@abitaeye.com",
+          id: "user-1",
+          name: null,
+        },
+      },
+    } as never;
+    const scope = buildCallCenterActivityScopeWhere(context);
+    const where = scope as {
+      OR?: Array<{
+        locationId?: { in?: string[] };
+        session?: { is?: { toPhone?: { in?: string[] } } };
+      }>;
+    };
+
+    expect(where.OR?.[1].locationId?.in).toEqual([
+      "hollywood-location",
+      "sweetwater-location",
+    ]);
+  });
+
   it("keeps Sweetwater Optical activity limited to optical-number sessions", () => {
     const context = {
       allowedLocationIds: ["sweetwater-location"],

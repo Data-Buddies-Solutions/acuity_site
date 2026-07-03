@@ -222,15 +222,71 @@ This knowledge base provides general practice information only. It does not prov
 export const ABITA_HOLLYWOOD_SWEETWATER_INSURANCE_RULES =
   hollywoodSweetwaterInsuranceRules;
 
-export type AbitaNewOfficeKey = "hollywood" | "sweetwater";
+export const ABITA_NORTH_MIAMI_BEACH_OPTICAL_MARKDOWN = `# Knowledge Base: North Miami Beach Optical
+
+## Emergency Notice
+
+If this is a medical emergency, please hang up and dial 911 or go to the nearest emergency room immediately.
+
+## Scope of Services
+
+North Miami Beach Optical is routine vision and optical only. It does not provide medical eye care.
+
+Route callers here only for routine eye exams, glasses prescriptions, contact lens prescriptions, optical orders, frame selection, lens questions, and contact lens services. The office accepts outside prescriptions and can schedule an eye exam with one of its professional optometrists.
+
+If the caller reports a medical eye concern, eye injury, eye pain, sudden vision change, flashes, floaters, redness, infection, surgery question, or other medical issue, do not schedule them at North Miami Beach Optical.
+
+## Location + Contact
+
+Practice Name: North Miami Beach Optical
+Address: 633 NE 167th Street, North Miami Beach, FL 33162
+Phone: (305) 509-5333
+
+## Scheduling
+
+The AdvancedMD scheduler label is Brightview. It may display as the Bright View tab.
+
+For routine eye exams, glasses prescriptions, contact lens prescriptions, or optical services using vision insurance, use \`check_insurance\` with coverageType \`routine_vision\`, then schedule with routing \`optical_only\`.
+
+Patients can be as young as 7 years old.
+
+Doctor: Dr. Miriam Bach.
+
+## Frames + Lenses
+
+North Miami Beach Optical carries many major frame brands, including Gucci, MontBlanc, YSL, Ray-Ban, Emporio Armani, and Cartier.
+
+The office offers all types of lenses, including upgrades and treatments. Frames include free adjustments and a two- or three-year warranty.
+
+Glasses are usually ready in less than 10 business days.
+
+If glasses are broken or the caller has a warranty question, they can come in and the office can look at the frame or lenses.
+
+## Prescriptions + Orders
+
+Glasses prescriptions are valid for up to 2 years. Contact lens prescriptions are valid for 1 year. A yearly eye exam is still best.
+
+If a caller already has a prescription from their optometrist, they can bring it in and choose from the large glasses selection. If the caller needs a prescription, schedule them with the optometrist first, then they can browse frames and lenses.
+
+If a contact lens prescription is on file, the office can take a contact lens order by phone with payment. Payments by phone are allowed.
+
+## Insurance
+
+North Miami Beach Optical accepts routine vision insurance only. It does not accept medical insurance for this location.
+
+## Scope Limitation
+
+This knowledge base provides general optical practice information only. It does not provide diagnosis, medical advice, or treatment recommendations.`;
+
+export type AbitaNewOfficeKey = "hollywood" | "north_miami_beach_optical" | "sweetwater";
 
 export type AbitaNewOfficeConfig = {
   key: AbitaNewOfficeKey;
-  address: string;
+  address: string | null;
   aliases: string[];
-  email: string;
-  hoursSummary: string;
-  insuranceTitle: string;
+  email: string | null;
+  hoursSummary: string | null;
+  insuranceTitle: string | null;
   knowledgeMarkdown: string;
   knowledgeTitle: string;
   name: string;
@@ -240,7 +296,7 @@ export type AbitaNewOfficeConfig = {
     phoneNumber: string;
   }>;
   primaryPhone: string;
-  ruleSlug: string;
+  ruleSlug: string | null;
   documentSlug: string;
 };
 
@@ -312,6 +368,27 @@ export const ABITA_NEW_OFFICES = [
     ],
     primaryPhone: "+17864654836",
     ruleSlug: "sweetwater-insurance-rules",
+  },
+  {
+    address: "633 NE 167th Street, North Miami Beach, FL 33162",
+    aliases: ["north miami beach optical", "brightview", "bright view"],
+    documentSlug: "north-miami-beach-optical",
+    email: null,
+    hoursSummary: null,
+    insuranceTitle: null,
+    key: "north_miami_beach_optical",
+    knowledgeMarkdown: ABITA_NORTH_MIAMI_BEACH_OPTICAL_MARKDOWN,
+    knowledgeTitle: "Knowledge Base: North Miami Beach Optical",
+    name: "North Miami Beach Optical",
+    phones: [
+      {
+        isPrimary: true,
+        label: "North Miami Beach Optical",
+        phoneNumber: "+13055095333",
+      },
+    ],
+    primaryPhone: "+13055095333",
+    ruleSlug: null,
   },
 ] as const satisfies readonly AbitaNewOfficeConfig[];
 
