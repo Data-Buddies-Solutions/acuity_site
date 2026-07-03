@@ -1626,6 +1626,7 @@ const SoftphonePanel = forwardRef<
         callerNumber,
         clientState: encodeCallClientState({
           browserSessionId,
+          locationId: office ?? null,
           stationLabel,
           stationSeatId,
         }),
@@ -1649,6 +1650,7 @@ const SoftphonePanel = forwardRef<
     debugLog,
     draftNumber,
     ensureMicrophonePermission,
+    office,
     stationLabel,
     stationSeatId,
     status,

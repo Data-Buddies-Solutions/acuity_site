@@ -13,6 +13,7 @@ import {
   buildPortalPatientSessionWhere,
   buildPortalNeedsActionGroups,
   callCenterSessionDirectionFromPayload,
+  canUseClientStateLocationForPresence,
   extractAcuityLiveKitHandoff,
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
@@ -174,6 +175,43 @@ describe("call-center handled session reconciliation", () => {
         status: "COMPLETED",
       }),
     ).toBe(false);
+  });
+});
+
+describe("call-center outbound location attribution", () => {
+  it("requires the browser-selected location to match trusted presence access", () => {
+    expect(
+      canUseClientStateLocationForPresence({
+        locationId: "nmb-location",
+        membershipLocationIds: ["sweetwater-location", "nmb-location"],
+        membershipLocationScope: "SELECTED",
+        seatLocationId: null,
+      }),
+    ).toBe(true);
+    expect(
+      canUseClientStateLocationForPresence({
+        locationId: "nmb-location",
+        membershipLocationIds: ["sweetwater-location"],
+        membershipLocationScope: "SELECTED",
+        seatLocationId: null,
+      }),
+    ).toBe(false);
+    expect(
+      canUseClientStateLocationForPresence({
+        locationId: "nmb-location",
+        membershipLocationIds: ["sweetwater-location", "nmb-location"],
+        membershipLocationScope: "SELECTED",
+        seatLocationId: "sweetwater-location",
+      }),
+    ).toBe(false);
+    expect(
+      canUseClientStateLocationForPresence({
+        locationId: "nmb-location",
+        membershipLocationIds: [],
+        membershipLocationScope: "ALL",
+        seatLocationId: "nmb-location",
+      }),
+    ).toBe(true);
   });
 });
 
@@ -618,6 +656,7 @@ describe("portal patient call session filtering", () => {
       isPortalPatientCallSessionMetadata({
         clientState: {
           browserSessionId: "browser-1",
+          locationId: "nmb-location",
           stationLabel: "101 - Front Desk",
           stationSeatId: "seat-1",
         },

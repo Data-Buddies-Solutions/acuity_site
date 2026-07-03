@@ -806,6 +806,35 @@ export function getPresenceExpirationCutoff(now = new Date()) {
   return new Date(now.getTime() - PRESENCE_EXPIRATION_MS);
 }
 
+export function canUseClientStateLocationForPresence({
+  locationId,
+  membershipLocationIds,
+  membershipLocationScope,
+  seatLocationId,
+}: {
+  locationId: string;
+  membershipLocationIds: string[];
+  membershipLocationScope: "ALL" | "SELECTED" | string | null | undefined;
+  seatLocationId?: string | null;
+}) {
+  if (!locationId || !membershipLocationScope) {
+    return false;
+  }
+
+  if (
+    membershipLocationScope === "SELECTED" &&
+    !membershipLocationIds.includes(locationId)
+  ) {
+    return false;
+  }
+
+  if (membershipLocationScope !== "ALL" && membershipLocationScope !== "SELECTED") {
+    return false;
+  }
+
+  return seatLocationId ? seatLocationId === locationId : true;
+}
+
 function getPortalCallCenterLocations(
   practice: {
     locations: Array<{
@@ -3659,6 +3688,83 @@ async function resolveLocationIdForPhone(practiceId: string, phone: string) {
   return location?.id ?? null;
 }
 
+async function resolveLocationIdFromClientState(
+  practiceId: string,
+  clientState: Record<string, unknown> | null,
+) {
+  const locationId = asString(clientState?.locationId);
+  const browserSessionId = asString(clientState?.browserSessionId);
+  const stationSeatId = asString(clientState?.stationSeatId);
+
+  if (!locationId || !browserSessionId || !stationSeatId) {
+    return null;
+  }
+
+  const [location, presence] = await Promise.all([
+    prisma.practiceLocation.findFirst({
+      select: {
+        id: true,
+      },
+      where: {
+        id: locationId,
+        practiceId,
+      },
+    }),
+    prisma.callCenterPresence.findFirst({
+      select: {
+        seat: {
+          select: {
+            locationId: true,
+          },
+        },
+        user: {
+          select: {
+            memberships: {
+              select: {
+                locationScope: true,
+                locations: {
+                  select: {
+                    locationId: true,
+                  },
+                },
+              },
+              where: {
+                practiceId,
+              },
+            },
+          },
+        },
+      },
+      where: {
+        browserSessionId,
+        lastSeenAt: {
+          gte: getPresenceExpirationCutoff(),
+        },
+        seat: {
+          practiceId,
+        },
+        seatId: stationSeatId,
+        status: {
+          not: CallCenterPresenceStatus.OFFLINE,
+        },
+      },
+    }),
+  ]);
+  const membership = presence?.user?.memberships[0] ?? null;
+  if (!location || !presence || !membership) {
+    return null;
+  }
+
+  const canUseLocation = canUseClientStateLocationForPresence({
+    locationId: location.id,
+    membershipLocationIds: membership.locations.map((item) => item.locationId),
+    membershipLocationScope: membership.locationScope,
+    seatLocationId: presence.seat.locationId,
+  });
+
+  return canUseLocation ? location.id : null;
+}
+
 function getPracticeSidePhone(payload: Record<string, unknown>) {
   const handoff = extractAcuityLiveKitHandoff(payload);
   if (handoff.isCallCenterHandoff && handoff.trunkPhone) {
@@ -5970,12 +6076,13 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
     return { ignored: true };
   }
 
+  const clientState = decodeClientState(payload.client_state);
   const settings = await resolveCallCenterSettingsForWebhook(payload);
 
   console.info("[call-center] webhook event", {
     eventType,
     callControlId: asString(payload.call_control_id),
-    clientState: decodeClientState(payload.client_state),
+    clientState,
     direction: asString(payload.direction),
     hangupCause: asString(payload.hangup_cause) || undefined,
     reason: asString(payload.reason) || undefined,
@@ -5987,10 +6094,9 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
   }
 
   const practiceId = settings.practiceId;
-  const locationId = await resolveLocationIdForPhone(
-    practiceId,
-    getPracticeSidePhone(payload),
-  );
+  const locationId =
+    (await resolveLocationIdFromClientState(practiceId, clientState)) ??
+    (await resolveLocationIdForPhone(practiceId, getPracticeSidePhone(payload)));
   let session: Awaited<ReturnType<typeof upsertSessionFromPayload>> | null = null;
 
   switch (eventType) {

@@ -19,6 +19,9 @@ pnpm-debug.log*
 # Testing
 coverage
 
+# Local generated reports
+output/
+
 # OS files
 .DS_Store
 *.pem
