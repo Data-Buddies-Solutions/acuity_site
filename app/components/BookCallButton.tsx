@@ -25,9 +25,7 @@ export default function BookCallButton({
     <Button asChild variant={variant} size={size} className={className}>
       <Link href={SITE_CONFIG.calendarLink} target="_blank" rel="noopener noreferrer">
         {children}
-        {iconVariant !== "none" && (
-          <Icon aria-hidden="true" className="h-4 w-4" />
-        )}
+        {iconVariant !== "none" && <Icon aria-hidden="true" className="h-4 w-4" />}
       </Link>
     </Button>
   );
