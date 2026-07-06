@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { TelnyxRTC, type Call, type INotification } from "@telnyx/webrtc";
+import type { Call, INotification, TelnyxRTC } from "@telnyx/webrtc";
 import {
   Delete,
   Grid3X3,
@@ -1113,6 +1113,12 @@ const SoftphonePanel = forwardRef<
         if (!response.ok) {
           throw new Error(data.error || "Unable to connect Telnyx");
         }
+
+        if (cancelled) {
+          return;
+        }
+
+        const { TelnyxRTC } = await import("@telnyx/webrtc");
 
         if (cancelled) {
           return;
