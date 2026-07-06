@@ -49,6 +49,14 @@ export type CallTableStateRow = {
   transferred: boolean;
 };
 
+type CallTableToolCall = {
+  name?: string | null;
+};
+
+type CallTableToolExecution = {
+  toolName?: string | null;
+};
+
 type SearchParamSource =
   Record<string, string | string[] | undefined> | { get: (key: string) => string | null };
 
@@ -168,6 +176,63 @@ export function searchParamRecordToURLSearchParams(
   }
 
   return params;
+}
+
+function formatCallTableToolAction(name: string) {
+  switch (name) {
+    case "book_appt":
+    case "book_appointment":
+      return "Book";
+    case "reschedule_appt":
+    case "reschedule_appointment":
+      return "Reschedule";
+    case "confirm_appt":
+    case "confirm_appointment":
+      return "Confirm";
+    case "cancel_appt":
+    case "cancel_appointment":
+      return "Cancel";
+    default:
+      return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+}
+
+function addToolActionLabel(labels: Set<string>, name: string | null | undefined) {
+  const toolName = name?.trim();
+
+  if (!toolName) {
+    return;
+  }
+
+  labels.add(formatCallTableToolAction(toolName));
+}
+
+export function getCallTableToolActionLabels({
+  fallbackActions = [],
+  toolCalls = [],
+  toolExecutions = [],
+}: {
+  fallbackActions?: string[];
+  toolCalls?: CallTableToolCall[];
+  toolExecutions?: CallTableToolExecution[];
+}) {
+  const labels = new Set<string>();
+
+  for (const tool of toolCalls) {
+    addToolActionLabel(labels, tool.name);
+  }
+
+  for (const tool of toolExecutions) {
+    addToolActionLabel(labels, tool.toolName);
+  }
+
+  if (labels.size === 0) {
+    for (const action of fallbackActions) {
+      addToolActionLabel(labels, action);
+    }
+  }
+
+  return [...labels];
 }
 
 export function hasLanguageSignal(call: CallTableStateRow): boolean {

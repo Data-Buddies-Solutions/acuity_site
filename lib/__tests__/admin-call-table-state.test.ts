@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   DEFAULT_CALL_TABLE_STATE,
   clampCallTablePage,
+  getCallTableToolActionLabels,
   getCallTablePageCount,
   hasLanguageSignal,
   parseCallTableState,
@@ -65,6 +66,31 @@ describe("admin call table state", () => {
     expect(getCallTablePageCount(16)).toBe(2);
     expect(clampCallTablePage(99, 2)).toBe(2);
     expect(clampCallTablePage(-1, 2)).toBe(1);
+  });
+
+  it("keeps all observed tool call names for action badges", () => {
+    expect(
+      getCallTableToolActionLabels({
+        fallbackActions: ["Book"],
+        toolCalls: [
+          { name: "get_availability" },
+          { name: "confirm_appt" },
+          { name: "transfer_call" },
+          { name: "get_availability" },
+        ],
+        toolExecutions: [
+          { toolName: "check_insurance" },
+          { toolName: "confirm_appt" },
+          { toolName: null },
+        ],
+      }),
+    ).toEqual(["Get Availability", "Confirm", "Transfer Call", "Check Insurance"]);
+  });
+
+  it("falls back to stored action state when payload tool names are missing", () => {
+    expect(
+      getCallTableToolActionLabels({ fallbackActions: ["Book", "Transfer"] }),
+    ).toEqual(["Book", "Transfer"]);
   });
 
   it("detects language signals from lightweight table rows", () => {

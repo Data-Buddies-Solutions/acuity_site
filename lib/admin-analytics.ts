@@ -23,6 +23,7 @@ import {
   DEFAULT_CALL_TABLE_STATE,
   clampCallTablePage,
   getCallTablePageCount,
+  getCallTableToolActionLabels,
   normalizeCallSearchValue,
   type CallQuickFilter,
   type CallSortState,
@@ -696,24 +697,6 @@ function getToolActionLabels(call: {
   }
 
   return [...actions];
-}
-
-function formatToolAction(name: string) {
-  switch (name) {
-    case "book_appt":
-    case "book_appointment":
-      return "Book";
-    case "reschedule_appt":
-    case "reschedule_appointment":
-      return "Reschedule";
-    case "confirm_appt":
-      return null;
-    case "cancel_appt":
-    case "cancel_appointment":
-      return "Cancel";
-    default:
-      return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-  }
 }
 
 function isAdminVisibleToolName(name: string | null | undefined) {
@@ -1665,34 +1648,25 @@ function buildCallTableRow(
   const latency = getLatencyArrays(call);
   const tools = getToolCalls(call.data);
   const toolExecutions = getToolExecutions(call.data);
-  const visibleTools = tools.filter((tool) => isAdminVisibleToolName(tool.name));
-  const visibleToolExecutions = toolExecutions.filter((tool) =>
-    isAdminVisibleToolName(tool.toolName),
-  );
   const observability = getObservabilitySignals(call.data);
-  const toolActions = new Set<string>();
+  const fallbackToolActions: string[] = [];
+  const toolCallCount = Math.max(call.toolCalls, tools.length, toolExecutions.length);
+  const toolErrorCount = Math.max(
+    call.toolErrors,
+    tools.filter((tool) => tool.isError).length,
+    toolExecutions.filter((tool) => tool.status === "error").length,
+  );
 
-  if (call.bookedAppointment) toolActions.add("Book");
-  if (call.cancelledAppointment) toolActions.add("Cancel");
-  if (call.transferred) toolActions.add("Transfer");
-
-  for (const tool of visibleTools) {
-    const label = formatToolAction(tool.name);
-    if (label) {
-      toolActions.add(label);
-    }
-  }
-
-  for (const tool of visibleToolExecutions) {
-    if (tool.toolName) {
-      const label = formatToolAction(tool.toolName);
-      if (label) {
-        toolActions.add(label);
-      }
-    }
-  }
+  if (call.bookedAppointment) fallbackToolActions.push("Book");
+  if (call.cancelledAppointment) fallbackToolActions.push("Cancel");
+  if (call.transferred) fallbackToolActions.push("Transfer");
 
   const apptActions = getToolActionLabels(call);
+  const toolActions = getCallTableToolActionLabels({
+    fallbackActions: fallbackToolActions,
+    toolCalls: tools,
+    toolExecutions,
+  });
   const evaluationLabel = getEvaluationLabel(call.evaluationLabels ?? []);
 
   return {
@@ -1724,19 +1698,9 @@ function buildCallTableRow(
     peakContext: getPeakContext(call),
     runtimeErrorCount: observability.runtimeErrorCount,
     startedAt: call.startedAt.toISOString(),
-    toolActions: [...toolActions],
-    toolCalls:
-      toolExecutions.length > 0
-        ? visibleToolExecutions.length
-        : tools.length > 0
-          ? visibleTools.length
-          : call.toolCalls,
-    toolErrors:
-      toolExecutions.length > 0
-        ? visibleToolExecutions.filter((tool) => tool.status === "error").length
-        : visibleTools.length > 0
-          ? visibleTools.filter((tool) => tool.isError).length
-          : call.toolErrors,
+    toolActions,
+    toolCalls: toolCallCount,
+    toolErrors: toolErrorCount,
     totalTurns: getCallTotalTurns(call),
     transferred: call.transferred || apptActions.includes("Transferred"),
   };
