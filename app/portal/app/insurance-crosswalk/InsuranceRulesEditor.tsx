@@ -41,7 +41,10 @@ export function InsuranceRulesEditor({
       />
 
       {jsonError ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        <div
+          className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+          role="alert"
+        >
           {jsonError}
         </div>
       ) : null}

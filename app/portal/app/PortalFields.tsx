@@ -12,7 +12,7 @@ type BaseFieldProps = {
 };
 
 const fieldClassName =
-  "w-full rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 text-sm text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/12";
+  "w-full rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 text-sm text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus-visible:border-[var(--portal-accent)] focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]/12";
 
 const labelClassName =
   "text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--portal-muted-soft)]";
@@ -31,7 +31,7 @@ export function PortalSelect({
     <span className={cn("relative inline-flex w-full items-center", wrapperClassName)}>
       <select
         className={cn(
-          "h-10 w-full appearance-none rounded-lg border border-[var(--portal-border)] bg-white pl-4 pr-10 text-sm font-medium text-[var(--portal-ink)] shadow-sm outline-none transition focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/15 disabled:cursor-not-allowed disabled:opacity-60",
+          "h-10 w-full appearance-none rounded-lg border border-[var(--portal-border)] bg-white pl-4 pr-10 text-sm font-medium text-[var(--portal-ink)] shadow-sm outline-none transition focus-visible:border-[var(--portal-accent)] focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]/15 disabled:cursor-not-allowed disabled:opacity-60",
           className,
         )}
         {...props}

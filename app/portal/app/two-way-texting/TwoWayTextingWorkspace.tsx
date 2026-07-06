@@ -489,7 +489,10 @@ function DraftConversationThread({
       </header>
 
       {error ? (
-        <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
+        <div
+          className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]"
+          role="alert"
+        >
           {error}
         </div>
       ) : null}
@@ -1022,7 +1025,10 @@ export default function TwoWayTextingWorkspace({
         ) : selectedConversation ? (
           <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--portal-panel-soft)]">
             {error ? (
-              <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
+              <div
+                className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]"
+                role="alert"
+              >
                 {error}
               </div>
             ) : null}
@@ -1162,7 +1168,10 @@ export default function TwoWayTextingWorkspace({
         ) : (
           <main className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
             {error ? (
-              <div className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]">
+              <div
+                className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]"
+                role="alert"
+              >
                 {error}
               </div>
             ) : null}

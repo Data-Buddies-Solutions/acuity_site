@@ -15,6 +15,8 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     <>
       {!isWorkspaceRoute ? <Header /> : null}
       <main
+        id={isWorkspaceRoute ? undefined : "main-content"}
+        tabIndex={isWorkspaceRoute ? undefined : -1}
         className={
           isWorkspaceRoute
             ? "flex flex-col"
@@ -29,5 +31,17 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     </>
   );
 
-  return isWorkspaceRoute ? chrome : <div className="marketing-site">{chrome}</div>;
+  return isWorkspaceRoute ? (
+    chrome
+  ) : (
+    <div className="marketing-site">
+      <a
+        className="fixed left-4 top-4 z-[100] -translate-y-20 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-lg transition-transform focus-visible:translate-y-0 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        href="#main-content"
+      >
+        Skip to content
+      </a>
+      {chrome}
+    </div>
+  );
 }
