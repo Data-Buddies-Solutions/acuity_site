@@ -144,6 +144,22 @@ function filterEmptyLabel(filter: ConversationFilter) {
   return filter === "CLOSED" ? "done" : "open";
 }
 
+function conversationMatchesFilter(
+  conversation: ConversationListItem,
+  filter: ConversationFilter,
+) {
+  return filter === "UNREAD" ? conversation.unread : conversation.status === filter;
+}
+
+function firstConversationIdForFilter(
+  conversations: ConversationListItem[],
+  filter: ConversationFilter,
+) {
+  return conversations.find((conversation) =>
+    conversationMatchesFilter(conversation, filter),
+  )?.id;
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null);
 
@@ -548,15 +564,31 @@ function DraftConversationThread({
   );
 }
 export default function TwoWayTextingWorkspace({
+  initialConversation,
+  initialFilter,
   initialInbox,
+  initialSearchQuery,
+  initialSelectedConversationId,
 }: {
+  initialConversation: ConversationDetail | null;
+  initialFilter: ConversationFilter;
   initialInbox: InboxState;
+  initialSearchQuery: string;
+  initialSelectedConversationId: string;
 }) {
   const [inbox, setInbox] = useState(initialInbox);
-  const [selectedId, setSelectedId] = useState(initialInbox.conversations[0]?.id ?? "");
-  const [conversation, setConversation] = useState<ConversationDetail | null>(null);
-  const [filter, setFilter] = useState<ConversationFilter>("OPEN");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [filter, setFilter] = useState<ConversationFilter>(initialFilter);
+  const [selectedId, setSelectedId] = useState(
+    () =>
+      initialSelectedConversationId ||
+      initialConversation?.id ||
+      firstConversationIdForFilter(initialInbox.conversations, initialFilter) ||
+      "",
+  );
+  const [conversation, setConversation] = useState<ConversationDetail | null>(
+    initialConversation,
+  );
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [draft, setDraft] = useState("");
   const [newPatientPhone, setNewPatientPhone] = useState("");
   const [newDraft, setNewDraft] = useState("");
@@ -568,6 +600,8 @@ export default function TwoWayTextingWorkspace({
   const [sending, setSending] = useState(false);
   const [startingOutbound, setStartingOutbound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const filterRef = useRef(initialFilter);
+  const initialConversationIdRef = useRef(initialConversation?.id ?? "");
   const searchMountedRef = useRef(false);
 
   const filteredConversations = useMemo(() => {
@@ -588,6 +622,27 @@ export default function TwoWayTextingWorkspace({
     setError(null);
     setSelectedId(id);
   }, []);
+
+  const selectFilter = useCallback(
+    (nextFilter: ConversationFilter) => {
+      setFilter(nextFilter);
+      setSelectedId((currentId) => {
+        const currentConversation = inbox.conversations.find(
+          (item) => item.id === currentId,
+        );
+
+        if (
+          currentConversation &&
+          conversationMatchesFilter(currentConversation, nextFilter)
+        ) {
+          return currentId;
+        }
+
+        return firstConversationIdForFilter(inbox.conversations, nextFilter) ?? "";
+      });
+    },
+    [inbox.conversations],
+  );
 
   const conversationListQuery = useCallback(() => {
     const params = new URLSearchParams();
@@ -620,11 +675,14 @@ export default function TwoWayTextingWorkspace({
         setInbox(next);
         setError(null);
 
+        const fallbackSelectedId =
+          firstConversationIdForFilter(next.conversations, filterRef.current) ?? "";
+
         if (selectedId && !next.conversations.some((item) => item.id === selectedId)) {
-          setSelectedId(next.conversations[0]?.id ?? "");
+          setSelectedId(fallbackSelectedId);
           setConversation(null);
-        } else if (!selectedId && next.conversations[0]) {
-          setSelectedId(next.conversations[0].id);
+        } else if (!selectedId && fallbackSelectedId) {
+          setSelectedId(fallbackSelectedId);
         }
       } catch (refreshError) {
         setError(
@@ -670,9 +728,57 @@ export default function TwoWayTextingWorkspace({
   );
 
   useEffect(() => {
+    filterRef.current = filter;
+  }, [filter]);
+
+  useEffect(() => {
+    if (initialConversationIdRef.current === selectedId) {
+      initialConversationIdRef.current = "";
+      setDeleteConfirmOpen(false);
+      return;
+    }
+
+    initialConversationIdRef.current = "";
     void refreshConversation();
     setDeleteConfirmOpen(false);
-  }, [refreshConversation]);
+  }, [refreshConversation, selectedId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (inbox.selectedInboxId) {
+      params.set("inbox", inbox.selectedInboxId);
+    } else {
+      params.delete("inbox");
+    }
+
+    if (selectedId) {
+      params.set("conversation", selectedId);
+    } else {
+      params.delete("conversation");
+    }
+
+    if (filter === "OPEN") {
+      params.delete("filter");
+    } else {
+      params.set("filter", filter);
+    }
+
+    const trimmedSearch = searchQuery.trim();
+    if (trimmedSearch) {
+      params.set("search", trimmedSearch);
+    } else {
+      params.delete("search");
+    }
+
+    const query = params.toString();
+    const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }, [filter, inbox.selectedInboxId, searchQuery, selectedId]);
 
   useEffect(() => {
     if (!searchMountedRef.current) {
@@ -833,7 +939,7 @@ export default function TwoWayTextingWorkspace({
       ).then((response) => readJson<InboxState>(response));
 
       setInbox(next);
-      setSelectedId(next.conversations[0]?.id ?? "");
+      setSelectedId(firstConversationIdForFilter(next.conversations, filter) ?? "");
       setConversation(null);
       setDeleteConfirmOpen(false);
     } catch (deleteError) {
@@ -892,7 +998,7 @@ export default function TwoWayTextingWorkspace({
                       ? "!bg-[#536a91] !text-white shadow-sm hover:!text-white"
                       : "text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
                   )}
-                  onClick={() => setFilter(value as ConversationFilter)}
+                  onClick={() => selectFilter(value as ConversationFilter)}
                 >
                   {label}
                 </button>

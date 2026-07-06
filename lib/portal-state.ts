@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 
 import { isExplicitAdminEmail } from "./admin-auth";
 import { getAuthSession } from "./auth";
@@ -446,7 +447,7 @@ async function getPortalWorkspaceStateFromDatabase() {
   });
 }
 
-export async function getPortalWorkspaceState(): Promise<PortalWorkspaceState> {
+async function readPortalWorkspaceState(): Promise<PortalWorkspaceState> {
   const databaseState = await getPortalWorkspaceStateFromDatabase();
 
   if (databaseState) {
@@ -454,6 +455,12 @@ export async function getPortalWorkspaceState(): Promise<PortalWorkspaceState> {
   }
 
   return getPortalWorkspaceStateFromCookie();
+}
+
+export const getPortalWorkspaceState = cache(readPortalWorkspaceState);
+
+export async function getFreshPortalWorkspaceState(): Promise<PortalWorkspaceState> {
+  return readPortalWorkspaceState();
 }
 
 export async function setPortalSectionCompletion(
