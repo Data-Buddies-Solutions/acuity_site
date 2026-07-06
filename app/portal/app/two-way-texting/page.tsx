@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 
 import { getPortalWorkspaceState } from "@/lib/portal-state";
-import { getSmsInbox } from "@/lib/sms/service";
+import {
+  getSmsConversation,
+  getSmsInbox,
+  type SmsConversationListItem,
+} from "@/lib/sms/service";
 
 import TextingHeaderPicker from "./TextingHeaderPicker";
 import TwoWayTextingWorkspace from "./TwoWayTextingWorkspace";
@@ -9,6 +13,22 @@ import TwoWayTextingWorkspace from "./TwoWayTextingWorkspace";
 export const dynamic = "force-dynamic";
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
+type ConversationFilter = "OPEN" | "CLOSED" | "UNREAD";
+
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function parseConversationFilter(value: string | undefined): ConversationFilter {
+  return value === "CLOSED" || value === "UNREAD" ? value : "OPEN";
+}
+
+function conversationMatchesFilter(
+  conversation: SmsConversationListItem,
+  filter: ConversationFilter,
+) {
+  return filter === "UNREAD" ? conversation.unread : conversation.status === filter;
+}
 
 function TextingSummary({
   conversationCount,
@@ -51,12 +71,33 @@ export default async function PortalTwoWayTextingPage({
   }
 
   const params = searchParams ? await searchParams : {};
-  const selectedInboxId = Array.isArray(params.inbox) ? params.inbox[0] : params.inbox;
-  const inbox = await getSmsInbox(selectedInboxId);
+  const selectedInboxId = firstParam(params.inbox);
+  const requestedConversationId = firstParam(params.conversation);
+  const initialFilter = parseConversationFilter(firstParam(params.filter));
+  const initialSearchQuery = firstParam(params.search)?.trim() ?? "";
+  const inbox = await getSmsInbox(selectedInboxId, initialSearchQuery);
 
   if (!inbox) {
     redirect("/portal");
   }
+
+  const selectedConversationId =
+    inbox.conversations.find(
+      (conversation) =>
+        conversation.id === requestedConversationId &&
+        conversationMatchesFilter(conversation, initialFilter),
+    )?.id ??
+    inbox.conversations.find((conversation) =>
+      conversationMatchesFilter(conversation, initialFilter),
+    )?.id ??
+    "";
+  const initialConversationResult = selectedConversationId
+    ? await getSmsConversation(selectedConversationId)
+    : null;
+  const initialConversation =
+    initialConversationResult && !("notFound" in initialConversationResult)
+      ? initialConversationResult
+      : null;
 
   const selectedInboxLabel =
     inbox.availableInboxes.find((option) => option.id === inbox.selectedInboxId)?.label ??
@@ -86,7 +127,14 @@ export default async function PortalTwoWayTextingPage({
         </div>
       </section>
 
-      <TwoWayTextingWorkspace key={inbox.selectedInboxId} initialInbox={inbox} />
+      <TwoWayTextingWorkspace
+        key={inbox.selectedInboxId}
+        initialConversation={initialConversation}
+        initialFilter={initialFilter}
+        initialInbox={inbox}
+        initialSearchQuery={initialSearchQuery}
+        initialSelectedConversationId={selectedConversationId}
+      />
     </div>
   );
 }

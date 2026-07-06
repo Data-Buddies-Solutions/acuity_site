@@ -15,6 +15,7 @@ import {
 } from "@/lib/practice-workspace";
 import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 import {
+  getFreshPortalWorkspaceState,
   getPortalWorkspaceState,
   setPortalLaunchState,
   setPortalSectionCompletion,
@@ -291,7 +292,7 @@ export async function savePracticeBasicsAction(formData: FormData) {
     await persistPracticeBasicsForUser(workspaceUser, input);
   }
 
-  const portalState = await getPortalWorkspaceState();
+  const portalState = await getFreshPortalWorkspaceState();
 
   redirect(
     portalState.launched
@@ -326,7 +327,7 @@ export async function saveProviderSetupAction(formData: FormData) {
     await persistProviderSetupForUser(workspaceUser, { providers });
   }
 
-  const portalState = await getPortalWorkspaceState();
+  const portalState = await getFreshPortalWorkspaceState();
 
   redirect(
     portalState.launched
@@ -381,7 +382,7 @@ export async function saveKnowledgeBaseAction(formData: FormData) {
     });
   }
 
-  const portalState = await getPortalWorkspaceState();
+  const portalState = await getFreshPortalWorkspaceState();
 
   redirect(
     portalState.launched
@@ -424,7 +425,7 @@ export async function saveInsuranceCrosswalkAction(formData: FormData) {
     await persistInsuranceCrosswalkForUser(workspaceUser, input);
   }
 
-  const portalState = await getPortalWorkspaceState();
+  const portalState = await getFreshPortalWorkspaceState();
 
   redirect(
     portalState.launched

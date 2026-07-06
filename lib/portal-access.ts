@@ -1,4 +1,5 @@
 import { Prisma } from "@/generated/prisma/client";
+import { cache } from "react";
 
 import { getAuthSession } from "@/lib/auth";
 import { phoneNationalDigits } from "@/lib/phone";
@@ -198,7 +199,7 @@ export function buildPortalAgentCallScopeSql(context: PortalPracticeAccessContex
     : Prisma.sql`FALSE`;
 }
 
-export async function getCurrentPortalPracticeContext(): Promise<PortalPracticeAccessContext | null> {
+async function readCurrentPortalPracticeContext(): Promise<PortalPracticeAccessContext | null> {
   const session = await getAuthSession();
 
   if (!session) {
@@ -236,3 +237,5 @@ export async function getCurrentPortalPracticeContext(): Promise<PortalPracticeA
     ),
   };
 }
+
+export const getCurrentPortalPracticeContext = cache(readCurrentPortalPracticeContext);
