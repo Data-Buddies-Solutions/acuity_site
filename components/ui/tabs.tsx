@@ -208,16 +208,18 @@ function TabsTrigger({
 
 function TabsContent({
   "aria-labelledby": ariaLabelledBy,
+  children,
   className,
   id,
   value,
   ...props
 }: React.ComponentProps<"div"> & { value: string }) {
   const context = React.useContext(TabsContext);
+  const active = context?.value === value;
   const triggerId = context ? tabPartId(context.baseId, "trigger", value) : undefined;
   const contentId = context ? tabPartId(context.baseId, "content", value) : undefined;
 
-  if (context?.value !== value) {
+  if (!context) {
     return null;
   }
 
@@ -227,9 +229,12 @@ function TabsContent({
       id={id ?? contentId}
       role="tabpanel"
       aria-labelledby={ariaLabelledBy ?? triggerId}
+      hidden={!active}
       className={cn("flex-1 text-sm outline-none", className)}
       {...props}
-    />
+    >
+      {active ? children : null}
+    </div>
   );
 }
 
