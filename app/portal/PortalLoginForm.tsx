@@ -57,16 +57,18 @@ export function PortalLoginForm() {
       <label className="block">
         <span className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[#667085]">
           <Mail className="h-4 w-4 text-accent" aria-hidden="true" />
-          Email
+          Email or username
         </span>
         <div className="rounded-xl border border-[#d8dde8] bg-white/90 shadow-[0_12px_28px_rgba(25,32,58,0.04),inset_0_1px_0_rgba(255,255,255,0.82)] transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
           <input
+            autoCapitalize="none"
             autoComplete="username"
             className="w-full rounded-xl bg-transparent px-4 py-4 text-base text-[#19203a] outline-none placeholder:text-[#8a94a6]"
             name="email"
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@practice.com"
+            placeholder="you@practice.com or admin"
             required
+            spellCheck={false}
             type="text"
             value={email}
           />

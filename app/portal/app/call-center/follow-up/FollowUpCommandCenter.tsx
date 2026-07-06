@@ -113,51 +113,46 @@ function FollowUpQueueRow({
       )}
     >
       <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
-        <div
-          className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]"
-          onClick={onSelect}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              onSelect();
-            }
-          }}
-          role="button"
-          tabIndex={0}
-        >
-          <Icon
-            aria-hidden="true"
-            className={cn("mt-0.5 h-4 w-4 shrink-0", iconClassName)}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          <button
+            aria-current={isSelected ? "true" : undefined}
+            className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md border-0 bg-transparent p-0 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+            onClick={onSelect}
+            type="button"
+          >
+            <Icon
+              aria-hidden="true"
+              className={cn("mt-0.5 h-4 w-4 shrink-0", iconClassName)}
+            />
+            <span className="min-w-0 flex-1">
               <span className="truncate text-sm font-semibold text-[var(--portal-ink)]">
                 {title}
               </span>
-              {numberHref ? (
-                <Link
-                  className="text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
-                  href={numberHref}
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  History
-                </Link>
-              ) : null}
+              <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[var(--portal-muted)]">
+                {phoneLabel ? <span>{phoneLabel}</span> : null}
+                {phoneLabel ? <span aria-hidden="true">·</span> : null}
+                <span className="font-medium text-[var(--portal-ink-soft)]">
+                  {summary}
+                </span>
+                {duration ? (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{duration}</span>
+                  </>
+                ) : null}
+                <span aria-hidden="true">·</span>
+                <span>{formatRelative(group.lastActivityAt)}</span>
+              </span>
             </span>
-            <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[var(--portal-muted)]">
-              {phoneLabel ? <span>{phoneLabel}</span> : null}
-              {phoneLabel ? <span aria-hidden="true">·</span> : null}
-              <span className="font-medium text-[var(--portal-ink-soft)]">{summary}</span>
-              {duration ? (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span>{duration}</span>
-                </>
-              ) : null}
-              <span aria-hidden="true">·</span>
-              <span>{formatRelative(group.lastActivityAt)}</span>
-            </span>
-          </span>
+          </button>
+          {numberHref ? (
+            <Link
+              className="shrink-0 rounded-sm text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]"
+              href={numberHref}
+            >
+              History
+            </Link>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:justify-end">
           {callHref ? (

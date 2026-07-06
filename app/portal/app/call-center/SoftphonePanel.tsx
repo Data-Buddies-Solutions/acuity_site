@@ -2028,7 +2028,10 @@ const SoftphonePanel = forwardRef<
         <audio ref={remoteAudioRef} autoPlay className="hidden" playsInline />
 
         {error ? (
-          <div className="rounded-lg border border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] px-3 py-2 text-sm text-[var(--portal-danger)]">
+          <div
+            className="rounded-lg border border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] px-3 py-2 text-sm text-[var(--portal-danger)]"
+            role="alert"
+          >
             {error}
           </div>
         ) : null}
