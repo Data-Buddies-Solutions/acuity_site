@@ -31,6 +31,7 @@ import {
 } from "@/lib/admin-call-table-state";
 import { prisma } from "@/lib/prisma";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
+import { computePercentiles, percentile, type LatencyPercentiles } from "@/lib/format";
 
 type AgentStatus = "SETUP" | "ACTIVE" | "PAUSED" | "ERROR";
 
@@ -109,6 +110,13 @@ const DURATION_BUCKETS = [
   { label: "10m+", max: Infinity },
 ];
 
+const HISTOGRAM_BUCKET_COUNT = 10;
+const MAX_LATENCY_SCATTER_SAMPLES = 600;
+const LATENCY_STEPS_MS = [
+  50, 100, 250, 500, 1_000, 1_500, 2_000, 3_000, 5_000, 10_000, 15_000,
+  30_000, 60_000,
+];
+
 const HIDDEN_ADMIN_TOOL_NAMES = new Set(["confirm_appt"]);
 
 type BucketGranularity = "hour" | "day" | "week";
@@ -142,16 +150,25 @@ type TrendDatum = {
   tooltipLabel: string;
 };
 
-export interface LatencyPercentiles {
-  p50: number;
-  p90: number;
-  p95: number;
-  p99: number;
-}
+type LatencyHistogramBucket = {
+  count: number;
+  label: string;
+  max: number | null;
+  min: number;
+  percent: number;
+};
 
-type PercentileTrendDatum = TrendDatum & {
-  p50: number | null;
-  p95: number | null;
+type LatencyScatterSample = {
+  percentile: number;
+  sample: number;
+  value: number;
+};
+
+export type LatencyDistributionData = {
+  buckets: LatencyHistogramBucket[];
+  percentiles: LatencyPercentiles;
+  sampleCount: number;
+  samples: LatencyScatterSample[];
 };
 
 export interface AdminPracticeDashboardData {
@@ -182,7 +199,12 @@ export interface AdminPracticeDashboardData {
 export interface AdminPracticeAnalyticsData {
   actionTrendData: (TrendDatum & {
     booked: number;
+    bookedRate: number;
+    calls: number;
     cancelled: number;
+    cancelledRate: number;
+    transferRate: number;
+    transfers: number;
   })[];
   avgCacheHitRate: number;
   avgDurationSec: number;
@@ -196,12 +218,6 @@ export interface AdminPracticeAnalyticsData {
   callVolumeTrendData: (TrendDatum & { count: number })[];
   cancelApptSuccesses: number;
   durationDistributionData: { bucket: string; count: number }[];
-  interruptionRateTrendData: (TrendDatum & {
-    calls: number;
-    count: number;
-    rate: number;
-  })[];
-  peakContextTrendData: (TrendDatum & { peak: number })[];
   peakTrafficData: { count: number; day: string; hour: number }[];
   pipelineP50: {
     llm: number | null;
@@ -209,13 +225,25 @@ export interface AdminPracticeAnalyticsData {
     total: number | null;
     tts: number | null;
   };
-  sttLatencyTrendData: PercentileTrendDatum[];
+  latencyDistributions: {
+    llm: LatencyDistributionData;
+    stt: LatencyDistributionData;
+    total: LatencyDistributionData;
+    tts: LatencyDistributionData;
+  };
   tokenTrendData: (TrendDatum & {
-    cached: number;
-    input: number;
+    cachedInput: number;
+    nonCachedInput: number;
     output: number;
+    totalInput: number;
   })[];
-  toolDurationData: { avgMs: number; p95Ms: number; tool: string }[];
+  toolDurationData: {
+    avgMs: number;
+    p50Ms: number;
+    p95Ms: number;
+    sampleCount: number;
+    tool: string;
+  }[];
   toolErrorRateData: {
     errorRate: number;
     errors: number;
@@ -228,20 +256,12 @@ export interface AdminPracticeAnalyticsData {
   totalDurationSec: number;
   totalInputTokens: number;
   totalInterruptions: number;
-  totalLatencyTrendData: PercentileTrendDatum[];
   totalOutputTokens: number;
   totalTtsChars: number;
   totalToolCalls: number;
   totalToolErrors: number;
   transferCount: number;
-  transferTrendData: (TrendDatum & {
-    calls: number;
-    rate: number;
-    transfers: number;
-  })[];
   trendGranularityLabel: "hourly" | "daily" | "weekly";
-  ttsLatencyTrendData: PercentileTrendDatum[];
-  ttftLatencyTrendData: PercentileTrendDatum[];
 }
 
 export interface AdminCallTableRow {
@@ -494,24 +514,6 @@ function createEmptyAnalyticsBucket(): AnalyticsBucketStats {
   };
 }
 
-function percentileDatum(bucket: BucketInfo, values: number[]): PercentileTrendDatum {
-  if (values.length === 0) {
-    return {
-      label: bucket.label,
-      p50: null,
-      p95: null,
-      tooltipLabel: bucket.tooltipLabel,
-    };
-  }
-
-  return {
-    label: bucket.label,
-    p50: percentile(values, 50),
-    p95: percentile(values, 95),
-    tooltipLabel: bucket.tooltipLabel,
-  };
-}
-
 function getAgentStatus(agents: Array<{ status: AgentStatus }>): AgentStatus {
   if (agents.some((agent) => agent.status === "ERROR")) {
     return "ERROR";
@@ -549,23 +551,132 @@ function average(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function percentile(values: number[], p: number) {
-  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
-
-  if (sorted.length === 0) {
-    return 0;
+function formatShortLatency(ms: number) {
+  if (ms >= 1_000) {
+    return `${Number((ms / 1_000).toFixed(ms >= 10_000 ? 0 : 1))}s`;
   }
 
-  const index = Math.ceil((p / 100) * sorted.length) - 1;
-  return sorted[Math.max(0, Math.min(index, sorted.length - 1))] ?? 0;
+  return `${Math.round(ms)}ms`;
 }
 
-function computePercentiles(values: number[]): LatencyPercentiles {
+function latencyBucketLabel(min: number, max: number | null) {
+  if (max == null) {
+    return `>${formatShortLatency(min)}`;
+  }
+
+  return `${formatShortLatency(min)}-${formatShortLatency(max)}`;
+}
+
+function niceLatencyStep(rawStep: number) {
+  const step = LATENCY_STEPS_MS.find((candidate) => candidate >= rawStep);
+
+  if (step != null) {
+    return step;
+  }
+
+  return Math.ceil(rawStep / 60_000) * 60_000;
+}
+
+function buildRankedLatencySamples(sortedValues: number[]): LatencyScatterSample[] {
+  if (sortedValues.length === 0) {
+    return [];
+  }
+
+  const targetCount = Math.min(sortedValues.length, MAX_LATENCY_SCATTER_SAMPLES);
+  const samples: LatencyScatterSample[] = [];
+  const seenIndexes = new Set<number>();
+
+  for (let sample = 0; sample < targetCount; sample++) {
+    const index =
+      targetCount === 1
+        ? sortedValues.length - 1
+        : Math.round((sample / (targetCount - 1)) * (sortedValues.length - 1));
+
+    if (seenIndexes.has(index)) {
+      continue;
+    }
+
+    seenIndexes.add(index);
+    samples.push({
+      percentile:
+        sortedValues.length === 1
+          ? 100
+          : Math.round((index / (sortedValues.length - 1)) * 1_000) / 10,
+      sample: index + 1,
+      value: sortedValues[index] ?? 0,
+    });
+  }
+
+  return samples;
+}
+
+function buildLatencyDistribution(values: number[]): LatencyDistributionData {
+  const sortedValues = values
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+  const percentiles = computePercentiles(sortedValues);
+
+  if (sortedValues.length === 0) {
+    return {
+      buckets: [],
+      percentiles,
+      sampleCount: 0,
+      samples: [],
+    };
+  }
+
+  const rangeMs = Math.max(percentiles.p95, sortedValues[0] ?? 0, 1);
+  const step = niceLatencyStep(rangeMs / HISTOGRAM_BUCKET_COUNT);
+  const regularMax = step * HISTOGRAM_BUCKET_COUNT;
+  const buckets = Array.from({ length: HISTOGRAM_BUCKET_COUNT }, (_, index) => {
+    const min = index * step;
+    const max = (index + 1) * step;
+
+    return {
+      count: 0,
+      label: latencyBucketLabel(min, max),
+      max,
+      min,
+      percent: 0,
+    };
+  });
+  const overflowBucket: LatencyHistogramBucket = {
+    count: 0,
+    label: latencyBucketLabel(regularMax, null),
+    max: null,
+    min: regularMax,
+    percent: 0,
+  };
+
+  for (const value of sortedValues) {
+    if (value > regularMax) {
+      overflowBucket.count++;
+      continue;
+    }
+
+    const index = Math.min(
+      HISTOGRAM_BUCKET_COUNT - 1,
+      Math.max(0, Math.floor(value / step)),
+    );
+    const bucket = buckets[index];
+
+    if (bucket) {
+      bucket.count++;
+    }
+  }
+
+  const populatedBuckets =
+    overflowBucket.count > 0 ? [...buckets, overflowBucket] : buckets;
+
+  for (const bucket of populatedBuckets) {
+    bucket.percent = (bucket.count / sortedValues.length) * 100;
+  }
+
   return {
-    p50: percentile(values, 50),
-    p90: percentile(values, 90),
-    p95: percentile(values, 95),
-    p99: percentile(values, 99),
+    buckets: populatedBuckets,
+    percentiles,
+    sampleCount: sortedValues.length,
+    samples: buildRankedLatencySamples(sortedValues),
   };
 }
 
@@ -1004,47 +1115,31 @@ function buildPracticeAnalyticsData(
     label: bucket.label,
     tooltipLabel: bucket.tooltipLabel,
   }));
-  const transferTrendData = sortedBuckets.map((bucket) => {
-    const data = buckets.get(bucket.key) ?? createEmptyAnalyticsBucket();
-
-    return {
-      calls: data.calls,
-      label: bucket.label,
-      rate: data.calls > 0 ? (data.transfers / data.calls) * 100 : 0,
-      tooltipLabel: bucket.tooltipLabel,
-      transfers: data.transfers,
-    };
-  });
   const actionTrendData = sortedBuckets.map((bucket) => {
     const data = buckets.get(bucket.key) ?? createEmptyAnalyticsBucket();
 
     return {
       booked: data.booked,
-      cancelled: data.cancelled,
-      label: bucket.label,
-      tooltipLabel: bucket.tooltipLabel,
-    };
-  });
-  const interruptionRateTrendData = sortedBuckets.map((bucket) => {
-    const data = buckets.get(bucket.key) ?? createEmptyAnalyticsBucket();
-
-    return {
+      bookedRate: data.calls > 0 ? (data.booked / data.calls) * 100 : 0,
       calls: data.calls,
-      count: data.interruptions,
+      cancelled: data.cancelled,
+      cancelledRate: data.calls > 0 ? (data.cancelled / data.calls) * 100 : 0,
       label: bucket.label,
-      rate: data.calls > 0 ? (data.interruptions / data.calls) * 100 : 0,
       tooltipLabel: bucket.tooltipLabel,
+      transferRate: data.calls > 0 ? (data.transfers / data.calls) * 100 : 0,
+      transfers: data.transfers,
     };
   });
   const tokenTrendData = sortedBuckets.map((bucket) => {
     const data = buckets.get(bucket.key) ?? createEmptyAnalyticsBucket();
 
     return {
-      cached: data.cachedTokens,
-      input: data.inputTokens,
+      cachedInput: data.cachedTokens,
       label: bucket.label,
+      nonCachedInput: Math.max(0, data.inputTokens - data.cachedTokens),
       output: data.outputTokens,
       tooltipLabel: bucket.tooltipLabel,
+      totalInput: data.inputTokens,
     };
   });
   const cacheEfficiencyTrendData = sortedBuckets.map((bucket) => {
@@ -1058,11 +1153,6 @@ function buildPracticeAnalyticsData(
       tooltipLabel: bucket.tooltipLabel,
     };
   });
-  const peakContextTrendData = sortedBuckets.map((bucket) => ({
-    label: bucket.label,
-    peak: buckets.get(bucket.key)?.peakContext ?? 0,
-    tooltipLabel: bucket.tooltipLabel,
-  }));
   const peakTrafficData: AdminPracticeAnalyticsData["peakTrafficData"] = [];
 
   for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
@@ -1089,16 +1179,24 @@ function buildPracticeAnalyticsData(
       };
     })
     .sort((a, b) => {
+      const errorDiff = b.errors - a.errors;
+      if (errorDiff !== 0) return errorDiff;
+
       const rateDiff = b.errorRate - a.errorRate;
-      return Math.abs(rateDiff) > 0.001 ? rateDiff : b.errors - a.errors;
+      return Math.abs(rateDiff) > 0.001 ? rateDiff : b.total - a.total;
     });
   const toolDurationData = [...toolDurations.entries()]
     .map(([tool, values]) => ({
       avgMs: average(values),
+      p50Ms: percentile(values, 50),
       p95Ms: percentile(values, 95),
+      sampleCount: values.length,
       tool,
     }))
-    .sort((a, b) => b.p95Ms - a.p95Ms);
+    .sort((a, b) => {
+      const p95Diff = b.p95Ms - a.p95Ms;
+      return Math.abs(p95Diff) > 0.001 ? p95Diff : b.sampleCount - a.sampleCount;
+    });
 
   return {
     actionTrendData,
@@ -1113,8 +1211,6 @@ function buildPracticeAnalyticsData(
       bucket: bucket.label,
       count: bucketCounts[index] ?? 0,
     })),
-    interruptionRateTrendData,
-    peakContextTrendData,
     peakTrafficData,
     pipelineP50: {
       llm: allTtftValues.length > 0 ? percentile(allTtftValues, 50) : null,
@@ -1123,9 +1219,12 @@ function buildPracticeAnalyticsData(
         allTotalLatencyValues.length > 0 ? percentile(allTotalLatencyValues, 50) : null,
       tts: allTtsValues.length > 0 ? percentile(allTtsValues, 50) : null,
     },
-    sttLatencyTrendData: sortedBuckets.map((bucket) =>
-      percentileDatum(bucket, buckets.get(bucket.key)?.sttValues ?? []),
-    ),
+    latencyDistributions: {
+      llm: buildLatencyDistribution(allTtftValues),
+      stt: buildLatencyDistribution(allSttValues),
+      total: buildLatencyDistribution(allTotalLatencyValues),
+      tts: buildLatencyDistribution(allTtsValues),
+    },
     tokenTrendData,
     toolDurationData,
     toolErrorRateData,
@@ -1135,22 +1234,12 @@ function buildPracticeAnalyticsData(
     totalDurationSec,
     totalInputTokens,
     totalInterruptions,
-    totalLatencyTrendData: sortedBuckets.map((bucket) =>
-      percentileDatum(bucket, buckets.get(bucket.key)?.totalLatencyValues ?? []),
-    ),
     totalOutputTokens,
     totalTtsChars,
     totalToolCalls,
     totalToolErrors,
     transferCount,
-    transferTrendData,
     trendGranularityLabel: getGranularityLabel(granularity),
-    ttsLatencyTrendData: sortedBuckets.map((bucket) =>
-      percentileDatum(bucket, buckets.get(bucket.key)?.ttsValues ?? []),
-    ),
-    ttftLatencyTrendData: sortedBuckets.map((bucket) =>
-      percentileDatum(bucket, buckets.get(bucket.key)?.ttftValues ?? []),
-    ),
   };
 }
 

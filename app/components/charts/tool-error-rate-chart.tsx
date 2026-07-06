@@ -11,7 +11,7 @@ import {
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 
 const chartConfig = {
-  errorRate: { label: "Error Rate", color: "var(--chart-5)" },
+  errors: { label: "Errors", color: "var(--chart-5)" },
 } satisfies ChartConfig;
 
 export function ToolErrorRateChart({
@@ -19,13 +19,13 @@ export function ToolErrorRateChart({
 }: {
   data: { tool: string; errorRate: number; errors: number; total: number }[];
 }) {
-  const displayData = data.filter((row) => row.total > 0).slice(0, 10);
+  const displayData = data.filter((row) => row.errors > 0).slice(0, 10);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tool Error Rate</CardTitle>
-        <CardDescription>Error rate by tool, sorted from worst to best</CardDescription>
+        <CardTitle>Tool Failures</CardTitle>
+        <CardDescription>Tools causing the most failed executions</CardDescription>
       </CardHeader>
       <CardContent>
         {displayData.length === 0 ? (
@@ -38,7 +38,7 @@ export function ToolErrorRateChart({
               <CartesianGrid horizontal={false} />
               <XAxis
                 type="number"
-                tickFormatter={(value) => `${Math.round(Number(value))}%`}
+                allowDecimals={false}
                 tickLine={false}
                 axisLine={false}
               />
@@ -56,10 +56,10 @@ export function ToolErrorRateChart({
                   return (
                     <div className="rounded-lg border bg-background p-2 shadow-sm text-xs">
                       <p className="font-medium">{row.tool}</p>
-                      <div className="mt-1 space-y-0.5 font-mono">
-                        <p>{row.errorRate.toFixed(1)}% error rate</p>
+                      <div className="mt-1 flex flex-col gap-0.5 font-mono">
+                        <p>{row.errors} failed executions</p>
                         <p>
-                          {row.errors} errors / {row.total} calls
+                          {row.errorRate.toFixed(1)}% rate ({row.errors}/{row.total})
                         </p>
                       </div>
                     </div>
@@ -67,8 +67,8 @@ export function ToolErrorRateChart({
                 }}
               />
               <Bar
-                dataKey="errorRate"
-                fill="var(--color-errorRate)"
+                dataKey="errors"
+                fill="var(--color-errors)"
                 radius={[0, 4, 4, 0]}
               />
             </BarChart>

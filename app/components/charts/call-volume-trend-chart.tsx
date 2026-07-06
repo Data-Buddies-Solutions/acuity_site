@@ -48,7 +48,7 @@ export function CallVolumeTrendChart({
               />
               <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={40} />
               <ChartTooltip
-                content={({ active, payload, label }) => {
+                content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
                   const row = payload[0].payload as (typeof data)[number];
                   return (

@@ -3,13 +3,12 @@ import { formatPercent, cacheColor } from "@/lib/format";
 import { StatCard } from "@/app/components/stat-card";
 import { TokenMixTrendChart } from "@/app/components/charts/token-mix-trend-chart";
 import { CacheEfficiencyTrendChart } from "@/app/components/charts/cache-efficiency-trend-chart";
-import { PeakContextTrendChart } from "@/app/components/charts/peak-context-trend-chart";
 
 export function TokensTab({ data }: { data: AnalyticsData }) {
   const totalTokens = data.totalInputTokens + data.totalOutputTokens;
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="Total Tokens"
@@ -66,12 +65,6 @@ export function TokensTab({ data }: { data: AnalyticsData }) {
           data={data.cacheEfficiencyTrendData}
           granularityLabel={data.trendGranularityLabel}
         />
-        <div className="md:col-span-2">
-          <PeakContextTrendChart
-            data={data.peakContextTrendData}
-            granularityLabel={data.trendGranularityLabel}
-          />
-        </div>
       </div>
     </div>
   );

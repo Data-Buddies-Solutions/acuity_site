@@ -1,6 +1,6 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
   Card,
   CardContent,
@@ -45,6 +45,7 @@ export function DurationDistributionChart({
             <BarChart data={data}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} />
+              <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={40} />
               <ChartTooltip
                 content={<ChartTooltipContent formatter={(value) => `${value} calls`} />}
               />

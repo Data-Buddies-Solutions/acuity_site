@@ -1,9 +1,7 @@
 "use client";
 
-import type {
-  AdminPracticeDashboardData,
-  LatencyPercentiles,
-} from "@/lib/admin-analytics";
+import type { AdminPracticeDashboardData } from "@/lib/admin-analytics";
+import type { LatencyPercentiles } from "@/lib/format";
 import {
   formatDuration,
   formatLatencyMs,

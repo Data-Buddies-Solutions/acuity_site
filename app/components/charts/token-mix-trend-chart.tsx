@@ -17,10 +17,16 @@ import {
 } from "@/components/ui/chart";
 
 const chartConfig = {
-  input: { label: "Input", color: "var(--chart-1)" },
+  nonCachedInput: { label: "Non-cached input", color: "var(--chart-1)" },
+  cachedInput: { label: "Cached input", color: "var(--chart-3)" },
   output: { label: "Output", color: "var(--chart-2)" },
-  cached: { label: "Cached", color: "var(--chart-4)" },
 } satisfies ChartConfig;
+
+function formatCompact(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+  return String(value);
+}
 
 export function TokenMixTrendChart({
   data,
@@ -29,21 +35,24 @@ export function TokenMixTrendChart({
   data: {
     label: string;
     tooltipLabel: string;
-    input: number;
+    cachedInput: number;
+    nonCachedInput: number;
     output: number;
-    cached: number;
+    totalInput: number;
   }[];
   granularityLabel: string;
 }) {
-  const hasData = data.some((row) => row.input > 0 || row.output > 0 || row.cached > 0);
+  const hasData = data.some(
+    (row) => row.totalInput > 0 || row.output > 0 || row.cachedInput > 0,
+  );
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Token Mix</CardTitle>
         <CardDescription>
-          {granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} input, output,
-          and cached token totals
+          {granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} real token
+          volume split by cache status
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -62,7 +71,12 @@ export function TokenMixTrendChart({
                 tickMargin={8}
                 minTickGap={24}
               />
-              <YAxis tickLine={false} axisLine={false} width={48} />
+              <YAxis
+                tickFormatter={(value) => formatCompact(Number(value))}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+              />
               <ChartTooltip
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
@@ -70,22 +84,31 @@ export function TokenMixTrendChart({
                   return (
                     <div className="rounded-lg border bg-background p-2 shadow-sm text-xs">
                       <p className="font-medium">{row.tooltipLabel}</p>
-                      <div className="mt-1 space-y-0.5 font-mono">
-                        <p>{row.input.toLocaleString()} input</p>
+                      <div className="mt-1 flex flex-col gap-0.5 font-mono">
+                        <p>{row.totalInput.toLocaleString()} input</p>
+                        <p>{row.nonCachedInput.toLocaleString()} non-cached</p>
+                        <p>{row.cachedInput.toLocaleString()} cached</p>
                         <p>{row.output.toLocaleString()} output</p>
-                        <p>{row.cached.toLocaleString()} cached</p>
                       </div>
                     </div>
                   );
                 }}
               />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="input" stackId="tokens" fill="var(--color-input)" />
-              <Bar dataKey="output" stackId="tokens" fill="var(--color-output)" />
               <Bar
-                dataKey="cached"
+                dataKey="nonCachedInput"
                 stackId="tokens"
-                fill="var(--color-cached)"
+                fill="var(--color-nonCachedInput)"
+              />
+              <Bar
+                dataKey="cachedInput"
+                stackId="tokens"
+                fill="var(--color-cachedInput)"
+              />
+              <Bar
+                dataKey="output"
+                stackId="tokens"
+                fill="var(--color-output)"
                 radius={[4, 4, 0, 0]}
               />
             </BarChart>

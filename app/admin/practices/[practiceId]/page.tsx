@@ -7,7 +7,6 @@ import { AnalyticsTabs } from "@/app/components/analytics-tabs";
 import { CostsTab } from "@/app/components/analytics/costs-tab";
 import { OverviewTab } from "@/app/components/analytics/overview-tab";
 import { PerformanceTab } from "@/app/components/analytics/performance-tab";
-import { QualityTab } from "@/app/components/analytics/quality-tab";
 import { TokensTab } from "@/app/components/analytics/tokens-tab";
 import { ToolsTab } from "@/app/components/analytics/tools-tab";
 import { CallsTable } from "@/app/components/calls-table";
@@ -25,8 +24,7 @@ import { parseCallTableState } from "@/lib/admin-call-table-state";
 export const dynamic = "force-dynamic";
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
-type AdminPracticeTab =
-  "overview" | "quality" | "performance" | "costs" | "tokens" | "tools";
+type AdminPracticeTab = "overview" | "performance" | "costs" | "tokens" | "tools";
 type PracticeView = "analytics" | "bad" | "command" | "golden";
 
 function parseRange(value: string | string[] | undefined): AdminPracticeRange {
@@ -39,7 +37,6 @@ function parseRange(value: string | string[] | undefined): AdminPracticeRange {
 
 function parseTab(value: string | string[] | undefined): AdminPracticeTab {
   if (
-    value === "quality" ||
     value === "performance" ||
     value === "costs" ||
     value === "tokens" ||
@@ -243,11 +240,10 @@ export default async function AdminPracticeDetailPage({
       ) : (
         <>
           <Suspense>
-            <AnalyticsTabs />
-          </Suspense>
+          <AnalyticsTabs />
+        </Suspense>
 
           {data && tab === "overview" && <OverviewTab data={data} />}
-          {data && tab === "quality" && <QualityTab data={data} />}
           {data && tab === "performance" && <PerformanceTab data={data} />}
           {data && tab === "costs" && <CostsTab data={data} />}
           {data && tab === "tokens" && <TokensTab data={data} />}

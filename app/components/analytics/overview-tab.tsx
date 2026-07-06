@@ -1,10 +1,10 @@
 import type { AnalyticsData } from "@/lib/analytics";
-import { formatDuration, inverseRateColor } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
 import { StatCard } from "@/app/components/stat-card";
 import { CallVolumeTrendChart } from "@/app/components/charts/call-volume-trend-chart";
-import { TransferRateTrendChart } from "@/app/components/charts/transfer-rate-trend-chart";
 import { ActionTrendChart } from "@/app/components/charts/action-trend-chart";
 import { DurationDistributionChart } from "@/app/components/charts/duration-distribution-chart";
+import { PeakTrafficHeatmap } from "@/app/components/charts/peak-traffic-heatmap";
 
 export function OverviewTab({ data }: { data: AnalyticsData }) {
   const transferRate =
@@ -14,7 +14,7 @@ export function OverviewTab({ data }: { data: AnalyticsData }) {
   const totalActions = data.bookApptSuccesses + data.cancelApptSuccesses;
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Total Calls"
@@ -50,17 +50,12 @@ export function OverviewTab({ data }: { data: AnalyticsData }) {
           data={data.callVolumeTrendData}
           granularityLabel={data.trendGranularityLabel}
         />
-        <TransferRateTrendChart
-          data={data.transferTrendData}
+        <ActionTrendChart
+          data={data.actionTrendData}
           granularityLabel={data.trendGranularityLabel}
         />
-        <div className="md:col-span-2">
-          <ActionTrendChart
-            data={data.actionTrendData}
-            granularityLabel={data.trendGranularityLabel}
-          />
-        </div>
         <DurationDistributionChart data={data.durationDistributionData} />
+        <PeakTrafficHeatmap data={data.peakTrafficData} />
       </div>
     </div>
   );

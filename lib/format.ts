@@ -100,25 +100,21 @@ export interface LatencyPercentiles {
 }
 
 export function computePercentiles(values: number[]): LatencyPercentiles {
-  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
-
   return {
-    p50: percentile(sorted, 50),
-    p90: percentile(sorted, 90),
-    p95: percentile(sorted, 95),
-    p99: percentile(sorted, 99),
+    p50: percentile(values, 50),
+    p90: percentile(values, 90),
+    p95: percentile(values, 95),
+    p99: percentile(values, 99),
   };
 }
 
-function percentile(sorted: number[], p: number): number {
+export function percentile(values: number[], p: number): number {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+
   if (sorted.length === 0) return 0;
-  const index = (p / 100) * (sorted.length - 1);
-  const lower = Math.floor(index);
-  const upper = Math.ceil(index);
-  if (lower === upper) return sorted[lower] ?? 0;
-  return (
-    (sorted[lower] ?? 0) + ((sorted[upper] ?? 0) - (sorted[lower] ?? 0)) * (index - lower)
-  );
+
+  const index = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, Math.min(index, sorted.length - 1))] ?? 0;
 }
 
 export function deriveTotalLatency(turn: {

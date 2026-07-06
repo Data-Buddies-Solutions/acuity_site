@@ -17,12 +17,12 @@ function formatHour(h: number): string {
 }
 
 function intensity(count: number, max: number): string {
-  if (max === 0 || count === 0) return "bg-gray-50 dark:bg-gray-800/50";
+  if (max === 0 || count === 0) return "bg-muted/40 text-muted-foreground";
   const ratio = count / max;
-  if (ratio > 0.75) return "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900";
-  if (ratio > 0.5) return "bg-gray-600 text-white dark:bg-gray-400 dark:text-gray-900";
-  if (ratio > 0.25) return "bg-gray-300 dark:bg-gray-600";
-  return "bg-gray-100 dark:bg-gray-700";
+  if (ratio > 0.75) return "bg-foreground text-background";
+  if (ratio > 0.5) return "bg-foreground/70 text-background";
+  if (ratio > 0.25) return "bg-muted-foreground/35 text-foreground";
+  return "bg-muted text-muted-foreground";
 }
 
 export function PeakTrafficHeatmap({
@@ -39,13 +39,11 @@ export function PeakTrafficHeatmap({
     lookup.set(`${d.day}-${d.hour}`, d.count);
   }
 
-  const visibleHours = hours.filter((h) => h >= 7 && h <= 21);
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>Peak Traffic</CardTitle>
-        <CardDescription>Call volume by day and hour from 7a to 9p ET</CardDescription>
+        <CardDescription>Call volume by day and hour in ET</CardDescription>
       </CardHeader>
       <CardContent>
         {max === 0 ? (
@@ -56,31 +54,29 @@ export function PeakTrafficHeatmap({
           <div className="overflow-x-auto">
             <div
               className="inline-grid gap-[2px]"
-              style={{ gridTemplateColumns: `auto repeat(${visibleHours.length}, 1fr)` }}
+              style={{ gridTemplateColumns: `auto repeat(${hours.length}, 1fr)` }}
             >
-              {/* Header row */}
               <div />
-              {visibleHours.map((h) => (
+              {hours.map((h) => (
                 <div
                   key={h}
-                  className="px-1 pb-1 text-center text-[9px] font-medium text-gray-400"
+                  className="px-1 pb-1 text-center text-[9px] font-medium text-muted-foreground"
                 >
                   {formatHour(h)}
                 </div>
               ))}
 
-              {/* Data rows */}
               {days.map((day) => (
                 <Fragment key={day}>
-                  <div className="flex items-center pr-2 text-[10px] font-medium text-gray-400">
+                  <div className="flex items-center pr-2 text-[10px] font-medium text-muted-foreground">
                     {day}
                   </div>
-                  {visibleHours.map((hour) => {
+                  {hours.map((hour) => {
                     const count = lookup.get(`${day}-${hour}`) ?? 0;
                     return (
                       <div
                         key={`${day}-${hour}`}
-                        className={`flex h-6 min-w-[28px] items-center justify-center rounded text-[9px] font-medium tabular-nums transition-all ${intensity(count, max)}`}
+                        className={`flex h-6 min-w-6 items-center justify-center rounded text-[9px] font-medium tabular-nums transition-colors ${intensity(count, max)}`}
                         title={`${day} ${formatHour(hour)}: ${count} call${count !== 1 ? "s" : ""}`}
                       >
                         {count > 0 ? count : ""}
