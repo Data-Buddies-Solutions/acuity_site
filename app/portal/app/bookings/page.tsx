@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Search } from "lucide-react";
 
+import { PortalBadge } from "@/app/portal/app/PortalBadge";
+import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import {
   getPortalBookings,
   type PortalBookingCategorySummary,
@@ -158,12 +160,12 @@ function formatVisitType(visitType: PortalBookedAppointment["visitType"]) {
 function BookingTypeBadges({ booking }: { booking: PortalBookedAppointment }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      <span className="inline-flex items-center rounded-md border border-[#d6dbe6] bg-white px-2 py-1 text-[11px] font-semibold leading-none text-[#344054]">
+      <PortalBadge className="rounded-md px-2 text-[11px] text-[var(--portal-ink-soft)]">
         {formatCareLane(booking.careLane)}
-      </span>
-      <span className="inline-flex items-center rounded-md border border-[#e1e5ed] bg-[#f7f8fb] px-2 py-1 text-[11px] font-semibold leading-none text-[#536a91]">
+      </PortalBadge>
+      <PortalBadge className="rounded-md px-2 text-[11px]" tone="accent">
         {formatVisitType(booking.visitType)}
-      </span>
+      </PortalBadge>
     </div>
   );
 }
@@ -401,33 +403,23 @@ export default async function PortalBookingsPage({
             range={result.range}
             selectedOfficeId={result.selectedOfficeId}
           />
-          <nav
-            aria-label="Bookings range"
-            className="inline-flex w-full rounded-lg border border-black/8 bg-white p-1 sm:w-fit"
-          >
-            {rangeOptions.map((option) => {
-              const isActive = option.value === result.range;
-              return (
-                <Link
-                  key={option.value}
-                  aria-current={isActive ? "page" : undefined}
-                  className={cn(
-                    "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
-                    isActive
-                      ? "!bg-[#536a91] !text-white shadow-sm hover:!text-white"
-                      : "text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
-                  )}
-                  href={bookingsHref({
-                    office: result.selectedOfficeId,
-                    query: result.searchQuery,
-                    range: option.value,
-                  })}
-                >
-                  {option.label}
-                </Link>
-              );
-            })}
-          </nav>
+          <LinkSegmentedControl
+            activeClassName="bg-[var(--portal-accent)] text-white hover:text-white"
+            ariaLabel="Bookings range"
+            className="w-full border border-black/8 bg-white sm:w-fit"
+            inactiveClassName="text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
+            itemClassName="flex-1 px-4 py-1.5 text-center text-sm sm:min-w-24"
+            items={rangeOptions.map((option) => ({
+              href: bookingsHref({
+                office: result.selectedOfficeId,
+                query: result.searchQuery,
+                range: option.value,
+              }),
+              label: option.label,
+              value: option.value,
+            }))}
+            value={result.range}
+          />
         </div>
       </section>
 

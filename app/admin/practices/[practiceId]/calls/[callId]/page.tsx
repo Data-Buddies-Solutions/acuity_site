@@ -13,6 +13,7 @@ import {
 } from "@/app/components/turn-bubble";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import {
   Card,
   CardContent,
@@ -447,39 +448,40 @@ export default async function AdminCallDetailPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card/80 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <Link
-          href={backHref}
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground transition hover:bg-muted"
-        >
-          <List className="h-4 w-4" />
-          Back to calls
-        </Link>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            aria-disabled={!previousHref}
-            className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium transition ${
-              previousHref
-                ? "text-foreground hover:bg-muted"
-                : "pointer-events-none text-muted-foreground opacity-50"
-            }`}
-            href={previousHref ?? backHref}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Previous call
+        <Button asChild variant="secondary" size="sm" className="w-fit">
+          <Link href={backHref}>
+            <List aria-hidden="true" />
+            Back to calls
           </Link>
-          <Link
-            aria-disabled={!nextHref}
-            className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium transition ${
-              nextHref
-                ? "text-foreground hover:bg-muted"
-                : "pointer-events-none text-muted-foreground opacity-50"
-            }`}
-            href={nextHref ?? backHref}
-          >
-            Next call
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
+        </Button>
+        <ButtonGroup>
+          {previousHref ? (
+            <Button asChild variant="secondary" size="sm">
+              <Link href={previousHref}>
+                <ArrowLeft aria-hidden="true" />
+                Previous
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant="secondary" size="sm">
+              <ArrowLeft aria-hidden="true" />
+              Previous
+            </Button>
+          )}
+          {nextHref ? (
+            <Button asChild variant="secondary" size="sm">
+              <Link href={nextHref}>
+                Next
+                <ArrowRight aria-hidden="true" />
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant="secondary" size="sm">
+              Next
+              <ArrowRight aria-hidden="true" />
+            </Button>
+          )}
+        </ButtonGroup>
       </div>
 
       <div className="space-y-3">

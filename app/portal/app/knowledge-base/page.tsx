@@ -2,19 +2,20 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowUpRight, Clock3 } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { MarkdownDocument } from "@/app/components/MarkdownDocument";
 import { DocumentPanel } from "@/app/portal/app/DocumentView";
+import { PortalDocumentSelector } from "@/app/portal/app/PortalDocumentSelector";
+import { PortalCodeTextareaField } from "@/app/portal/app/PortalFields";
 import { PracticePageHeader } from "@/app/portal/app/PracticePageHeader";
 import { getPortalKnowledgeDocumentState } from "@/lib/knowledge-documents";
+import { getPortalLocationDocumentLabel } from "@/lib/portal-document-label";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
-import { cn } from "@/lib/utils";
 
 import { saveKnowledgeDocumentDraftAction } from "./actions";
 
 type SearchParamsInput =
-  | Promise<Record<string, string | string[] | undefined>>
-  | undefined;
+  Promise<Record<string, string | string[] | undefined>> | undefined;
 
 async function getPageParams(searchParams: SearchParamsInput) {
   const resolved = (await searchParams) || {};
@@ -44,64 +45,6 @@ function formatDate(date: Date | null) {
     timeZone: "America/New_York",
     year: "numeric",
   }).format(date);
-}
-
-function documentLabel(document: {
-  locationName: string | null;
-  slug: string;
-  title: string;
-}) {
-  if (document.locationName) {
-    return document.locationName;
-  }
-  if (document.slug.includes("crystal")) {
-    return "Crystal River";
-  }
-  if (document.slug.includes("spring")) {
-    return "Spring Hill";
-  }
-  return document.title.replace(/^Knowledge Base:\s*/i, "");
-}
-
-function KnowledgeDocumentSelector({
-  documents,
-  selectedId,
-}: {
-  documents: Array<{
-    id: string;
-    locationName: string | null;
-    slug: string;
-    title: string;
-  }>;
-  selectedId: string;
-}) {
-  if (documents.length <= 1) {
-    return null;
-  }
-
-  return (
-    <section className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--portal-muted-soft)]">
-        Location
-      </p>
-      <nav aria-label="Knowledge base location" className="flex gap-2 overflow-x-auto">
-        {documents.map((document) => (
-          <Link
-            key={document.id}
-            className={cn(
-              "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
-              document.id === selectedId
-                ? "border-[var(--portal-border)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
-                : "border-[var(--portal-border)] bg-white text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
-            )}
-            href={`/portal/app/knowledge-base?doc=${encodeURIComponent(document.slug)}`}
-          >
-            {documentLabel(document)}
-          </Link>
-        ))}
-      </nav>
-    </section>
-  );
 }
 
 export default async function PortalKnowledgeBasePage({
@@ -152,6 +95,16 @@ export default async function PortalKnowledgeBasePage({
   const pendingRevision = selectedDocument.pendingRevision;
   const currentMarkdown =
     pendingRevision?.markdown ?? selectedDocument.publishedRevision.markdown;
+  const selectorItems = documentState.documents.map((document) => ({
+    id: document.id,
+    label: getPortalLocationDocumentLabel({
+      locationName: document.locationName,
+      slug: document.slug,
+      title: document.title,
+      titlePrefix: "Knowledge Base",
+    }),
+    slug: document.slug,
+  }));
 
   if (editing) {
     return (
@@ -166,8 +119,11 @@ export default async function PortalKnowledgeBasePage({
           </Button>
         </PracticePageHeader>
 
-        <KnowledgeDocumentSelector
-          documents={documentState.documents}
+        <PortalDocumentSelector
+          ariaLabel="Knowledge base location"
+          basePath="/portal/app/knowledge-base"
+          items={selectorItems}
+          queryKey="doc"
           selectedId={selectedDocument.id}
         />
 
@@ -180,17 +136,12 @@ export default async function PortalKnowledgeBasePage({
 
         <form action={saveKnowledgeDocumentDraftAction} className="space-y-4">
           <input type="hidden" name="documentId" value={selectedDocument.id} />
-          <label className="block space-y-2">
-            <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--portal-muted-soft)]">
-              Markdown
-            </span>
-            <textarea
-              className="min-h-[620px] w-full rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 font-mono text-sm leading-6 text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/12"
-              defaultValue={currentMarkdown}
-              name="markdown"
-              required
-            />
-          </label>
+          <PortalCodeTextareaField
+            defaultValue={currentMarkdown}
+            label="Markdown"
+            name="markdown"
+            required
+          />
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button type="submit" variant="primary">
               Send for admin review
@@ -217,8 +168,11 @@ export default async function PortalKnowledgeBasePage({
         </Button>
       </PracticePageHeader>
 
-      <KnowledgeDocumentSelector
-        documents={documentState.documents}
+      <PortalDocumentSelector
+        ariaLabel="Knowledge base location"
+        basePath="/portal/app/knowledge-base"
+        items={selectorItems}
+        queryKey="doc"
         selectedId={selectedDocument.id}
       />
 

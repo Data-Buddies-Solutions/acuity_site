@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { PortalCodeTextareaField } from "@/app/portal/app/PortalFields";
 
 import { saveInsuranceRuleDraftAction } from "./actions";
 
@@ -30,18 +31,14 @@ export function InsuranceRulesEditor({
   return (
     <form action={saveInsuranceRuleDraftAction} className="space-y-4">
       <input type="hidden" name="ruleSetId" value={ruleSetId} />
-      <label className="block space-y-2">
-        <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--portal-muted-soft)]">
-          Rules JSON
-        </span>
-        <textarea
-          className="min-h-[680px] w-full rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 font-mono text-sm leading-6 text-[var(--portal-ink)] outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/12"
-          name="rulesJson"
-          required
-          value={rulesJson}
-          onChange={(event) => setRulesJson(event.target.value)}
-        />
-      </label>
+      <PortalCodeTextareaField
+        label="Rules JSON"
+        minHeightClassName="min-h-[680px]"
+        name="rulesJson"
+        onChange={(event) => setRulesJson(event.target.value)}
+        required
+        value={rulesJson}
+      />
 
       {jsonError ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">

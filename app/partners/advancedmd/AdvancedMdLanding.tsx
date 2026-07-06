@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import BookCallButton from "@/app/components/BookCallButton";
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 
 const VALUE_PROPS = [
   {

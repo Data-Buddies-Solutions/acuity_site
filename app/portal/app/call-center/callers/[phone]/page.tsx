@@ -12,9 +12,10 @@ import {
   Voicemail,
 } from "lucide-react";
 
-import { Badge } from "@/app/components/ui/badge";
-import { Button } from "@/app/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/app/components/ui/card";
+import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import {
   getPortalCallCenterCallerTimeline,
   type PortalCallerTimelineItem,
@@ -185,17 +186,19 @@ export default async function PortalCallCenterCallerPage({
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-[var(--portal-ink)]">All activity</h2>
+              <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
+                All activity
+              </h2>
               <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
                 {rangeLabel}
                 {locations.length ? ` · ${locations.join(", ")}` : ""}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
+              <PortalBadge>
                 {timeline.totals.totalItems}{" "}
                 {timeline.totals.totalItems === 1 ? "item" : "items"}
-              </span>
+              </PortalBadge>
               <PaginationControls
                 office={office}
                 page={timeline.page}
@@ -329,9 +332,9 @@ function PaginationControls({
           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
-      <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
+      <PortalBadge>
         {page} / {totalPages}
-      </span>
+      </PortalBadge>
       {hasNext ? (
         <Button
           asChild
@@ -380,7 +383,9 @@ function SummaryMetric({
       <p
         className={cn(
           "mt-1 truncate text-sm font-semibold",
-          tone === "warning" ? "text-[var(--portal-warning)]" : "text-[var(--portal-ink)]",
+          tone === "warning"
+            ? "text-[var(--portal-warning)]"
+            : "text-[var(--portal-ink)]",
         )}
       >
         {value}
@@ -485,7 +490,11 @@ function ResolveActionForm({
       <input type="hidden" name="phone" value={phone} />
       <Button
         aria-label={iconOnly ? "Mark resolved" : undefined}
-        className={iconOnly ? "h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]" : "w-fit"}
+        className={
+          iconOnly
+            ? "h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
+            : "w-fit"
+        }
         size="sm"
         title={iconOnly ? "Mark resolved" : undefined}
         type="submit"

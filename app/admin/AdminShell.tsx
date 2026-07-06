@@ -13,6 +13,8 @@ import {
 
 import Logo from "@/app/components/VisionOpsLogo";
 import { PortalSignOutButton } from "@/app/portal/PortalSignOutButton";
+import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type AdminShellProps = Readonly<{
@@ -45,11 +47,11 @@ function SidebarLink({
 }: AdminNavItem & { isCollapsed?: boolean; pathname: string }) {
   const isActive = isCurrentPath(pathname, href);
 
-  return (
+  const link = (
     <Link
       aria-label={isCollapsed ? label : undefined}
       className={cn(
-        "group relative inline-flex h-11 items-center rounded-xl text-sm font-medium transition",
+        "inline-flex h-11 items-center rounded-xl text-sm font-medium transition",
         isCollapsed ? "w-11 justify-center px-0" : "min-w-fit gap-3 px-3 xl:w-full",
         isActive
           ? "bg-[#536a91] text-white shadow-sm hover:text-white"
@@ -60,17 +62,10 @@ function SidebarLink({
     >
       <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
       <span className={cn(isCollapsed ? "sr-only" : "truncate")}>{label}</span>
-      {isCollapsed ? (
-        <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-lg bg-[#151a24] px-3 py-1.5 text-sm font-medium text-white opacity-0 shadow-[0_10px_30px_rgba(16,24,40,0.18)] transition group-hover:opacity-100 group-focus-visible:opacity-100">
-          <span
-            className="absolute -left-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rotate-45 bg-[#151a24]"
-            aria-hidden="true"
-          />
-          {label}
-        </span>
-      ) : null}
     </Link>
   );
+
+  return isCollapsed ? <Tooltip label={label}>{link}</Tooltip> : link;
 }
 
 export function AdminShell({ children, userEmail }: AdminShellProps) {
@@ -135,10 +130,12 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
                 Navigation
               </span>
             )}
-            <button
+            <Button
               type="button"
               aria-label={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#4f5b6b] transition hover:bg-[#f5f7fb] hover:text-[#1f2937]"
+              className="rounded-xl text-[#4f5b6b] hover:bg-[#f5f7fb] hover:text-[#1f2937]"
+              size="icon"
+              variant="ghost"
               onClick={() => setIsSidebarExpanded((current) => !current)}
             >
               {isSidebarExpanded ? (
@@ -146,7 +143,7 @@ export function AdminShell({ children, userEmail }: AdminShellProps) {
               ) : (
                 <PanelLeftOpen className="h-[22px] w-[22px]" aria-hidden="true" />
               )}
-            </button>
+            </Button>
           </div>
 
           <nav

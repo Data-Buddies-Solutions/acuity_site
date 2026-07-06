@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { getPortalCallCenterData } from "@/lib/call-center";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 

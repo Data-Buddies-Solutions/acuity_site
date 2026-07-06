@@ -1,4 +1,4 @@
-import { Badge } from "@/app/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/app/components/ui/skeleton";
 
 export default function BlogLoading() {

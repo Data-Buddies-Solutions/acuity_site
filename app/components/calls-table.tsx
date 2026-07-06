@@ -16,6 +16,8 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
   Table,
   TableBody,
@@ -51,6 +53,20 @@ const localTimeFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   timeZone: "America/New_York",
 });
+
+const callTableHeadClassName = "h-10 px-3 text-xs font-semibold text-muted-foreground";
+
+function CallTableHead({ className, ...props }: React.ComponentProps<typeof TableHead>) {
+  return <TableHead className={cn(callTableHeadClassName, className)} {...props} />;
+}
+
+function getAriaSort(sortState: CallSortState, sortKey: CallSortKey) {
+  if (sortState.key !== sortKey) {
+    return "none";
+  }
+
+  return sortState.direction === "asc" ? "ascending" : "descending";
+}
 
 function languageDisplayValue(call: AdminCallTableRow): string {
   return call.currentLanguage?.toUpperCase() || "Changed";
@@ -253,18 +269,32 @@ function SortButton({
   sortKey: CallSortKey;
   sortState: CallSortState;
 }) {
-  const Icon =
-    sortState.key !== sortKey
-      ? ArrowUpDown
-      : sortState.direction === "asc"
-        ? ArrowUp
-        : ArrowDown;
+  const active = sortState.key === sortKey;
+  const Icon = !active
+    ? ArrowUpDown
+    : sortState.direction === "asc"
+      ? ArrowUp
+      : ArrowDown;
+  const label = typeof children === "string" ? children : "column";
+  const nextDirection =
+    active && sortState.direction === "asc" ? "descending" : "ascending";
 
   return (
-    <Button variant="ghost" className="-ml-4" onClick={() => onSort(sortKey)}>
+    <button
+      type="button"
+      aria-label={`Sort by ${label} ${nextDirection}`}
+      className={cn(
+        "inline-flex h-8 items-center gap-1 rounded-md text-xs font-semibold transition hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+        active ? "text-foreground" : "text-muted-foreground",
+      )}
+      onClick={() => onSort(sortKey)}
+    >
       {children}
-      <Icon className="ml-1 h-3 w-3" />
-    </Button>
+      <Icon
+        className={cn("ml-1 size-3", active ? "opacity-100" : "opacity-45")}
+        aria-hidden="true"
+      />
+    </button>
   );
 }
 
@@ -393,10 +423,12 @@ export function CallsTable({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <input
-          type="text"
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <Input
+          autoComplete="off"
+          name="callsSearch"
+          type="search"
           value={searchQuery}
           onChange={(event) =>
             updateTableState({
@@ -407,29 +439,28 @@ export function CallsTable({
             })
           }
           placeholder="Search calls"
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 sm:max-w-sm"
+          className="h-9 shadow-sm sm:max-w-xs lg:w-80"
           aria-label="Search calls"
         />
-      </div>
 
-      <div className="flex flex-wrap gap-2">
-        {visibleQuickFilters.map((filter) => (
-          <Button
-            key={filter.id}
-            variant={quickFilter === filter.id ? "secondary" : "outline"}
-            size="sm"
-            onClick={() =>
-              updateTableState({
-                page: 1,
-                quickFilter: filter.id,
-                searchQuery,
-                sortState,
-              })
-            }
-          >
-            {filter.label}
-          </Button>
-        ))}
+        <SegmentedControl
+          aria-label="Call filters"
+          className="w-fit flex-wrap bg-muted/70"
+          itemClassName="h-7 px-2.5 text-xs"
+          items={visibleQuickFilters.map((filter) => ({
+            label: filter.label,
+            value: filter.id,
+          }))}
+          value={quickFilter}
+          onValueChange={(value) =>
+            updateTableState({
+              page: 1,
+              quickFilter: value as CallQuickFilter,
+              searchQuery,
+              sortState,
+            })
+          }
+        />
       </div>
 
       <div className="rounded-lg border">
@@ -457,7 +488,7 @@ export function CallsTable({
           <Table className="min-w-[1080px]">
             <TableHeader>
               <TableRow>
-                <TableHead>
+                <CallTableHead aria-sort={getAriaSort(sortState, "startedAt")}>
                   <SortButton
                     sortKey="startedAt"
                     sortState={sortState}
@@ -465,14 +496,14 @@ export function CallsTable({
                   >
                     Date & Time
                   </SortButton>
-                </TableHead>
-                <TableHead>Caller</TableHead>
-                <TableHead>
+                </CallTableHead>
+                <CallTableHead>Caller</CallTableHead>
+                <CallTableHead aria-sort={getAriaSort(sortState, "office")}>
                   <SortButton sortKey="office" sortState={sortState} onSort={handleSort}>
                     Office
                   </SortButton>
-                </TableHead>
-                <TableHead>
+                </CallTableHead>
+                <CallTableHead aria-sort={getAriaSort(sortState, "durationSec")}>
                   <SortButton
                     sortKey="durationSec"
                     sortState={sortState}
@@ -480,11 +511,11 @@ export function CallsTable({
                   >
                     Duration
                   </SortButton>
-                </TableHead>
-                {showToolErrors && <TableHead>Tool Errors</TableHead>}
-                <TableHead>P50 TTFT</TableHead>
-                <TableHead>P50 TTS</TableHead>
-                <TableHead>
+                </CallTableHead>
+                {showToolErrors && <CallTableHead>Tool Errors</CallTableHead>}
+                <CallTableHead>P50 TTFT</CallTableHead>
+                <CallTableHead>P50 TTS</CallTableHead>
+                <CallTableHead aria-sort={getAriaSort(sortState, "totalLatency")}>
                   <SortButton
                     sortKey="totalLatency"
                     sortState={sortState}
@@ -492,15 +523,15 @@ export function CallsTable({
                   >
                     P50 E2E
                   </SortButton>
-                </TableHead>
-                <TableHead>
+                </CallTableHead>
+                <CallTableHead aria-sort={getAriaSort(sortState, "actions")}>
                   <SortButton sortKey="actions" sortState={sortState} onSort={handleSort}>
                     Actions
                   </SortButton>
-                </TableHead>
-                {showLanguage && <TableHead>Language</TableHead>}
-                {showRuntimeEvents && <TableHead>Runtime</TableHead>}
-                <TableHead>
+                </CallTableHead>
+                {showLanguage && <CallTableHead>Language</CallTableHead>}
+                {showRuntimeEvents && <CallTableHead>Runtime</CallTableHead>}
+                <CallTableHead aria-sort={getAriaSort(sortState, "transferred")}>
                   <SortButton
                     sortKey="transferred"
                     sortState={sortState}
@@ -508,8 +539,8 @@ export function CallsTable({
                   >
                     Transfer
                   </SortButton>
-                </TableHead>
-                {showFallback && <TableHead>Fallback</TableHead>}
+                </CallTableHead>
+                {showFallback && <CallTableHead>Fallback</CallTableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
