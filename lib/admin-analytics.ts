@@ -18,19 +18,20 @@ import {
   summarizeBookingCategories,
   type PortalBookingCategorySummary,
 } from "@/lib/portal-overview";
+import {
+  CALL_TABLE_PAGE_SIZE,
+  DEFAULT_CALL_TABLE_STATE,
+  clampCallTablePage,
+  getCallTablePageCount,
+  normalizeCallSearchValue,
+  type CallQuickFilter,
+  type CallSortState,
+  type CallTableState,
+} from "@/lib/admin-call-table-state";
 import { prisma } from "@/lib/prisma";
 import { isSuccessfulToolAction } from "@/lib/tool-action-status";
 
 type AgentStatus = "SETUP" | "ACTIVE" | "PAUSED" | "ERROR";
-type CostCategory =
-  | "LLM_INPUT"
-  | "LLM_CACHED_INPUT"
-  | "LLM_OUTPUT"
-  | "SPEECH_TO_TEXT"
-  | "TEXT_TO_SPEECH"
-  | "TELEPHONY"
-  | "REVIEW"
-  | "OTHER";
 
 export type AdminPracticeRange = "24h" | "7d" | "30d" | "all";
 
@@ -44,6 +45,50 @@ type CallMetric = {
 };
 
 type AdminCallRecord = Awaited<ReturnType<typeof loadPracticeCalls>>[number];
+export type AdminPracticeCallSet = "all" | "bad" | "golden";
+
+export type AdminPracticeDetailOptions = {
+  callSet?: AdminPracticeCallSet;
+  includeAnalytics?: boolean;
+  includeDashboard?: boolean;
+  includeTable?: boolean;
+  tableState?: CallTableState;
+};
+
+type AdminCallLiteRecord = {
+  avgTokensPerSec: number;
+  avgTtft: number;
+  avgTtsttfb: number;
+  bookedAppointment: boolean;
+  cacheHitRate: number;
+  cachedTokens: number;
+  callId: string;
+  callerPhone: string;
+  cancelledAppointment: boolean;
+  data?: unknown;
+  durationSec: number;
+  evaluationLabels?: Array<{
+    bucket: AgentCallEvaluationBucket;
+    comment: string | null;
+  }>;
+  fallbackUsed: boolean;
+  id: string;
+  inputTokens: number;
+  interruptionCount: number;
+  latencyValues: unknown;
+  llmModel: string | null;
+  location: { name: string } | null;
+  officePhone: string;
+  outcomeSummary: string | null;
+  outputTokens: number;
+  peakContext: number;
+  startedAt: Date;
+  toolCalls: number;
+  toolErrors: number;
+  totalTurns: number;
+  transferred: boolean;
+  ttsChars: number;
+};
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TIMEZONE = "America/New_York";
@@ -230,8 +275,21 @@ export interface AdminCallTableRow {
   toolCalls: number;
   toolErrors: number;
   totalTurns: number;
-  transcriptText: string;
   transferred: boolean;
+}
+
+export interface AdminCallTableResult {
+  hasLanguageSignals: boolean;
+  hasToolErrors: boolean;
+  pageCount: number;
+  rows: AdminCallTableRow[];
+  state: CallTableState;
+  totalCount: number;
+}
+
+export interface AdminCallNavigation {
+  nextCall: { id: string } | null;
+  previousCall: { id: string } | null;
 }
 
 export interface AdminPracticeOfficeFilterOption {
@@ -602,7 +660,7 @@ function addAppointmentActionLabel(
 function getToolActionLabels(call: {
   bookedAppointment: boolean;
   cancelledAppointment: boolean;
-  data: unknown;
+  data?: unknown;
   transferred: boolean;
 }) {
   const actions = new Set<string>();
@@ -666,56 +724,10 @@ function median(values: number[]) {
   return percentile(values, 50);
 }
 
-function extractTranscriptText(data: unknown) {
-  if (!isRecord(data)) {
-    return "";
-  }
-
-  const sessionReport = isRecord(data.sessionReport) ? data.sessionReport : null;
-  const chatHistory = sessionReport?.chat_history;
-  const items =
-    isRecord(chatHistory) && Array.isArray(chatHistory.items) ? chatHistory.items : [];
-  const sessionMessages = items
-    .filter(isRecord)
-    .map((item) => {
-      const role = item.role;
-      if (item.type !== "message" || (role !== "user" && role !== "assistant")) {
-        return "";
-      }
-
-      const content = Array.isArray(item.content) ? item.content : [];
-      return content
-        .map((entry) => {
-          if (typeof entry === "string") {
-            return entry;
-          }
-
-          if (isRecord(entry) && typeof entry.transcript === "string") {
-            return entry.transcript;
-          }
-
-          return "";
-        })
-        .join(" ");
-    })
-    .filter(Boolean);
-
-  if (sessionMessages.length > 0) {
-    return sessionMessages.join(" ").replace(/\s+/g, " ").trim();
-  }
-
-  return getTurns(data)
-    .flatMap((turn) => [turn.callerText ?? "", turn.agentText ?? ""])
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function getLatencyArrays(call: {
   avgTtft: number;
   avgTtsttfb: number;
-  data: unknown;
+  data?: unknown;
   latencyValues: unknown;
 }) {
   const latency = isRecord(call.latencyValues) ? call.latencyValues : {};
@@ -767,7 +779,7 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function getCallTotalTurns(call: { data: unknown; totalTurns: number }) {
+function getCallTotalTurns(call: { data?: unknown; totalTurns: number }) {
   if (call.totalTurns > 0) {
     return call.totalTurns;
   }
@@ -778,7 +790,7 @@ function getCallTotalTurns(call: { data: unknown; totalTurns: number }) {
 function getCacheHitRate(call: {
   cachedTokens: number;
   cacheHitRate: number;
-  data: unknown;
+  data?: unknown;
   inputTokens: number;
 }) {
   if (call.cacheHitRate > 0) {
@@ -795,7 +807,7 @@ function getCacheHitRate(call: {
   return call.inputTokens > 0 ? call.cachedTokens / call.inputTokens : 0;
 }
 
-function getPeakContext(call: { data: unknown; peakContext: number }) {
+function getPeakContext(call: { data?: unknown; peakContext: number }) {
   if (call.peakContext > 0) {
     return call.peakContext;
   }
@@ -842,135 +854,6 @@ function latestCallByPractice(calls: CallMetric[]) {
   }
 
   return latest;
-}
-
-function getBucketCount(range: AdminPracticeRange) {
-  switch (range) {
-    case "24h":
-      return 24;
-    case "7d":
-      return 7;
-    case "30d":
-      return 30;
-    case "all":
-      return 12;
-  }
-}
-
-function bucketStartForRange(range: AdminPracticeRange, calls: AdminCallRecord[]) {
-  const explicitStart = getRangeStart(range);
-  if (explicitStart) {
-    return explicitStart;
-  }
-
-  const earliest = calls.at(-1)?.startedAt;
-  return earliest ? new Date(earliest) : sinceDays(30);
-}
-
-function buildTrendBuckets(calls: AdminCallRecord[], range: AdminPracticeRange) {
-  const bucketCount = getBucketCount(range);
-  const start = bucketStartForRange(range, calls);
-  const end = new Date();
-  const span = Math.max(end.getTime() - start.getTime(), DAY_MS);
-  const bucketMs = range === "24h" ? 60 * 60 * 1000 : Math.ceil(span / bucketCount);
-
-  const buckets = Array.from({ length: bucketCount }, (_, index) => {
-    const bucketStart = new Date(start.getTime() + index * bucketMs);
-    const bucketEnd = new Date(bucketStart.getTime() + bucketMs);
-    return {
-      appointments: 0,
-      calls: 0,
-      costMicros: 0,
-      end: bucketEnd,
-      start: bucketStart,
-      transfers: 0,
-    };
-  });
-
-  for (const call of calls) {
-    const index = Math.min(
-      Math.max(Math.floor((call.startedAt.getTime() - start.getTime()) / bucketMs), 0),
-      buckets.length - 1,
-    );
-    const bucket = buckets[index];
-
-    if (!bucket) {
-      continue;
-    }
-
-    bucket.calls++;
-    bucket.costMicros += call.estimatedCostMicros;
-    if (call.transferred) bucket.transfers++;
-    if (call.bookedAppointment || call.cancelledAppointment) {
-      bucket.appointments++;
-    }
-  }
-
-  return buckets;
-}
-
-function buildPeakTraffic(calls: AdminCallRecord[]) {
-  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const grid = labels.flatMap((day) =>
-    Array.from({ length: 24 }, (_, hour) => ({ calls: 0, day, hour })),
-  );
-
-  for (const call of calls) {
-    const dayIndex = (call.startedAt.getDay() + 6) % 7;
-    const hour = call.startedAt.getHours();
-    const cell = grid.find((item) => item.day === labels[dayIndex] && item.hour === hour);
-
-    if (cell) {
-      cell.calls++;
-    }
-  }
-
-  return grid;
-}
-
-function buildToolStats(calls: AdminCallRecord[]) {
-  const stats = new Map<string, { count: number; errors: number; durations: number[] }>();
-
-  for (const call of calls) {
-    const toolExecutions = getToolExecutions(call.data);
-    if (toolExecutions.length > 0) {
-      for (const tool of toolExecutions) {
-        const name = tool.toolName ?? "unknown";
-        if (!isAdminVisibleToolName(name)) {
-          continue;
-        }
-
-        const current = stats.get(name) ?? { count: 0, durations: [], errors: 0 };
-        current.count++;
-        if (tool.status === "error") current.errors++;
-        stats.set(name, current);
-      }
-      continue;
-    }
-
-    for (const tool of getToolCalls(call.data)) {
-      if (!isAdminVisibleToolName(tool.name)) {
-        continue;
-      }
-
-      const current = stats.get(tool.name) ?? { count: 0, durations: [], errors: 0 };
-      current.count++;
-      if (tool.isError) current.errors++;
-      if (tool.durationMs > 0) current.durations.push(tool.durationMs);
-      stats.set(tool.name, current);
-    }
-  }
-
-  return [...stats.entries()]
-    .map(([name, value]) => ({
-      avgMs: average(value.durations),
-      count: value.count,
-      errorRate: value.count > 0 ? value.errors / value.count : 0,
-      errors: value.errors,
-      name,
-      p95Ms: percentile(value.durations, 95),
-    }))
-    .sort((a, b) => b.count - a.count);
 }
 
 function buildPracticeAnalyticsData(
@@ -1289,7 +1172,8 @@ function buildPracticeAnalyticsData(
 }
 
 function buildPracticeDashboardData(
-  calls: AdminCallRecord[],
+  calls: AdminCallLiteRecord[],
+  bookingCategories?: PortalBookingCategorySummary,
 ): AdminPracticeDashboardData {
   let totalDurationSec = 0;
   let totalPeakContext = 0;
@@ -1384,19 +1268,21 @@ function buildPracticeDashboardData(
     avgTokensPerSec: average(allTokensPerSec),
     avgTtsChars: calls.length > 0 ? totalTtsChars / calls.length : 0,
     bookApptSuccesses,
-    bookingCategories: summarizeBookingCategories(
-      calls
-        .filter((call) => call.bookedAppointment)
-        .map((call) =>
-          extractBookedAppointment({
-            callerPhone: call.callerPhone,
-            data: call.data,
-            id: call.id,
-            outcomeSummary: call.outcomeSummary,
-            startedAt: call.startedAt,
-          }),
-        ),
-    ),
+    bookingCategories:
+      bookingCategories ??
+      summarizeBookingCategories(
+        calls
+          .filter((call) => call.bookedAppointment)
+          .map((call) =>
+            extractBookedAppointment({
+              callerPhone: call.callerPhone,
+              data: call.data,
+              id: call.id,
+              outcomeSummary: call.outcomeSummary,
+              startedAt: call.startedAt,
+            }),
+          ),
+      ),
     cancelApptSuccesses,
     toolCallCount,
     toolFailureCount,
@@ -1410,30 +1296,6 @@ function buildPracticeDashboardData(
     transferCount,
     ttftPercentiles: computePercentiles(allTtftValues),
     ttsttfbPercentiles: computePercentiles(allTtsValues),
-  };
-}
-
-function buildRecentCall(call: AdminCallRecord) {
-  const tools = getToolCalls(call.data);
-  const visibleTools = tools.filter((tool) => isAdminVisibleToolName(tool.name));
-
-  return {
-    actions: getToolActionLabels(call),
-    cacheHitRate: getCacheHitRate(call),
-    callerPhone: call.callerPhone,
-    durationSec: call.durationSec,
-    estimatedCostMicros: call.estimatedCostMicros,
-    fallbackUsed: call.fallbackUsed,
-    id: call.id,
-    llmModel: call.llmModel,
-    officePhone: call.officePhone,
-    outcomeSummary: call.outcomeSummary,
-    startedAt: call.startedAt,
-    status: call.status,
-    toolCalls: tools.length > 0 ? visibleTools.length : call.toolCalls,
-    toolErrors: call.toolErrors,
-    totalTurns: getCallTotalTurns(call),
-    transferred: call.transferred,
   };
 }
 
@@ -1539,6 +1401,253 @@ function buildOfficeNameByPhone(
   return officeNameByPhone;
 }
 
+function hasWhereClause(where: Prisma.AgentCallWhereInput) {
+  return Object.keys(where).length > 0;
+}
+
+function andAgentCallWhere(
+  ...clauses: Array<Prisma.AgentCallWhereInput | null | undefined>
+): Prisma.AgentCallWhereInput {
+  const activeClauses = clauses.filter((clause): clause is Prisma.AgentCallWhereInput =>
+    Boolean(clause && hasWhereClause(clause)),
+  );
+
+  if (activeClauses.length === 0) {
+    return {};
+  }
+
+  if (activeClauses.length === 1) {
+    return activeClauses[0] ?? {};
+  }
+
+  return { AND: activeClauses };
+}
+
+function buildCallSetWhere(callSet: AdminPracticeCallSet): Prisma.AgentCallWhereInput {
+  if (callSet === "bad") {
+    return {
+      evaluationLabels: {
+        some: {
+          bucket: "BAD",
+        },
+      },
+    };
+  }
+
+  if (callSet === "golden") {
+    return {
+      evaluationLabels: {
+        some: {
+          bucket: "GOLDEN",
+        },
+      },
+    };
+  }
+
+  return {};
+}
+
+function buildLanguageSignalWhere(): Prisma.AgentCallWhereInput {
+  return {
+    OR: [
+      {
+        data: {
+          equals: true,
+          path: ["language", "languageChanged"],
+        },
+      },
+      {
+        data: {
+          mode: "insensitive",
+          not: "en",
+          path: ["language", "currentLanguage"],
+          string_contains: "",
+        },
+      },
+      {
+        AND: [
+          {
+            data: {
+              array_contains: [],
+              path: ["language", "acceptedLanguages"],
+            },
+          },
+          {
+            NOT: [
+              {
+                data: {
+                  equals: [],
+                  path: ["language", "acceptedLanguages"],
+                },
+              },
+              {
+                data: {
+                  equals: ["en"],
+                  path: ["language", "acceptedLanguages"],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function buildCallQuickFilterWhere(
+  quickFilter: CallQuickFilter,
+): Prisma.AgentCallWhereInput {
+  switch (quickFilter) {
+    case "booking":
+      return { bookedAppointment: true };
+    case "errors":
+      return { toolErrors: { gt: 0 } };
+    case "fallback":
+      return { fallbackUsed: true };
+    case "language":
+      return buildLanguageSignalWhere();
+    case "transfers":
+      return { transferred: true };
+    case "all":
+    case "runtime":
+      return {};
+  }
+}
+
+function buildCallSearchWhere(searchQuery: string): Prisma.AgentCallWhereInput {
+  const query = normalizeCallSearchValue(searchQuery);
+
+  if (!query) {
+    return {};
+  }
+
+  const phoneQuery = phoneDigits(query);
+  const textSearch = {
+    contains: query,
+    mode: "insensitive" as const,
+  };
+  const clauses: Prisma.AgentCallWhereInput[] = [
+    { callId: textSearch },
+    { callerPhone: textSearch },
+    { officePhone: textSearch },
+    { llmModel: textSearch },
+    { outcomeSummary: textSearch },
+    {
+      location: {
+        is: {
+          name: textSearch,
+        },
+      },
+    },
+    {
+      evaluationLabels: {
+        some: {
+          comment: textSearch,
+        },
+      },
+    },
+  ];
+
+  if (phoneQuery) {
+    clauses.push(
+      { callerPhone: { contains: phoneQuery } },
+      { officePhone: { contains: phoneQuery } },
+    );
+  }
+
+  return { OR: clauses };
+}
+
+function buildPracticeCallWhere({
+  callSet,
+  officeFilter,
+  practiceId,
+  quickFilter = "all",
+  range,
+  searchQuery = "",
+}: {
+  callSet: AdminPracticeCallSet;
+  officeFilter?: AdminPracticeOfficeFilterOption | null;
+  practiceId: string;
+  quickFilter?: CallQuickFilter;
+  range: AdminPracticeRange;
+  searchQuery?: string;
+}): Prisma.AgentCallWhereInput {
+  const rangeStart = getRangeStart(range);
+
+  return andAgentCallWhere(
+    { practiceId },
+    rangeStart ? { startedAt: { gte: rangeStart } } : null,
+    buildOfficeAgentCallWhere(officeFilter),
+    buildCallSetWhere(callSet),
+    buildCallQuickFilterWhere(quickFilter),
+    buildCallSearchWhere(searchQuery),
+  );
+}
+
+function getCallTableOrderBy(
+  sortState: CallSortState,
+): Prisma.AgentCallOrderByWithRelationInput[] {
+  const direction = sortState.direction;
+  const stableRecentTieBreakers: Prisma.AgentCallOrderByWithRelationInput[] = [
+    { startedAt: "desc" },
+    { id: "asc" },
+  ];
+
+  switch (sortState.key) {
+    case "actions":
+      return [{ toolCalls: direction }, ...stableRecentTieBreakers];
+    case "durationSec":
+      return [{ durationSec: direction }, ...stableRecentTieBreakers];
+    case "office":
+      return [{ officePhone: direction }, ...stableRecentTieBreakers];
+    case "transferred":
+      return [{ transferred: direction }, ...stableRecentTieBreakers];
+    case "startedAt":
+      return [{ startedAt: direction }, { id: "asc" }];
+  }
+}
+
+const adminCallLiteSelect = {
+  avgTokensPerSec: true,
+  avgTtft: true,
+  avgTtsttfb: true,
+  bookedAppointment: true,
+  cacheHitRate: true,
+  cachedTokens: true,
+  callId: true,
+  callerPhone: true,
+  cancelledAppointment: true,
+  durationSec: true,
+  evaluationLabels: {
+    select: {
+      bucket: true,
+      comment: true,
+    },
+  },
+  fallbackUsed: true,
+  id: true,
+  inputTokens: true,
+  interruptionCount: true,
+  latencyValues: true,
+  llmModel: true,
+  location: {
+    select: {
+      name: true,
+    },
+  },
+  officePhone: true,
+  outcomeSummary: true,
+  outputTokens: true,
+  peakContext: true,
+  startedAt: true,
+  toolCalls: true,
+  toolErrors: true,
+  totalTurns: true,
+  transferred: true,
+  ttsChars: true,
+} satisfies Prisma.AgentCallSelect;
+
 function getEvaluationLabel(
   labels: Array<{ bucket: AgentCallEvaluationBucket; comment: string | null }>,
 ) {
@@ -1550,7 +1659,7 @@ function getEvaluationLabel(
 }
 
 function buildCallTableRow(
-  call: AdminCallRecord,
+  call: AdminCallLiteRecord,
   officeNameByPhone: Map<string, string>,
 ): AdminCallTableRow {
   const latency = getLatencyArrays(call);
@@ -1562,6 +1671,10 @@ function buildCallTableRow(
   );
   const observability = getObservabilitySignals(call.data);
   const toolActions = new Set<string>();
+
+  if (call.bookedAppointment) toolActions.add("Book");
+  if (call.cancelledAppointment) toolActions.add("Cancel");
+  if (call.transferred) toolActions.add("Transfer");
 
   for (const tool of visibleTools) {
     const label = formatToolAction(tool.name);
@@ -1580,7 +1693,7 @@ function buildCallTableRow(
   }
 
   const apptActions = getToolActionLabels(call);
-  const evaluationLabel = getEvaluationLabel(call.evaluationLabels);
+  const evaluationLabel = getEvaluationLabel(call.evaluationLabels ?? []);
 
   return {
     apptActions,
@@ -1625,7 +1738,6 @@ function buildCallTableRow(
           ? visibleTools.filter((tool) => tool.isError).length
           : call.toolErrors,
     totalTurns: getCallTotalTurns(call),
-    transcriptText: extractTranscriptText(call.data),
     transferred: call.transferred || apptActions.includes("Transferred"),
   };
 }
@@ -1693,11 +1805,149 @@ async function loadPracticeCalls(
   });
 }
 
-export async function getAdminPracticeCallRows(
+async function loadPracticeLiteCalls(
   practiceId: string,
-  range: AdminPracticeRange = "7d",
-  office?: string | null,
+  range: AdminPracticeRange,
+  officeFilter?: AdminPracticeOfficeFilterOption | null,
 ) {
+  return prisma.agentCall.findMany({
+    orderBy: {
+      startedAt: "desc",
+    },
+    select: adminCallLiteSelect,
+    where: buildPracticeCallWhere({
+      callSet: "all",
+      officeFilter,
+      practiceId,
+      range,
+    }),
+  });
+}
+
+async function loadBookedCategoryCalls(
+  practiceId: string,
+  range: AdminPracticeRange,
+  officeFilter?: AdminPracticeOfficeFilterOption | null,
+) {
+  return prisma.agentCall.findMany({
+    orderBy: {
+      startedAt: "desc",
+    },
+    select: {
+      callerPhone: true,
+      data: true,
+      id: true,
+      outcomeSummary: true,
+      startedAt: true,
+    },
+    where: andAgentCallWhere(
+      buildPracticeCallWhere({
+        callSet: "all",
+        officeFilter,
+        practiceId,
+        range,
+      }),
+      { bookedAppointment: true },
+    ),
+  });
+}
+
+function buildBookingCategories(
+  calls: Awaited<ReturnType<typeof loadBookedCategoryCalls>>,
+) {
+  return summarizeBookingCategories(
+    calls.map((call) =>
+      extractBookedAppointment({
+        callerPhone: call.callerPhone,
+        data: call.data,
+        id: call.id,
+        outcomeSummary: call.outcomeSummary,
+        startedAt: call.startedAt,
+      }),
+    ),
+  );
+}
+
+async function loadPracticeCallTable({
+  callSet,
+  officeFilter,
+  officeNameByPhone,
+  practiceId,
+  range,
+  state = DEFAULT_CALL_TABLE_STATE,
+}: {
+  callSet: AdminPracticeCallSet;
+  officeFilter?: AdminPracticeOfficeFilterOption | null;
+  officeNameByPhone: Map<string, string>;
+  practiceId: string;
+  range: AdminPracticeRange;
+  state?: CallTableState;
+}): Promise<AdminCallTableResult> {
+  const matchingWhere = buildPracticeCallWhere({
+    callSet,
+    officeFilter,
+    practiceId,
+    quickFilter: state.quickFilter,
+    range,
+    searchQuery: state.searchQuery,
+  });
+  const filterOptionWhere = buildPracticeCallWhere({
+    callSet,
+    officeFilter,
+    practiceId,
+    range,
+    searchQuery: state.searchQuery,
+  });
+  const [totalCount, errorCount, languageCount] = await Promise.all([
+    prisma.agentCall.count({ where: matchingWhere }),
+    prisma.agentCall.count({
+      where: andAgentCallWhere(filterOptionWhere, { toolErrors: { gt: 0 } }),
+    }),
+    prisma.agentCall.count({
+      where: andAgentCallWhere(filterOptionWhere, buildLanguageSignalWhere()),
+    }),
+  ]);
+  const pageCount = getCallTablePageCount(totalCount);
+  const activePage = clampCallTablePage(state.page, pageCount);
+  const calls =
+    totalCount > 0
+      ? await prisma.agentCall.findMany({
+          orderBy: getCallTableOrderBy(state.sortState),
+          select: adminCallLiteSelect,
+          skip: (activePage - 1) * CALL_TABLE_PAGE_SIZE,
+          take: CALL_TABLE_PAGE_SIZE,
+          where: matchingWhere,
+        })
+      : [];
+
+  return {
+    hasLanguageSignals: languageCount > 0 || state.quickFilter === "language",
+    hasToolErrors: errorCount > 0 || state.quickFilter === "errors",
+    pageCount,
+    rows: calls.map((call) => buildCallTableRow(call, officeNameByPhone)),
+    state: {
+      ...state,
+      page: activePage,
+    },
+    totalCount,
+  };
+}
+
+export async function getAdminCallNavigation({
+  callId,
+  callSet,
+  office,
+  practiceId,
+  range,
+  state = DEFAULT_CALL_TABLE_STATE,
+}: {
+  callId: string;
+  callSet: AdminPracticeCallSet;
+  office?: string | null;
+  practiceId: string;
+  range: AdminPracticeRange;
+  state?: CallTableState;
+}): Promise<AdminCallNavigation> {
   const practice = await prisma.practice.findUnique({
     select: {
       phoneNumbers: {
@@ -1713,17 +1963,61 @@ export async function getAdminPracticeCallRows(
   });
 
   if (!practice) {
-    return null;
+    return {
+      nextCall: null,
+      previousCall: null,
+    };
   }
 
   const officeFilters = buildOfficeFilterOptions(practice.phoneNumbers);
   const selectedOffice = resolveOfficeFilter(office, officeFilters);
-  const officeNameByPhone = buildOfficeNameByPhone(practice.phoneNumbers);
-  const calls = await loadPracticeCalls(practiceId, range, selectedOffice);
+  const where = buildPracticeCallWhere({
+    callSet,
+    officeFilter: selectedOffice,
+    practiceId,
+    quickFilter: state.quickFilter,
+    range,
+    searchQuery: state.searchQuery,
+  });
+  const currentCall = await prisma.agentCall.findFirst({
+    select: {
+      id: true,
+    },
+    where: andAgentCallWhere(where, {
+      OR: [{ id: callId }, { callId }],
+    }),
+  });
+
+  if (!currentCall) {
+    return {
+      nextCall: null,
+      previousCall: null,
+    };
+  }
+
+  const orderBy = getCallTableOrderBy(state.sortState);
+  const [previousRows, nextRows] = await Promise.all([
+    prisma.agentCall.findMany({
+      cursor: { id: currentCall.id },
+      orderBy,
+      select: { id: true },
+      skip: 1,
+      take: -1,
+      where,
+    }),
+    prisma.agentCall.findMany({
+      cursor: { id: currentCall.id },
+      orderBy,
+      select: { id: true },
+      skip: 1,
+      take: 1,
+      where,
+    }),
+  ]);
 
   return {
-    callRows: calls.map((call) => buildCallTableRow(call, officeNameByPhone)),
-    selectedOfficeId: selectedOffice?.id ?? null,
+    nextCall: nextRows[0] ?? null,
+    previousCall: previousRows[0] ?? null,
   };
 }
 
@@ -1800,9 +2094,8 @@ export async function getAdminPracticeDetail(
   practiceId: string,
   range: AdminPracticeRange = "7d",
   office?: string | null,
+  options: AdminPracticeDetailOptions = {},
 ) {
-  const rangeStart = getRangeStart(range);
-
   const practice = await prisma.practice.findUnique({
     include: {
       agents: {
@@ -1839,157 +2132,50 @@ export async function getAdminPracticeDetail(
 
   const officeFilters = buildOfficeFilterOptions(practice.phoneNumbers);
   const selectedOffice = resolveOfficeFilter(office, officeFilters);
-  const officeWhere = buildOfficeAgentCallWhere(selectedOffice);
-  const costOfficeWhere: Prisma.UsageCostLineItemWhereInput = selectedOffice
-    ? {
-        agentCall: {
-          is: {
-            practiceId,
-            ...officeWhere,
-          },
-        },
-      }
-    : {};
-
-  const [calls, costLineItems] = await Promise.all([
-    loadPracticeCalls(practiceId, range, selectedOffice),
-    prisma.usageCostLineItem.findMany({
-      orderBy: {
-        occurredAt: "desc",
-      },
-      select: {
-        category: true,
-        costMicros: true,
-        occurredAt: true,
-      },
-      where: {
-        ...(rangeStart ? { occurredAt: { gte: rangeStart } } : {}),
-        ...costOfficeWhere,
-        practiceId,
-      },
-    }),
-  ]);
-
-  const costByCategory = new Map<CostCategory, number>();
-  const latency = {
-    stt: [] as number[],
-    total: [] as number[],
-    tts: [] as number[],
-    ttft: [] as number[],
-  };
-  let bookedAppointments = 0;
-  let cancelledAppointments = 0;
-  let totalDurationSec = 0;
-  let totalToolCalls = 0;
-  let totalToolErrors = 0;
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalCachedTokens = 0;
-  let totalInterruptions = 0;
-  let fallbackCalls = 0;
-  let totalCacheHitRate = 0;
-  let maxPeakContext = 0;
-
-  for (const item of costLineItems) {
-    addMapValue(costByCategory, item.category, item.costMicros);
-  }
-
-  for (const call of calls) {
-    const toolExecutions = getToolExecutions(call.data);
-    const tools = getToolCalls(call.data);
-    const visibleToolExecutions = toolExecutions.filter((tool) =>
-      isAdminVisibleToolName(tool.toolName),
-    );
-    const visibleTools = tools.filter((tool) => isAdminVisibleToolName(tool.name));
-    const callLatency = getLatencyArrays(call);
-    latency.stt.push(...callLatency.stt);
-    latency.total.push(...callLatency.total);
-    latency.tts.push(...callLatency.tts);
-    latency.ttft.push(...callLatency.ttft);
-
-    bookedAppointments += call.bookedAppointment ? 1 : 0;
-    cancelledAppointments += call.cancelledAppointment ? 1 : 0;
-    totalDurationSec += call.durationSec;
-    totalToolCalls +=
-      toolExecutions.length > 0
-        ? visibleToolExecutions.length
-        : tools.length > 0
-          ? visibleTools.length
-          : call.toolCalls;
-    totalToolErrors +=
-      toolExecutions.length > 0
-        ? visibleToolExecutions.filter((tool) => tool.status === "error").length
-        : tools.length > 0
-          ? visibleTools.filter((tool) => tool.isError).length
-          : call.toolErrors;
-    totalInputTokens += call.inputTokens;
-    totalOutputTokens += call.outputTokens;
-    totalCachedTokens += call.cachedTokens;
-    totalInterruptions += call.interruptionCount;
-    fallbackCalls += call.fallbackUsed ? 1 : 0;
-    totalCacheHitRate += getCacheHitRate(call);
-    maxPeakContext = Math.max(maxPeakContext, getPeakContext(call));
-  }
-
-  const transfers = calls.filter((call) => call.transferred).length;
-  const failedCalls = calls.filter((call) => call.status === "FAILED");
-  const estimatedCostMicros = calls.reduce(
-    (sum, call) => sum + call.estimatedCostMicros,
-    0,
-  );
-  const appointments = bookedAppointments + cancelledAppointments;
   const officeNameByPhone = buildOfficeNameByPhone(practice.phoneNumbers);
+  const includeAnalytics = options.includeAnalytics === true;
+  const includeDashboard = options.includeDashboard === true;
+  const includeTable = options.includeTable === true;
+  const [analyticsCalls, dashboardCalls, bookedCategoryCalls, callTable] =
+    await Promise.all([
+      includeAnalytics
+        ? loadPracticeCalls(practiceId, range, selectedOffice)
+        : Promise.resolve(null),
+      includeDashboard
+        ? loadPracticeLiteCalls(practiceId, range, selectedOffice)
+        : Promise.resolve(null),
+      includeDashboard
+        ? loadBookedCategoryCalls(practiceId, range, selectedOffice)
+        : Promise.resolve(null),
+      includeTable
+        ? loadPracticeCallTable({
+            callSet: options.callSet ?? "all",
+            officeFilter: selectedOffice,
+            officeNameByPhone,
+            practiceId,
+            range,
+            state: options.tableState,
+          })
+        : Promise.resolve(null),
+    ]);
 
   return {
     agentStatus: getAgentStatus(practice.agents),
-    analytics: {
-      costByCategory: [...costByCategory.entries()]
-        .map(([category, costMicros]) => ({ category, costMicros }))
-        .sort((a, b) => b.costMicros - a.costMicros),
-      latency: {
-        sttP50: percentile(latency.stt, 50),
-        sttP95: percentile(latency.stt, 95),
-        totalP50: percentile(latency.total, 50),
-        totalP95: percentile(latency.total, 95),
-        ttsP50: percentile(latency.tts, 50),
-        ttsP95: percentile(latency.tts, 95),
-        ttftP50: percentile(latency.ttft, 50),
-        ttftP95: percentile(latency.ttft, 95),
-      },
-      peakTraffic: buildPeakTraffic(calls),
-      toolStats: buildToolStats(calls),
-      trendBuckets: buildTrendBuckets(calls, range),
-    },
-    analyticsData: buildPracticeAnalyticsData(calls, range),
-    callRows: calls.map((call) => buildCallTableRow(call, officeNameByPhone)),
-    dashboardData: buildPracticeDashboardData(calls),
+    analyticsData: analyticsCalls
+      ? buildPracticeAnalyticsData(analyticsCalls, range)
+      : null,
+    callRows: callTable?.rows ?? [],
+    callTable,
+    dashboardData: dashboardCalls
+      ? buildPracticeDashboardData(
+          dashboardCalls,
+          buildBookingCategories(bookedCategoryCalls ?? []),
+        )
+      : null,
     officeFilters,
     practice,
     range,
-    recentCalls: calls.slice(0, 30).map(buildRecentCall),
     selectedOfficeId: selectedOffice?.id ?? null,
-    stats: {
-      appointments,
-      avgCacheHitRate: calls.length > 0 ? totalCacheHitRate / calls.length : 0,
-      avgDurationSec: calls.length > 0 ? totalDurationSec / calls.length : 0,
-      bookedAppointments,
-      cancelledAppointments,
-      calls: calls.length,
-      costPerCallMicros: calls.length > 0 ? estimatedCostMicros / calls.length : 0,
-      estimatedCostMicros,
-      failedCalls: failedCalls.length,
-      fallbackCalls,
-      maxPeakContext,
-      totalCachedTokens,
-      totalDurationSec,
-      totalInputTokens,
-      totalInterruptions,
-      totalOutputTokens,
-      totalToolCalls,
-      totalToolErrors,
-      transferRate: calls.length > 0 ? transfers / calls.length : 0,
-      transfers,
-    },
   };
 }
 

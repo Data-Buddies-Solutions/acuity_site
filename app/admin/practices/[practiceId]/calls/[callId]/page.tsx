@@ -22,8 +22,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  getAdminCallNavigation,
   getAdminCallDetail,
-  getAdminPracticeCallRows,
+  type AdminPracticeCallSet,
   type AdminPracticeRange,
 } from "@/lib/admin-analytics";
 import {
@@ -31,8 +32,6 @@ import {
   isResolvedAppointmentAction,
 } from "@/lib/appointment-actions";
 import {
-  getCallListNavigation,
-  getPageForCallIndex,
   parseCallTableState,
   searchParamRecordToURLSearchParams,
   writeCallTableStateToParams,
@@ -78,6 +77,12 @@ function parseRange(value: string | string[] | undefined): AdminPracticeRange {
 
 function parseOfficeFilter(value: string | string[] | undefined) {
   return typeof value === "string" ? value : null;
+}
+
+function parseCallSet(value: string | string[] | undefined): AdminPracticeCallSet {
+  if (value === "bad") return "bad";
+  if (value === "golden") return "golden";
+  return "all";
 }
 
 function tableStateWithPage(state: CallTableState, page: number): CallTableState {
@@ -310,19 +315,24 @@ export default async function AdminCallDetailPage({
   ]);
   const range = parseRange(resolvedSearchParams.range);
   const office = parseOfficeFilter(resolvedSearchParams.office);
+  const callSet = parseCallSet(resolvedSearchParams.view);
   const tableState = parseCallTableState(resolvedSearchParams);
   const urlParams = searchParamRecordToURLSearchParams(resolvedSearchParams);
-  const [call, callRowsResult] = await Promise.all([
+  const [call, callNavigation] = await Promise.all([
     getAdminCallDetail(practiceId, callId),
-    getAdminPracticeCallRows(practiceId, range, office),
+    getAdminCallNavigation({
+      callId,
+      callSet,
+      office,
+      practiceId,
+      range,
+      state: tableState,
+    }),
   ]);
 
   if (!call) notFound();
 
-  const callNavigation = callRowsResult
-    ? getCallListNavigation(callRowsResult.callRows, tableState, call.id)
-    : null;
-  const currentPage = callNavigation?.currentPage ?? tableState.page;
+  const currentPage = tableState.page;
   const backHref = practiceCallsHref(
     practiceId,
     urlParams,
@@ -331,7 +341,7 @@ export default async function AdminCallDetailPage({
   const previousHref = callNavigation?.previousCall
     ? callDetailHref({
         callId: callNavigation.previousCall.id,
-        page: getPageForCallIndex(callNavigation.currentIndex - 1),
+        page: currentPage,
         params: urlParams,
         practiceId,
         tableState,
@@ -340,7 +350,7 @@ export default async function AdminCallDetailPage({
   const nextHref = callNavigation?.nextCall
     ? callDetailHref({
         callId: callNavigation.nextCall.id,
-        page: getPageForCallIndex(callNavigation.currentIndex + 1),
+        page: currentPage,
         params: urlParams,
         practiceId,
         tableState,

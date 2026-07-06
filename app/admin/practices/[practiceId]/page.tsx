@@ -15,8 +15,12 @@ import { HealthKPIs } from "@/app/components/health-kpis";
 import { OfficeFilterTabs } from "@/app/components/office-filter-tabs";
 import { TimeRangeTabs } from "@/app/components/time-range-tabs";
 import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
-import { getAdminPracticeDetail, type AdminPracticeRange } from "@/lib/admin-analytics";
-import { cn } from "@/lib/utils";
+import {
+  getAdminPracticeDetail,
+  type AdminPracticeCallSet,
+  type AdminPracticeRange,
+} from "@/lib/admin-analytics";
+import { parseCallTableState } from "@/lib/admin-call-table-state";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +61,12 @@ function parseView(value: string | string[] | undefined): PracticeView {
 
 function parseOfficeFilter(value: string | string[] | undefined) {
   return typeof value === "string" ? value : null;
+}
+
+function callSetForView(view: PracticeView): AdminPracticeCallSet {
+  if (view === "bad") return "bad";
+  if (view === "golden") return "golden";
+  return "all";
 }
 
 function hrefWithParams(
@@ -142,7 +152,14 @@ export default async function AdminPracticeDetailPage({
   const tab = parseTab(resolvedSearchParams.tab);
   const view = parseView(resolvedSearchParams.view);
   const office = parseOfficeFilter(resolvedSearchParams.office);
-  const detail = await getAdminPracticeDetail(practiceId, range, office);
+  const tableState = parseCallTableState(resolvedSearchParams);
+  const detail = await getAdminPracticeDetail(practiceId, range, office, {
+    callSet: callSetForView(view),
+    includeAnalytics: view === "analytics",
+    includeDashboard: view === "command",
+    includeTable: view !== "analytics",
+    tableState,
+  });
 
   if (!detail) {
     notFound();
@@ -151,12 +168,6 @@ export default async function AdminPracticeDetailPage({
   const data = detail.analyticsData;
   const selectedOffice =
     detail.officeFilters.find((office) => office.id === detail.selectedOfficeId) ?? null;
-  const callSetRows =
-    view === "golden"
-      ? detail.callRows.filter((call) => call.evaluationBucket === "GOLDEN")
-      : view === "bad"
-        ? detail.callRows.filter((call) => call.evaluationBucket === "BAD")
-        : detail.callRows;
   const callSetTitle =
     view === "golden"
       ? "Golden Calls"
@@ -209,12 +220,14 @@ export default async function AdminPracticeDetailPage({
 
       {view === "command" ? (
         <>
-          <HealthKPIs data={detail.dashboardData} />
+          {detail.dashboardData ? <HealthKPIs data={detail.dashboardData} /> : null}
 
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-foreground">{callSetTitle}</h2>
             <Suspense>
-              <CallsTable calls={detail.callRows} practiceId={practiceId} />
+              {detail.callTable ? (
+                <CallsTable callTable={detail.callTable} practiceId={practiceId} />
+              ) : null}
             </Suspense>
           </section>
         </>
@@ -222,7 +235,9 @@ export default async function AdminPracticeDetailPage({
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-foreground">{callSetTitle}</h2>
           <Suspense>
-            <CallsTable calls={callSetRows} practiceId={practiceId} />
+            {detail.callTable ? (
+              <CallsTable callTable={detail.callTable} practiceId={practiceId} />
+            ) : null}
           </Suspense>
         </section>
       ) : (
@@ -231,12 +246,12 @@ export default async function AdminPracticeDetailPage({
             <AnalyticsTabs />
           </Suspense>
 
-          {tab === "overview" && <OverviewTab data={data} />}
-          {tab === "quality" && <QualityTab data={data} />}
-          {tab === "performance" && <PerformanceTab data={data} />}
-          {tab === "costs" && <CostsTab data={data} />}
-          {tab === "tokens" && <TokensTab data={data} />}
-          {tab === "tools" && <ToolsTab data={data} />}
+          {data && tab === "overview" && <OverviewTab data={data} />}
+          {data && tab === "quality" && <QualityTab data={data} />}
+          {data && tab === "performance" && <PerformanceTab data={data} />}
+          {data && tab === "costs" && <CostsTab data={data} />}
+          {data && tab === "tokens" && <TokensTab data={data} />}
+          {data && tab === "tools" && <ToolsTab data={data} />}
         </>
       )}
     </div>

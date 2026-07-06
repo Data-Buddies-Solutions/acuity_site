@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowDown,
@@ -26,17 +26,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { AdminCallTableRow } from "@/lib/admin-analytics";
+import type { AdminCallTableResult, AdminCallTableRow } from "@/lib/admin-analytics";
 import {
-  CALL_TABLE_PAGE_SIZE,
   callQuickFilters,
-  clampCallTablePage,
-  filterAndSortCalls,
   getCallOfficeLabel,
   getCallOfficeSubLabel,
-  getCallTablePageCount,
   hasLanguageSignal,
-  parseCallTableState,
   writeCallTableStateToParams,
   type CallQuickFilter,
   type CallSortKey,
@@ -299,42 +294,47 @@ function SortButton({
 }
 
 export function CallsTable({
-  calls,
+  callTable,
   practiceId,
 }: {
-  calls: AdminCallTableRow[];
+  callTable: AdminCallTableResult;
   practiceId: string;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const stateFromUrl = React.useMemo(
-    () => parseCallTableState(searchParams),
-    [searchParams],
-  );
-  const stateSignature = `${stateFromUrl.searchQuery}|${stateFromUrl.quickFilter}|${stateFromUrl.sortState.key}|${stateFromUrl.sortState.direction}|${stateFromUrl.page}`;
-  const [searchQuery, setSearchQuery] = React.useState(stateFromUrl.searchQuery);
+  const calls = callTable.rows;
+  const serverState = callTable.state;
+  const stateSignature = `${serverState.searchQuery}|${serverState.quickFilter}|${serverState.sortState.key}|${serverState.sortState.direction}|${serverState.page}`;
+  const [searchQuery, setSearchQuery] = React.useState(serverState.searchQuery);
   const [quickFilter, setQuickFilter] = React.useState<CallQuickFilter>(
-    stateFromUrl.quickFilter,
+    serverState.quickFilter,
   );
-  const [sortState, setSortState] = React.useState<CallSortState>(stateFromUrl.sortState);
-  const [page, setPage] = React.useState(stateFromUrl.page);
+  const [sortState, setSortState] = React.useState<CallSortState>(serverState.sortState);
+  const [page, setPage] = React.useState(serverState.page);
   const showFallback = false;
   const showLanguage = React.useMemo(
-    () => calls.some((call) => hasLanguageSignal(call)),
-    [calls],
+    () =>
+      callTable.hasLanguageSignals ||
+      quickFilter === "language" ||
+      calls.some((call) => hasLanguageSignal(call)),
+    [callTable.hasLanguageSignals, calls, quickFilter],
   );
   const showRuntimeEvents = false;
   const showToolErrors = React.useMemo(
-    () => calls.some((call) => call.toolErrors > 0),
-    [calls],
+    () =>
+      callTable.hasToolErrors ||
+      quickFilter === "errors" ||
+      calls.some((call) => call.toolErrors > 0),
+    [callTable.hasToolErrors, calls, quickFilter],
   );
 
   React.useEffect(() => {
-    setSearchQuery(stateFromUrl.searchQuery);
-    setQuickFilter(stateFromUrl.quickFilter);
-    setSortState(stateFromUrl.sortState);
-    setPage(stateFromUrl.page);
-  }, [stateFromUrl, stateSignature]);
+    setSearchQuery(serverState.searchQuery);
+    setQuickFilter(serverState.quickFilter);
+    setSortState(serverState.sortState);
+    setPage(serverState.page);
+  }, [serverState, stateSignature]);
 
   const tableState = React.useMemo<CallTableState>(
     () => ({
@@ -346,12 +346,7 @@ export function CallsTable({
     [page, quickFilter, searchQuery, sortState],
   );
 
-  const filteredCalls = React.useMemo(
-    () => filterAndSortCalls(calls, tableState),
-    [calls, tableState],
-  );
-
-  if (calls.length === 0) {
+  if (callTable.totalCount === 0 && !searchQuery && quickFilter === "all") {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
         No calls in this time range.
@@ -366,13 +361,10 @@ export function CallsTable({
     if (filter.id === "runtime") return showRuntimeEvents;
     return true;
   });
-  const pageCount = getCallTablePageCount(filteredCalls.length);
-  const activePage = clampCallTablePage(page, pageCount);
+  const pageCount = callTable.pageCount;
+  const activePage = Math.min(Math.max(1, page), Math.max(1, pageCount));
   const pageIndex = activePage - 1;
-  const pageRows = filteredCalls.slice(
-    pageIndex * CALL_TABLE_PAGE_SIZE,
-    pageIndex * CALL_TABLE_PAGE_SIZE + CALL_TABLE_PAGE_SIZE,
-  );
+  const pageRows = calls;
   const tableColumnCount =
     9 +
     (showToolErrors ? 1 : 0) +
@@ -384,7 +376,7 @@ export function CallsTable({
     const params = new URLSearchParams(searchParams.toString());
     writeCallTableStateToParams(params, nextState);
     const query = params.toString();
-    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
   function updateTableState(nextState: CallTableState) {
@@ -515,15 +507,7 @@ export function CallsTable({
                 {showToolErrors && <CallTableHead>Tool Errors</CallTableHead>}
                 <CallTableHead>P50 TTFT</CallTableHead>
                 <CallTableHead>P50 TTS</CallTableHead>
-                <CallTableHead aria-sort={getAriaSort(sortState, "totalLatency")}>
-                  <SortButton
-                    sortKey="totalLatency"
-                    sortState={sortState}
-                    onSort={handleSort}
-                  >
-                    P50 E2E
-                  </SortButton>
-                </CallTableHead>
+                <CallTableHead>P50 E2E</CallTableHead>
                 <CallTableHead aria-sort={getAriaSort(sortState, "actions")}>
                   <SortButton sortKey="actions" sortState={sortState} onSort={handleSort}>
                     Actions
@@ -686,7 +670,7 @@ export function CallsTable({
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
-          {filteredCalls.length} call{filteredCalls.length !== 1 ? "s" : ""}
+          {callTable.totalCount} call{callTable.totalCount !== 1 ? "s" : ""}
           {searchQuery || quickFilter !== "all" ? " matching filters" : ""}
         </p>
         {pageCount > 1 && (
