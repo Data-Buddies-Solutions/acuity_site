@@ -1601,6 +1601,7 @@ const adminCallLiteSelect = {
   callId: true,
   callerPhone: true,
   cancelledAppointment: true,
+  data: true,
   durationSec: true,
   evaluationLabels: {
     select: {
