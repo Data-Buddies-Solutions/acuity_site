@@ -1449,10 +1449,48 @@ function buildCallSetWhere(callSet: AdminPracticeCallSet): Prisma.AgentCallWhere
 
 function buildLanguageSignalWhere(): Prisma.AgentCallWhereInput {
   return {
-    data: {
-      equals: true,
-      path: ["language", "languageChanged"],
-    },
+    OR: [
+      {
+        data: {
+          equals: true,
+          path: ["language", "languageChanged"],
+        },
+      },
+      {
+        data: {
+          mode: "insensitive",
+          not: "en",
+          path: ["language", "currentLanguage"],
+          string_contains: "",
+        },
+      },
+      {
+        AND: [
+          {
+            data: {
+              array_contains: [],
+              path: ["language", "acceptedLanguages"],
+            },
+          },
+          {
+            NOT: [
+              {
+                data: {
+                  equals: [],
+                  path: ["language", "acceptedLanguages"],
+                },
+              },
+              {
+                data: {
+                  equals: ["en"],
+                  path: ["language", "acceptedLanguages"],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -1563,8 +1601,6 @@ function getCallTableOrderBy(
       return [{ durationSec: direction }, ...stableRecentTieBreakers];
     case "office":
       return [{ officePhone: direction }, ...stableRecentTieBreakers];
-    case "totalLatency":
-      return [{ avgTtft: direction }, ...stableRecentTieBreakers];
     case "transferred":
       return [{ transferred: direction }, ...stableRecentTieBreakers];
     case "startedAt":

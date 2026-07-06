@@ -18,7 +18,7 @@ describe("admin call table state", () => {
       filter: "unknown",
       page: "-3",
       q: "  jane    smith  ",
-      sort: "missing",
+      sort: "totalLatency",
     });
 
     expect(state).toEqual({

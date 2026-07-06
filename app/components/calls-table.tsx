@@ -507,15 +507,7 @@ export function CallsTable({
                 {showToolErrors && <CallTableHead>Tool Errors</CallTableHead>}
                 <CallTableHead>P50 TTFT</CallTableHead>
                 <CallTableHead>P50 TTS</CallTableHead>
-                <CallTableHead aria-sort={getAriaSort(sortState, "totalLatency")}>
-                  <SortButton
-                    sortKey="totalLatency"
-                    sortState={sortState}
-                    onSort={handleSort}
-                  >
-                    P50 E2E
-                  </SortButton>
-                </CallTableHead>
+                <CallTableHead>P50 E2E</CallTableHead>
                 <CallTableHead aria-sort={getAriaSort(sortState, "actions")}>
                   <SortButton sortKey="actions" sortState={sortState} onSort={handleSort}>
                     Actions

@@ -14,7 +14,7 @@ export const callQuickFilters = [
 
 export type CallQuickFilter = (typeof callQuickFilters)[number]["id"];
 export type CallSortKey =
-  "actions" | "durationSec" | "office" | "startedAt" | "totalLatency" | "transferred";
+  "actions" | "durationSec" | "office" | "startedAt" | "transferred";
 export type CallSortDirection = "asc" | "desc";
 export type CallSortState = { direction: CallSortDirection; key: CallSortKey };
 export type CallTableState = {
@@ -83,7 +83,6 @@ function parseSortKey(value: string | null): CallSortKey {
     case "durationSec":
     case "office":
     case "startedAt":
-    case "totalLatency":
     case "transferred":
       return value;
     default:
