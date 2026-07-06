@@ -55,6 +55,7 @@ export function CacheEfficiencyTrendChart({
                 minTickGap={24}
               />
               <YAxis
+                domain={[0, 100]}
                 tickFormatter={(value) => `${Math.round(Number(value))}%`}
                 tickLine={false}
                 axisLine={false}
@@ -67,7 +68,7 @@ export function CacheEfficiencyTrendChart({
                   return (
                     <div className="rounded-lg border bg-background p-2 shadow-sm text-xs">
                       <p className="font-medium">{row.tooltipLabel}</p>
-                      <div className="mt-1 space-y-0.5 font-mono">
+                      <div className="mt-1 flex flex-col gap-0.5 font-mono">
                         <p>{row.rate.toFixed(1)}% cached</p>
                         <p>
                           {row.cached.toLocaleString()} cached /{" "}
@@ -79,7 +80,7 @@ export function CacheEfficiencyTrendChart({
                 }}
               />
               <Line
-                type="natural"
+                type="monotone"
                 dataKey="rate"
                 stroke="var(--color-rate)"
                 strokeWidth={2}

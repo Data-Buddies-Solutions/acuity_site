@@ -1,11 +1,11 @@
 import type { AnalyticsData } from "@/lib/analytics";
 import { formatLatencyMs, latencyColor } from "@/lib/format";
 import { StatCard } from "@/app/components/stat-card";
-import { LatencyBandChart } from "@/app/components/charts/latency-band-chart";
+import { LatencyDistributionChart } from "@/app/components/charts/latency-distribution-chart";
 
 export function PerformanceTab({ data }: { data: AnalyticsData }) {
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="STT Final P50"
@@ -60,31 +60,27 @@ export function PerformanceTab({ data }: { data: AnalyticsData }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <LatencyBandChart
-          data={data.totalLatencyTrendData}
+      <div className="flex flex-col gap-6">
+        <LatencyDistributionChart
+          data={data.latencyDistributions.total}
           title="E2E Response Latency"
-          description={`${data.trendGranularityLabel[0].toUpperCase() + data.trendGranularityLabel.slice(1)} P50 and P95 end-to-end response latency`}
+          description="All measured response turns, bucketed by latency with the ranked right tail exposed."
         />
-        <LatencyBandChart
-          data={data.sttLatencyTrendData}
+        <LatencyDistributionChart
+          data={data.latencyDistributions.stt}
           title="STT Final Transcript"
-          description={`${data.trendGranularityLabel[0].toUpperCase() + data.trendGranularityLabel.slice(1)} final transcript delay`}
+          description="Distribution of final transcript delay from measured user turns."
         />
-        <div className="md:col-span-2">
-          <LatencyBandChart
-            data={data.ttftLatencyTrendData}
-            title="LLM TTFT"
-            description={`${data.trendGranularityLabel[0].toUpperCase() + data.trendGranularityLabel.slice(1)} P50 and P95 time-to-first-token`}
-          />
-        </div>
-        <div className="md:col-span-2">
-          <LatencyBandChart
-            data={data.ttsLatencyTrendData}
-            title="TTS TTFB"
-            description={`${data.trendGranularityLabel[0].toUpperCase() + data.trendGranularityLabel.slice(1)} P50 and P95 time-to-first-byte`}
-          />
-        </div>
+        <LatencyDistributionChart
+          data={data.latencyDistributions.llm}
+          title="LLM TTFT"
+          description="Distribution of time to first token across measured assistant turns."
+        />
+        <LatencyDistributionChart
+          data={data.latencyDistributions.tts}
+          title="TTS TTFB"
+          description="Distribution of text-to-speech time to first byte across measured turns."
+        />
       </div>
     </div>
   );

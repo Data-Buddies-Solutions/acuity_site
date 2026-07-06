@@ -1,6 +1,6 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
   Card,
   CardContent,
@@ -17,8 +17,9 @@ import {
 } from "@/components/ui/chart";
 
 const chartConfig = {
-  booked: { label: "Booked", color: "var(--chart-1)" },
-  cancelled: { label: "Cancelled", color: "var(--chart-5)" },
+  bookedRate: { label: "Booked", color: "var(--chart-1)" },
+  cancelledRate: { label: "Cancelled", color: "var(--chart-4)" },
+  transferRate: { label: "Transferred", color: "var(--chart-5)" },
 } satisfies ChartConfig;
 
 export function ActionTrendChart({
@@ -28,20 +29,27 @@ export function ActionTrendChart({
   data: {
     label: string;
     tooltipLabel: string;
+    calls: number;
     booked: number;
+    bookedRate: number;
     cancelled: number;
+    cancelledRate: number;
+    transfers: number;
+    transferRate: number;
   }[];
   granularityLabel: string;
 }) {
-  const hasData = data.some((row) => row.booked > 0 || row.cancelled > 0);
+  const hasData = data.some(
+    (row) => row.booked > 0 || row.cancelled > 0 || row.transfers > 0,
+  );
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Action Totals</CardTitle>
+        <CardTitle>Action Rates</CardTitle>
         <CardDescription>
-          {granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} booked and
-          cancelled totals
+          {granularityLabel[0].toUpperCase() + granularityLabel.slice(1)} action share
+          normalized by call volume
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -51,7 +59,7 @@ export function ActionTrendChart({
           </div>
         ) : (
           <ChartContainer config={chartConfig} className="h-[220px] w-full">
-            <BarChart data={data}>
+            <LineChart data={data}>
               <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="label"
@@ -60,7 +68,13 @@ export function ActionTrendChart({
                 tickMargin={8}
                 minTickGap={24}
               />
-              <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={40} />
+              <YAxis
+                domain={[0, 100]}
+                tickFormatter={(value) => `${Math.round(Number(value))}%`}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+              />
               <ChartTooltip
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
@@ -68,23 +82,47 @@ export function ActionTrendChart({
                   return (
                     <div className="rounded-lg border bg-background p-2 shadow-sm text-xs">
                       <p className="font-medium">{row.tooltipLabel}</p>
-                      <div className="mt-1 space-y-0.5 font-mono">
-                        <p>{row.booked} booked</p>
-                        <p>{row.cancelled} cancelled</p>
+                      <div className="mt-1 flex flex-col gap-0.5 font-mono">
+                        <p>
+                          {row.bookedRate.toFixed(1)}% booked ({row.booked}/
+                          {row.calls})
+                        </p>
+                        <p>
+                          {row.cancelledRate.toFixed(1)}% cancelled ({row.cancelled}/
+                          {row.calls})
+                        </p>
+                        <p>
+                          {row.transferRate.toFixed(1)}% transferred ({row.transfers}/
+                          {row.calls})
+                        </p>
                       </div>
                     </div>
                   );
                 }}
               />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="booked" stackId="actions" fill="var(--color-booked)" />
-              <Bar
-                dataKey="cancelled"
-                stackId="actions"
-                fill="var(--color-cancelled)"
-                radius={[4, 4, 0, 0]}
+              <Line
+                type="monotone"
+                dataKey="bookedRate"
+                stroke="var(--color-bookedRate)"
+                strokeWidth={2}
+                dot={{ r: 2.5 }}
               />
-            </BarChart>
+              <Line
+                type="monotone"
+                dataKey="cancelledRate"
+                stroke="var(--color-cancelledRate)"
+                strokeWidth={2}
+                dot={{ r: 2.5 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="transferRate"
+                stroke="var(--color-transferRate)"
+                strokeWidth={2}
+                dot={{ r: 2.5 }}
+              />
+            </LineChart>
           </ChartContainer>
         )}
       </CardContent>

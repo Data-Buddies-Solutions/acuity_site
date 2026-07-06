@@ -12,7 +12,7 @@ export function ToolsTab({ data }: { data: AnalyticsData }) {
       : null;
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           label="Total Tool Calls"

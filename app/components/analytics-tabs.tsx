@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 
 const tabs = [
   { value: "overview", label: "Overview" },
-  { value: "quality", label: "Quality" },
   { value: "performance", label: "Performance" },
   { value: "costs", label: "Costs" },
   { value: "tokens", label: "Tokens" },
