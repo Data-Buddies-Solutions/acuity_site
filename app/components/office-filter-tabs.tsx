@@ -3,8 +3,9 @@
 import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { NativeSelect } from "@/components/ui/native-select";
 import type { AdminPracticeOfficeFilterOption } from "@/lib/admin-analytics";
+import { cn } from "@/lib/utils";
 
 type OfficeFilterTabsProps = {
   offices: AdminPracticeOfficeFilterOption[];
@@ -24,41 +25,43 @@ export function OfficeFilterTabs({ offices, selectedOfficeId }: OfficeFilterTabs
   const current = selectedOfficeId ?? "all";
   const items = [{ id: "all", label: "All Offices" }, ...offices];
 
+  function selectOffice(value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (value === "all") {
+      params.delete("office");
+    } else {
+      params.set("office", value);
+    }
+    params.delete("page");
+
+    const query = params.toString();
+
+    startTransition(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    });
+  }
+
   return (
-    <div
-      className={`max-w-full overflow-x-auto pb-1 transition-opacity ${
-        isPending ? "opacity-50" : ""
-      }`}
-    >
-      <Tabs
+    <div className={cn("w-full min-w-0 transition-opacity", isPending && "opacity-50")}>
+      <label className="sr-only" htmlFor="admin-office-filter">
+        Office
+      </label>
+      <NativeSelect
+        aria-label="Office"
+        className="w-full lg:min-w-52"
+        id="admin-office-filter"
         value={current}
-        onValueChange={(value) => {
-          const params = new URLSearchParams(searchParams.toString());
-
-          if (value === "all") {
-            params.delete("office");
-          } else {
-            params.set("office", value);
-          }
-          params.delete("page");
-
-          const query = params.toString();
-
-          startTransition(() => {
-            router.replace(query ? `${pathname}?${query}` : pathname, {
-              scroll: false,
-            });
-          });
-        }}
+        onChange={(event) => selectOffice(event.target.value)}
       >
-        <TabsList className="h-9 w-full min-w-max justify-start">
-          {items.map((item) => (
-            <TabsTrigger key={item.id} value={item.id} className="min-w-fit px-3">
-              <span className="max-w-40 truncate">{item.label}</span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+        {items.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.label}
+          </option>
+        ))}
+      </NativeSelect>
     </div>
   );
 }

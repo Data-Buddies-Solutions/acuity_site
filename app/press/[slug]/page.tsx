@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, CalendarDays } from "lucide-react";
 
 import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { SITE_CONFIG } from "@/lib/config";
 import { getPressReleaseBySlug, pressReleases } from "../posts";
 

@@ -13,7 +13,8 @@ import {
   Voicemail as VoicemailIcon,
 } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import type { PortalCallCenterTotals, PortalNeedsActionGroup } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
@@ -138,16 +139,19 @@ export default function ActivityRail({
             onClick={() => setIsOpen((current) => !current)}
             type="button"
           >
-            <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--portal-muted)]" />
+            <ToggleIcon
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+            />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-[var(--portal-ink)]">
                   Needs action
                 </span>
                 {totals.needsActionCallers ? (
-                  <span className="rounded-full border border-[var(--portal-border)] px-2 py-0.5 text-xs font-semibold tabular-nums text-[var(--portal-muted)]">
+                  <PortalBadge className="px-2 py-0.5 tabular-nums">
                     {totals.needsActionCallers}
-                  </span>
+                  </PortalBadge>
                 ) : null}
               </span>
               <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
@@ -199,7 +203,9 @@ export default function ActivityRail({
                 <article
                   className={cn(
                     "group px-4 py-3 transition",
-                    isSelected ? "bg-[var(--portal-accent-soft)]" : "hover:bg-[var(--portal-panel-soft)]",
+                    isSelected
+                      ? "bg-[var(--portal-accent-soft)]"
+                      : "hover:bg-[var(--portal-panel-soft)]",
                   )}
                 >
                   <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
@@ -226,7 +232,9 @@ export default function ActivityRail({
                         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[var(--portal-muted)]">
                           {phoneLabel ? <span>{phoneLabel}</span> : null}
                           {phoneLabel ? <span aria-hidden="true">·</span> : null}
-                          <span className="font-medium text-[var(--portal-ink-soft)]">{summary}</span>
+                          <span className="font-medium text-[var(--portal-ink-soft)]">
+                            {summary}
+                          </span>
                           {duration ? (
                             <>
                               <span aria-hidden="true">·</span>

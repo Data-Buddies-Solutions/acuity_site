@@ -3,18 +3,18 @@ import { redirect } from "next/navigation";
 import { Clock3 } from "lucide-react";
 
 import { InsuranceRulesView } from "@/app/components/InsuranceRulesView";
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { DocumentPanel } from "@/app/portal/app/DocumentView";
+import { PortalDocumentSelector } from "@/app/portal/app/PortalDocumentSelector";
 import { PracticePageHeader } from "@/app/portal/app/PracticePageHeader";
 import { getPortalInsuranceRuleState } from "@/lib/insurance-rules";
+import { getPortalLocationDocumentLabel } from "@/lib/portal-document-label";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
-import { cn } from "@/lib/utils";
 
 import { InsuranceRulesEditor } from "./InsuranceRulesEditor";
 
 type SearchParamsInput =
-  | Promise<Record<string, string | string[] | undefined>>
-  | undefined;
+  Promise<Record<string, string | string[] | undefined>> | undefined;
 
 async function getPageParams(searchParams: SearchParamsInput) {
   const resolved = (await searchParams) || {};
@@ -43,66 +43,6 @@ function formatDate(date: Date | null) {
     timeZone: "America/New_York",
     year: "numeric",
   }).format(date);
-}
-
-function ruleSetLabel(ruleSet: {
-  locationName: string | null;
-  slug: string;
-  title: string;
-}) {
-  if (ruleSet.locationName) {
-    return ruleSet.locationName;
-  }
-  if (ruleSet.slug.includes("crystal")) {
-    return "Crystal River";
-  }
-  if (ruleSet.slug.includes("spring")) {
-    return "Spring Hill";
-  }
-  return ruleSet.title.replace(/^Insurance Rules:\s*/i, "");
-}
-
-function InsuranceRuleSetSelector({
-  ruleSets,
-  selectedId,
-}: {
-  ruleSets: Array<{
-    id: string;
-    locationName: string | null;
-    slug: string;
-    title: string;
-  }>;
-  selectedId: string;
-}) {
-  if (ruleSets.length <= 1) {
-    return null;
-  }
-
-  return (
-    <section className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--portal-muted-soft)]">
-        Location
-      </p>
-      <nav aria-label="Insurance rules location" className="flex gap-2 overflow-x-auto">
-        {ruleSets.map((ruleSet) => (
-          <Link
-            key={ruleSet.id}
-            className={cn(
-              "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
-              ruleSet.id === selectedId
-                ? "border-[var(--portal-border)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
-                : "border-[var(--portal-border)] bg-white text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
-            )}
-            href={`/portal/app/insurance-crosswalk?rules=${encodeURIComponent(
-              ruleSet.slug,
-            )}`}
-          >
-            {ruleSetLabel(ruleSet)}
-          </Link>
-        ))}
-      </nav>
-    </section>
-  );
 }
 
 export default async function PortalInsuranceRulesPage({
@@ -153,6 +93,16 @@ export default async function PortalInsuranceRulesPage({
   const pendingRevision = selectedRuleSet.pendingRevision;
   const currentRulesJson =
     pendingRevision?.rulesJson ?? selectedRuleSet.publishedRevision.rulesJson;
+  const selectorItems = insuranceRuleState.ruleSets.map((ruleSet) => ({
+    id: ruleSet.id,
+    label: getPortalLocationDocumentLabel({
+      locationName: ruleSet.locationName,
+      slug: ruleSet.slug,
+      title: ruleSet.title,
+      titlePrefix: "Insurance Rules",
+    }),
+    slug: ruleSet.slug,
+  }));
 
   if (editing) {
     return (
@@ -167,8 +117,11 @@ export default async function PortalInsuranceRulesPage({
           </Button>
         </PracticePageHeader>
 
-        <InsuranceRuleSetSelector
-          ruleSets={insuranceRuleState.ruleSets}
+        <PortalDocumentSelector
+          ariaLabel="Insurance rules location"
+          basePath="/portal/app/insurance-crosswalk"
+          items={selectorItems}
+          queryKey="rules"
           selectedId={selectedRuleSet.id}
         />
 
@@ -206,8 +159,11 @@ export default async function PortalInsuranceRulesPage({
         </Button>
       </PracticePageHeader>
 
-      <InsuranceRuleSetSelector
-        ruleSets={insuranceRuleState.ruleSets}
+      <PortalDocumentSelector
+        ariaLabel="Insurance rules location"
+        basePath="/portal/app/insurance-crosswalk"
+        items={selectorItems}
+        queryKey="rules"
         selectedId={selectedRuleSet.id}
       />
 

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import type { PracticeProviderDraft } from "@/lib/practice-workspace";
 
 import { PortalInputField } from "../PortalFields";

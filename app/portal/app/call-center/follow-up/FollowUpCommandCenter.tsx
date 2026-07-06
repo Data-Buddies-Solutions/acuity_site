@@ -12,7 +12,8 @@ import {
   Voicemail as VoicemailIcon,
 } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import type { PortalNeedsActionGroup } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
@@ -44,15 +45,17 @@ export default function FollowUpCommandCenter({
       <div className="min-w-0 border-b border-[var(--portal-border)] lg:border-b-0 lg:border-r">
         <header className="flex flex-col gap-3 border-b border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Needs action</h2>
+            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
+              Needs action
+            </h2>
             <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
               Missed calls, voicemails, and notes that still need a response.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
+            <PortalBadge>
               {totalThreads} {totalThreads === 1 ? "thread" : "threads"}
-            </span>
+            </PortalBadge>
             <PaginationControls office={office} page={page} totalPages={totalPages} />
           </div>
         </header>
@@ -222,11 +225,15 @@ function FollowUpWorkPanel({
               className={cn("mt-1 h-4 w-4 shrink-0", iconClassName)}
             />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-semibold text-[var(--portal-ink)]">{title}</p>
+              <p className="truncate text-base font-semibold text-[var(--portal-ink)]">
+                {title}
+              </p>
               {phoneLabel ? (
                 <p className="mt-0.5 text-sm text-[var(--portal-muted)]">{phoneLabel}</p>
               ) : null}
-              <p className="mt-2 text-sm font-medium text-[var(--portal-ink-soft)]">{summary}</p>
+              <p className="mt-2 text-sm font-medium text-[var(--portal-ink-soft)]">
+                {summary}
+              </p>
               <p className="mt-1 text-xs text-[var(--portal-muted)]">
                 Last activity {formatRelative(thread.lastActivityAt)}
               </p>
@@ -264,7 +271,9 @@ function FollowUpWorkPanel({
         </section>
 
         <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-[var(--portal-ink)]">Thread context</h3>
+          <h3 className="text-sm font-semibold text-[var(--portal-ink)]">
+            Thread context
+          </h3>
           <dl className="mt-3 grid grid-cols-2 gap-2">
             <ThreadMetric label="Missed" value={thread.missedCount} />
             <ThreadMetric label="Voicemail" value={thread.voicemailCount} />
@@ -368,9 +377,9 @@ function PaginationControls({
           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
-      <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
+      <PortalBadge>
         {page} / {totalPages}
-      </span>
+      </PortalBadge>
       {hasNext ? (
         <Button
           asChild

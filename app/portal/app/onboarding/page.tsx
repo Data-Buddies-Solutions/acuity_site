@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, ArrowUpRight, CheckCircle2, ChevronRight } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -37,8 +37,7 @@ type OnboardingStep = {
 };
 
 type SearchParamsInput =
-  | Promise<Record<string, string | string[] | undefined>>
-  | undefined;
+  Promise<Record<string, string | string[] | undefined>> | undefined;
 
 function getOnboardingSteps(portalState: PortalWorkspaceState) {
   return [

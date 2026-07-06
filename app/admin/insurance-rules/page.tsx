@@ -2,7 +2,8 @@ import Link from "next/link";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 import { InsuranceRulesView } from "@/app/components/InsuranceRulesView";
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   getPendingInsuranceRuleReviews,
   normalizeInsuranceRulesForView,
@@ -133,8 +134,8 @@ export default async function AdminInsuranceRulesPage() {
                         <span className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
                           Return note
                         </span>
-                        <input
-                          className="h-10 rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm text-[var(--portal-ink)] outline-none transition focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/15"
+                        <Input
+                          className="border-[var(--portal-border)] text-[var(--portal-ink)] focus:border-[var(--portal-accent)] focus:ring-[var(--portal-accent)]/15"
                           name="reviewNote"
                           placeholder="Optional note to retain in the revision history"
                         />

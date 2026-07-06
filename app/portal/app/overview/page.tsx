@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import {
   getPortalOverviewMetrics,
   type PortalBookingCategorySummary,
@@ -311,32 +312,22 @@ export default async function PortalOverviewPage({
             <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
               Date range
             </p>
-            <nav
-              aria-label="Overview range"
-              className="inline-flex h-10 w-full max-w-full rounded-lg border border-[var(--portal-border)] bg-white p-1 sm:w-fit"
-            >
-              {rangeOptions.map((option) => {
-                const isActive = option.value === metrics.range;
-                return (
-                  <Link
-                    key={option.value}
-                    aria-current={isActive ? "page" : undefined}
-                    className={cn(
-                      "flex flex-1 items-center justify-center rounded-md px-4 text-sm font-medium transition sm:min-w-24",
-                      isActive
-                        ? "!bg-[#536a91] !text-white shadow-sm hover:!text-white"
-                        : "text-[#667085] hover:bg-[#f5f7fb] hover:text-[#1f2937]",
-                    )}
-                    href={overviewHref({
-                      office: metrics.selectedOfficeId,
-                      range: option.value,
-                    })}
-                  >
-                    {option.label}
-                  </Link>
-                );
-              })}
-            </nav>
+            <LinkSegmentedControl
+              activeClassName="bg-[var(--portal-accent)] text-white hover:text-white"
+              ariaLabel="Overview range"
+              className="h-10 w-full max-w-full border border-[var(--portal-border)] bg-white sm:w-fit"
+              inactiveClassName="text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
+              itemClassName="flex flex-1 px-4 text-sm sm:min-w-24"
+              items={rangeOptions.map((option) => ({
+                href: overviewHref({
+                  office: metrics.selectedOfficeId,
+                  range: option.value,
+                }),
+                label: option.label,
+                value: option.value,
+              }))}
+              value={metrics.range}
+            />
           </section>
         </div>
       </PracticePageHeader>

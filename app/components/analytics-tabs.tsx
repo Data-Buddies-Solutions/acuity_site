@@ -2,7 +2,8 @@
 
 import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { cn } from "@/lib/utils";
 
 const tabs = [
   { value: "overview", label: "Overview" },
@@ -20,35 +21,33 @@ export function AnalyticsTabs() {
   const [isPending, startTransition] = useTransition();
   const current = searchParams.get("tab") || "overview";
 
+  function selectTab(value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === "overview") {
+      params.delete("tab");
+    } else {
+      params.set("tab", value);
+    }
+    const qs = params.toString();
+    startTransition(() => {
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    });
+  }
+
   return (
     <div
-      className={`max-w-full overflow-x-auto pb-1 transition-opacity ${
-        isPending ? "opacity-50" : ""
-      }`}
+      className={cn(
+        "max-w-full overflow-x-auto pb-1 transition-opacity",
+        isPending && "opacity-50",
+      )}
     >
-      <Tabs
+      <SegmentedControl
+        aria-label="Analytics section"
+        className="min-w-max"
+        items={tabs}
+        onValueChange={selectTab}
         value={current}
-        onValueChange={(value) => {
-          const params = new URLSearchParams(searchParams.toString());
-          if (value === "overview") {
-            params.delete("tab");
-          } else {
-            params.set("tab", value);
-          }
-          const qs = params.toString();
-          startTransition(() => {
-            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-          });
-        }}
-      >
-        <TabsList className="h-9 w-full min-w-max justify-start">
-          {tabs.map((t) => (
-            <TabsTrigger key={t.value} value={t.value} className="min-w-fit px-3">
-              {t.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      />
     </div>
   );
 }

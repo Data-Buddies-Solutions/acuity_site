@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Button } from "@/app/components/ui/button";
-import { Badge } from "@/app/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Home, Search } from "lucide-react";
 import { SITE_CONFIG } from "@/lib/config";
 

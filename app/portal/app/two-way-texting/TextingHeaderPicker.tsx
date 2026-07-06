@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+
+import { PortalSelect } from "@/app/portal/app/PortalFields";
 
 type InboxOption = {
   id: string;
@@ -19,10 +20,11 @@ export default function TextingHeaderPicker({
   const router = useRouter();
 
   return (
-    <label className="relative block w-full min-w-fit sm:w-auto">
+    <label className="block w-full min-w-fit sm:w-auto">
       <span className="sr-only">Texting location</span>
-      <select
-        className="h-12 w-full min-w-64 appearance-none rounded-xl border border-[var(--portal-border-strong)] bg-white px-3 pr-10 text-sm font-semibold text-[var(--portal-ink)] shadow-sm outline-none transition focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
+      <PortalSelect
+        className="h-12 min-w-64 rounded-xl border-[var(--portal-border-strong)] px-3 font-semibold"
+        wrapperClassName="block"
         onChange={(event) => {
           if (event.target.value === selectedId) {
             return;
@@ -43,11 +45,7 @@ export default function TextingHeaderPicker({
         ) : (
           <option value="">Texting</option>
         )}
-      </select>
-      <ChevronDown
-        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--portal-muted-soft)]"
-        aria-hidden="true"
-      />
+      </PortalSelect>
     </label>
   );
 }

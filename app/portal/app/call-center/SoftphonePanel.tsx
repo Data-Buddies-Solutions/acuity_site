@@ -24,19 +24,14 @@ import {
   X,
 } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import type { PortalCallCenterSeat } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
 import { saveCallCenterNoteAction } from "./actions";
 
 type TelnyxStatus =
-  | "initializing"
-  | "ready"
-  | "ringing"
-  | "on-call"
-  | "error"
-  | "offline";
+  "initializing" | "ready" | "ringing" | "on-call" | "error" | "offline";
 
 type CallDirection = "inbound" | "outbound" | null;
 
@@ -2007,12 +2002,16 @@ const SoftphonePanel = forwardRef<
         <span
           className={cn(
             "inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold",
-            status === "ready" && "border-[var(--portal-live)] bg-[var(--portal-live-soft)] text-[var(--portal-live)]",
-            status === "on-call" && "border-[var(--portal-accent)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]",
-            status === "ringing" && "border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] text-[var(--portal-warning)]",
+            status === "ready" &&
+              "border-[var(--portal-live)] bg-[var(--portal-live-soft)] text-[var(--portal-live)]",
+            status === "on-call" &&
+              "border-[var(--portal-accent)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]",
+            status === "ringing" &&
+              "border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] text-[var(--portal-warning)]",
             (status === "error" || status === "offline") &&
               "border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] text-[var(--portal-danger)]",
-            status === "initializing" && "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]",
+            status === "initializing" &&
+              "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]",
           )}
         >
           {statusLabel(status)}
@@ -2172,7 +2171,9 @@ const SoftphonePanel = forwardRef<
         {postCallWrapUp && !activeCall ? (
           <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-3">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-[var(--portal-ink)]">Call outcome</p>
+              <p className="text-sm font-semibold text-[var(--portal-ink)]">
+                Call outcome
+              </p>
               <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
                 {formatPhone(postCallWrapUp.phone)} ·{" "}
                 {postCallWrapUp.direction === "inbound" ? "Inbound" : "Outbound"}

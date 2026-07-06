@@ -9,7 +9,9 @@ import {
   PhoneOutgoing,
 } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { PortalBadge } from "@/app/portal/app/PortalBadge";
+import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import {
   getPortalCallCenterHistoryData,
   type PortalCallCenterHistoryRange,
@@ -110,9 +112,7 @@ export default async function PortalCallCenterHistoryPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
-              {data.totals.totalCalls} connections
-            </span>
+            <PortalBadge>{data.totals.totalCalls} connections</PortalBadge>
             <PaginationControls
               page={data.page}
               range={data.range}
@@ -149,30 +149,19 @@ function HistoryRangeTabs({
   ];
 
   return (
-    <nav
-      aria-label="History range"
-      className="inline-flex w-fit rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-1"
-    >
-      {options.map((option) => {
-        const selected = option.value === selectedRange;
-
-        return (
-          <Link
-            aria-current={selected ? "page" : undefined}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-semibold transition",
-              selected
-                ? "bg-white text-[var(--portal-ink)] shadow-sm"
-                : "text-[var(--portal-muted)] hover:text-[var(--portal-ink)]",
-            )}
-            href={historyHref({ page: 1, range: option.value })}
-            key={option.value}
-          >
-            {option.label}
-          </Link>
-        );
-      })}
-    </nav>
+    <LinkSegmentedControl
+      activeClassName="bg-white text-[var(--portal-ink)]"
+      ariaLabel="History range"
+      className="border border-[var(--portal-border)] bg-[var(--portal-panel-soft)]"
+      inactiveClassName="text-[var(--portal-muted)] hover:text-[var(--portal-ink)]"
+      itemClassName="px-3 py-1.5 text-xs font-semibold"
+      items={options.map((option) => ({
+        href: historyHref({ page: 1, range: option.value }),
+        label: option.label,
+        value: option.value,
+      }))}
+      value={selectedRange}
+    />
   );
 }
 
@@ -258,7 +247,10 @@ function HistoryRow({ call }: { call: PortalRecentCallItem }) {
     <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <DirectionIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--portal-accent)]" />
+          <DirectionIcon
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 text-[var(--portal-accent)]"
+          />
           {numberHref ? (
             <Link
               className="block truncate text-sm font-semibold text-[var(--portal-accent)] underline-offset-2 hover:underline"
@@ -306,7 +298,9 @@ function SummaryMetric({ label, value }: { label: string; value: number | string
   return (
     <div className="rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 shadow-sm">
       <p className="text-xs font-medium text-[var(--portal-muted)]">{label}</p>
-      <p className="mt-1 truncate text-sm font-semibold text-[var(--portal-ink)]">{value}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-[var(--portal-ink)]">
+        {value}
+      </p>
     </div>
   );
 }

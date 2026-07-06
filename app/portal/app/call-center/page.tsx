@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { getPortalCallCenterData, resolveTelnyxRuntimeSettings } from "@/lib/call-center";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 

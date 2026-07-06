@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { EASTERN_TIME_ZONE } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -24,12 +24,7 @@ type SmsConversationStatus = "OPEN" | "CLOSED";
 type ConversationFilter = SmsConversationStatus | "UNREAD";
 type SmsMessageDirection = "INBOUND" | "OUTBOUND";
 type SmsMessageStatus =
-  | "QUEUED"
-  | "SENDING"
-  | "SENT"
-  | "DELIVERED"
-  | "FAILED"
-  | "RECEIVED";
+  "QUEUED" | "SENDING" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
 
 type ConversationListItem = {
   id: string;

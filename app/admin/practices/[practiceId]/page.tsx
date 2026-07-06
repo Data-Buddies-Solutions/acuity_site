@@ -14,6 +14,7 @@ import { CallsTable } from "@/app/components/calls-table";
 import { HealthKPIs } from "@/app/components/health-kpis";
 import { OfficeFilterTabs } from "@/app/components/office-filter-tabs";
 import { TimeRangeTabs } from "@/app/components/time-range-tabs";
+import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import { getAdminPracticeDetail, type AdminPracticeRange } from "@/lib/admin-analytics";
 import { cn } from "@/lib/utils";
 
@@ -21,12 +22,7 @@ export const dynamic = "force-dynamic";
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 type AdminPracticeTab =
-  | "overview"
-  | "quality"
-  | "performance"
-  | "costs"
-  | "tokens"
-  | "tools";
+  "overview" | "quality" | "performance" | "costs" | "tokens" | "tools";
 type PracticeView = "analytics" | "bad" | "command" | "golden";
 
 function parseRange(value: string | string[] | undefined): AdminPracticeRange {
@@ -106,33 +102,28 @@ function PracticeViewTabs({
   view: PracticeView;
 }) {
   const items = [
-    { label: "Command Center", view: "command" },
-    { label: "Golden Calls", view: "golden" },
-    { label: "Bad Calls", view: "bad" },
+    { label: "Command", view: "command" },
+    { label: "Golden", view: "golden" },
+    { label: "Bad", view: "bad" },
     { label: "Analytics", view: "analytics" },
   ] as const;
 
   return (
-    <nav className="grid grid-cols-2 rounded-lg bg-muted p-1 sm:inline-grid sm:w-fit sm:grid-cols-4">
-      {items.map((item) => (
-        <Link
-          key={item.view}
-          href={hrefWithParams(practiceId, {
-            office,
-            range,
-            view: item.view,
-          })}
-          className={cn(
-            "flex min-h-8 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-            view === item.view
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {item.label}
-        </Link>
-      ))}
-    </nav>
+    <LinkSegmentedControl
+      ariaLabel="Practice view"
+      className="grid w-full grid-cols-2 sm:inline-grid sm:w-fit sm:grid-cols-4"
+      itemClassName="min-h-8 px-3 py-1.5 text-xs"
+      items={items.map((item) => ({
+        href: hrefWithParams(practiceId, {
+          office,
+          range,
+          view: item.view,
+        }),
+        label: item.label,
+        value: item.view,
+      }))}
+      value={view}
+    />
   );
 }
 

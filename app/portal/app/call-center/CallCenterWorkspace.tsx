@@ -13,7 +13,8 @@ import {
   PhoneOutgoing,
 } from "lucide-react";
 
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { PortalBadge } from "@/app/portal/app/PortalBadge";
 
 import type {
   PortalCallCenterSeat,
@@ -689,14 +690,17 @@ function HistoryPanel({
             onClick={() => setIsOpen((current) => !current)}
             type="button"
           >
-            <ToggleIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--portal-muted)]" />
+            <ToggleIcon
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+            />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[var(--portal-ink)]">Connections</span>
+                <span className="text-sm font-semibold text-[var(--portal-ink)]">
+                  Connections
+                </span>
                 {total ? (
-                  <span className="rounded-full border border-[var(--portal-border)] px-2 py-0.5 text-xs font-semibold tabular-nums text-[var(--portal-muted)]">
-                    {total}
-                  </span>
+                  <PortalBadge className="px-2 py-0.5 tabular-nums">{total}</PortalBadge>
                 ) : null}
               </span>
               <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
@@ -806,11 +810,11 @@ function QueuePanel({
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold text-[var(--portal-ink)]">Live queue</h3>
-          <p className="mt-1 text-sm text-[var(--portal-muted)]">Live callers that need an answer.</p>
+          <p className="mt-1 text-sm text-[var(--portal-muted)]">
+            Live callers that need an answer.
+          </p>
         </div>
-        <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
-          {visibleQueue.length}
-        </span>
+        <PortalBadge>{visibleQueue.length}</PortalBadge>
       </div>
 
       {visibleQueue.length ? (

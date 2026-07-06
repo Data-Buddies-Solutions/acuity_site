@@ -4,7 +4,7 @@ import { Lightbulb, ArrowRight, CalendarDays, Clock } from "lucide-react";
 
 import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 import BookCallButton from "@/app/components/BookCallButton";
-import { Button } from "@/app/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { SITE_CONFIG } from "@/lib/config";
 import { insightPosts } from "./posts";
 

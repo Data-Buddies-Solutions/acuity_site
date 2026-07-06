@@ -5,8 +5,8 @@ import { ArrowLeft, ArrowRight, CalendarDays, Clock } from "lucide-react";
 
 import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 import BookCallButton from "@/app/components/BookCallButton";
-import { Badge } from "@/app/components/ui/badge";
-import { Button } from "@/app/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Separator } from "@/app/components/ui/separator";
 import { SITE_CONFIG } from "@/lib/config";
