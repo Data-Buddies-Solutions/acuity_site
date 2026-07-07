@@ -5,7 +5,7 @@ import { Building2, Languages, ShieldCheck, Stethoscope } from "lucide-react";
 const pillars = [
   {
     icon: Building2,
-    title: "Multi-location ophthalmology scale",
+    title: "Multi-location specialty scale",
     description:
       "Acuity is already supporting a 6-location ophthalmology environment with high-volume patient communication across the group.",
   },
@@ -19,7 +19,7 @@ const pillars = [
     icon: Stethoscope,
     title: "Pediatric and specialty workflows",
     description:
-      "Acuity is designed for the routing, escalation, and appointment nuance that come with real eye-care specialty operations.",
+      "Acuity is designed for the routing, escalation, and appointment nuance that come with real specialty practice operations.",
   },
   {
     icon: Languages,
@@ -38,7 +38,7 @@ export default function Differentiation() {
             Why Acuity feels different
           </p>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tight">
-            Built for ophthalmology communication complexity, not generic patient
+            Built for specialty practice communication complexity, not generic patient
             messaging.
           </h2>
         </div>

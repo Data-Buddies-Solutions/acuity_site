@@ -5,7 +5,7 @@ export const SITE_CONFIG = {
   email: "kyle@acuityhealth.io",
   calendarLink: "https://cal.com/kyle-shechtman-acuity/30min",
   description:
-    "Acuity is the AI receptionist for ophthalmology. Answer every patient call, book appointments directly into your EMR, and capture after-hours demand — without missing a call.",
+    "Acuity is the AI receptionist for specialty medical practices. Answer every patient call, book appointments directly into your EMR, and capture after-hours demand without missing a call.",
   twitter: {
     kyle: "_kyleshechtman",
     chase: "chasef07",

@@ -5,9 +5,9 @@ import Image from "next/image";
 
 const reasons = [
   {
-    title: "Purpose-built for eye care",
+    title: "Purpose-built for specialty care",
     description:
-      "Not a generic AI bolted onto healthcare. We built this for ophthalmology and optometry. Your appointment types, your insurance rules, your workflows.",
+      "Not a generic AI bolted onto healthcare. We build for specialty medical practices like ophthalmology and dermatology. Your appointment types, your insurance rules, your workflows.",
   },
   {
     title: "Patients actually prefer it",
@@ -70,7 +70,7 @@ export default function WhoWeAre() {
                   </svg>
                 </div>
                 <p className="text-sm font-medium text-accent/80">
-                  Photo: Eye care practice in action
+                  Photo: Specialty practice in action
                 </p>
                 <p className="text-xs text-accent/50 mt-1">
                   Replace with real practice photography
@@ -106,7 +106,7 @@ export default function WhoWeAre() {
                 Why Acuity Health
               </p>
               <h2 className="text-3xl md:text-4xl font-semibold tracking-tight leading-[1.15]">
-                We only build for eye care.
+                We only build for specialty care.
                 <span className="text-muted-foreground"> And it shows.</span>
               </h2>
             </div>

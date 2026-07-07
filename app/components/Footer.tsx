@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import Logo from "./VisionOpsLogo";
 import { solutionPages } from "@/app/solutions/pages";
+import { specialtyPages } from "@/app/specialties/pages";
 import { SITE_CONFIG } from "@/lib/config";
 
 const footerGroups = [
@@ -13,6 +14,13 @@ const footerGroups = [
       { href: "/portal", label: "Practice portal" },
       { href: "tel:+14843989071", label: "Try the AI receptionist" },
     ],
+  },
+  {
+    title: "Specialties",
+    links: specialtyPages.map((page) => ({
+      href: `/${page.slug}`,
+      label: page.navLabel,
+    })),
   },
   {
     title: "Solutions",
@@ -59,8 +67,9 @@ export default function Footer() {
           <div className="max-w-sm">
             <Logo className="mb-5 text-white" />
             <p className="text-sm leading-relaxed text-[#aebbd0]">
-              The AI receptionist for ophthalmology. Answer every call, book directly into
-              your EMR, and keep the front desk focused on patients in the office.
+              The AI receptionist for specialty medical practices. Answer every call, book
+              directly into your EMR, and keep the front desk focused on patients in the
+              office.
             </p>
             <Image
               src="/hipaa-badge.webp"
@@ -72,7 +81,7 @@ export default function Footer() {
             />
           </div>
 
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-6">
             {footerGroups.map((group) => (
               <div key={group.title}>
                 <p className="marketing-label mb-4 text-[11px] font-medium tracking-[0.16em] text-[#e7edf7]">

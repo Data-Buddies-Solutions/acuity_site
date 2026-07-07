@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { ChevronDown, Menu, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 import BookCallButton from "./BookCallButton";
 import Logo from "./VisionOpsLogo";
+import { specialtyPages } from "@/app/specialties/pages";
 
 const navLinks = [
   { href: "/#offers", label: "Solutions" },
@@ -15,6 +16,11 @@ const navLinks = [
   { href: "/press", label: "Press" },
   { href: "/faq", label: "FAQ" },
 ];
+
+const specialtyLinks = specialtyPages.map((page) => ({
+  href: `/${page.slug}`,
+  label: page.navLabel,
+}));
 
 export default function Header() {
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
@@ -57,7 +63,38 @@ export default function Header() {
           {/* Desktop nav - centered with even spacing */}
           <nav className="hidden md:flex items-center justify-center flex-1">
             <div className="flex items-center gap-10">
-              {navLinks.map(({ href, label }) => (
+              <Link
+                href={navLinks[0].href}
+                className="text-sm font-normal text-[#586372] transition-colors hover:text-[#101820]"
+              >
+                {navLinks[0].label}
+              </Link>
+
+              <div className="group relative">
+                <button
+                  type="button"
+                  aria-haspopup="true"
+                  className="flex items-center gap-1 text-sm font-normal text-[#586372] transition-colors hover:text-[#101820]"
+                >
+                  Specialties
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+                <div className="invisible absolute left-1/2 top-full z-50 w-56 -translate-x-1/2 pt-3 opacity-0 transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                  <div className="overflow-hidden rounded-[6px] border border-[#e1e5eb] bg-[#fbfaf7] p-1 shadow-lg">
+                    {specialtyLinks.map(({ href, label }) => (
+                      <Link
+                        key={href}
+                        href={href}
+                        className="block rounded-[4px] px-3 py-2 text-sm text-[#586372] transition-colors hover:bg-white hover:text-[#101820]"
+                      >
+                        {label}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {navLinks.slice(1).map(({ href, label }) => (
                 <Link
                   key={href}
                   href={href}
@@ -115,16 +152,18 @@ export default function Header() {
                 <X className="h-5 w-5" />
               </button>
               <nav className="flex flex-col items-center space-y-6">
-                {navLinks.map(({ href, label }) => (
-                  <Link
-                    key={href}
-                    href={href}
-                    className="text-2xl font-normal text-[#101820]/80 transition-colors hover:text-[#101820]"
-                    onClick={() => setMobileNavOpen(false)}
-                  >
-                    {label}
-                  </Link>
-                ))}
+                {[navLinks[0], ...specialtyLinks, ...navLinks.slice(1)].map(
+                  ({ href, label }) => (
+                    <Link
+                      key={href}
+                      href={href}
+                      className="text-2xl font-normal text-[#101820]/80 transition-colors hover:text-[#101820]"
+                      onClick={() => setMobileNavOpen(false)}
+                    >
+                      {label}
+                    </Link>
+                  ),
+                )}
                 <div className="mt-4 flex w-full max-w-xs flex-col gap-3">
                   <BookCallButton
                     variant="secondary"
