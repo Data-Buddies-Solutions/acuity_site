@@ -46,9 +46,9 @@ const team: TeamMember[] = [
 ];
 
 export const metadata: Metadata = {
-  title: "About — AI Receptionist for Ophthalmology",
+  title: "About — AI Receptionist for Specialty Medical Practices",
   description:
-    "Meet the Acuity Health team building the AI receptionist purpose-built for ophthalmology practices — founders, engineering, and clinical leadership.",
+    "Meet the Acuity Health team building the AI receptionist purpose-built for specialty medical practices — founders, engineering, and clinical leadership.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/about`,
   },

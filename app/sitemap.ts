@@ -4,6 +4,7 @@ import { SITE_CONFIG } from "@/lib/config";
 import { insightPosts } from "./insights/posts";
 import { pressReleases } from "./press/posts";
 import { solutionPages } from "./solutions/pages";
+import { specialtyPages } from "./specialties/pages";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = SITE_CONFIG.baseUrl;
@@ -80,5 +81,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.85,
   }));
 
-  return [...staticRoutes, ...solutionRoutes, ...insightRoutes, ...pressRoutes];
+  const specialtyRoutes: MetadataRoute.Sitemap = specialtyPages.map((page) => ({
+    url: `${baseUrl}/${page.slug}`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.9,
+  }));
+
+  return [
+    ...staticRoutes,
+    ...specialtyRoutes,
+    ...solutionRoutes,
+    ...insightRoutes,
+    ...pressRoutes,
+  ];
 }

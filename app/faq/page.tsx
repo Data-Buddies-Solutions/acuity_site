@@ -49,19 +49,19 @@ const faqs = [
       "Most practices are live within 4 to 8 weeks. We handle workflow configuration, routing logic, appointment setup, integration work, and go-live support. It is a white-glove implementation, not a self-serve tool drop.",
   },
   {
-    question: "Is this built specifically for eye care?",
+    question: "Is this built specifically for one specialty?",
     answer:
-      "Yes. We focus on ophthalmology and optometry. Acuity is designed around the way eye care front desks actually operate, including appointment nuance, insurance complexity, multilingual communication, and escalation logic.",
+      "Acuity is built for specialty medical practices, with deep experience in ophthalmology and expanding into specialties like dermatology. It is designed around the way specialty front desks actually operate, including appointment nuance, insurance complexity, multilingual communication, and escalation logic.",
   },
   {
     question: "How is Acuity different from general patient engagement platforms?",
     answer:
-      "Acuity is built around ophthalmology communication complexity, not just broad messaging features. That means handling high call volume, after-hours demand, medical and vision insurance workflows, multilingual booking, pediatric routing, and front-desk escalation logic inside one patient engagement system.",
+      "Acuity is built around specialty practice communication complexity, not just broad messaging features. That means handling high call volume, after-hours demand, specialty insurance workflows, multilingual booking, and front-desk escalation logic inside one patient engagement system.",
   },
   {
-    question: "Can Acuity handle medical and vision insurance workflows?",
+    question: "Can Acuity handle complex insurance workflows?",
     answer:
-      "Yes. Acuity is designed to support the workflow complexity that comes with both medical and vision insurance, so patient engagement does not break down where scheduling and coverage questions get more nuanced.",
+      "Yes. Acuity is designed to support the workflow complexity that comes with specialty insurance, like medical vs. vision in eye care, so patient engagement does not break down where scheduling and coverage questions get more nuanced.",
   },
   {
     question: "Can Acuity support pediatric and multilingual workflows?",
@@ -86,9 +86,9 @@ const faqs = [
 ];
 
 export const metadata: Metadata = {
-  title: "FAQ — AI Receptionist for Ophthalmology",
+  title: "FAQ — AI Receptionist for Specialty Medical Practices",
   description:
-    "Common questions about Acuity's AI receptionist for ophthalmology — call answering, EMR booking, languages, HIPAA, pricing, and setup.",
+    "Common questions about Acuity's AI receptionist for specialty medical practices — call answering, EMR booking, languages, HIPAA, pricing, and setup.",
   alternates: {
     canonical: `${SITE_CONFIG.baseUrl}/faq`,
   },

@@ -19,6 +19,127 @@ export type InsightPost = {
 
 export const insightPosts: InsightPost[] = [
   {
+    slug: "best-ai-answering-service-dermatology",
+    title: "The #1 AI Answering Service for Dermatology Practices",
+    description:
+      "Looking for an AI answering service for dermatology? Acuity answers patient calls, separates medical from cosmetic requests, books appointments into the EMR, and fills cancellations from the waitlist.",
+    readingTime: "6 min read",
+    date: "2026-07-06",
+    tags: [
+      "AI answering service",
+      "Dermatology answering service",
+      "AI receptionist for dermatology",
+      "Medical answering service",
+      "Cosmetic dermatology scheduling",
+    ],
+    sections: [
+      {
+        heading: "Why dermatology needs a different answering service",
+        paragraphs: [
+          "Dermatology phone lines carry two very different kinds of demand at once. On one line, a patient is worried about a mole that has changed since last month. On the next, someone wants the soonest opening for Botox or a laser consult. A generic answering service treats both the same way: take a message, promise a callback, and hand the work back to the front desk.",
+          "That is not enough for a busy dermatology practice. The best AI answering service for dermatology has to tell medical from cosmetic in the conversation, book the right visit type and length, recognize lesion urgency, and know when a call belongs with clinical staff. Acuity Health is built for exactly that shape of complexity.",
+        ],
+      },
+      {
+        heading: "What makes Acuity the #1 AI answering service for dermatology",
+        paragraphs: [
+          "Acuity is not a voice bot that reads a script. It is an AI receptionist designed around patient access and front-desk operations. It answers every call instantly, understands what the patient needs, and completes the workflow instead of leaving a voicemail for the morning shift.",
+          "For practices comparing an AI answering service, dermatology call center, virtual receptionist, or after-hours answering service, the question that matters is simple: does the system only take a message, or does it finish the job?",
+        ],
+        bullets: [
+          "Answers patient calls instantly instead of sending patients to voicemail",
+          "Separates medical, surgical, and cosmetic requests and books the correct visit type",
+          "Prioritizes changing, bleeding, or growing lesion concerns on rules the practice sets",
+          "Fills cancellations by offering open slots to waitlisted patients",
+          "Captures evening and weekend demand, including cosmetic consult requests",
+          "Routes biopsy-result and wound-care calls to the right clinical staff",
+        ],
+      },
+      {
+        heading: "AI answering service vs. traditional dermatology answering service",
+        paragraphs: [
+          "A traditional answering service gives you coverage. Someone picks up after hours, collects a message, and sends the office a note. The patient still waits, the front desk still calls back, and the appointment is still not booked.",
+          "An AI answering service changes the outcome. When a patient calls to book a skin check, ask about a cosmetic package, or move an appointment, the system should complete that request in real time. That is the difference between message-taking and patient access infrastructure.",
+        ],
+        links: [
+          {
+            label: "See Acuity's AI receptionist for dermatology practices",
+            href: "/specialties/dermatology",
+          },
+        ],
+      },
+      {
+        heading: "Missed calls cost dermatology more than most specialties",
+        paragraphs: [
+          "Dermatology demand is unusually perishable. A cosmetic consult is often a discretionary, high-value booking, and the patient who cannot reach you will simply call the next practice on the list. A medical patient with a worrying lesion may sit on a voicemail queue for days before anyone realizes the call needed urgency.",
+          "Both failures are expensive, and both are invisible on a phone bill. The cost shows up as an empty injector slot, a patient who booked elsewhere, or a delayed diagnosis that started as an unreturned call.",
+        ],
+      },
+      {
+        heading: "What a dermatology practice should look for",
+        paragraphs: [
+          "Judge an AI answering service by operational outcomes, not by how the demo sounds for two minutes. A strong system fits the practice's real scheduling rules, handles high call volume, and produces clean handoffs for staff.",
+        ],
+        bullets: [
+          "Can it book directly into your EMR or scheduling system?",
+          "Can it tell a medical concern from a cosmetic request and book the right visit length?",
+          "Can it recognize lesion urgency and escalate on your rules?",
+          "Can it offer open slots to waitlisted patients when cancellations happen?",
+          "Can it answer multiple concurrent calls without hold time or busy signals?",
+          "Can staff review call outcomes, bookings, and escalations afterward?",
+        ],
+      },
+    ],
+    takeaway:
+      "The best AI answering service for dermatology is not a message-taking vendor. It is an AI receptionist that answers every call, tells medical from cosmetic, books the right visit, and keeps a packed schedule full.",
+  },
+  {
+    slug: "medical-vs-cosmetic-dermatology-call-triage",
+    title: "Medical vs. Cosmetic: Why Dermatology Phone Lines Need Triage",
+    description:
+      "Dermatology front desks answer two businesses on one phone line. Sorting medical urgency from cosmetic demand is the highest-leverage fix for a derm practice's phones.",
+    readingTime: "4 min read",
+    date: "2026-06-28",
+    tags: ["Dermatology", "Triage", "Front desk", "Cosmetic scheduling"],
+    sections: [
+      {
+        heading: "One phone line, two businesses",
+        paragraphs: [
+          "Every dermatology practice runs two businesses on the same phone number. The medical side carries rashes, skin checks, biopsies, and lesion worries. The cosmetic side carries consults, injectables, lasers, and packages. The calls sound similar for the first ten seconds, and then they need completely different handling.",
+          "When the front desk is slammed, the sorting happens badly or not at all. A worried lesion call waits behind three pricing questions. A high-value cosmetic lead gets a voicemail and books elsewhere. Neither side of the business is served well.",
+        ],
+      },
+      {
+        heading: "The sorting decisions that matter",
+        bullets: [
+          "Is this a medical concern, a cosmetic request, or both?",
+          "Does the description suggest urgency, like a changing or bleeding lesion?",
+          "Which visit type and length does this actually need?",
+          "Is this patient new, established, or calling about a procedure already done?",
+          "Should this call be booked, waitlisted, escalated, or routed to clinical staff?",
+        ],
+        paragraphs: [
+          "Every one of the calls below is a routing decision, not a conversation that needs a human every time. That is exactly the kind of work an AI receptionist can do consistently on every call, at any hour.",
+        ],
+      },
+      {
+        heading: "Why triage is the highest-leverage fix",
+        paragraphs: [
+          "When triage happens at the moment of the call, everything downstream improves. Medical urgency moves on the practice's rules instead of sitting in a queue. Cosmetic demand converts while intent is high. Cancellation gaps get offered to the waitlist instead of staying empty. The front desk stops re-sorting voicemail and starts handling the exceptions that genuinely need a person.",
+          "At Acuity Health, this is the core of what we build for dermatology: an AI receptionist that answers every call and makes the same routing decisions a great front desk would make, every time.",
+        ],
+        links: [
+          {
+            label: "See Acuity's AI receptionist for dermatology practices",
+            href: "/specialties/dermatology",
+          },
+        ],
+      },
+    ],
+    takeaway:
+      "Dermatology phones fail when medical urgency and cosmetic demand sit in the same untriaged queue. Sorting them at the moment of the call is the highest-leverage fix available to a derm front desk.",
+  },
+  {
     slug: "best-ai-answering-service-ophthalmology",
     title: "The #1 AI Answering Service for Ophthalmology Practices",
     description:

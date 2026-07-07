@@ -35,12 +35,10 @@ export default function Hero() {
               →
             </span>
           </Link>
-          <h1 className="max-w-5xl text-[3.15rem] leading-[0.95] text-[#101820] antialiased subpixel-antialiased sm:text-[4.25rem] md:text-[4.9rem] lg:text-[5.45rem] xl:text-[5.95rem]">
+          <h1 className="max-w-5xl text-balance text-[3.15rem] leading-[0.95] text-[#101820] antialiased subpixel-antialiased sm:text-[4.25rem] md:text-[4.9rem] lg:text-[5.45rem] xl:text-[5.95rem]">
             <span className="block">The</span>
             <span className="block text-[#3f4f6a]">AI receptionist</span>
-            <span className="block">
-              for ophthalmology <span className="block sm:inline">practices</span>
-            </span>
+            <span className="block">for specialty practices</span>
           </h1>
 
           <p className="mx-auto mt-5 max-w-3xl text-[16px] leading-[1.58] text-[#586372] md:text-[1.12rem] lg:mt-6 lg:text-[1.18rem]">
@@ -81,7 +79,7 @@ export default function Hero() {
         <div className="overflow-hidden border-t border-neutral-100 py-6 md:py-8">
           <div className="mx-auto mb-4 max-w-6xl px-4 md:mb-6 md:px-6">
             <p className="marketing-label text-center text-[11px] font-medium tracking-[0.14em] text-muted-foreground/60">
-              Trusted by eye care practices
+              Trusted by specialty medical practices
             </p>
           </div>
           <div className="relative">

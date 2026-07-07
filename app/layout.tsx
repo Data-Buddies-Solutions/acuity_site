@@ -52,10 +52,10 @@ const softwareApplicationSchema = {
   operatingSystem: "Web",
   url: SITE_CONFIG.baseUrl,
   description:
-    "AI receptionist for ophthalmology practices that answers every patient call and books appointments directly into the EMR.",
+    "AI receptionist for specialty medical practices that answers every patient call and books appointments directly into the EMR.",
   audience: {
     "@type": "MedicalAudience",
-    audienceType: "Ophthalmology practices",
+    audienceType: "Specialty medical practices",
   },
   offers: {
     "@type": "Offer",
@@ -87,13 +87,15 @@ const softwareApplicationSchema = {
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_CONFIG.baseUrl),
   title: {
-    default: `${SITE_CONFIG.name} | AI Receptionist for Ophthalmology`,
+    default: `${SITE_CONFIG.name} | AI Receptionist for Specialty Medical Practices`,
     template: `%s | ${SITE_CONFIG.name}`,
   },
   description: SITE_CONFIG.description,
   keywords: [
     "AI receptionist",
+    "AI receptionist for specialty medical practices",
     "AI receptionist for ophthalmology",
+    "AI receptionist for dermatology",
     "AI receptionist for medical practices",
     "AI phone agent",
     "virtual receptionist for doctors",
@@ -101,7 +103,9 @@ export const metadata: Metadata = {
     "AI appointment booking",
     "AI receptionist EMR integration",
     "ophthalmology answering service",
+    "dermatology answering service",
     "eye care AI front desk",
+    "dermatology AI front desk",
     "after-hours call answering",
     "never miss a call",
     "Acuity Health",
@@ -123,7 +127,7 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: `${SITE_CONFIG.baseUrl}/`,
-    title: "AI Receptionist for Ophthalmology | Acuity Health",
+    title: "AI Receptionist for Specialty Medical Practices | Acuity Health",
     description: SITE_CONFIG.description,
     siteName: "Acuity Health",
     images: [
@@ -138,7 +142,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "AI Receptionist for Ophthalmology | Acuity Health",
+    title: "AI Receptionist for Specialty Medical Practices | Acuity Health",
     description: SITE_CONFIG.description,
     images: [`${SITE_CONFIG.baseUrl}/api/og`],
   },
