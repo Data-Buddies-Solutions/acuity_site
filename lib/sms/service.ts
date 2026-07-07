@@ -19,17 +19,6 @@ export const SPRING_HILL_SMS_NUMBER = "+17275919997";
 const ABITA_PRACTICE_NAME = "Abita Eye Group";
 const SPRING_HILL_LABEL = "Spring Hill";
 const SOUTH_FLORIDA_LABEL = "Hollywood / Sweetwater";
-const SPRING_HILL_SMS_EMAILS = new Set([
-  "debbie@abitaeye.com",
-  "emilyisha@abitaeye.com",
-  "springhill@abitaeye.com",
-]);
-const SOUTH_FLORIDA_SMS_EMAILS = new Set([
-  "aileen@abitaeye.com",
-  "justin@abitaeye.com",
-  "hollywoodsweetwater@abitaeye.com",
-  "callcenter@abitaeye.com",
-]);
 const SOUTH_FLORIDA_LOCATION_NAMES = new Set(["hollywood", "sweetwater"]);
 const TEXT_PREVIEW_LENGTH = 96;
 const STOP_KEYWORDS = new Set([
@@ -245,8 +234,24 @@ function sortSmsInboxOptions(a: PracticeSmsPhoneNumber, b: PracticeSmsPhoneNumbe
   return (order.get(aName) ?? 99) - (order.get(bName) ?? 99);
 }
 
+export function filterSmsPhoneNumbersForContext(
+  context: PortalPracticeAccessContext,
+  phoneNumbers: PracticeSmsPhoneNumber[],
+) {
+  const filtered = isAbitaPractice(context.practice)
+    ? phoneNumbers.filter(
+        (phoneNumber) =>
+          isInboundEligiblePracticeNumber(phoneNumber) &&
+          canAccessPortalLocation(context, phoneNumber.locationId),
+      )
+    : phoneNumbers.filter((phoneNumber) =>
+        canAccessPortalLocation(context, phoneNumber.locationId),
+      );
+
+  return filtered.sort(sortSmsInboxOptions);
+}
+
 async function getAllowedSmsPhoneNumbers(context: PortalPracticeAccessContext) {
-  const email = context.session.user.email?.trim().toLowerCase() ?? "";
   const allPracticeNumbers = await prisma.practicePhoneNumber.findMany({
     include: {
       location: true,
@@ -258,23 +263,7 @@ async function getAllowedSmsPhoneNumbers(context: PortalPracticeAccessContext) {
     },
   });
 
-  if (isAbitaPractice(context.practice)) {
-    if (SPRING_HILL_SMS_EMAILS.has(email)) {
-      return allPracticeNumbers.filter(isSpringHillSmsNumber).sort(sortSmsInboxOptions);
-    }
-
-    if (SOUTH_FLORIDA_SMS_EMAILS.has(email)) {
-      return allPracticeNumbers
-        .filter(isSouthFloridaPrimarySmsNumber)
-        .sort(sortSmsInboxOptions);
-    }
-
-    return [];
-  }
-
-  return allPracticeNumbers
-    .filter((phoneNumber) => canAccessPortalLocation(context, phoneNumber.locationId))
-    .sort(sortSmsInboxOptions);
+  return filterSmsPhoneNumbersForContext(context, allPracticeNumbers);
 }
 
 export async function getAllowedSmsPracticeNumberIdsForContext(
