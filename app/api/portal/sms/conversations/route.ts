@@ -12,7 +12,7 @@ const startConversationSchema = z.object({
   patientPhoneNumber: z.string().trim().optional().default(""),
 });
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const inbox = await getSmsInbox(
     url.searchParams.get("inboxId"),

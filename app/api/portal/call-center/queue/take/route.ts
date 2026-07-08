@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
@@ -13,7 +13,7 @@ const queueTakeSchema = z.object({
 });
 
 export const POST = withApiHandler(
-  async (request: Request) => {
+  async (request: NextRequest) => {
     const { browserSessionId, queueItemId, seatId } = await parseJsonBody(
       request,
       queueTakeSchema,

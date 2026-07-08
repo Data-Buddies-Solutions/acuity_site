@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { getPortalCallCenterOperationalState } from "@/lib/call-center";
 
@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 const NULL_LOCATION = "__NULL__";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const locationParam = url.searchParams.get("locationId");
   const locationId =

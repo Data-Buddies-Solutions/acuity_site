@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { CallCenterNoteDisposition } from "@/generated/prisma/client";
 import { requirePortalCallCenterContext, withApiHandler } from "@/lib/api/handler";
@@ -134,7 +134,7 @@ async function getCallCenterStateVersion({
 }
 
 export const GET = withApiHandler(
-  async (request: Request) => {
+  async (request: NextRequest) => {
     const context = await requirePortalCallCenterContext();
 
     const url = new URL(request.url);

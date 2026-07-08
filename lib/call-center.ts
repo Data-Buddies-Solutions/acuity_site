@@ -34,6 +34,7 @@ import {
   isAbitaSweetwaterOpticalCallCenterContext,
   isSpecialAbitaCallCenterContext,
 } from "@/lib/call-center-profiles";
+import { createLogger } from "@/lib/logger";
 import { getAllowedSmsPracticeNumberIdsForContext } from "@/lib/sms/service";
 import {
   answerTelnyxCall,
@@ -46,6 +47,8 @@ import {
   stopTelnyxPlayback,
   TelnyxError,
 } from "@/lib/telnyx";
+
+const logger = createLogger("call-center");
 
 const MISSED_CAUSES = new Set([
   "call_rejected",
@@ -3980,7 +3983,7 @@ async function ringAvailableSeatsForQueueItem({
             },
           });
         } else {
-          console.info("[call-center] skipping active duplicate station ring", {
+          logger.info("skipping active duplicate station ring", {
             queueItemId,
             seatId: seat.id,
             seatLabel: seat.label,
@@ -4823,7 +4826,7 @@ async function startCallerRingback({
       loop: 1,
       playbackContent: ringbackWavBase64For(timeoutSec),
     });
-    console.info("[call-center] ringback started", {
+    logger.info("ringback started", {
       callControlId,
       ok: response?.ok ?? null,
       queueItemId,
@@ -4831,7 +4834,7 @@ async function startCallerRingback({
     });
     return response?.ok === true;
   } catch (error) {
-    console.error("[call-center] ringback start failed", {
+    logger.error("ringback start failed", {
       callControlId,
       error,
       queueItemId,
@@ -4878,7 +4881,7 @@ async function queueInboundCallForStaff({
   }
 
   if (queueItem.status !== "WAITING") {
-    console.info("[call-center] inbound queue item already routed, skipping ring", {
+    logger.info("inbound queue item already routed, skipping ring", {
       queueItemId: queueItem.id,
       status: queueItem.status,
     });
@@ -4886,7 +4889,7 @@ async function queueInboundCallForStaff({
   }
 
   const answerResponse = await answerTelnyxCall(callerCallControlId).catch((error) => {
-    console.error("[call-center] Failed to answer inbound caller leg", {
+    logger.error("Failed to answer inbound caller leg", {
       callControlId: callerCallControlId,
       error,
       queueItemId: queueItem.id,
@@ -4895,7 +4898,7 @@ async function queueInboundCallForStaff({
   });
 
   if (!answerResponse || !answerResponse.ok) {
-    console.error("[call-center] Failed to answer inbound caller leg", {
+    logger.error("Failed to answer inbound caller leg", {
       callControlId: callerCallControlId,
       queueItemId: queueItem.id,
       status: answerResponse?.status ?? null,
@@ -4921,7 +4924,7 @@ async function queueInboundCallForStaff({
     return queueItem;
   }
 
-  console.info("[call-center] queued inbound caller for manual staff take", {
+  logger.info("queued inbound caller for manual staff take", {
     queueItemId: queueItem.id,
   });
 
@@ -5020,11 +5023,10 @@ async function onAgentBridgeWon({
         .filter((cc): cc is string => Boolean(cc))
         .map((cc) =>
           hangupTelnyxCall(cc).catch((hangupError) => {
-            console.error(
-              "[call-center] Failed to hang up losing agent leg",
-              cc,
-              hangupError,
-            );
+            logger.error("Failed to hang up losing agent leg", {
+              callControlId: cc,
+              error: hangupError,
+            });
             return null;
           }),
         ),
@@ -5099,11 +5101,10 @@ async function cancelPendingRingAttempts({
       .filter((cc): cc is string => Boolean(cc))
       .map((cc) =>
         hangupTelnyxCall(cc).catch((hangupError) => {
-          console.error(
-            "[call-center] Failed to hang up pending ring attempt leg",
-            cc,
-            hangupError,
-          );
+          logger.error("Failed to hang up pending ring attempt leg", {
+            callControlId: cc,
+            error: hangupError,
+          });
           return null;
         }),
       ),
@@ -5212,11 +5213,10 @@ async function startQueueVoicemail({
         .filter((cc): cc is string => Boolean(cc))
         .map((cc) =>
           hangupTelnyxCall(cc).catch((hangupError) => {
-            console.error(
-              "[call-center] Failed to hang up agent leg before voicemail",
-              cc,
-              hangupError,
-            );
+            logger.error("Failed to hang up agent leg before voicemail", {
+              callControlId: cc,
+              error: hangupError,
+            });
             return null;
           }),
         ),
@@ -5227,7 +5227,7 @@ async function startQueueVoicemail({
     await answerTelnyxCall(callerCallControlId).catch(() => null);
     await stopCallerRingback(callerCallControlId);
     await triggerTelnyxVoicemailPrompt(settings, callerCallControlId);
-    console.info("[call-center] caller routed to voicemail", {
+    logger.info("caller routed to voicemail", {
       missedCallId: missedCall.id,
       queueItemId,
     });
@@ -5656,7 +5656,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
   const clientState = decodeClientState(payload.client_state);
   const settings = await resolveCallCenterSettingsForWebhook(payload);
 
-  console.info("[call-center] webhook event", {
+  logger.info("webhook event", {
     eventType,
     callControlId: asString(payload.call_control_id),
     clientState,
@@ -5666,7 +5666,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
   });
 
   if (!settings) {
-    console.warn("[call-center] webhook ignored — no enabled practice", { eventType });
+    logger.warn("webhook ignored — no enabled practice", { eventType });
     return { ignored: true, reason: "no_enabled_practice" };
   }
 
@@ -5713,7 +5713,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
       });
 
       if (ringAttempt) {
-        console.info("[call-center] agent leg answered, waiting for auto-bridge", {
+        logger.info("agent leg answered, waiting for auto-bridge", {
           queueItemId: ringAttempt.queueItemId,
           ringAttemptId: ringAttempt.id,
         });
@@ -5729,7 +5729,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         practiceId,
         status: "ACTIVE",
       });
-      console.info("[call-center] ignored Telnyx native queue event in Call Control V1", {
+      logger.info("ignored Telnyx native queue event in Call Control V1", {
         eventType,
       });
       break;
@@ -5743,7 +5743,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         practiceId,
         status: "ACTIVE",
       });
-      console.info("[call-center] ignored Telnyx native queue event in manual V1", {
+      logger.info("ignored Telnyx native queue event in manual V1", {
         eventType,
       });
       break;
@@ -5837,7 +5837,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         queueItemId = item?.id ?? "";
       }
 
-      console.info("[call-center] playback ended", {
+      logger.info("playback ended", {
         callControlId,
         commandId,
         playbackStatus: asString(payload.status),
@@ -5868,7 +5868,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
           loop: 1,
           playbackContent: VOICEMAIL_BEEP_WAV_BASE64,
         }).catch((error) => {
-          console.warn("[call-center] voicemail beep failed (continuing)", {
+          logger.warn("voicemail beep failed (continuing)", {
             callControlId,
             error,
           });
@@ -5879,7 +5879,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         await new Promise((resolve) => setTimeout(resolve, 500));
 
         await startTelnyxRecording(callControlId).catch((error) => {
-          console.error("[call-center] failed to start voicemail recording", {
+          logger.error("failed to start voicemail recording", {
             callControlId,
             error,
           });
