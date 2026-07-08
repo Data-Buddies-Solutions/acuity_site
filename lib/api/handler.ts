@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { flattenError, type z } from "zod";
 
 import {
   getCurrentPortalPracticeContext,
@@ -20,6 +21,21 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+  }
+}
+
+/**
+ * Error thrown when a request body fails schema validation. Maps to a 422
+ * response of `{ error, fieldErrors }`.
+ */
+export class ValidationError extends ApiError {
+  readonly fieldErrors: Record<string, string[]>;
+
+  constructor(error: z.ZodError) {
+    super(error.issues[0]?.message ?? "Invalid request", 422);
+    this.name = "ValidationError";
+    const { fieldErrors } = flattenError(error);
+    this.fieldErrors = fieldErrors as Record<string, string[]>;
   }
 }
 
@@ -57,6 +73,13 @@ type ApiHandlerOptions = {
 };
 
 function toErrorResponse(error: unknown, options: ApiHandlerOptions): NextResponse {
+  if (error instanceof ValidationError) {
+    return NextResponse.json(
+      { error: error.message, fieldErrors: error.fieldErrors },
+      { status: error.status },
+    );
+  }
+
   const httpError = asHttpError(error);
 
   if (httpError) {
@@ -94,14 +117,38 @@ export function withApiHandler<Args extends unknown[]>(
 
 /**
  * Parses the JSON body of a request, throwing a 400 `ApiError` when the body is
- * not valid JSON.
+ * not valid JSON. When a Zod schema is provided, the parsed body is validated
+ * and the typed result is returned, throwing a 422 `ValidationError` (with
+ * field errors) on failure.
  */
-export async function parseJsonBody(request: Request): Promise<unknown> {
+export async function parseJsonBody(request: Request): Promise<unknown>;
+export async function parseJsonBody<Schema extends z.ZodType>(
+  request: Request,
+  schema: Schema,
+): Promise<z.infer<Schema>>;
+export async function parseJsonBody<Schema extends z.ZodType>(
+  request: Request,
+  schema?: Schema,
+): Promise<unknown> {
+  let raw: unknown;
+
   try {
-    return await request.json();
+    raw = await request.json();
   } catch {
     throw new ApiError("Invalid JSON", 400);
   }
+
+  if (!schema) {
+    return raw;
+  }
+
+  const result = schema.safeParse(raw);
+
+  if (!result.success) {
+    throw new ValidationError(result.error);
+  }
+
+  return result.data;
 }
 
 export type PortalCallCenterContext = Omit<PortalPracticeAccessContext, "practice"> & {

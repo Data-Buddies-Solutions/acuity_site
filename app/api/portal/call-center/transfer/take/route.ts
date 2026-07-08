@@ -1,33 +1,23 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
 import { takePendingBlindTransfer } from "@/lib/call-center";
 
 export const dynamic = "force-dynamic";
 
-function asString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "";
-}
+const transferTakeSchema = z.object({
+  browserSessionId: z.string().trim().min(1, "browserSessionId is required"),
+  queueItemId: z.string().trim().min(1, "queueItemId is required"),
+  seatId: z.string().trim().min(1, "seatId is required"),
+});
 
 export const POST = withApiHandler(
   async (request: Request) => {
-    const body = await parseJsonBody(request);
-
-    if (!body || typeof body !== "object") {
-      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-    }
-
-    const input = body as Record<string, unknown>;
-    const browserSessionId = asString(input.browserSessionId);
-    const queueItemId = asString(input.queueItemId);
-    const seatId = asString(input.seatId);
-
-    if (!browserSessionId || !queueItemId || !seatId) {
-      return NextResponse.json(
-        { error: "browserSessionId, queueItemId, and seatId are required" },
-        { status: 400 },
-      );
-    }
+    const { browserSessionId, queueItemId, seatId } = await parseJsonBody(
+      request,
+      transferTakeSchema,
+    );
 
     const result = await takePendingBlindTransfer({
       browserSessionId,

@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
 import { getSmsInbox, startOutboundSmsConversation } from "@/lib/sms/service";
 
 export const dynamic = "force-dynamic";
+
+const startConversationSchema = z.object({
+  body: z.string().optional().default(""),
+  inboxId: z.string().trim().min(1, "Texting inbox is required"),
+  patientPhoneNumber: z.string().trim().optional().default(""),
+});
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -21,20 +28,11 @@ export async function GET(request: Request) {
 
 export const POST = withApiHandler(
   async (request: NextRequest) => {
-    const body = await parseJsonBody(request);
-    const payload =
-      body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-    const practiceNumberId =
-      typeof payload.inboxId === "string" ? payload.inboxId.trim() : "";
-    const patientPhoneNumber =
-      typeof payload.patientPhoneNumber === "string"
-        ? payload.patientPhoneNumber.trim()
-        : "";
-    const text = typeof payload.body === "string" ? payload.body : "";
-
-    if (!practiceNumberId) {
-      return NextResponse.json({ error: "Texting inbox is required" }, { status: 422 });
-    }
+    const {
+      body: text,
+      inboxId: practiceNumberId,
+      patientPhoneNumber,
+    } = await parseJsonBody(request, startConversationSchema);
 
     const result = await startOutboundSmsConversation({
       body: text,

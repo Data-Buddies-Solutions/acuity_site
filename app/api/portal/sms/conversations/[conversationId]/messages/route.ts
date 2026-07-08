@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
 import { sendSmsReply } from "@/lib/sms/service";
 
 export const dynamic = "force-dynamic";
+
+const sendReplySchema = z.object({
+  body: z.string().optional().default(""),
+});
 
 type RouteContext = {
   params: Promise<{
@@ -14,12 +19,7 @@ type RouteContext = {
 export const POST = withApiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const { conversationId } = await context.params;
-    const body = await parseJsonBody(request);
-
-    const text =
-      body && typeof body === "object" && "body" in body
-        ? String((body as { body?: unknown }).body ?? "")
-        : "";
+    const { body: text } = await parseJsonBody(request, sendReplySchema);
 
     const result = await sendSmsReply(conversationId, text);
 

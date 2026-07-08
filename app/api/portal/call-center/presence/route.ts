@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { CallCenterPresenceStatus } from "@/generated/prisma/client";
 import {
@@ -11,40 +12,28 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-const VALID_STATUSES = new Set<string>(Object.values(CallCenterPresenceStatus));
-
-function asString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "";
-}
-
-function parseStatus(value: unknown) {
-  const status = asString(value).toUpperCase();
-
-  return VALID_STATUSES.has(status) ? (status as CallCenterPresenceStatus) : null;
-}
+const presenceSchema = z.object({
+  browserSessionId: z.string().trim().min(1, "browserSessionId is required"),
+  currentSessionId: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => value || null),
+  seatId: z.string().trim().min(1, "seatId is required"),
+  status: z.preprocess(
+    (value) => (typeof value === "string" ? value.trim().toUpperCase() : value),
+    z.enum(CallCenterPresenceStatus, { error: "A valid status is required" }),
+  ),
+});
 
 export const POST = withApiHandler(
   async (request: Request) => {
     const context = await requirePortalCallCenterContext();
 
-    const body = await parseJsonBody(request);
-
-    if (!body || typeof body !== "object") {
-      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-    }
-
-    const input = body as Record<string, unknown>;
-    const browserSessionId = asString(input.browserSessionId);
-    const currentSessionId = asString(input.currentSessionId) || null;
-    const seatId = asString(input.seatId);
-    const status = parseStatus(input.status);
-
-    if (!seatId || !browserSessionId || !status) {
-      return NextResponse.json(
-        { error: "seatId, browserSessionId, and valid status are required" },
-        { status: 400 },
-      );
-    }
+    const { browserSessionId, currentSessionId, seatId, status } = await parseJsonBody(
+      request,
+      presenceSchema,
+    );
 
     const seat = await prisma.callCenterAgentSeat.findFirst({
       select: {

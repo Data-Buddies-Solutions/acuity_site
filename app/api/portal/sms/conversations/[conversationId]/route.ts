@@ -1,5 +1,6 @@
 import { SmsConversationStatus } from "@/generated/prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
 import {
@@ -7,6 +8,12 @@ import {
   getSmsConversation,
   updateSmsConversationStatus,
 } from "@/lib/sms/service";
+
+const updateConversationSchema = z.object({
+  status: z.enum([SmsConversationStatus.OPEN, SmsConversationStatus.CLOSED], {
+    error: "status must be OPEN or CLOSED",
+  }),
+});
 
 export const dynamic = "force-dynamic";
 
@@ -34,23 +41,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export const PATCH = withApiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const { conversationId } = await context.params;
-    const body = await parseJsonBody(request);
-
-    const status =
-      body &&
-      typeof body === "object" &&
-      "status" in body &&
-      ((body as { status?: unknown }).status === SmsConversationStatus.OPEN ||
-        (body as { status?: unknown }).status === SmsConversationStatus.CLOSED)
-        ? (body as { status: SmsConversationStatus }).status
-        : null;
-
-    if (!status) {
-      return NextResponse.json(
-        { error: "status must be OPEN or CLOSED" },
-        { status: 422 },
-      );
-    }
+    const { status } = await parseJsonBody(request, updateConversationSchema);
 
     const result = await updateSmsConversationStatus(conversationId, status);
 
