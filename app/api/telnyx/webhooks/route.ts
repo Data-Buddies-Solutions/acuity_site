@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { ApiError, withApiHandler } from "@/lib/api/handler";
 import { handleTelnyxWebhookEvent } from "@/lib/call-center";
 import { handleTelnyxSmsWebhookEvent, isTelnyxSmsEvent } from "@/lib/sms/service";
 import { verifyTelnyxWebhookSignature } from "@/lib/telnyx";
@@ -7,33 +8,34 @@ import { verifyTelnyxWebhookSignature } from "@/lib/telnyx";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
-  const rawBody = await request.text();
-  const verified = verifyTelnyxWebhookSignature({
-    rawBody,
-    signature: request.headers.get("telnyx-signature-ed25519"),
-    timestamp: request.headers.get("telnyx-timestamp"),
-  });
+export const POST = withApiHandler(
+  async (request: NextRequest) => {
+    const rawBody = await request.text();
+    const verified = verifyTelnyxWebhookSignature({
+      rawBody,
+      signature: request.headers.get("telnyx-signature-ed25519"),
+      timestamp: request.headers.get("telnyx-timestamp"),
+    });
 
-  if (!verified) {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
+    if (!verified) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    }
 
-  let body: unknown;
+    let body: unknown;
 
-  try {
-    body = JSON.parse(rawBody);
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      throw new ApiError("Invalid JSON", 400);
+    }
 
-  try {
     const result = isTelnyxSmsEvent(body)
       ? await handleTelnyxSmsWebhookEvent(body)
       : await handleTelnyxWebhookEvent(body);
     return NextResponse.json({ ok: true, ...result });
-  } catch (error) {
-    console.error("[telnyx-webhook] Failed to process event", error);
-    return NextResponse.json({ error: "Failed to process webhook" }, { status: 500 });
-  }
-}
+  },
+  {
+    errorMessage: "Failed to process webhook",
+    logLabel: "[telnyx-webhook] Failed to process event",
+  },
+);
