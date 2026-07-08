@@ -17,7 +17,7 @@ export class CallIngestionError extends Error {
   }
 }
 
-async function resolvePracticeForCall(input: {
+export async function resolvePracticeForCall(input: {
   officePhone: string;
   practiceId: string | null;
 }) {
@@ -92,7 +92,7 @@ async function resolvePracticeForCall(input: {
   };
 }
 
-async function resolveAgentForCall(input: {
+export async function resolveAgentForCall(input: {
   agentId: string | null;
   practiceId: string;
 }) {
