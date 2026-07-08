@@ -38,6 +38,7 @@ import {
   type CallSortState,
   type CallTableState,
 } from "@/lib/admin-call-table-state";
+import { isCallCompletenessIssue, type CallCompleteness } from "@/lib/call-completeness";
 import { formatDuration, formatLatencyMs, formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -91,6 +92,27 @@ function getEvaluationBadge(call: AdminCallTableRow) {
   }
 
   return null;
+}
+
+function getCompletenessBadge(completeness: CallCompleteness) {
+  if (!isCallCompletenessIssue(completeness)) {
+    return null;
+  }
+
+  const destructive =
+    completeness.status === "livekit_recovered" ||
+    completeness.status === "webhook_error";
+
+  return (
+    <Badge
+      variant={destructive ? "destructive" : "outline"}
+      className="gap-1 text-[10px]"
+      title={completeness.description ?? undefined}
+    >
+      <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+      {completeness.label}
+    </Badge>
+  );
 }
 
 function formatLatencyValue(value: number) {
@@ -214,6 +236,7 @@ function MobileCallCard({
       <div className="space-y-2">
         <div className="flex flex-wrap gap-1.5">
           {getEvaluationBadge(call)}
+          {getCompletenessBadge(call.completeness)}
           {call.transferred && (
             <Badge variant="outline" className="text-[10px]">
               Transfer
@@ -539,7 +562,10 @@ export function CallsTable({
                         >
                           {formatLocalTime(call.startedAt)}
                         </Link>
-                        {getEvaluationBadge(call)}
+                        <div className="flex max-w-56 flex-wrap gap-1">
+                          {getEvaluationBadge(call)}
+                          {getCompletenessBadge(call.completeness)}
+                        </div>
                         {call.evaluationComment ? (
                           <p className="max-w-56 truncate text-xs text-muted-foreground">
                             {call.evaluationComment}

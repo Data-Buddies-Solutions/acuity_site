@@ -5,6 +5,7 @@ import type {
   TurnRecord,
   VoiceLanguageTelemetry,
 } from "@/lib/call-types";
+import { getCallCompleteness, type CallCompleteness } from "@/lib/call-completeness";
 import type { AgentCallEvaluationBucket, Prisma } from "@/generated/prisma/client";
 import {
   appointmentActionFromOutputClass,
@@ -80,11 +81,13 @@ type AdminCallLiteRecord = {
   latencyValues: unknown;
   llmModel: string | null;
   location: { name: string } | null;
+  liveKitWebhookEvents?: Array<{ processingStatus: string }>;
   officePhone: string;
   outcomeSummary: string | null;
   outputTokens: number;
   peakContext: number;
   startedAt: Date;
+  status: string;
   toolCalls: number;
   toolErrors: number;
   totalTurns: number;
@@ -113,8 +116,7 @@ const DURATION_BUCKETS = [
 const HISTOGRAM_BUCKET_COUNT = 10;
 const MAX_LATENCY_SCATTER_SAMPLES = 600;
 const LATENCY_STEPS_MS = [
-  50, 100, 250, 500, 1_000, 1_500, 2_000, 3_000, 5_000, 10_000, 15_000,
-  30_000, 60_000,
+  50, 100, 250, 500, 1_000, 1_500, 2_000, 3_000, 5_000, 10_000, 15_000, 30_000, 60_000,
 ];
 
 const HIDDEN_ADMIN_TOOL_NAMES = new Set(["confirm_appt"]);
@@ -274,6 +276,7 @@ export interface AdminCallTableRow {
   evaluationBucket: AgentCallEvaluationBucket | null;
   evaluationComment: string | null;
   fallbackUsed: boolean;
+  completeness: CallCompleteness;
   acceptedLanguages: string[];
   closeReason: string | null;
   currentLanguage: string | null;
@@ -1704,6 +1707,15 @@ const adminCallLiteSelect = {
   interruptionCount: true,
   latencyValues: true,
   llmModel: true,
+  liveKitWebhookEvents: {
+    select: {
+      processingStatus: true,
+    },
+    take: 1,
+    where: {
+      processingStatus: "FAILED",
+    },
+  },
   location: {
     select: {
       name: true,
@@ -1714,6 +1726,7 @@ const adminCallLiteSelect = {
   outputTokens: true,
   peakContext: true,
   startedAt: true,
+  status: true,
   toolCalls: true,
   toolErrors: true,
   totalTurns: true,
@@ -1758,6 +1771,12 @@ function buildCallTableRow(
     toolExecutions,
   });
   const evaluationLabel = getEvaluationLabel(call.evaluationLabels ?? []);
+  const completeness = getCallCompleteness(call.data, {
+    linkedWebhookFailed: call.liveKitWebhookEvents?.some(
+      (event) => event.processingStatus === "FAILED",
+    ),
+    status: call.status,
+  });
 
   return {
     apptActions,
@@ -1772,6 +1791,7 @@ function buildCallTableRow(
     evaluationBucket: evaluationLabel?.bucket ?? null,
     evaluationComment: evaluationLabel?.comment ?? null,
     fallbackUsed: call.fallbackUsed,
+    completeness,
     falseInterruptionCount: observability.falseInterruptionCount,
     hasAudio: false,
     id: call.id,
@@ -2246,6 +2266,15 @@ export async function getAdminCallDetail(practiceId: string, callId: string) {
         orderBy: {
           createdAt: "desc",
         },
+      },
+      liveKitWebhookEvents: {
+        orderBy: {
+          receivedAt: "desc",
+        },
+        select: {
+          processingStatus: true,
+        },
+        take: 10,
       },
       location: true,
       practice: true,
