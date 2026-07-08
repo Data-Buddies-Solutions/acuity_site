@@ -10,25 +10,22 @@ function getWebhookSecret() {
   return process.env.LIVEKIT_FORWARD_SYNC_SECRET || process.env.WEBHOOK_SECRET;
 }
 
-function isAuthorized(request: NextRequest) {
-  const secret = getWebhookSecret();
+export const POST = withApiHandler(
+  async (request: NextRequest) => {
+    const secret = getWebhookSecret();
 
-  if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      console.warn(
-        "[livekit-call-ingestion] Accepting unauthenticated webhook because no LIVEKIT_FORWARD_SYNC_SECRET or WEBHOOK_SECRET is configured.",
+    if (!secret) {
+      console.error(
+        "[livekit-call-ingestion] Rejecting call ingestion: configure LIVEKIT_FORWARD_SYNC_SECRET or WEBHOOK_SECRET to enable this endpoint.",
+      );
+
+      return NextResponse.json(
+        { error: "LiveKit ingestion is not configured" },
+        { status: 503 },
       );
     }
 
-    return true;
-  }
-
-  return request.headers.get("authorization") === `Bearer ${secret}`;
-}
-
-export const POST = withApiHandler(
-  async (request: NextRequest) => {
-    if (!isAuthorized(request)) {
+    if (request.headers.get("authorization") !== `Bearer ${secret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
