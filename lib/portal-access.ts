@@ -135,34 +135,60 @@ export function buildPortalLocationScopeWhere(context: PortalPracticeAccessConte
   };
 }
 
+type PortalAgentCallScope = {
+  hasAllLocationAccess: boolean;
+  locationIds: string[];
+  officePhoneVariants: string[];
+};
+
+/**
+ * Single source of truth for the tenant-scope clauses applied to `AgentCall`
+ * rows. Both the Prisma-where and raw-SQL builders derive their location and
+ * office-phone constraints from this so the two stay in lock-step.
+ */
+function derivePortalAgentCallScope(
+  context: PortalPracticeAccessContext,
+): PortalAgentCallScope {
+  if (context.hasAllLocationAccess) {
+    return { hasAllLocationAccess: true, locationIds: [], officePhoneVariants: [] };
+  }
+
+  return {
+    hasAllLocationAccess: false,
+    locationIds: context.allowedLocationIds,
+    officePhoneVariants: [
+      ...new Set(
+        context.allowedPhoneNumbers.flatMap((phone) =>
+          portalPhoneLookupVariants(phone.phoneNumber),
+        ),
+      ),
+    ],
+  };
+}
+
 export function buildPortalAgentCallScopeWhere(
   context: PortalPracticeAccessContext,
 ): Prisma.AgentCallWhereInput {
-  if (context.hasAllLocationAccess) {
+  const scope = derivePortalAgentCallScope(context);
+
+  if (scope.hasAllLocationAccess) {
     return {};
   }
 
   const clauses: Prisma.AgentCallWhereInput[] = [];
-  const officePhoneVariants = [
-    ...new Set(
-      context.allowedPhoneNumbers.flatMap((phone) =>
-        portalPhoneLookupVariants(phone.phoneNumber),
-      ),
-    ),
-  ];
 
-  if (context.allowedLocationIds.length) {
+  if (scope.locationIds.length) {
     clauses.push({
       locationId: {
-        in: context.allowedLocationIds,
+        in: scope.locationIds,
       },
     });
   }
 
-  if (officePhoneVariants.length) {
+  if (scope.officePhoneVariants.length) {
     clauses.push({
       officePhone: {
-        in: officePhoneVariants,
+        in: scope.officePhoneVariants,
       },
     });
   }
@@ -171,27 +197,22 @@ export function buildPortalAgentCallScopeWhere(
 }
 
 export function buildPortalAgentCallScopeSql(context: PortalPracticeAccessContext) {
-  if (context.hasAllLocationAccess) {
+  const scope = derivePortalAgentCallScope(context);
+
+  if (scope.hasAllLocationAccess) {
     return Prisma.sql`TRUE`;
   }
 
   const clauses: Prisma.Sql[] = [];
-  const officePhoneVariants = [
-    ...new Set(
-      context.allowedPhoneNumbers.flatMap((phone) =>
-        portalPhoneLookupVariants(phone.phoneNumber),
-      ),
-    ),
-  ];
 
-  if (context.allowedLocationIds.length) {
-    clauses.push(
-      Prisma.sql`"locationId" IN (${Prisma.join(context.allowedLocationIds)})`,
-    );
+  if (scope.locationIds.length) {
+    clauses.push(Prisma.sql`"locationId" IN (${Prisma.join(scope.locationIds)})`);
   }
 
-  if (officePhoneVariants.length) {
-    clauses.push(Prisma.sql`"officePhone" IN (${Prisma.join(officePhoneVariants)})`);
+  if (scope.officePhoneVariants.length) {
+    clauses.push(
+      Prisma.sql`"officePhone" IN (${Prisma.join(scope.officePhoneVariants)})`,
+    );
   }
 
   return clauses.length
