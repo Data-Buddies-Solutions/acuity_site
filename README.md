@@ -364,3 +364,17 @@ bun scripts/set-practice-branding.mjs demo@acuity.local https://vy2zxpar1av2q12e
 - LiveKit forward sync should send explicit `practiceId` where possible.
 - Add higher-level smoke tests for portal login, overview, call-center enablement, and a sample call ingestion payload.
 - Add Playwright coverage before relying on CI for visual/regression confidence.
+
+## Documentation
+
+Planning, product, and research documents live in [`docs/`](docs/):
+
+- [Customer Portal MVP](docs/CUSTOMER_PORTAL_MVP.md)
+- [Customer Portal Product Vision and Next Steps](docs/CUSTOMER_PORTAL_PRODUCT_VISION_AND_NEXT_STEPS.md)
+- [Call Center Visibility Plan](docs/CALL_CENTER_VISIBILITY_PLAN.md)
+- [Practice Portal Data Pipeline](docs/PRACTICE_PORTAL_DATA_PIPELINE.md)
+- [SEO Implementation Plan](docs/SEO_IMPLEMENTATION_PLAN.md)
+- [SEO Research Plan](docs/SEO_RESEARCH_PLAN.md)
+- [Implementation Notes](docs/implementation.md)
+- [Research Notes](docs/research.md)
+- [Site Testing Implementation](docs/site-testing-implementation.md)
