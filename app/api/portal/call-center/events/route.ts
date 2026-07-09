@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { CallCenterNoteDisposition } from "@/generated/prisma/client";
+import { requirePortalCallCenterContext, withApiHandler } from "@/lib/api/handler";
 import {
   buildCallCenterActivityScopeWhere,
   buildCallCenterNoteScopeWhere,
   buildCallCenterPatientSessionScopeWhere,
   buildCallCenterQueueScopeWhere,
-  getCurrentPracticeCallCenterContext,
 } from "@/lib/call-center";
 import { canAccessPortalLocation } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
@@ -133,123 +133,118 @@ async function getCallCenterStateVersion({
   });
 }
 
-export async function GET(request: Request) {
-  const context = await getCurrentPracticeCallCenterContext();
+export const GET = withApiHandler(
+  async (request: Request) => {
+    const context = await requirePortalCallCenterContext();
 
-  if (!context) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+    const url = new URL(request.url);
+    const locationParam = url.searchParams.get("locationId");
+    const locationId =
+      locationParam === NULL_LOCATION ? null : locationParam?.trim() || undefined;
+    if (locationId !== undefined && !canAccessPortalLocation(context, locationId)) {
+      return NextResponse.json({ error: "Location not found" }, { status: 404 });
+    }
 
-  const settings = context.practice.callCenterSettings;
+    const explicitLocationScope = locationId === undefined ? null : { locationId };
+    const queueScopeWhere =
+      explicitLocationScope ?? buildCallCenterQueueScopeWhere(context);
+    const activityScopeWhere =
+      explicitLocationScope ?? buildCallCenterActivityScopeWhere(context);
+    const noteScopeWhere =
+      explicitLocationScope ?? buildCallCenterNoteScopeWhere(context);
+    const sessionScopeWhere =
+      explicitLocationScope ?? buildCallCenterPatientSessionScopeWhere(context);
+    let lastVersion = await getCallCenterStateVersion({
+      activityScopeWhere,
+      noteScopeWhere,
+      practiceId: context.practice.id,
+      queueScopeWhere,
+      sessionScopeWhere,
+    });
 
-  if (!settings?.enabled) {
-    return NextResponse.json(
-      { error: "Call center is not enabled for this practice" },
-      { status: 403 },
-    );
-  }
+    let closeStream: (() => void) | null = null;
 
-  const url = new URL(request.url);
-  const locationParam = url.searchParams.get("locationId");
-  const locationId =
-    locationParam === NULL_LOCATION ? null : locationParam?.trim() || undefined;
-  if (locationId !== undefined && !canAccessPortalLocation(context, locationId)) {
-    return NextResponse.json({ error: "Location not found" }, { status: 404 });
-  }
+    const stream = new ReadableStream({
+      cancel() {
+        closeStream?.();
+        closeStream = null;
+      },
+      start(controller) {
+        const encoder = new TextEncoder();
+        let closed = false;
+        let interval: ReturnType<typeof setInterval> | null = null;
+        const send = (event: string, data: unknown) => {
+          if (closed) {
+            return;
+          }
 
-  const explicitLocationScope = locationId === undefined ? null : { locationId };
-  const queueScopeWhere =
-    explicitLocationScope ?? buildCallCenterQueueScopeWhere(context);
-  const activityScopeWhere =
-    explicitLocationScope ?? buildCallCenterActivityScopeWhere(context);
-  const noteScopeWhere = explicitLocationScope ?? buildCallCenterNoteScopeWhere(context);
-  const sessionScopeWhere =
-    explicitLocationScope ?? buildCallCenterPatientSessionScopeWhere(context);
-  let lastVersion = await getCallCenterStateVersion({
-    activityScopeWhere,
-    noteScopeWhere,
-    practiceId: context.practice.id,
-    queueScopeWhere,
-    sessionScopeWhere,
-  });
+          try {
+            controller.enqueue(encoder.encode(encodeEvent(event, data)));
+          } catch {
+            closed = true;
+            if (interval) {
+              clearInterval(interval);
+              interval = null;
+            }
+          }
+        };
+        const close = () => {
+          if (closed) {
+            return;
+          }
 
-  let closeStream: (() => void) | null = null;
-
-  const stream = new ReadableStream({
-    cancel() {
-      closeStream?.();
-      closeStream = null;
-    },
-    start(controller) {
-      const encoder = new TextEncoder();
-      let closed = false;
-      let interval: ReturnType<typeof setInterval> | null = null;
-      const send = (event: string, data: unknown) => {
-        if (closed) {
-          return;
-        }
-
-        try {
-          controller.enqueue(encoder.encode(encodeEvent(event, data)));
-        } catch {
           closed = true;
           if (interval) {
             clearInterval(interval);
             interval = null;
           }
-        }
-      };
-      const close = () => {
-        if (closed) {
-          return;
-        }
-
-        closed = true;
-        if (interval) {
-          clearInterval(interval);
-          interval = null;
-        }
-        try {
-          controller.close();
-        } catch {
-          // The client may already have closed the stream.
-        }
-      };
-
-      interval = setInterval(async () => {
-        if (closed) {
-          return;
-        }
-
-        try {
-          const nextVersion = await getCallCenterStateVersion({
-            activityScopeWhere,
-            noteScopeWhere,
-            practiceId: context.practice.id,
-            queueScopeWhere,
-            sessionScopeWhere,
-          });
-
-          if (nextVersion !== lastVersion) {
-            lastVersion = nextVersion;
-            send("refresh", JSON.parse(nextVersion));
-          } else {
-            send("ping", { at: new Date().toISOString() });
+          try {
+            controller.close();
+          } catch {
+            // The client may already have closed the stream.
           }
-        } catch (error) {
-          send("error", {
-            message: error instanceof Error ? error.message : "call_center_stream_failed",
-          });
-        }
-      }, STREAM_POLL_MS);
+        };
 
-      closeStream = close;
-      request.signal.addEventListener("abort", close);
-      send("ready", JSON.parse(lastVersion));
-    },
-  });
+        interval = setInterval(async () => {
+          if (closed) {
+            return;
+          }
 
-  return new Response(stream, {
-    headers: streamHeaders(),
-  });
-}
+          try {
+            const nextVersion = await getCallCenterStateVersion({
+              activityScopeWhere,
+              noteScopeWhere,
+              practiceId: context.practice.id,
+              queueScopeWhere,
+              sessionScopeWhere,
+            });
+
+            if (nextVersion !== lastVersion) {
+              lastVersion = nextVersion;
+              send("refresh", JSON.parse(nextVersion));
+            } else {
+              send("ping", { at: new Date().toISOString() });
+            }
+          } catch (error) {
+            send("error", {
+              message:
+                error instanceof Error ? error.message : "call_center_stream_failed",
+            });
+          }
+        }, STREAM_POLL_MS);
+
+        closeStream = close;
+        request.signal.addEventListener("abort", close);
+        send("ready", JSON.parse(lastVersion));
+      },
+    });
+
+    return new Response(stream, {
+      headers: streamHeaders(),
+    });
+  },
+  {
+    errorMessage: "Failed to stream call center events",
+    logLabel: "[portal-call-center] Failed to stream call center events",
+  },
+);

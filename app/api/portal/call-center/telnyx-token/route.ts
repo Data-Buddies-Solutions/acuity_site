@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
+import { requirePortalCallCenterContext, withApiHandler } from "@/lib/api/handler";
 import {
   allowsSharedCallCenterStation,
   buildCallCenterSeatAccessWhere,
   getAllowedCallCenterOutboundPhoneNumbers,
-  getCurrentPracticeCallCenterContext,
   getPresenceExpirationCutoff,
   resolveTelnyxRuntimeSettings,
 } from "@/lib/call-center";
-import { createTelnyxLoginToken, TelnyxError } from "@/lib/telnyx";
+import { createTelnyxLoginToken } from "@/lib/telnyx";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -17,113 +17,104 @@ function env(name: string) {
   return process.env[name]?.trim() || "";
 }
 
-export async function GET(request: Request) {
-  const context = await getCurrentPracticeCallCenterContext();
+export const GET = withApiHandler(
+  async (request: Request) => {
+    const context = await requirePortalCallCenterContext();
+    const settings = context.practice.callCenterSettings;
 
-  if (!context) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+    const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
+    const url = new URL(request.url);
+    const browserSessionId = url.searchParams.get("browserSessionId")?.trim() || "";
+    const seatId = url.searchParams.get("seatId")?.trim() || "";
+    const seat = seatId
+      ? await prisma.callCenterAgentSeat.findFirst({
+          select: {
+            id: true,
+            label: true,
+            queueKey: true,
+            telnyxCredentialId: true,
+          },
+          where: {
+            enabled: true,
+            id: seatId,
+            ...buildCallCenterSeatAccessWhere(context),
+            practiceId: context.practice.id,
+          },
+        })
+      : null;
 
-  const settings = context.practice.callCenterSettings;
-
-  if (!settings?.enabled) {
-    return NextResponse.json(
-      { error: "Call center is not enabled for this practice" },
-      { status: 403 },
-    );
-  }
-
-  const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
-  const url = new URL(request.url);
-  const browserSessionId = url.searchParams.get("browserSessionId")?.trim() || "";
-  const seatId = url.searchParams.get("seatId")?.trim() || "";
-  const seat = seatId
-    ? await prisma.callCenterAgentSeat.findFirst({
-        select: {
-          id: true,
-          label: true,
-          queueKey: true,
-          telnyxCredentialId: true,
-        },
-        where: {
-          enabled: true,
-          id: seatId,
-          ...buildCallCenterSeatAccessWhere(context),
-          practiceId: context.practice.id,
-        },
-      })
-    : null;
-
-  if (seatId && !seat) {
-    return NextResponse.json({ error: "Call center station not found" }, { status: 404 });
-  }
-
-  if (seat && !seat.telnyxCredentialId) {
-    return NextResponse.json(
-      { error: "Selected call center station is missing Telnyx credentials" },
-      { status: 422 },
-    );
-  }
-
-  if (seat && browserSessionId && !allowsSharedCallCenterStation(context, seat)) {
-    const leasedByAnotherBrowser = await prisma.callCenterPresence.findFirst({
-      select: {
-        browserSessionId: true,
-        lastSeenAt: true,
-        status: true,
-      },
-      where: {
-        browserSessionId: {
-          not: browserSessionId,
-        },
-        lastSeenAt: {
-          gte: getPresenceExpirationCutoff(),
-        },
-        seatId: seat.id,
-        status: {
-          not: "OFFLINE",
-        },
-      },
-    });
-
-    if (leasedByAnotherBrowser) {
+    if (seatId && !seat) {
       return NextResponse.json(
-        { error: "Selected call center station is already active in another browser" },
-        { status: 409 },
+        { error: "Call center station not found" },
+        { status: 404 },
       );
     }
-  }
 
-  const credentialId = seat?.telnyxCredentialId || runtimeSettings.credentialId;
-  const callerNumber =
-    getAllowedCallCenterOutboundPhoneNumbers(context)[0]?.phoneNumber ||
-    runtimeSettings.outboundCallerNumber;
-  const sipUsername = env("TELNYX_SIP_USERNAME");
-  const sipPassword = env("TELNYX_SIP_PASSWORD");
+    if (seat && !seat.telnyxCredentialId) {
+      return NextResponse.json(
+        { error: "Selected call center station is missing Telnyx credentials" },
+        { status: 422 },
+      );
+    }
 
-  if (!seat && !runtimeSettings.credentialId) {
-    return NextResponse.json(
-      { error: "Select an assigned call center station" },
-      { status: 422 },
-    );
-  }
+    if (seat && browserSessionId && !allowsSharedCallCenterStation(context, seat)) {
+      const leasedByAnotherBrowser = await prisma.callCenterPresence.findFirst({
+        select: {
+          browserSessionId: true,
+          lastSeenAt: true,
+          status: true,
+        },
+        where: {
+          browserSessionId: {
+            not: browserSessionId,
+          },
+          lastSeenAt: {
+            gte: getPresenceExpirationCutoff(),
+          },
+          seatId: seat.id,
+          status: {
+            not: "OFFLINE",
+          },
+        },
+      });
 
-  if (!seat && sipUsername && sipPassword) {
-    return NextResponse.json({
-      callerNumber,
-      login: sipUsername,
-      password: sipPassword,
-    });
-  }
+      if (leasedByAnotherBrowser) {
+        return NextResponse.json(
+          { error: "Selected call center station is already active in another browser" },
+          { status: 409 },
+        );
+      }
+    }
 
-  if (!credentialId) {
-    return NextResponse.json(
-      { error: "Telnyx WebRTC credentials are not configured" },
-      { status: 422 },
-    );
-  }
+    const credentialId = seat?.telnyxCredentialId || runtimeSettings.credentialId;
+    const callerNumber =
+      getAllowedCallCenterOutboundPhoneNumbers(context)[0]?.phoneNumber ||
+      runtimeSettings.outboundCallerNumber;
+    const sipUsername = env("TELNYX_SIP_USERNAME");
+    const sipPassword = env("TELNYX_SIP_PASSWORD");
 
-  try {
+    if (!seat && !runtimeSettings.credentialId) {
+      return NextResponse.json(
+        { error: "Select an assigned call center station" },
+        { status: 422 },
+      );
+    }
+
+    if (!seat && sipUsername && sipPassword) {
+      return NextResponse.json({
+        callerNumber,
+        login: sipUsername,
+        password: sipPassword,
+      });
+    }
+
+    if (!credentialId) {
+      return NextResponse.json(
+        { error: "Telnyx WebRTC credentials are not configured" },
+        { status: 422 },
+      );
+    }
+
     const token = await createTelnyxLoginToken(credentialId);
 
     return NextResponse.json({
@@ -131,12 +122,9 @@ export async function GET(request: Request) {
       stationLabel: seat?.label ?? null,
       token,
     });
-  } catch (error) {
-    if (error instanceof TelnyxError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-
-    console.error("[portal-call-center] Failed to create Telnyx token", error);
-    return NextResponse.json({ error: "Failed to create Telnyx token" }, { status: 500 });
-  }
-}
+  },
+  {
+    errorMessage: "Failed to create Telnyx token",
+    logLabel: "[portal-call-center] Failed to create Telnyx token",
+  },
+);

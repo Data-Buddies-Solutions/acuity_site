@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { CallIngestionError, ingestLiveKitCallPayload } from "@/lib/call-ingestion";
+import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
+import { ingestLiveKitCallPayload } from "@/lib/call-ingestion";
 import type { LiveKitWebhookPayload } from "@/lib/call-types";
 
 export const dynamic = "force-dynamic";
@@ -25,32 +26,23 @@ function isAuthorized(request: NextRequest) {
   return request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function POST(request: NextRequest) {
-  if (!isAuthorized(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  let body: unknown;
-
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  if (!body || typeof body !== "object" || !("callId" in body)) {
-    return NextResponse.json({ error: "Missing callId" }, { status: 400 });
-  }
-
-  try {
-    const result = await ingestLiveKitCallPayload(body as LiveKitWebhookPayload);
-    return NextResponse.json({ ok: true, ...result });
-  } catch (error) {
-    if (error instanceof CallIngestionError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+export const POST = withApiHandler(
+  async (request: NextRequest) => {
+    if (!isAuthorized(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    console.error("[livekit-call-ingestion] Failed to store call", error);
-    return NextResponse.json({ error: "Failed to store call" }, { status: 500 });
-  }
-}
+    const body = await parseJsonBody(request);
+
+    if (!body || typeof body !== "object" || !("callId" in body)) {
+      return NextResponse.json({ error: "Missing callId" }, { status: 400 });
+    }
+
+    const result = await ingestLiveKitCallPayload(body as LiveKitWebhookPayload);
+    return NextResponse.json({ ok: true, ...result });
+  },
+  {
+    errorMessage: "Failed to store call",
+    logLabel: "[livekit-call-ingestion] Failed to store call",
+  },
+);
