@@ -104,11 +104,15 @@ describe("task ingestion", () => {
     });
   });
 
-  it("returns a duplicate task without resolving location again", async () => {
+  it("returns a duplicate task within the resolved practice", async () => {
     prismaMock.agentTask.findUnique.mockResolvedValue({
       category: "DOCUMENTATION",
       id: "task-1",
       priority: "NORMAL",
+    });
+    prismaMock.practicePhoneNumber.findFirst.mockResolvedValue({
+      locationId: "spring-location",
+      practiceId: "practice-1",
     });
 
     const result = await ingestLiveKitTaskPayload(
@@ -124,8 +128,69 @@ describe("task ingestion", () => {
       taskId: "task-1",
       urgency: "normal",
     });
-    expect(prismaMock.practicePhoneNumber.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.agentTask.findUnique).toHaveBeenCalledWith({
+      select: {
+        category: true,
+        id: true,
+        priority: true,
+      },
+      where: {
+        practiceId_idempotencyKey: {
+          idempotencyKey: "staff_task_1",
+          practiceId: "practice-1",
+        },
+      },
+    });
     expect(prismaMock.agentTask.create).not.toHaveBeenCalled();
+  });
+
+  it("allows the same idempotency key in different practices", async () => {
+    prismaMock.agentTask.findUnique.mockResolvedValue(null);
+    prismaMock.practicePhoneNumber.findFirst.mockResolvedValue({
+      locationId: "crystal-location",
+      practiceId: "practice-2",
+    });
+    prismaMock.agentCall.findFirst.mockResolvedValue(null);
+    prismaMock.agentTask.create.mockResolvedValue({
+      category: "BILLING",
+      id: "task-2",
+      priority: "NORMAL",
+    });
+
+    const result = await ingestLiveKitTaskPayload(
+      taskPayload({
+        officePhone: "+13525550123",
+        urgency: "normal",
+      }),
+    );
+
+    expect(result).toEqual({
+      category: "billing",
+      status: "created",
+      taskId: "task-2",
+      urgency: "normal",
+    });
+    expect(prismaMock.agentTask.findUnique).toHaveBeenCalledWith({
+      select: {
+        category: true,
+        id: true,
+        priority: true,
+      },
+      where: {
+        practiceId_idempotencyKey: {
+          idempotencyKey: "staff_task_1",
+          practiceId: "practice-2",
+        },
+      },
+    });
+    expect(prismaMock.agentTask.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          idempotencyKey: "staff_task_1",
+          practiceId: "practice-2",
+        }),
+      }),
+    );
   });
 
   it("rejects tasks that cannot resolve a single location", async () => {
@@ -221,6 +286,17 @@ describe("task ingestion", () => {
       ingestLiveKitTaskPayload(
         taskPayload({
           message: "x".repeat(2501),
+        }),
+      ),
+    ).rejects.toThrow(TaskIngestionError);
+    expect(prismaMock.agentTask.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects unbounded idempotency keys", async () => {
+    await expect(
+      ingestLiveKitTaskPayload(
+        taskPayload({
+          idempotencyKey: "x".repeat(161),
         }),
       ),
     ).rejects.toThrow(TaskIngestionError);

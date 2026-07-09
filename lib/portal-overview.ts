@@ -12,6 +12,7 @@ import type {
   ToolExecutionAnalytics,
   TurnRecord,
 } from "@/lib/call-types";
+import { getCallCompleteness, type CallCompleteness } from "@/lib/call-completeness";
 import {
   appointmentActionFromOutputClass,
   getAppointmentActions,
@@ -1718,6 +1719,7 @@ export type PortalCallTranscript = {
   bookedAppointment: PortalBookedAppointment | null;
   callerPhone: string;
   callId: string;
+  completeness: CallCompleteness;
   durationSec: number | null;
   messages: PortalCallTranscriptMessage[];
   outcomeSummary: string | null;
@@ -1826,6 +1828,7 @@ export async function getPortalCallTranscript(
       id: true,
       outcomeSummary: true,
       startedAt: true,
+      status: true,
       transferred: true,
     },
     where: andAgentCallWhere(
@@ -1853,6 +1856,7 @@ export async function getPortalCallTranscript(
     branding: getPracticeBranding(practice),
     callerPhone: call.callerPhone,
     callId: call.id,
+    completeness: getCallCompleteness(data, { status: call.status }),
     durationSec: call.durationSec,
     messages: buildPortalCallTranscriptMessages({ sessionItems, turns }),
     outcomeSummary: call.outcomeSummary,

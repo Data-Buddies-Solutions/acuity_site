@@ -188,14 +188,30 @@ function PortalTranscriptTimeline({
   );
 }
 
-function ConversationPanel({ messages }: { messages: PortalCallTranscriptMessage[] }) {
+function emptyTranscriptMessage(transcript: PortalCallTranscript) {
+  if (transcript.completeness.status === "livekit_recovered") {
+    return "Call captured by LiveKit, but the runtime transcript and action report did not arrive.";
+  }
+
+  if (transcript.completeness.status === "missing_transcript") {
+    return "No runtime transcript or action report has arrived for this call.";
+  }
+
+  if (transcript.completeness.status === "webhook_error") {
+    return "LiveKit webhook data had a processing issue, and no transcript is available.";
+  }
+
+  return "No transcript is available for this call yet.";
+}
+
+function ConversationPanel({ transcript }: { transcript: PortalCallTranscript }) {
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--portal-border-strong)] bg-white shadow-sm">
-      {messages.length > 0 ? (
-        <PortalTranscriptTimeline messages={messages} />
+      {transcript.messages.length > 0 ? (
+        <PortalTranscriptTimeline messages={transcript.messages} />
       ) : (
         <p className="px-5 py-10 text-sm text-[var(--portal-muted)]">
-          No transcript is available for this call yet.
+          {emptyTranscriptMessage(transcript)}
         </p>
       )}
     </section>
@@ -225,7 +241,7 @@ export default async function PortalCallTranscriptPage({
       <TranscriptHeader />
       <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         <AppointmentContextCard transcript={transcript} />
-        <ConversationPanel messages={transcript.messages} />
+        <ConversationPanel transcript={transcript} />
       </div>
     </div>
   );

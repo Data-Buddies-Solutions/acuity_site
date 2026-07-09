@@ -5,8 +5,13 @@ import { prisma } from "@/lib/prisma";
 
 type TaskCategory = "billing" | "appointments" | "documentation" | "other";
 type TaskPriority = "high_priority" | "normal" | "non_urgent";
+const MAX_TASK_CALL_ID_LENGTH = 160;
+const MAX_TASK_IDEMPOTENCY_KEY_LENGTH = 160;
 const MAX_TASK_SUMMARY_LENGTH = 240;
 const MAX_TASK_MESSAGE_LENGTH = 2500;
+const MAX_TASK_OFFICE_KEY_LENGTH = 120;
+const MAX_TASK_PATIENT_FIELD_LENGTH = 160;
+const MAX_TASK_PHONE_LENGTH = 64;
 
 const categoryByInput = {
   appointments: "APPOINTMENTS",
@@ -88,6 +93,13 @@ function optionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function boundedOptionalString(value: unknown, field: string, maxLength: number) {
+  const text = optionalString(value);
+  if (!text) return undefined;
+  if (text.length <= maxLength) return text;
+  throw new TaskIngestionError(`${field} is too long`, 400);
+}
+
 function parseCategory(value: unknown): TaskCategory {
   if (
     value === "billing" ||
@@ -114,11 +126,31 @@ function parsePayload(body: unknown): TaskPayload {
   const patientRecord = asRecord(record.patient);
   const patient = patientRecord
     ? {
-        dob: optionalString(patientRecord.dob),
-        firstName: optionalString(patientRecord.firstName),
-        id: optionalString(patientRecord.id),
-        lastName: optionalString(patientRecord.lastName),
-        name: optionalString(patientRecord.name),
+        dob: boundedOptionalString(
+          patientRecord.dob,
+          "patient.dob",
+          MAX_TASK_PATIENT_FIELD_LENGTH,
+        ),
+        firstName: boundedOptionalString(
+          patientRecord.firstName,
+          "patient.firstName",
+          MAX_TASK_PATIENT_FIELD_LENGTH,
+        ),
+        id: boundedOptionalString(
+          patientRecord.id,
+          "patient.id",
+          MAX_TASK_PATIENT_FIELD_LENGTH,
+        ),
+        lastName: boundedOptionalString(
+          patientRecord.lastName,
+          "patient.lastName",
+          MAX_TASK_PATIENT_FIELD_LENGTH,
+        ),
+        name: boundedOptionalString(
+          patientRecord.name,
+          "patient.name",
+          MAX_TASK_PATIENT_FIELD_LENGTH,
+        ),
       }
     : undefined;
 
@@ -127,21 +159,49 @@ function parsePayload(body: unknown): TaskPayload {
   }
 
   return {
-    callId: requiredString(record.callId, "callId"),
-    callerPhone: requiredString(record.callerPhone, "callerPhone"),
+    callId: boundedRequiredString(record.callId, "callId", MAX_TASK_CALL_ID_LENGTH),
+    callerPhone: boundedRequiredString(
+      record.callerPhone,
+      "callerPhone",
+      MAX_TASK_PHONE_LENGTH,
+    ),
     category: parseCategory(record.category),
-    idempotencyKey: requiredString(record.idempotencyKey, "idempotencyKey"),
-    inboundOfficePhone: optionalString(record.inboundOfficePhone),
-    locationId: optionalString(record.locationId),
+    idempotencyKey: boundedRequiredString(
+      record.idempotencyKey,
+      "idempotencyKey",
+      MAX_TASK_IDEMPOTENCY_KEY_LENGTH,
+    ),
+    inboundOfficePhone: boundedOptionalString(
+      record.inboundOfficePhone,
+      "inboundOfficePhone",
+      MAX_TASK_PHONE_LENGTH,
+    ),
+    locationId: boundedOptionalString(
+      record.locationId,
+      "locationId",
+      MAX_TASK_CALL_ID_LENGTH,
+    ),
     message: boundedRequiredString(record.message, "message", MAX_TASK_MESSAGE_LENGTH),
-    officeKey: optionalString(record.officeKey),
-    officePhone: requiredString(record.officePhone, "officePhone"),
+    officeKey: boundedOptionalString(
+      record.officeKey,
+      "officeKey",
+      MAX_TASK_OFFICE_KEY_LENGTH,
+    ),
+    officePhone: boundedRequiredString(
+      record.officePhone,
+      "officePhone",
+      MAX_TASK_PHONE_LENGTH,
+    ),
     patient:
       patient &&
       (patient.id || patient.name || patient.firstName || patient.lastName || patient.dob)
         ? patient
         : undefined,
-    practiceId: optionalString(record.practiceId),
+    practiceId: boundedOptionalString(
+      record.practiceId,
+      "practiceId",
+      MAX_TASK_CALL_ID_LENGTH,
+    ),
     source: "agent",
     summary: boundedRequiredString(record.summary, "summary", MAX_TASK_SUMMARY_LENGTH),
     urgency: parsePriority(record.urgency),
@@ -220,24 +280,32 @@ function isUniqueConstraintError(error: unknown) {
   );
 }
 
-async function findTaskByIdempotencyKey(idempotencyKey: string) {
+async function findTaskByIdempotencyKey(practiceId: string, idempotencyKey: string) {
   return prisma.agentTask.findUnique({
     select: {
       category: true,
       id: true,
       priority: true,
     },
-    where: { idempotencyKey },
+    where: {
+      practiceId_idempotencyKey: {
+        idempotencyKey,
+        practiceId,
+      },
+    },
   });
 }
 
 export async function ingestLiveKitTaskPayload(body: unknown) {
   const payload = parsePayload(body);
+  const resolved = await resolvePracticeAndLocation(payload);
 
-  const existing = await findTaskByIdempotencyKey(payload.idempotencyKey);
+  const existing = await findTaskByIdempotencyKey(
+    resolved.practiceId,
+    payload.idempotencyKey,
+  );
   if (existing) return taskResponse({ ...existing, status: "duplicate" });
 
-  const resolved = await resolvePracticeAndLocation(payload);
   const agentCall = await prisma.agentCall.findFirst({
     select: { id: true },
     where: {
@@ -278,7 +346,10 @@ export async function ingestLiveKitTaskPayload(body: unknown) {
     return taskResponse(task);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      const duplicate = await findTaskByIdempotencyKey(payload.idempotencyKey);
+      const duplicate = await findTaskByIdempotencyKey(
+        resolved.practiceId,
+        payload.idempotencyKey,
+      );
       if (duplicate) {
         return taskResponse({ ...duplicate, status: "duplicate" });
       }

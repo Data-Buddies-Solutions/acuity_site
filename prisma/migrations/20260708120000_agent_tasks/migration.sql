@@ -34,7 +34,7 @@ CREATE TABLE "agent_task" (
     CONSTRAINT "agent_task_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "agent_task_idempotencyKey_key" ON "agent_task"("idempotencyKey");
+CREATE UNIQUE INDEX "agent_task_practiceId_idempotencyKey_key" ON "agent_task"("practiceId", "idempotencyKey");
 CREATE INDEX "agent_task_practiceId_status_category_createdAt_idx" ON "agent_task"("practiceId", "status", "category", "createdAt");
 CREATE INDEX "agent_task_practiceId_locationId_status_createdAt_idx" ON "agent_task"("practiceId", "locationId", "status", "createdAt");
 CREATE INDEX "agent_task_practiceId_status_priority_createdAt_idx" ON "agent_task"("practiceId", "status", "priority", "createdAt");

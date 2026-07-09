@@ -146,6 +146,13 @@ enum AgentTaskSource {
   AGENT
 }
 
+enum LiveKitWebhookProcessingStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
 enum UsageCostCategory {
   LLM_INPUT
   LLM_CACHED_INPUT
@@ -414,6 +421,7 @@ model AgentCall {
   callCenterSessions   CallCenterSession[]
   costLineItems        UsageCostLineItem[]
   evaluationLabels     AgentCallEvaluationLabel[]
+  liveKitWebhookEvents LiveKitWebhookEvent[]
   location             PracticeLocation?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
   practice             Practice                   @relation(fields: [practiceId], references: [id], onDelete: Cascade)
 
@@ -432,7 +440,7 @@ model AgentTask {
   locationId         String?
   agentCallId        String?
   callId             String
-  idempotencyKey     String            @unique
+  idempotencyKey     String
   status             AgentTaskStatus   @default(OPEN)
   category           AgentTaskCategory
   priority           AgentTaskPriority @default(NORMAL)
@@ -454,12 +462,40 @@ model AgentTask {
   location           PracticeLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   practice           Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
 
+  @@unique([practiceId, idempotencyKey])
   @@index([practiceId, status, category, createdAt])
   @@index([practiceId, locationId, status, createdAt])
   @@index([practiceId, status, priority, createdAt])
   @@index([agentCallId])
   @@index([callId])
   @@map("agent_task")
+}
+
+model LiveKitWebhookEvent {
+  id                   String                         @id @default(cuid())
+  eventId              String                         @unique
+  eventType            String
+  roomSid              String?
+  roomName             String?
+  participantSid       String?
+  participantIdentity  String?
+  agentCallId          String?
+  processingStatus     LiveKitWebhookProcessingStatus @default(RECEIVED)
+  errorMessage         String?
+  payload              Json
+  createdAtFromLiveKit DateTime?
+  receivedAt           DateTime                       @default(now())
+  processedAt          DateTime?
+  createdAt            DateTime                       @default(now())
+  updatedAt            DateTime                       @updatedAt
+  agentCall            AgentCall?                     @relation(fields: [agentCallId], references: [id], onDelete: SetNull)
+
+  @@index([eventType, receivedAt])
+  @@index([roomSid])
+  @@index([roomName])
+  @@index([processingStatus, receivedAt])
+  @@index([agentCallId])
+  @@map("livekit_webhook_event")
 }
 
 model AgentCallEvaluationLabel {
