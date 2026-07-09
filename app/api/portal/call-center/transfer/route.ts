@@ -1,35 +1,23 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
 import { blindTransferActiveCallToSeat } from "@/lib/call-center";
 
 export const dynamic = "force-dynamic";
 
-function asString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "";
-}
+const transferSchema = z.object({
+  browserSessionId: z.string().trim().optional().default(""),
+  sourceCallControlId: z.string().trim().min(1, "sourceCallControlId is required"),
+  targetSeatId: z.string().trim().min(1, "targetSeatId is required"),
+});
 
 export const POST = withApiHandler(
   async (request: Request) => {
-    const body = await parseJsonBody(request);
-
-    if (!body || typeof body !== "object") {
-      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-    }
-
-    const input = body as Record<string, unknown>;
-    const browserSessionId = asString(input.browserSessionId);
-    const sourceCallControlId = asString(input.sourceCallControlId);
-    const targetSeatId = asString(input.targetSeatId);
-
-    if (!sourceCallControlId || !targetSeatId) {
-      return NextResponse.json(
-        {
-          error: "sourceCallControlId and targetSeatId are required",
-        },
-        { status: 400 },
-      );
-    }
+    const { browserSessionId, sourceCallControlId, targetSeatId } = await parseJsonBody(
+      request,
+      transferSchema,
+    );
 
     const result = await blindTransferActiveCallToSeat({
       browserSessionId,

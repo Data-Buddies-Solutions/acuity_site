@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import {
   parseJsonBody,
@@ -14,6 +15,12 @@ import { dialTelnyxCall } from "@/lib/telnyx";
 
 export const dynamic = "force-dynamic";
 
+const outboundSchema = z.object({
+  callControlId: z.string().optional(),
+  destination: z.string().optional(),
+  fromPhone: z.string().optional(),
+});
+
 function isPracticeNumber(phone: string, numbers: Array<{ phoneNumber: string }>) {
   const variants = new Set(phoneLookupVariants(phone));
 
@@ -27,17 +34,10 @@ export const POST = withApiHandler(
     const context = await requirePortalCallCenterContext();
     const settings = context.practice.callCenterSettings;
 
-    const body = await parseJsonBody(request);
-
-    if (!body || typeof body !== "object") {
-      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-    }
-
-    const { callControlId, destination, fromPhone } = body as {
-      callControlId?: string;
-      destination?: string;
-      fromPhone?: string;
-    };
+    const { callControlId, destination, fromPhone } = await parseJsonBody(
+      request,
+      outboundSchema,
+    );
     const runtimeSettings = resolveTelnyxRuntimeSettings(settings);
     const from = normalizePhone(fromPhone || runtimeSettings.outboundCallerNumber);
     const to = normalizePhone(destination);
