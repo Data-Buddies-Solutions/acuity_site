@@ -181,7 +181,7 @@ export async function getPortalTasks(input: {
     prisma.agentTask.findMany({
       include: {
         agentCall: {
-          select: { callId: true },
+          select: { callId: true, id: true },
         },
         location: {
           select: { name: true },
@@ -200,10 +200,10 @@ export async function getPortalTasks(input: {
     }),
   ]);
 
-  const availableCallIds = new Set(
+  const availableCallIds = new Map(
     (
       await prisma.agentCall.findMany({
-        select: { callId: true },
+        select: { callId: true, id: true },
         where: {
           AND: [
             {
@@ -216,16 +216,17 @@ export async function getPortalTasks(input: {
           ],
         },
       })
-    ).map((call) => call.callId),
+    ).map((call) => [call.callId, call.id]),
   );
 
   const buckets = emptyBuckets();
   for (const task of tasks) {
     const category = categoryFromDb[task.category];
-    const callId =
-      task.agentCall?.callId ?? (availableCallIds.has(task.callId) ? task.callId : null);
+    const linkedCallId = task.agentCall?.id ?? availableCallIds.get(task.callId) ?? null;
     buckets[category].push({
-      callHref: callId ? `/portal/app/calls/${encodeURIComponent(callId)}` : null,
+      callHref: linkedCallId
+        ? `/portal/app/calls/${encodeURIComponent(linkedCallId)}`
+        : null,
       callId: task.callId,
       callerPhone: task.callerPhone,
       category,
