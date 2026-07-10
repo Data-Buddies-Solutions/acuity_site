@@ -21,8 +21,8 @@ import {
   extractTelnyxRecordingUrl,
   hasPortalConnectedCallSignal,
   hasQueueWaitDeadlineElapsed,
-  inboundCallCenterSeatIdForTelnyxPayload,
   getPortalCallCenterLocationState,
+  isConnectionOnlyIncomingLeg,
   isRingbackToneActiveAtSecond,
   isInboundSeatEligibleForAutomaticRing,
   isDefinitiveRingAttemptFailureCode,
@@ -113,49 +113,32 @@ describe("call-center settings", () => {
   });
 });
 
-describe("call-center seat SIP destinations", () => {
-  const seats = [{ id: "seat-optical", sipUsername: "optical-station" }];
-
-  it("identifies inbound configured seats across Telnyx SIP URI forms", () => {
-    expect(
-      inboundCallCenterSeatIdForTelnyxPayload(
-        {
-          direction: "incoming",
-          to: "sip:optical-station@sip.telnyx.com",
-        },
-        seats,
-      ),
-    ).toBe("seat-optical");
-    expect(
-      inboundCallCenterSeatIdForTelnyxPayload(
-        {
-          direction: "inbound",
-          to: "SIPS:OPTICAL-STATION@sip.telnyx.com;transport=tls",
-        },
-        [{ id: "seat-optical", sipUsername: "sip:optical-station@sip.telnyx.com" }],
-      ),
-    ).toBe("seat-optical");
+describe("call-center connection-only inbound legs", () => {
+  it("keeps unrecognized incoming legs out of the caller queue", () => {
+    expect(isConnectionOnlyIncomingLeg({ direction: "incoming" }, "connection")).toBe(
+      true,
+    );
+    expect(isConnectionOnlyIncomingLeg({ direction: "incoming" }, "practice_phone")).toBe(
+      false,
+    );
+    expect(isConnectionOnlyIncomingLeg({ direction: "outgoing" }, "connection")).toBe(
+      false,
+    );
   });
 
-  it("does not treat phone numbers, outbound calls, or another SIP user as a seat leg", () => {
+  it("preserves explicit Abita LiveKit caller handoffs", () => {
     expect(
-      inboundCallCenterSeatIdForTelnyxPayload(
-        { direction: "incoming", to: "+17275919997" },
-        seats,
+      isConnectionOnlyIncomingLeg(
+        {
+          direction: "outgoing",
+          sip_headers: [
+            { name: "X-Acuity-Handoff", value: "call-center" },
+            { name: "X-Acuity-Trunk-Phone", value: "+13055095333" },
+          ],
+        },
+        "connection",
       ),
-    ).toBeNull();
-    expect(
-      inboundCallCenterSeatIdForTelnyxPayload(
-        { direction: "outgoing", to: "sip:optical-station@sip.telnyx.com" },
-        seats,
-      ),
-    ).toBeNull();
-    expect(
-      inboundCallCenterSeatIdForTelnyxPayload(
-        { direction: "incoming", to: "sip:another-station@sip.telnyx.com" },
-        seats,
-      ),
-    ).toBeNull();
+    ).toBe(false);
   });
 });
 

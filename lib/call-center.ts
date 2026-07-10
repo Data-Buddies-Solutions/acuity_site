@@ -570,7 +570,8 @@ function decodeClientState(value: unknown) {
 function isCallCenterAgentLegClientState(clientState: Record<string, unknown> | null) {
   return Boolean(
     clientState &&
-    (asString(clientState.queueItemId) ||
+    (clientState.internalSeatLeg === true ||
+      asString(clientState.queueItemId) ||
       asString(clientState.ringAttemptId) ||
       asString(clientState.seatId)),
   );
@@ -610,37 +611,6 @@ function telnyxSipUri(sipUsername: string | null) {
   }
 
   return username.includes("@") ? `sip:${username}` : `sip:${username}@sip.telnyx.com`;
-}
-
-function sipUser(value: string, requireSipAddress = false) {
-  const trimmed = value.trim().toLowerCase();
-  const hasSipScheme = /^sips?:/.test(trimmed);
-
-  if (!trimmed || (requireSipAddress && !hasSipScheme && !trimmed.includes("@"))) {
-    return "";
-  }
-
-  const address = trimmed.replace(/^sips?:/, "").split(/[;?]/, 1)[0] ?? "";
-  return address.split("@", 1)[0]?.trim() ?? "";
-}
-
-export function inboundCallCenterSeatIdForTelnyxPayload(
-  payload: Record<string, unknown>,
-  seats: Array<{ id: string; sipUsername: string | null }>,
-) {
-  if (telnyxSessionDirectionFromPayload(payload) !== CallCenterSessionDirection.INBOUND) {
-    return null;
-  }
-
-  const destinationUser = sipUser(asString(payload.to), true);
-  if (!destinationUser) {
-    return null;
-  }
-
-  return (
-    seats.find((seat) => sipUser(telnyxSipUri(seat.sipUsername)) === destinationUser)
-      ?.id ?? null
-  );
 }
 
 function extractTelnyxCallControlId(result: unknown) {
@@ -3282,6 +3252,14 @@ type CallCenterSettingsLookup =
   | { kind: "NOT_FOUND" }
   | { kind: "OWNER_BLOCKED" };
 
+type WebhookSettingsSource =
+  "client_state" | "connection" | "existing_session" | "handoff_trunk" | "practice_phone";
+
+type ResolvedWebhookSettings = {
+  settings: ResolvedCallCenterSettings;
+  source: WebhookSettingsSource;
+};
+
 function settingsLookup(
   settings: ResolvedCallCenterSettings[],
 ): CallCenterSettingsLookup {
@@ -3422,7 +3400,10 @@ async function findSettingsForExistingSession(
   return result.kind === "NOT_FOUND" ? { kind: "OWNER_BLOCKED" } : result;
 }
 
-function resolvedSettingsOrNull(result: CallCenterSettingsLookup, source: string) {
+function resolvedSettingsOrNull(
+  result: CallCenterSettingsLookup,
+  source: WebhookSettingsSource,
+): ResolvedWebhookSettings | null {
   if (result.kind === "AMBIGUOUS" || result.kind === "OWNER_BLOCKED") {
     console.warn("[call-center] webhook practice resolution blocked", {
       reason: result.kind.toLowerCase(),
@@ -3430,7 +3411,7 @@ function resolvedSettingsOrNull(result: CallCenterSettingsLookup, source: string
     });
   }
 
-  return result.kind === "FOUND" ? result.settings : null;
+  return result.kind === "FOUND" ? { settings: result.settings, source } : null;
 }
 
 async function resolveCallCenterSettingsForWebhook(payload: Record<string, unknown>) {
@@ -3482,11 +3463,7 @@ async function resolveCallCenterSettingsForWebhook(payload: Record<string, unkno
         },
       });
 
-      if (settings) {
-        return settings;
-      }
-
-      return null;
+      return settings ? { settings, source: "client_state" as const } : null;
     }
   }
 
@@ -3750,33 +3727,15 @@ export function telnyxSessionDirectionFromPayload(payload: Record<string, unknow
   return toSessionDirection(asString(payload.direction));
 }
 
-async function inferInboundSeatClientState(
+export function isConnectionOnlyIncomingLeg(
   payload: Record<string, unknown>,
-  practiceId: string,
+  source: WebhookSettingsSource,
 ) {
-  if (
-    telnyxSessionDirectionFromPayload(payload) !== CallCenterSessionDirection.INBOUND ||
-    !sipUser(asString(payload.to), true)
-  ) {
-    return null;
-  }
-
-  const seats = await prisma.callCenterAgentSeat.findMany({
-    select: {
-      id: true,
-      sipUsername: true,
-    },
-    where: {
-      enabled: true,
-      practiceId,
-      sipUsername: {
-        not: null,
-      },
-    },
-  });
-  const seatId = inboundCallCenterSeatIdForTelnyxPayload(payload, seats);
-
-  return seatId ? { seatId } : null;
+  return (
+    source === "connection" &&
+    !extractAcuityLiveKitHandoff(payload).isCallCenterHandoff &&
+    telnyxSessionDirectionFromPayload(payload) === CallCenterSessionDirection.INBOUND
+  );
 }
 
 function callCenterSessionDirectionFromPayloadClientState(
@@ -3842,12 +3801,14 @@ export function mergeCallCenterSessionStatus(
 
 async function upsertSessionFromPayload({
   eventType,
+  fallbackClientState = null,
   locationId,
   payload,
   practiceId,
   status,
 }: {
   eventType: string;
+  fallbackClientState?: Record<string, unknown> | null;
   locationId: string | null;
   payload: Record<string, unknown>;
   practiceId: string;
@@ -3860,7 +3821,7 @@ async function upsertSessionFromPayload({
   const eventAt = asDate(payload.occurred_at) ?? now;
   const agentCallId = await resolveAgentCallIdFromPayload(practiceId, payload);
   const handoff = extractAcuityLiveKitHandoff(payload);
-  const clientState = decodeClientState(payload.client_state);
+  const clientState = decodeClientState(payload.client_state) ?? fallbackClientState;
   // Some Telnyx event payloads (notably call.recording.saved and
   // call.playback.ended) don't include from/to/direction. Don't clobber
   // the values that were already set on the original call.initiated event.
@@ -3917,17 +3878,7 @@ async function upsertSessionFromPayload({
       existingSession = matches[0] ?? null;
     }
     const existingClientState = clientStateFromSessionMetadata(existingSession?.metadata);
-    const inferredClientState =
-      !clientState && !isCallCenterAgentLegClientState(existingClientState)
-        ? await inferInboundSeatClientState(payload, practiceId)
-        : null;
-    const effectiveClientState =
-      clientState ?? existingClientState ?? inferredClientState;
-    if (inferredClientState) {
-      console.info("[call-center] configured seat SIP leg classified as internal", {
-        eventType,
-      });
-    }
+    const effectiveClientState = clientState ?? existingClientState;
     const sessionPayloadDirection = callCenterSessionDirectionFromPayloadClientState(
       payload,
       effectiveClientState,
@@ -6809,18 +6760,19 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
   }
 
   const clientState = decodeClientState(payload.client_state);
-  const settings = await resolveCallCenterSettingsForWebhook(payload);
+  const settingsResolution = await resolveCallCenterSettingsForWebhook(payload);
 
-  console.info(
-    "[call-center] webhook event",
-    buildTelnyxWebhookLogContext(eventType, payload),
-  );
+  console.info("[call-center] webhook event", {
+    ...buildTelnyxWebhookLogContext(eventType, payload),
+    settingsSource: settingsResolution?.source,
+  });
 
-  if (!settings) {
+  if (!settingsResolution) {
     console.warn("[call-center] webhook ignored — no enabled practice", { eventType });
     return { ignored: true, reason: "no_enabled_practice" };
   }
 
+  const { settings, source: settingsSource } = settingsResolution;
   const practiceId = settings.practiceId;
   const locationId =
     (await resolveLocationIdFromClientState(practiceId, clientState)) ??
@@ -6828,14 +6780,21 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
   let session: Awaited<ReturnType<typeof upsertSessionFromPayload>> | null = null;
 
   switch (eventType) {
-    case "call.initiated":
+    case "call.initiated": {
+      const connectionOnlyIncoming = isConnectionOnlyIncomingLeg(payload, settingsSource);
       session = await upsertSessionFromPayload({
         eventType,
+        fallbackClientState: connectionOnlyIncoming ? { internalSeatLeg: true } : null,
         locationId,
         payload,
         practiceId,
         status: "RINGING",
       });
+      if (connectionOnlyIncoming) {
+        console.info("[call-center] connection-only incoming leg kept out of queue", {
+          eventType,
+        });
+      }
       if (isInboundSession(session) && asString(payload.call_control_id)) {
         await queueInboundCallForStaff({
           eventType,
@@ -6849,6 +6808,7 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         status: "RINGING",
       });
       break;
+    }
 
     case "call.answered": {
       session = await upsertSessionFromPayload({
