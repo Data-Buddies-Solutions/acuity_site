@@ -21,6 +21,7 @@ import {
   extractTelnyxRecordingUrl,
   hasPortalConnectedCallSignal,
   hasQueueWaitDeadlineElapsed,
+  inboundCallCenterSeatIdForTelnyxPayload,
   getPortalCallCenterLocationState,
   isRingbackToneActiveAtSecond,
   isInboundSeatEligibleForAutomaticRing,
@@ -109,6 +110,52 @@ describe("call-center settings", () => {
       inboundPhoneNumber: "+15550000001",
       outboundCallerNumber: "+15550000002",
     });
+  });
+});
+
+describe("call-center seat SIP destinations", () => {
+  const seats = [{ id: "seat-optical", sipUsername: "optical-station" }];
+
+  it("identifies inbound configured seats across Telnyx SIP URI forms", () => {
+    expect(
+      inboundCallCenterSeatIdForTelnyxPayload(
+        {
+          direction: "incoming",
+          to: "sip:optical-station@sip.telnyx.com",
+        },
+        seats,
+      ),
+    ).toBe("seat-optical");
+    expect(
+      inboundCallCenterSeatIdForTelnyxPayload(
+        {
+          direction: "inbound",
+          to: "SIPS:OPTICAL-STATION@sip.telnyx.com;transport=tls",
+        },
+        [{ id: "seat-optical", sipUsername: "sip:optical-station@sip.telnyx.com" }],
+      ),
+    ).toBe("seat-optical");
+  });
+
+  it("does not treat phone numbers, outbound calls, or another SIP user as a seat leg", () => {
+    expect(
+      inboundCallCenterSeatIdForTelnyxPayload(
+        { direction: "incoming", to: "+17275919997" },
+        seats,
+      ),
+    ).toBeNull();
+    expect(
+      inboundCallCenterSeatIdForTelnyxPayload(
+        { direction: "outgoing", to: "sip:optical-station@sip.telnyx.com" },
+        seats,
+      ),
+    ).toBeNull();
+    expect(
+      inboundCallCenterSeatIdForTelnyxPayload(
+        { direction: "incoming", to: "sip:another-station@sip.telnyx.com" },
+        seats,
+      ),
+    ).toBeNull();
   });
 });
 
