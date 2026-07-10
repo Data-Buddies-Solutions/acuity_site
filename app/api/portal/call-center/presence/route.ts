@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { CallCenterPresenceStatus } from "@/generated/prisma/client";
@@ -42,7 +42,7 @@ const presenceSchema = z
   });
 
 export const POST = withApiHandler(
-  async (request: Request) => {
+  async (request: NextRequest) => {
     const context = await requirePortalCallCenterContext();
 
     const { browserSessionId, currentSessionId, readyForCalls, seatId, status } =

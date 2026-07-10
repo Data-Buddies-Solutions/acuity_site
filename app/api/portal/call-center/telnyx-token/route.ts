@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { requirePortalCallCenterContext, withApiHandler } from "@/lib/api/handler";
 import {
@@ -18,7 +18,7 @@ function env(name: string) {
 }
 
 export const GET = withApiHandler(
-  async (request: Request) => {
+  async (request: NextRequest) => {
     const context = await requirePortalCallCenterContext();
     const settings = context.practice.callCenterSettings;
 
