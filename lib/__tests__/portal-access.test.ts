@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  buildPortalAgentCallScopeSql,
   buildPortalAgentCallScopeWhere,
   canAccessPortalLocation,
   filterPortalPhoneNumbersForAccess,
@@ -60,6 +61,35 @@ describe("portal access scoping", () => {
         { officePhone: { in: ["7275919997", "17275919997", "+17275919997"] } },
       ],
     });
+  });
+
+  it("returns an impossible where clause when a scoped user has no locations or phones", () => {
+    const where = buildPortalAgentCallScopeWhere(contextFor({ allowedLocationIds: [] }));
+
+    expect(where).toEqual({ id: { in: [] } });
+  });
+
+  it("builds raw SQL scope that mirrors the Prisma-where clauses", () => {
+    const all = buildPortalAgentCallScopeSql(
+      contextFor({ allowedLocationIds: [], hasAllLocationAccess: true }),
+    );
+    expect(all.sql).toBe("TRUE");
+    expect(all.values).toEqual([]);
+
+    const scoped = buildPortalAgentCallScopeSql(
+      contextFor({ allowedLocationIds: ["spring"] }),
+    );
+    expect(scoped.sql).toBe('("locationId" IN (?) OR "officePhone" IN (?,?,?))');
+    expect(scoped.values).toEqual([
+      "spring",
+      "7275919997",
+      "17275919997",
+      "+17275919997",
+    ]);
+
+    const empty = buildPortalAgentCallScopeSql(contextFor({ allowedLocationIds: [] }));
+    expect(empty.sql).toBe("FALSE");
+    expect(empty.values).toEqual([]);
   });
 
   it("does not grant null-location rows to selected-location users", () => {
