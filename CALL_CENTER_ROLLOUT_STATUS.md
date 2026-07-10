@@ -10,8 +10,9 @@ and legacy routing remains the only production command-producing path.
 
 The current release step is **PR A: expand migration**. Draft PR
 [#81](https://github.com/Data-Buddies-Solutions/acuity_site/pull/81) is open.
-PR B is being prepared as a stacked draft for review, but it must not merge
-until PR A is merged and the production migration is verified.
+Draft PR [#82](https://github.com/Data-Buddies-Solutions/acuity_site/pull/82)
+is open as a stacked review, but it must not merge until PR A is merged and
+the production migration is verified.
 
 ## Phase status
 
@@ -30,7 +31,7 @@ until PR A is merged and the production migration is verified.
 | Release | Contents | Current state | Exit gate |
 | --- | --- | --- | --- |
 | PR A | Expand-only SQL migration | Draft PR #81 open | Production migration receipt and schema verification |
-| PR B | Expanded Prisma schema plus Phase 0 repair | Stacked draft preparing | Optical ready/no-ready synthetic calls pass |
+| PR B | Expanded Prisma schema plus Phase 0 repair | Stacked draft PR #82 open | Optical ready/no-ready synthetic calls pass |
 | Contract PR | Drop the legacy two-column ring-attempt unique index | Waiting on old-instance drain | New generation index remains and retry call passes |
 | PR C | Durable ingress, recovery, retention, protected configuration, inactive canonical foundations | Waiting on PR B and governance | Recovery is healthy and backlogs are zero |
 
