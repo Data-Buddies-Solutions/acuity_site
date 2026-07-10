@@ -16,24 +16,24 @@ the production migration is verified.
 
 ## Phase status
 
-| Phase | Scope | Code status | Production status |
-| --- | --- | --- | --- |
-| 0 | Automatic ringing, explicit browser readiness, replay-safe voicemail | Complete locally | Not deployed |
-| 1 | Durable provider inbox, retries, recovery, dead letters, retention | Complete locally | Not deployed |
-| 2 | Generic queues, numbers, endpoints, memberships, protected configuration | Complete locally | Not deployed |
-| 3 | Canonical calls, legs, tasks, events, and state-transition foundations | Foundations only | Inactive |
-| 4 | Canonical routing and durable command cutover | Not started | Blocked by rollout gates |
-| 5 | Canonical snapshot plus ordered SSE frontend | Foundations only | Legacy fallback remains |
-| 6 | Delete profile routing, legacy projections, compatibility code, and tables | Not started | Blocked until observation closes |
+| Phase | Scope                                                                      | Code status      | Production status                |
+| ----- | -------------------------------------------------------------------------- | ---------------- | -------------------------------- |
+| 0     | Automatic ringing, explicit browser readiness, replay-safe voicemail       | Complete locally | Not deployed                     |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention         | Complete locally | Not deployed                     |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration   | Complete locally | Not deployed                     |
+| 3     | Canonical calls, legs, tasks, events, and state-transition foundations     | Foundations only | Inactive                         |
+| 4     | Canonical routing and durable command cutover                              | Not started      | Blocked by rollout gates         |
+| 5     | Canonical snapshot plus ordered SSE frontend                               | Foundations only | Legacy fallback remains          |
+| 6     | Delete profile routing, legacy projections, compatibility code, and tables | Not started      | Blocked until observation closes |
 
 ## Release sequence
 
-| Release | Contents | Current state | Exit gate |
-| --- | --- | --- | --- |
-| PR A | Expand-only SQL migration | Draft PR #81 open | Production migration receipt and schema verification |
-| PR B | Expanded Prisma schema plus Phase 0 repair | Stacked draft PR #82 open | Optical ready/no-ready synthetic calls pass |
-| Contract PR | Drop the legacy two-column ring-attempt unique index | Waiting on old-instance drain | New generation index remains and retry call passes |
-| PR C | Durable ingress, recovery, retention, protected configuration, inactive canonical foundations | Waiting on PR B and governance | Recovery is healthy and backlogs are zero |
+| Release     | Contents                                                                                      | Current state                  | Exit gate                                            |
+| ----------- | --------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------- |
+| PR A        | Expand-only SQL migration                                                                     | Draft PR #81 open              | Production migration receipt and schema verification |
+| PR B        | Expanded Prisma schema plus Phase 0 repair                                                    | Stacked draft PR #82 open      | Optical ready/no-ready synthetic calls pass          |
+| Contract PR | Drop the legacy two-column ring-attempt unique index                                          | Waiting on old-instance drain  | New generation index remains and retry call passes   |
+| PR C        | Durable ingress, recovery, retention, protected configuration, inactive canonical foundations | Waiting on PR B and governance | Recovery is healthy and backlogs are zero            |
 
 Do not merge these releases out of order. Do not combine the contract migration
 with the expand migration.
