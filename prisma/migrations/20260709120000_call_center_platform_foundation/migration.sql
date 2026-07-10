@@ -1,60 +1,99 @@
--- CreateEnum
-CREATE TYPE "CallCenterQueueMemberRole" AS ENUM ('AGENT', 'SUPERVISOR');
+BEGIN;
 
--- CreateEnum
-CREATE TYPE "CallCenterRoutingMode" AS ENUM ('LEGACY', 'SHADOW', 'ACTIVE');
-
--- CreateEnum
-CREATE TYPE "CallCenterAgentPresence" AS ENUM ('AVAILABLE', 'PAUSED', 'BUSY', 'WRAP_UP', 'OFFLINE');
-
--- CreateEnum
-CREATE TYPE "CallCenterAgentConnectionState" AS ENUM ('CONNECTING', 'READY', 'ERROR', 'CLOSED');
-
--- CreateEnum
-CREATE TYPE "CallCenterCallDirection" AS ENUM ('INBOUND', 'OUTBOUND');
-
--- CreateEnum
-CREATE TYPE "CallCenterCallStatus" AS ENUM ('RECEIVED', 'QUEUED', 'RINGING', 'CONNECTED', 'WRAP_UP', 'COMPLETED', 'VOICEMAIL', 'ABANDONED', 'FAILED');
-
--- CreateEnum
-CREATE TYPE "CallCenterLegKind" AS ENUM ('CUSTOMER', 'AGENT');
-
--- CreateEnum
-CREATE TYPE "CallCenterLegStatus" AS ENUM ('CREATED', 'DIALING', 'RINGING', 'ANSWERED', 'BRIDGED', 'ENDED', 'FAILED');
-
--- CreateEnum
-CREATE TYPE "CallCenterTaskKind" AS ENUM ('MISSED_CALL', 'VOICEMAIL', 'CALLBACK', 'FOLLOW_UP');
-
--- CreateEnum
-CREATE TYPE "CallCenterTaskStatus" AS ENUM ('OPEN', 'RESOLVED');
-
--- CreateEnum
-CREATE TYPE "ProviderWebhookProcessingStatus" AS ENUM ('RECEIVED', 'PROCESSING', 'PROCESSED', 'IGNORED', 'FAILED');
-
--- CreateEnum
-CREATE TYPE "CallCenterCommandType" AS ENUM ('ANSWER_CUSTOMER', 'START_RINGBACK', 'DIAL_AGENT', 'STOP_PLAYBACK', 'BRIDGE_LEGS', 'HANGUP_LEG', 'PLAY_VOICEMAIL_GREETING', 'START_RECORDING');
-
--- CreateEnum
-CREATE TYPE "CallCenterCommandStatus" AS ENUM ('PENDING', 'SENDING', 'SENT', 'CONFIRMED', 'FAILED');
-
--- CreateEnum
-CREATE TYPE "CallCenterEventAggregateType" AS ENUM ('CALL', 'AGENT_SESSION', 'TASK', 'CONFIGURATION');
-
--- AlterTable
-ALTER TABLE "practice_call_center_settings" ADD COLUMN     "defaultOutboundNumberId" TEXT;
-
--- AlterTable
-ALTER TABLE "call_center_voicemail" ADD COLUMN     "callCenterCallId" TEXT;
-
--- AlterTable
-ALTER TABLE "call_center_presence" ADD COLUMN     "readyForCalls" BOOLEAN NOT NULL DEFAULT false;
-
--- AlterTable
-ALTER TABLE "call_center_session" ADD COLUMN     "telnyxCallLegId" TEXT;
+-- The first production attempt stopped at the generation index. Keep this
+-- prefix retry-safe so Prisma can resolve that failed attempt as rolled back
+-- and rerun the migration without destructive schema cleanup.
+DO $$
+BEGIN
+  IF to_regtype('"CallCenterQueueMemberRole"') IS NULL THEN
+    CREATE TYPE "CallCenterQueueMemberRole" AS ENUM ('AGENT', 'SUPERVISOR');
+  END IF;
+  IF to_regtype('"CallCenterRoutingMode"') IS NULL THEN
+    CREATE TYPE "CallCenterRoutingMode" AS ENUM ('LEGACY', 'SHADOW', 'ACTIVE');
+  END IF;
+  IF to_regtype('"CallCenterAgentPresence"') IS NULL THEN
+    CREATE TYPE "CallCenterAgentPresence" AS ENUM ('AVAILABLE', 'PAUSED', 'BUSY', 'WRAP_UP', 'OFFLINE');
+  END IF;
+  IF to_regtype('"CallCenterAgentConnectionState"') IS NULL THEN
+    CREATE TYPE "CallCenterAgentConnectionState" AS ENUM ('CONNECTING', 'READY', 'ERROR', 'CLOSED');
+  END IF;
+  IF to_regtype('"CallCenterCallDirection"') IS NULL THEN
+    CREATE TYPE "CallCenterCallDirection" AS ENUM ('INBOUND', 'OUTBOUND');
+  END IF;
+  IF to_regtype('"CallCenterCallStatus"') IS NULL THEN
+    CREATE TYPE "CallCenterCallStatus" AS ENUM ('RECEIVED', 'QUEUED', 'RINGING', 'CONNECTED', 'WRAP_UP', 'COMPLETED', 'VOICEMAIL', 'ABANDONED', 'FAILED');
+  END IF;
+  IF to_regtype('"CallCenterLegKind"') IS NULL THEN
+    CREATE TYPE "CallCenterLegKind" AS ENUM ('CUSTOMER', 'AGENT');
+  END IF;
+  IF to_regtype('"CallCenterLegStatus"') IS NULL THEN
+    CREATE TYPE "CallCenterLegStatus" AS ENUM ('CREATED', 'DIALING', 'RINGING', 'ANSWERED', 'BRIDGED', 'ENDED', 'FAILED');
+  END IF;
+  IF to_regtype('"CallCenterTaskKind"') IS NULL THEN
+    CREATE TYPE "CallCenterTaskKind" AS ENUM ('MISSED_CALL', 'VOICEMAIL', 'CALLBACK', 'FOLLOW_UP');
+  END IF;
+  IF to_regtype('"CallCenterTaskStatus"') IS NULL THEN
+    CREATE TYPE "CallCenterTaskStatus" AS ENUM ('OPEN', 'RESOLVED');
+  END IF;
+  IF to_regtype('"ProviderWebhookProcessingStatus"') IS NULL THEN
+    CREATE TYPE "ProviderWebhookProcessingStatus" AS ENUM ('RECEIVED', 'PROCESSING', 'PROCESSED', 'IGNORED', 'FAILED');
+  END IF;
+  IF to_regtype('"CallCenterCommandType"') IS NULL THEN
+    CREATE TYPE "CallCenterCommandType" AS ENUM ('ANSWER_CUSTOMER', 'START_RINGBACK', 'DIAL_AGENT', 'STOP_PLAYBACK', 'BRIDGE_LEGS', 'HANGUP_LEG', 'PLAY_VOICEMAIL_GREETING', 'START_RECORDING');
+  END IF;
+  IF to_regtype('"CallCenterCommandStatus"') IS NULL THEN
+    CREATE TYPE "CallCenterCommandStatus" AS ENUM ('PENDING', 'SENDING', 'SENT', 'CONFIRMED', 'FAILED');
+  END IF;
+  IF to_regtype('"CallCenterEventAggregateType"') IS NULL THEN
+    CREATE TYPE "CallCenterEventAggregateType" AS ENUM ('CALL', 'AGENT_SESSION', 'TASK', 'CONFIGURATION');
+  END IF;
+END $$;
 
 -- AlterTable
-ALTER TABLE "call_center_ring_attempt" ADD COLUMN     "generation" INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE "call_center_ring_attempt" ADD CONSTRAINT "call_center_ring_attempt_generation_check" CHECK ("generation" > 0);
+ALTER TABLE "practice_call_center_settings" ADD COLUMN IF NOT EXISTS "defaultOutboundNumberId" TEXT;
+
+-- AlterTable
+ALTER TABLE "call_center_voicemail" ADD COLUMN IF NOT EXISTS "callCenterCallId" TEXT;
+
+-- AlterTable
+ALTER TABLE "call_center_presence" ADD COLUMN IF NOT EXISTS "readyForCalls" BOOLEAN NOT NULL DEFAULT false;
+
+-- AlterTable
+ALTER TABLE "call_center_session" ADD COLUMN IF NOT EXISTS "telnyxCallLegId" TEXT;
+
+-- AlterTable
+ALTER TABLE "call_center_ring_attempt" ADD COLUMN IF NOT EXISTS "generation" INTEGER NOT NULL DEFAULT 1;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'call_center_ring_attempt_generation_check'
+      AND conrelid = '"call_center_ring_attempt"'::regclass
+  ) THEN
+    ALTER TABLE "call_center_ring_attempt"
+    ADD CONSTRAINT "call_center_ring_attempt_generation_check"
+    CHECK ("generation" > 0);
+  END IF;
+END $$;
+
+-- Production drift left historical duplicate queue/seat attempts. Preserve
+-- every row and assign stable generations before enforcing new uniqueness.
+WITH ranked_attempts AS (
+  SELECT
+    "id",
+    ROW_NUMBER() OVER (
+      PARTITION BY "queueItemId", "seatId"
+      ORDER BY "startedAt", "createdAt", "id"
+    )::INTEGER AS "generation"
+  FROM "call_center_ring_attempt"
+)
+UPDATE "call_center_ring_attempt" AS attempt
+SET "generation" = ranked_attempts."generation"
+FROM ranked_attempts
+WHERE attempt."id" = ranked_attempts."id";
+
+DROP INDEX IF EXISTS "call_center_ring_attempt_queueItemId_seatId_generation_key";
 CREATE UNIQUE INDEX "call_center_ring_attempt_queueItemId_seatId_generation_key" ON "call_center_ring_attempt"("queueItemId", "seatId", "generation");
 
 -- CreateTable
@@ -601,3 +640,5 @@ CHECK ("attemptCount" >= 0);
 CREATE UNIQUE INDEX "call_center_agent_session_active_endpoint_key"
 ON "call_center_agent_session"("endpointId")
 WHERE "presence" <> 'OFFLINE' AND "connectionState" <> 'CLOSED';
+
+COMMIT;
