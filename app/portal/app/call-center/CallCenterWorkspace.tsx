@@ -24,11 +24,27 @@ import type {
   PortalOutboundCallerNumber,
   PortalRecentCallItem,
 } from "@/lib/call-center";
+import { isLegacyPresenceReadyForCalls } from "@/lib/call-center/legacy-presence";
 
 import ActivityRail from "./ActivityRail";
 import SoftphonePanel, { type SoftphoneHandle } from "./SoftphonePanel";
+import {
+  desiredPresenceStatus,
+  readinessForStation,
+  reportedPresenceStatus,
+  resolveSoftphoneReadiness,
+  type PresenceStatus,
+  type SoftphoneReadiness,
+} from "./call-center-readiness";
 
-type PresenceStatus = "AVAILABLE" | "BUSY" | "PAUSED";
+type PresenceSyncState = {
+  acknowledgedStatus: PresenceStatus | null;
+  phase: "idle" | "registering" | "online" | "failed";
+  seatId: string | null;
+};
+
+const PRESENCE_HEARTBEAT_MS = 20_000;
+const PRESENCE_REQUEST_TIMEOUT_MS = 8_000;
 
 const presenceOptions: Array<{
   icon: typeof CheckCircle2;
@@ -87,18 +103,109 @@ export default function CallCenterWorkspace({
   const [seatPreferenceLoaded, setSeatPreferenceLoaded] = useState(false);
   const [softphoneBusy, setSoftphoneBusy] = useState(false);
   const [softphoneEngaged, setSoftphoneEngaged] = useState(false);
+  const [softphoneReadiness, setSoftphoneReadiness] = useState<SoftphoneReadiness>(() =>
+    resolveSoftphoneReadiness({
+      microphoneReady: false,
+      providerReady: false,
+      soundReady: false,
+      stationId: null,
+      stationSelected: false,
+    }),
+  );
+  const [presenceSync, setPresenceSync] = useState<PresenceSyncState>({
+    acknowledgedStatus: null,
+    phase: "idle",
+    seatId: null,
+  });
+  const [presenceRetryToken, setPresenceRetryToken] = useState(0);
   const [takingTransferIds, setTakingTransferIds] = useState<Set<string>>(
     () => new Set(),
   );
   const takingTransferIdsRef = useRef(new Set<string>());
   const softphoneEngagedRef = useRef(false);
   const softphoneRef = useRef<SoftphoneHandle | null>(null);
+  const presenceWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const selectedSeat = useMemo(
     () => seats.find((seat) => seat.id === selectedSeatId) ?? null,
     [seats, selectedSeatId],
   );
-  const effectivePresenceStatus: PresenceStatus = softphoneBusy ? "BUSY" : presenceStatus;
+  const selectedStationId = selectedSeat?.id ?? null;
+  const currentSoftphoneReadiness = readinessForStation(
+    softphoneReadiness,
+    selectedStationId,
+    !seats.length || Boolean(selectedSeat),
+  );
+  const desiredStatus = desiredPresenceStatus({
+    busy: softphoneBusy,
+    requestedStatus: presenceStatus,
+    softphoneReady: currentSoftphoneReadiness.ready,
+  });
+  const acknowledgedStatus =
+    presenceSync.phase === "online" && presenceSync.seatId === selectedStationId
+      ? presenceSync.acknowledgedStatus
+      : null;
+  const effectivePresenceStatus = reportedPresenceStatus({
+    acknowledgedStatus,
+    desiredStatus,
+  });
+  const presenceFailed =
+    currentSoftphoneReadiness.ready &&
+    presenceSync.phase === "failed" &&
+    presenceSync.seatId === selectedStationId;
+  const stationStatusMessage = !currentSoftphoneReadiness.ready
+    ? currentSoftphoneReadiness.message
+    : presenceFailed
+      ? "Station is offline because its presence update failed."
+      : effectivePresenceStatus === "AVAILABLE"
+        ? "Ready to receive calls."
+        : effectivePresenceStatus === "BUSY"
+          ? "Busy."
+          : effectivePresenceStatus === "PAUSED"
+            ? "Paused."
+            : "Registering this station.";
   const softphoneEnabled = enabled && (!seats.length || Boolean(selectedSeat));
+  const sendPresence = useCallback(
+    (seatId: string, status: PresenceStatus | "OFFLINE", readyForCalls = false) => {
+      if (!browserSessionId) {
+        return Promise.resolve(false);
+      }
+
+      const write = presenceWriteQueueRef.current.then(async () => {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(
+          () => controller.abort(),
+          PRESENCE_REQUEST_TIMEOUT_MS,
+        );
+
+        try {
+          const response = await fetch("/api/portal/call-center/presence", {
+            body: JSON.stringify({
+              browserSessionId,
+              readyForCalls,
+              seatId,
+              status,
+            }),
+            headers: {
+              "Content-Type": "application/json",
+            },
+            keepalive: status === "OFFLINE",
+            method: "POST",
+            signal: controller.signal,
+          });
+
+          return response.ok;
+        } catch {
+          return false;
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      });
+
+      presenceWriteQueueRef.current = write;
+      return write;
+    },
+    [browserSessionId],
+  );
 
   useEffect(() => {
     setSelectedOutboundCallerNumber(outboundCallerNumber);
@@ -136,34 +243,136 @@ export default function CallCenterWorkspace({
   }, [softphoneEngaged]);
 
   useEffect(() => {
-    if (!browserSessionId || !selectedSeat?.id) {
+    const seatId = selectedSeat?.id;
+
+    if (!seatId || desiredStatus === "OFFLINE") {
+      setPresenceSync({
+        acknowledgedStatus: null,
+        phase: "idle",
+        seatId: seatId ?? null,
+      });
+
+      if (seatId) {
+        void sendPresence(seatId, "OFFLINE");
+      }
+
       return;
     }
 
-    const updatePresence = (status: PresenceStatus | "OFFLINE") =>
-      fetch("/api/portal/call-center/presence", {
-        body: JSON.stringify({
-          browserSessionId,
-          seatId: selectedSeat.id,
-          status,
-        }),
-        headers: {
-          "Content-Type": "application/json",
-        },
-        keepalive: status === "OFFLINE",
-        method: "POST",
-      }).catch(() => {});
+    let cancelled = false;
+    setPresenceSync({
+      acknowledgedStatus: null,
+      phase: "registering",
+      seatId,
+    });
 
-    void updatePresence(effectivePresenceStatus);
-    const heartbeat = setInterval(() => {
-      void updatePresence(effectivePresenceStatus);
-    }, 20_000);
+    void sendPresence(
+      seatId,
+      desiredStatus,
+      isLegacyPresenceReadyForCalls({
+        readyForCalls: currentSoftphoneReadiness.ready,
+        status: desiredStatus,
+      }),
+    ).then((ok) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (!ok) {
+        void sendPresence(seatId, "OFFLINE");
+      }
+
+      setPresenceSync({
+        acknowledgedStatus: ok ? desiredStatus : null,
+        phase: ok ? "online" : "failed",
+        seatId,
+      });
+    });
 
     return () => {
-      clearInterval(heartbeat);
-      void updatePresence("OFFLINE");
+      cancelled = true;
     };
-  }, [browserSessionId, effectivePresenceStatus, selectedSeat?.id]);
+  }, [
+    currentSoftphoneReadiness.ready,
+    desiredStatus,
+    presenceRetryToken,
+    selectedSeat?.id,
+    sendPresence,
+  ]);
+
+  useEffect(() => {
+    const seatId = selectedSeat?.id;
+
+    if (!seatId || !currentSoftphoneReadiness.ready) {
+      return;
+    }
+
+    return () => {
+      void sendPresence(seatId, "OFFLINE");
+    };
+  }, [currentSoftphoneReadiness.ready, selectedSeat?.id, sendPresence]);
+
+  useEffect(() => {
+    const seatId = selectedSeat?.id;
+
+    if (
+      !seatId ||
+      desiredStatus === "OFFLINE" ||
+      presenceSync.phase !== "online" ||
+      presenceSync.seatId !== seatId ||
+      presenceSync.acknowledgedStatus !== desiredStatus
+    ) {
+      return;
+    }
+
+    let stopped = false;
+    let heartbeat: ReturnType<typeof setTimeout> | null = null;
+    const scheduleHeartbeat = () => {
+      heartbeat = setTimeout(() => {
+        void sendPresence(
+          seatId,
+          desiredStatus,
+          isLegacyPresenceReadyForCalls({
+            readyForCalls: currentSoftphoneReadiness.ready,
+            status: desiredStatus,
+          }),
+        ).then((ok) => {
+          if (stopped) {
+            return;
+          }
+
+          if (!ok) {
+            setPresenceSync({
+              acknowledgedStatus: null,
+              phase: "failed",
+              seatId,
+            });
+            void sendPresence(seatId, "OFFLINE");
+            return;
+          }
+
+          scheduleHeartbeat();
+        });
+      }, PRESENCE_HEARTBEAT_MS);
+    };
+
+    scheduleHeartbeat();
+
+    return () => {
+      stopped = true;
+      if (heartbeat) {
+        clearTimeout(heartbeat);
+      }
+    };
+  }, [
+    currentSoftphoneReadiness.ready,
+    desiredStatus,
+    presenceSync.acknowledgedStatus,
+    presenceSync.phase,
+    presenceSync.seatId,
+    selectedSeat?.id,
+    sendPresence,
+  ]);
 
   useEffect(() => {
     if (!enabled) {
@@ -227,12 +436,12 @@ export default function CallCenterWorkspace({
         if (!response.ok && callerKey) {
           softphoneRef.current?.clearAnswerPending(callerKey);
         }
-      } catch (error) {
+      } catch {
         if (callerKey) {
           softphoneRef.current?.clearAnswerPending(callerKey);
         }
 
-        console.error("[call-center] failed to take queued call", error);
+        console.error("[call-center] failed to take queued call");
       } finally {
         router.refresh();
       }
@@ -280,12 +489,12 @@ export default function CallCenterWorkspace({
         if (!response.ok && callerKey) {
           softphoneRef.current?.clearAnswerPending(callerKey);
         }
-      } catch (error) {
+      } catch {
         if (callerKey) {
           softphoneRef.current?.clearAnswerPending(callerKey);
         }
 
-        console.error("[call-center] failed to take transfer", error);
+        console.error("[call-center] failed to take transfer");
       } finally {
         takingTransferIdsRef.current.delete(queueItemId);
         setTakingTransferIds((current) => {
@@ -434,9 +643,11 @@ export default function CallCenterWorkspace({
                   <div className="mt-3 grid grid-cols-3 gap-1.5">
                     {presenceOptions.map((option) => {
                       const Icon = option.icon;
-                      const selected = presenceStatus === option.value;
+                      const selected = effectivePresenceStatus === option.value;
                       const disabled =
-                        !selectedSeat || (softphoneBusy && option.value !== "BUSY");
+                        !selectedSeat ||
+                        !currentSoftphoneReadiness.ready ||
+                        (softphoneBusy && option.value !== "BUSY");
 
                       return (
                         <Button
@@ -457,6 +668,28 @@ export default function CallCenterWorkspace({
                         </Button>
                       );
                     })}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p
+                      className={
+                        presenceFailed
+                          ? "text-xs text-[var(--portal-danger)]"
+                          : "text-xs text-[var(--portal-muted)]"
+                      }
+                      role={presenceFailed ? "alert" : "status"}
+                    >
+                      {stationStatusMessage}
+                    </p>
+                    {presenceFailed ? (
+                      <Button
+                        className="shrink-0"
+                        onClick={() => setPresenceRetryToken((token) => token + 1)}
+                        size="sm"
+                        variant="secondary"
+                      >
+                        Retry
+                      </Button>
+                    ) : null}
                   </div>
                 </section>
               ) : null}
@@ -488,9 +721,11 @@ export default function CallCenterWorkspace({
                 office={office}
                 onActivityChange={setSoftphoneEngaged}
                 onBusyChange={setSoftphoneBusy}
+                onReadinessChange={setSoftphoneReadiness}
                 ref={softphoneRef}
                 seedNumber={seed}
                 stationLabel={selectedSeat ? formatSeatLabel(selectedSeat) : null}
+                stationRequired={seats.length > 0}
                 stationSeatId={selectedSeat?.id ?? null}
                 transferTargets={seats}
                 voicemailTimeoutSec={voicemailTimeoutSec}

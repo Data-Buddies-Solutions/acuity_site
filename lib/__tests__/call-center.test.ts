@@ -9,6 +9,8 @@ import {
   buildCallCenterNoteScopeWhere,
   buildCallCenterPatientSessionScopeWhere,
   buildCallCenterQueueScopeWhere,
+  buildTelnyxWebhookLogContext,
+  canClaimQueueForVoicemail,
   buildPortalHistorySessionWhere,
   buildPortalPatientSessionWhere,
   buildPortalNeedsActionGroups,
@@ -18,15 +20,30 @@ import {
   extractTelnyxRecordingDurationSec,
   extractTelnyxRecordingUrl,
   hasPortalConnectedCallSignal,
+  hasQueueWaitDeadlineElapsed,
   getPortalCallCenterLocationState,
   isRingbackToneActiveAtSecond,
+  isInboundSeatEligibleForAutomaticRing,
+  isDefinitiveRingAttemptFailureCode,
   isPortalPatientCallSessionMetadata,
+  mergeCallCenterSessionStatus,
+  mergeQueueStatus,
+  mergeRingAttemptStatus,
   metadataWithPendingBlindTransferSourceEnded,
+  nextRingAttemptGeneration,
+  practicePhoneCandidatesForTelnyxPayload,
+  ringAttemptCommandId,
   type PortalCallActivityItem,
   resolveTelnyxRuntimeSettings,
   shouldMarkLinkedInboundSessionCompleted,
+  shouldReleaseQueueItemAfterNoAnswer,
+  shouldStartVoicemailAfterNoAnswer,
+  telnyxDialFailureCode,
   telnyxSessionDirectionFromPayload,
+  transferFailureCode,
+  voicemailFailureCode,
 } from "@/lib/call-center";
+import { TelnyxError } from "@/lib/telnyx";
 
 const TELNYX_ENV_KEYS = [
   "TELNYX_CONNECTION_ID",
@@ -175,6 +192,327 @@ describe("call-center handled session reconciliation", () => {
         status: "COMPLETED",
       }),
     ).toBe(false);
+  });
+});
+
+describe("call-center session status monotonicity", () => {
+  it("moves nonterminal sessions forward", () => {
+    expect(mergeCallCenterSessionStatus(null, "RINGING")).toBe("RINGING");
+    expect(mergeCallCenterSessionStatus("RINGING", "ACTIVE")).toBe("ACTIVE");
+    expect(mergeCallCenterSessionStatus("ACTIVE", "RINGING")).toBe("ACTIVE");
+    expect(mergeCallCenterSessionStatus("ACTIVE", "COMPLETED")).toBe("COMPLETED");
+  });
+
+  it("does not let late events replace terminal outcomes", () => {
+    expect(mergeCallCenterSessionStatus("VOICEMAIL", "MISSED")).toBe("VOICEMAIL");
+    expect(mergeCallCenterSessionStatus("MISSED", "COMPLETED")).toBe("MISSED");
+    expect(mergeCallCenterSessionStatus("COMPLETED", "MISSED")).toBe("COMPLETED");
+    expect(mergeCallCenterSessionStatus("FAILED", "ACTIVE")).toBe("FAILED");
+  });
+
+  it("accepts saved voicemail as the most specific terminal evidence", () => {
+    expect(mergeCallCenterSessionStatus("COMPLETED", "VOICEMAIL")).toBe("VOICEMAIL");
+    expect(mergeCallCenterSessionStatus("MISSED", "VOICEMAIL")).toBe("VOICEMAIL");
+    expect(mergeQueueStatus("ABANDONED", "VOICEMAIL")).toBe("VOICEMAIL");
+    expect(mergeQueueStatus("COMPLETED", "VOICEMAIL")).toBe("VOICEMAIL");
+    expect(mergeQueueStatus("VOICEMAIL", "ABANDONED")).toBe("VOICEMAIL");
+    expect(mergeQueueStatus("ABANDONED", "COMPLETED")).toBe("ABANDONED");
+  });
+});
+
+describe("call-center ring-attempt monotonicity", () => {
+  it("advances live attempts without reviving terminal or bridged attempts", () => {
+    expect(mergeRingAttemptStatus("DIALING", "RINGING")).toBe("RINGING");
+    expect(mergeRingAttemptStatus("RINGING", "ANSWERED")).toBe("ANSWERED");
+    expect(mergeRingAttemptStatus("ANSWERED", "RINGING")).toBe("ANSWERED");
+    expect(mergeRingAttemptStatus("BRIDGED", "NO_ANSWER")).toBe("BRIDGED");
+    expect(mergeRingAttemptStatus("CANCELED", "BRIDGED")).toBe("CANCELED");
+    expect(mergeRingAttemptStatus("NO_ANSWER", "RINGING")).toBe("NO_ANSWER");
+    expect(mergeRingAttemptStatus("FAILED", "ANSWERED")).toBe("FAILED");
+  });
+
+  it("allows voicemail to cancel pending rings but never connected rings", () => {
+    expect(canClaimQueueForVoicemail([])).toBe(true);
+    expect(canClaimQueueForVoicemail(["DIALING", "RINGING"])).toBe(true);
+    expect(canClaimQueueForVoicemail(["NO_ANSWER", "FAILED"])).toBe(true);
+    expect(canClaimQueueForVoicemail(["ANSWERED"])).toBe(false);
+    expect(canClaimQueueForVoicemail(["RINGING", "BRIDGED"])).toBe(false);
+  });
+
+  it("stores bounded dial failure codes without provider details", () => {
+    const providerError = new TelnyxError(
+      "provider message with caller data",
+      503,
+      "secret provider detail",
+    );
+
+    expect(telnyxDialFailureCode(providerError)).toBe("telnyx_dial_http_503");
+    expect(telnyxDialFailureCode(new Error("secret transport detail"))).toBe(
+      "telnyx_dial_failed",
+    );
+  });
+
+  it("stores bounded voicemail failure codes without provider details", () => {
+    const providerError = new TelnyxError(
+      "provider message with caller data",
+      503,
+      "secret provider detail",
+    );
+
+    expect(voicemailFailureCode(providerError)).toBe("telnyx_voicemail_http_503");
+    expect(voicemailFailureCode(new Error("secret transport detail"))).toBe(
+      "failed_to_start_voicemail",
+    );
+  });
+
+  it("stores bounded transfer failure codes without provider details", () => {
+    const providerError = new TelnyxError(
+      "provider message with caller data",
+      503,
+      "secret provider detail",
+    );
+
+    expect(transferFailureCode(providerError)).toBe("telnyx_transfer_http_503");
+    expect(transferFailureCode(new Error("secret transport detail"))).toBe(
+      "failed_to_transfer_call",
+    );
+  });
+
+  it("creates a fresh generation only after a definitive terminal outcome", () => {
+    expect(isDefinitiveRingAttemptFailureCode("missing_sip_username")).toBe(true);
+    expect(isDefinitiveRingAttemptFailureCode("telnyx_dial_http_422")).toBe(true);
+    expect(isDefinitiveRingAttemptFailureCode("telnyx_dial_http_408")).toBe(false);
+    expect(isDefinitiveRingAttemptFailureCode("telnyx_dial_http_429")).toBe(false);
+    expect(isDefinitiveRingAttemptFailureCode("telnyx_dial_http_503")).toBe(false);
+    expect(isDefinitiveRingAttemptFailureCode("telnyx_dial_failed")).toBe(false);
+    expect(nextRingAttemptGeneration(null)).toBe(1);
+    expect(
+      nextRingAttemptGeneration({
+        generation: 1,
+        hangupCause: "no_answer",
+        status: "NO_ANSWER",
+      }),
+    ).toBe(2);
+    expect(
+      nextRingAttemptGeneration({
+        generation: 2,
+        hangupCause: "telnyx_dial_http_422",
+        status: "FAILED",
+      }),
+    ).toBe(3);
+    expect(
+      nextRingAttemptGeneration({
+        generation: 2,
+        hangupCause: "telnyx_dial_failed",
+        status: "FAILED",
+      }),
+    ).toBeNull();
+    expect(
+      nextRingAttemptGeneration({
+        generation: 2,
+        hangupCause: "telnyx_dial_http_408",
+        status: "FAILED",
+      }),
+    ).toBeNull();
+    expect(
+      nextRingAttemptGeneration({
+        generation: 2,
+        hangupCause: "telnyx_dial_http_429",
+        status: "FAILED",
+      }),
+    ).toBeNull();
+    expect(
+      nextRingAttemptGeneration({
+        generation: 2,
+        hangupCause: "telnyx_dial_http_503",
+        status: "FAILED",
+      }),
+    ).toBeNull();
+    expect(
+      nextRingAttemptGeneration({
+        generation: 2,
+        hangupCause: null,
+        status: "RINGING",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps one command id per dispatch ambiguity and changes it for a new ring", () => {
+    expect(ringAttemptCommandId("attempt-1")).toBe("ring-attempt-1");
+    expect(ringAttemptCommandId("attempt-1")).toBe(ringAttemptCommandId("attempt-1"));
+    expect(ringAttemptCommandId("attempt-2")).not.toBe(ringAttemptCommandId("attempt-1"));
+    expect(ringAttemptCommandId("attempt-2", "transfer-ring")).toBe(
+      "transfer-ring-attempt-2",
+    );
+  });
+});
+
+describe("call-center automatic inbound routing", () => {
+  it("rings only seats owned by the inbound location or matching shared queue", () => {
+    expect(
+      isInboundSeatEligibleForAutomaticRing({
+        profileCanAccessQueue: false,
+        profileQueueKey: null,
+        queueLocationId: "location-1",
+        seatLocationId: "location-1",
+        seatQueueKey: null,
+      }),
+    ).toBe(true);
+    expect(
+      isInboundSeatEligibleForAutomaticRing({
+        profileCanAccessQueue: false,
+        profileQueueKey: null,
+        queueLocationId: "location-1",
+        seatLocationId: "location-2",
+        seatQueueKey: null,
+      }),
+    ).toBe(false);
+    expect(
+      isInboundSeatEligibleForAutomaticRing({
+        profileCanAccessQueue: false,
+        profileQueueKey: null,
+        queueLocationId: null,
+        seatLocationId: null,
+        seatQueueKey: null,
+      }),
+    ).toBe(false);
+    expect(
+      isInboundSeatEligibleForAutomaticRing({
+        profileCanAccessQueue: true,
+        profileQueueKey: "shared-optical",
+        queueLocationId: "location-1",
+        seatLocationId: null,
+        seatQueueKey: "shared-optical",
+      }),
+    ).toBe(true);
+    expect(
+      isInboundSeatEligibleForAutomaticRing({
+        profileCanAccessQueue: false,
+        profileQueueKey: "shared-optical",
+        queueLocationId: "location-1",
+        seatLocationId: null,
+        seatQueueKey: "shared-optical",
+      }),
+    ).toBe(false);
+    expect(
+      isInboundSeatEligibleForAutomaticRing({
+        profileCanAccessQueue: true,
+        profileQueueKey: "shared-main",
+        queueLocationId: "location-1",
+        seatLocationId: null,
+        seatQueueKey: "shared-optical",
+      }),
+    ).toBe(false);
+    expect(
+      isInboundSeatEligibleForAutomaticRing({
+        profileCanAccessQueue: true,
+        profileQueueKey: "shared-optical",
+        queueLocationId: "location-1",
+        seatLocationId: "location-1",
+        seatQueueKey: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("returns unanswered rings to waiting until the caller deadline", () => {
+    expect(
+      shouldReleaseQueueItemAfterNoAnswer({
+        attemptStatuses: ["NO_ANSWER", "FAILED"],
+        queueStatus: "RINGING",
+      }),
+    ).toBe(true);
+    expect(
+      shouldReleaseQueueItemAfterNoAnswer({
+        attemptStatuses: ["NO_ANSWER", "RINGING"],
+        queueStatus: "RINGING",
+      }),
+    ).toBe(false);
+    expect(
+      shouldReleaseQueueItemAfterNoAnswer({
+        attemptStatuses: [],
+        queueStatus: "WAITING",
+      }),
+    ).toBe(false);
+    expect(
+      shouldReleaseQueueItemAfterNoAnswer({
+        attemptStatuses: ["NO_ANSWER"],
+        queueStatus: "VOICEMAIL",
+      }),
+    ).toBe(false);
+  });
+
+  it("uses current processing time to enforce the voicemail deadline", () => {
+    const enteredAt = new Date("2026-07-09T12:00:00.000Z");
+
+    expect(
+      hasQueueWaitDeadlineElapsed({
+        enteredAt,
+        now: new Date("2026-07-09T12:00:29.999Z"),
+        timeoutSec: 30,
+      }),
+    ).toBe(false);
+    expect(
+      hasQueueWaitDeadlineElapsed({
+        enteredAt,
+        now: new Date("2026-07-09T12:00:30.000Z"),
+        timeoutSec: 30,
+      }),
+    ).toBe(true);
+    expect(
+      hasQueueWaitDeadlineElapsed({
+        enteredAt,
+        now: new Date("2026-07-09T12:00:40.000Z"),
+        timeoutSec: 30,
+      }),
+    ).toBe(true);
+  });
+
+  it("starts voicemail after the last ring when caller ringback is unavailable", () => {
+    expect(
+      shouldStartVoicemailAfterNoAnswer({
+        deadlineElapsed: false,
+        ringbackUnavailable: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldStartVoicemailAfterNoAnswer({
+        deadlineElapsed: false,
+        ringbackUnavailable: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldStartVoicemailAfterNoAnswer({
+        deadlineElapsed: true,
+        ringbackUnavailable: false,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("call-center webhook logging", () => {
+  it("logs categorical routing facts without decoded state or caller data", () => {
+    const clientState = Buffer.from(
+      JSON.stringify({ callerNumber: "+18135550100", queueItemId: "queue-1" }),
+      "utf8",
+    ).toString("base64");
+    const context = buildTelnyxWebhookLogContext("call.hangup", {
+      call_control_id: "secret-call-control-id",
+      client_state: clientState,
+      direction: "incoming",
+      from: "+18135550100",
+      hangup_cause: "no_answer",
+      reason: "caller +18135550100 did not answer",
+      to: "+17275550100",
+    });
+
+    expect(context).toEqual({
+      direction: "incoming",
+      eventType: "call.hangup",
+      hangupCause: "no_answer",
+      hasClientState: true,
+    });
+    expect(JSON.stringify(context)).not.toContain("18135550100");
+    expect(JSON.stringify(context)).not.toContain("secret-call-control-id");
   });
 });
 
@@ -833,6 +1171,29 @@ describe("LiveKit SIP handoff parsing", () => {
         ],
       }),
     ).toBe(CallCenterSessionDirection.INBOUND);
+  });
+
+  it("never treats the caller side as the practice phone for known directions", () => {
+    expect(
+      practicePhoneCandidatesForTelnyxPayload({
+        direction: "incoming",
+        from: "+18135550100",
+        to: "+17275919997",
+      }),
+    ).toEqual(["+17275919997"]);
+    expect(
+      practicePhoneCandidatesForTelnyxPayload({
+        direction: "outgoing",
+        from: "+17275919997",
+        to: "+18135550100",
+      }),
+    ).toEqual(["+17275919997"]);
+    expect(
+      practicePhoneCandidatesForTelnyxPayload({
+        from: "+18135550100",
+        to: "+17275919997",
+      }),
+    ).toEqual([]);
   });
 
   it("preserves stored agent-leg client state when later webhooks omit client_state", () => {
