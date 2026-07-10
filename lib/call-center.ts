@@ -612,6 +612,37 @@ function telnyxSipUri(sipUsername: string | null) {
   return username.includes("@") ? `sip:${username}` : `sip:${username}@sip.telnyx.com`;
 }
 
+function sipUser(value: string, requireSipAddress = false) {
+  const trimmed = value.trim().toLowerCase();
+  const hasSipScheme = /^sips?:/.test(trimmed);
+
+  if (!trimmed || (requireSipAddress && !hasSipScheme && !trimmed.includes("@"))) {
+    return "";
+  }
+
+  const address = trimmed.replace(/^sips?:/, "").split(/[;?]/, 1)[0] ?? "";
+  return address.split("@", 1)[0]?.trim() ?? "";
+}
+
+export function inboundCallCenterSeatIdForTelnyxPayload(
+  payload: Record<string, unknown>,
+  seats: Array<{ id: string; sipUsername: string | null }>,
+) {
+  if (telnyxSessionDirectionFromPayload(payload) !== CallCenterSessionDirection.INBOUND) {
+    return null;
+  }
+
+  const destinationUser = sipUser(asString(payload.to), true);
+  if (!destinationUser) {
+    return null;
+  }
+
+  return (
+    seats.find((seat) => sipUser(telnyxSipUri(seat.sipUsername)) === destinationUser)
+      ?.id ?? null
+  );
+}
+
 function extractTelnyxCallControlId(result: unknown) {
   if (!isRecord(result) || !isRecord(result.data)) {
     return "";
@@ -3719,6 +3750,35 @@ export function telnyxSessionDirectionFromPayload(payload: Record<string, unknow
   return toSessionDirection(asString(payload.direction));
 }
 
+async function inferInboundSeatClientState(
+  payload: Record<string, unknown>,
+  practiceId: string,
+) {
+  if (
+    telnyxSessionDirectionFromPayload(payload) !== CallCenterSessionDirection.INBOUND ||
+    !sipUser(asString(payload.to), true)
+  ) {
+    return null;
+  }
+
+  const seats = await prisma.callCenterAgentSeat.findMany({
+    select: {
+      id: true,
+      sipUsername: true,
+    },
+    where: {
+      enabled: true,
+      practiceId,
+      sipUsername: {
+        not: null,
+      },
+    },
+  });
+  const seatId = inboundCallCenterSeatIdForTelnyxPayload(payload, seats);
+
+  return seatId ? { seatId } : null;
+}
+
 function callCenterSessionDirectionFromPayloadClientState(
   payload: Record<string, unknown>,
   clientState: Record<string, unknown> | null,
@@ -3857,7 +3917,17 @@ async function upsertSessionFromPayload({
       existingSession = matches[0] ?? null;
     }
     const existingClientState = clientStateFromSessionMetadata(existingSession?.metadata);
-    const effectiveClientState = clientState ?? existingClientState;
+    const inferredClientState =
+      !clientState && !isCallCenterAgentLegClientState(existingClientState)
+        ? await inferInboundSeatClientState(payload, practiceId)
+        : null;
+    const effectiveClientState =
+      clientState ?? existingClientState ?? inferredClientState;
+    if (inferredClientState) {
+      console.info("[call-center] configured seat SIP leg classified as internal", {
+        eventType,
+      });
+    }
     const sessionPayloadDirection = callCenterSessionDirectionFromPayloadClientState(
       payload,
       effectiveClientState,
