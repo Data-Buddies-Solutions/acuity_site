@@ -628,7 +628,10 @@ export function inboundCallCenterSeatIdForTelnyxPayload(
   payload: Record<string, unknown>,
   seats: Array<{ id: string; sipUsername: string | null }>,
 ) {
-  if (telnyxSessionDirectionFromPayload(payload) !== CallCenterSessionDirection.INBOUND) {
+  if (
+    extractAcuityLiveKitHandoff(payload).isCallCenterHandoff ||
+    telnyxSessionDirectionFromPayload(payload) !== CallCenterSessionDirection.INBOUND
+  ) {
     return null;
   }
 

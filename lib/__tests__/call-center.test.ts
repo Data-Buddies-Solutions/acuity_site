@@ -157,6 +157,22 @@ describe("call-center seat SIP destinations", () => {
       ),
     ).toBeNull();
   });
+
+  it("keeps Abita LiveKit handoffs classified as caller legs", () => {
+    expect(
+      inboundCallCenterSeatIdForTelnyxPayload(
+        {
+          direction: "outgoing",
+          sip_headers: [
+            { name: "X-Acuity-Handoff", value: "call-center" },
+            { name: "X-Acuity-Trunk-Phone", value: "+13055095333" },
+          ],
+          to: "sip:optical-station@sip.telnyx.com",
+        },
+        seats,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("call-center blind transfer metadata", () => {
