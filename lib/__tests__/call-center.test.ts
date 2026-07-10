@@ -22,6 +22,7 @@ import {
   hasPortalConnectedCallSignal,
   hasQueueWaitDeadlineElapsed,
   getPortalCallCenterLocationState,
+  isConnectionOnlyIncomingLeg,
   isRingbackToneActiveAtSecond,
   isInboundSeatEligibleForAutomaticRing,
   isDefinitiveRingAttemptFailureCode,
@@ -109,6 +110,35 @@ describe("call-center settings", () => {
       inboundPhoneNumber: "+15550000001",
       outboundCallerNumber: "+15550000002",
     });
+  });
+});
+
+describe("call-center connection-only inbound legs", () => {
+  it("keeps unrecognized incoming legs out of the caller queue", () => {
+    expect(isConnectionOnlyIncomingLeg({ direction: "incoming" }, "connection")).toBe(
+      true,
+    );
+    expect(isConnectionOnlyIncomingLeg({ direction: "incoming" }, "practice_phone")).toBe(
+      false,
+    );
+    expect(isConnectionOnlyIncomingLeg({ direction: "outgoing" }, "connection")).toBe(
+      false,
+    );
+  });
+
+  it("preserves explicit Abita LiveKit caller handoffs", () => {
+    expect(
+      isConnectionOnlyIncomingLeg(
+        {
+          direction: "outgoing",
+          sip_headers: [
+            { name: "X-Acuity-Handoff", value: "call-center" },
+            { name: "X-Acuity-Trunk-Phone", value: "+13055095333" },
+          ],
+        },
+        "connection",
+      ),
+    ).toBe(false);
   });
 });
 
