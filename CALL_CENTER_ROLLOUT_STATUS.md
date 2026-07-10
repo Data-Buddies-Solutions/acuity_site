@@ -12,9 +12,10 @@ the data-safe recovery. No application repair has reached `main` or production.
 
 PR [#82](https://github.com/Data-Buddies-Solutions/acuity_site/pull/82) merged
 into the old migration branch rather than `main` and is superseded by the
-replacement application release. Canonical `ACTIVE` routing remains rejected
-by configuration, and legacy routing remains the only production
-command-producing path.
+replacement application release in draft PR
+[#84](https://github.com/Data-Buddies-Solutions/acuity_site/pull/84). Canonical
+`ACTIVE` routing remains rejected by configuration, and legacy routing remains
+the only production command-producing path.
 
 ## Phase status
 
@@ -34,7 +35,7 @@ command-producing path.
 | --------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------- |
 | Expand migration      | Additive SQL migration                                                                        | PR #81 merged; production run failed  | Repaired migration receipt and schema verification               |
 | Migration recovery    | Retry-safe backfill, transaction, and guarded recovery workflow                               | Draft PR #83 open                     | Production recovery succeeds and migration status is clean       |
-| Application release   | Expanded Prisma schema plus shared Phase 0 ringing/readiness repair                           | Replacement draft preparing           | Ready/no-ready and transfer synthetic calls pass across profiles |
+| Application release   | Expanded Prisma schema plus shared Phase 0 ringing/readiness repair                           | Draft PR #84 open                     | Ready/no-ready and transfer synthetic calls pass across profiles |
 | Contract reassessment | Legacy two-column ring-attempt index cleanup                                                  | Blocked on production schema evidence | Confirm whether the legacy index exists before changing it       |
 | PR C                  | Durable ingress, recovery, retention, protected configuration, inactive canonical foundations | Waiting on application release        | Recovery is healthy and backlogs are zero                        |
 
