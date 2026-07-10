@@ -4804,6 +4804,87 @@ async function getQueueItemForStationTake({
   });
 }
 
+async function findLiveRingAttemptForSeat({
+  queueItemId,
+  seatId,
+}: {
+  queueItemId: string;
+  seatId: string;
+}) {
+  return prisma.callCenterRingAttempt.findFirst({
+    select: {
+      id: true,
+    },
+    where: {
+      endedAt: null,
+      queueItemId,
+      seatId,
+      status: {
+        in: LIVE_RING_ATTEMPT_STATUSES,
+      },
+    },
+  });
+}
+
+async function getStationTakeReadiness({
+  allowsSharedStation,
+  browserSessionId,
+  queueItemId,
+  seatId,
+  userId,
+}: {
+  allowsSharedStation: boolean;
+  browserSessionId: string;
+  queueItemId: string;
+  seatId: string;
+  userId: string;
+}) {
+  const presenceCutoff = getPresenceExpirationCutoff();
+  const [presence, competingPresence, liveRingAttempt] = await Promise.all([
+    prisma.callCenterPresence.findFirst({
+      select: {
+        readyForCalls: true,
+        status: true,
+      },
+      where: {
+        browserSessionId,
+        lastSeenAt: {
+          gte: presenceCutoff,
+        },
+        seatId,
+        status: {
+          not: CallCenterPresenceStatus.OFFLINE,
+        },
+        userId,
+      },
+    }),
+    allowsSharedStation
+      ? Promise.resolve(0)
+      : prisma.callCenterPresence.count({
+          where: {
+            browserSessionId: {
+              not: browserSessionId,
+            },
+            lastSeenAt: {
+              gte: presenceCutoff,
+            },
+            seatId,
+            status: {
+              not: CallCenterPresenceStatus.OFFLINE,
+            },
+          },
+        }),
+    findLiveRingAttemptForSeat({ queueItemId, seatId }),
+  ]);
+
+  return {
+    hasCompetingPresence: competingPresence > 0,
+    hasLiveRingAttempt: Boolean(presence && liveRingAttempt),
+    isAvailable:
+      presence?.status === CallCenterPresenceStatus.AVAILABLE && presence.readyForCalls,
+  };
+}
+
 export async function ringStationForQueuedCall({
   browserSessionId,
   queueItemId,
@@ -4880,44 +4961,23 @@ export async function ringStationForQueuedCall({
     throw new TelnyxError("Station does not belong to this queued call location", 422);
   }
 
-  const presenceCutoff = getPresenceExpirationCutoff();
-  const allowsSharedStation = allowsSharedCallCenterStation(context, seat);
-  const [availablePresence, competingPresence] = await Promise.all([
-    prisma.callCenterPresence.count({
-      where: {
-        browserSessionId,
-        lastSeenAt: {
-          gte: presenceCutoff,
-        },
-        readyForCalls: true,
-        seatId: seat.id,
-        status: CallCenterPresenceStatus.AVAILABLE,
-        userId: context.session.user.id,
-      },
-    }),
-    allowsSharedStation
-      ? Promise.resolve(0)
-      : prisma.callCenterPresence.count({
-          where: {
-            browserSessionId: {
-              not: browserSessionId,
-            },
-            lastSeenAt: {
-              gte: presenceCutoff,
-            },
-            seatId: seat.id,
-            status: {
-              not: CallCenterPresenceStatus.OFFLINE,
-            },
-          },
-        }),
-  ]);
+  const stationReadiness = await getStationTakeReadiness({
+    allowsSharedStation: allowsSharedCallCenterStation(context, seat),
+    browserSessionId,
+    queueItemId: queueItem.id,
+    seatId: seat.id,
+    userId: context.session.user.id,
+  });
 
-  if (competingPresence > 0) {
+  if (stationReadiness.hasCompetingPresence) {
     throw new TelnyxError("Station is active in another browser", 409);
   }
 
-  if (availablePresence === 0) {
+  if (stationReadiness.hasLiveRingAttempt) {
+    return { ok: true };
+  }
+
+  if (!stationReadiness.isAvailable) {
     throw new TelnyxError("Station is not available", 409);
   }
 
@@ -4976,6 +5036,15 @@ export async function ringStationForQueuedCall({
   }
 
   if (dialedAttemptCount === 0) {
+    const liveRingAttempt = await findLiveRingAttemptForSeat({
+      queueItemId: queueItem.id,
+      seatId: seat.id,
+    });
+
+    if (liveRingAttempt) {
+      return { ok: true };
+    }
+
     await restoreQueueItemAfterFailedStationTake({
       previousStatus,
       queueItemId: queueItem.id,
@@ -5289,44 +5358,23 @@ export async function takePendingBlindTransfer({
     throw new TelnyxError("Transfer station is missing a SIP username", 422);
   }
 
-  const presenceCutoff = getPresenceExpirationCutoff();
-  const allowsSharedStation = allowsSharedCallCenterStation(context, targetSeat);
-  const [availablePresence, competingPresence] = await Promise.all([
-    prisma.callCenterPresence.count({
-      where: {
-        browserSessionId,
-        lastSeenAt: {
-          gte: presenceCutoff,
-        },
-        readyForCalls: true,
-        seatId: targetSeat.id,
-        status: CallCenterPresenceStatus.AVAILABLE,
-        userId: context.session.user.id,
-      },
-    }),
-    allowsSharedStation
-      ? Promise.resolve(0)
-      : prisma.callCenterPresence.count({
-          where: {
-            browserSessionId: {
-              not: browserSessionId,
-            },
-            lastSeenAt: {
-              gte: presenceCutoff,
-            },
-            seatId: targetSeat.id,
-            status: {
-              not: CallCenterPresenceStatus.OFFLINE,
-            },
-          },
-        }),
-  ]);
+  const stationReadiness = await getStationTakeReadiness({
+    allowsSharedStation: allowsSharedCallCenterStation(context, targetSeat),
+    browserSessionId,
+    queueItemId: queueItem.id,
+    seatId: targetSeat.id,
+    userId: context.session.user.id,
+  });
 
-  if (competingPresence > 0) {
+  if (stationReadiness.hasCompetingPresence) {
     throw new TelnyxError("Station is active in another browser", 409);
   }
 
-  if (availablePresence === 0) {
+  if (stationReadiness.hasLiveRingAttempt) {
+    return { ok: true };
+  }
+
+  if (!stationReadiness.isAvailable) {
     throw new TelnyxError("Station is not available", 409);
   }
 
@@ -5378,6 +5426,15 @@ export async function takePendingBlindTransfer({
   });
 
   if (!targetAttempt) {
+    const liveRingAttempt = await findLiveRingAttemptForSeat({
+      queueItemId: queueItem.id,
+      seatId: targetSeat.id,
+    });
+
+    if (liveRingAttempt) {
+      return { ok: true };
+    }
+
     throw new TelnyxError("Transfer station already has a live call leg", 409);
   }
 

@@ -18,10 +18,8 @@ import {
   Pause,
   Phone,
   PhoneForwarded,
-  PhoneIncoming,
   PhoneOff,
   Play,
-  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -313,7 +311,7 @@ function callDebugSnapshot(call: TelnyxCall | null | undefined) {
 
 export type SoftphoneHandle = {
   clearAnswerPending: (ringKey: string) => void;
-  markAnswerPending: (ringKey: string) => void;
+  markAnswerPending: (ringKey: string) => boolean;
 };
 
 const SoftphonePanel = forwardRef<
@@ -326,6 +324,7 @@ const SoftphonePanel = forwardRef<
     onActivityChange?: (active: boolean) => void;
     onBusyChange?: (busy: boolean) => void;
     onReadinessChange?: (readiness: SoftphoneReadiness) => void;
+    onRingingCallerKeysChange?: (callerKeys: readonly string[]) => void;
     office?: string | null;
     seedNumber?: { value: string; token: number } | null;
     stationLabel?: string | null;
@@ -343,6 +342,7 @@ const SoftphonePanel = forwardRef<
     onActivityChange,
     onBusyChange,
     onReadinessChange,
+    onRingingCallerKeysChange,
     office,
     seedNumber,
     stationLabel,
@@ -383,9 +383,7 @@ const SoftphonePanel = forwardRef<
   const [microphoneReady, setMicrophoneReady] = useState(false);
   const [soundUnlocked, setSoundUnlocked] = useState(false);
   const [answeringCallIds, setAnsweringCallIds] = useState<Set<string>>(() => new Set());
-  const [answeringRingKeys, setAnsweringRingKeys] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [, setAnsweringRingKeys] = useState<Set<string>>(() => new Set());
   const [postCallWrapUp, setPostCallWrapUp] = useState<CompletedCallWrapUp | null>(null);
 
   // Refs mirror state so the Telnyx notification handler (created once) can read latest values
@@ -597,7 +595,7 @@ const SoftphonePanel = forwardRef<
         }
       },
       markAnswerPending: (ringKey: string) => {
-        if (!ringKey) return;
+        if (!ringKey) return false;
         // If the ring already arrived for this key, answer it now; otherwise
         // arm the auto-answer so the next ringing notification picks it up.
         dismissedRingKeysRef.current.delete(ringKey);
@@ -615,13 +613,33 @@ const SoftphonePanel = forwardRef<
             : null;
         const match = matchInQueue ?? matchIncoming;
 
-        if (match && isAnswerableInboundCall(match)) {
+        if (
+          match &&
+          isAnswerableInboundCall(match) &&
+          !answeringInboundCallIdsRef.current.has(match.id)
+        ) {
+          const currentActiveCall = activeCallRef.current;
+          if (currentActiveCall && currentActiveCall.id !== match.id) {
+            try {
+              currentActiveCall.hold();
+            } catch {
+              // The provider rejects this when the current call is no longer holdable.
+            }
+            setHeldCalls((current) =>
+              current.some((call) => call.id === currentActiveCall.id)
+                ? current
+                : [...current, currentActiveCall],
+            );
+          }
+
           setAnsweringCallPending(match.id, true);
           void match.answer({ video: false }).catch(() => {
             setAnsweringCallPending(match.id, false);
             setAnsweringRingPending(ringKey, false);
           });
         }
+
+        return Boolean(match && !isEndedCall(match));
       },
     }),
     [
@@ -630,12 +648,6 @@ const SoftphonePanel = forwardRef<
       setAnsweringPendingForCall,
       setAnsweringRingPending,
     ],
-  );
-
-  const isAnsweringCall = useCallback(
-    (call: TelnyxCall) =>
-      answeringCallIds.has(call.id) || answeringRingKeys.has(ringKeyFor(call)),
-    [answeringCallIds, answeringRingKeys],
   );
 
   const unlockSound = useCallback(async () => {
@@ -784,12 +796,23 @@ const SoftphonePanel = forwardRef<
     incoming: Boolean(incomingCall),
     queuedCount: queuedCalls.length,
   });
+  const ringingCallerKeys = useMemo(
+    () =>
+      [incomingCall, ...queuedCalls]
+        .filter((call): call is TelnyxCall => Boolean(call))
+        .map(callerKeyFor)
+        .filter(Boolean),
+    [incomingCall, queuedCalls],
+  );
   useEffect(() => {
     onBusyChange?.(hasLocalCallLeg);
   }, [hasLocalCallLeg, onBusyChange]);
   useEffect(() => {
     onActivityChange?.(hasLocalCallLeg);
   }, [hasLocalCallLeg, onActivityChange]);
+  useEffect(() => {
+    onRingingCallerKeysChange?.([...new Set(ringingCallerKeys)]);
+  }, [onRingingCallerKeysChange, ringingCallerKeys]);
   useEffect(() => {
     incomingCallRef.current = incomingCall;
   }, [incomingCall]);
@@ -1755,175 +1778,6 @@ const SoftphonePanel = forwardRef<
     status,
   ]);
 
-  const answerCall = useCallback(
-    async (callId: string) => {
-      const queued =
-        incomingCall?.id === callId
-          ? incomingCall
-          : queuedCalls.find((c) => c.id === callId);
-
-      if (!queued) {
-        debugLog("answer-click-missing-call", { callId });
-        return;
-      }
-      const ringKey = ringKeyFor(queued);
-
-      if (
-        answeringInboundCallIdsRef.current.has(callId) ||
-        answeringRingKeysRef.current.has(ringKey)
-      ) {
-        debugLog("answer-click-ignored-pending", {
-          call: callDebugSnapshot(queued),
-          ringKey,
-        });
-        return;
-      }
-
-      debugLog("answer-clicked", {
-        activeCall: callDebugSnapshot(activeCall),
-        call: callDebugSnapshot(queued),
-      });
-      setError(null);
-
-      const mediaReady = await prepareMedia();
-
-      if (!mediaReady) {
-        return;
-      }
-
-      // Put current active on hold (if any), move it to held list
-      if (activeCall) {
-        try {
-          debugLog("answer-holding-active-call", {
-            activeCall: callDebugSnapshot(activeCall),
-          });
-          activeCall.hold();
-        } catch {
-          debugLog("answer-hold-active-call-failed", {
-            activeCall: callDebugSnapshot(activeCall),
-          });
-          // ignore — Telnyx will reject if not in a holdable state
-        }
-        setHeldCalls((current) =>
-          current.some((c) => c.id === activeCall.id)
-            ? current
-            : [...current, activeCall],
-        );
-      }
-      if (isEndedCall(queued)) {
-        debugLog("answer-deferred-for-replacement-call", {
-          call: callDebugSnapshot(queued),
-          ringKey,
-        });
-        setAnsweringRingPending(ringKey, true);
-        return;
-      }
-
-      if (queued.state === "active") {
-        promoteToActiveCall(queued, true);
-        return;
-      }
-
-      if (!isAnswerableInboundCall(queued)) {
-        debugLog("answer-deferred-until-ringing", {
-          call: callDebugSnapshot(queued),
-          ringKey,
-        });
-        setAnsweringRingPending(ringKey, true);
-        return;
-      }
-
-      // The queued call answering will trigger an "active" notification, which
-      // promotes it to activeCall and removes it from queuedCalls.
-      setAnsweringPendingForCall(queued, true);
-
-      try {
-        debugLog("answer-request-start", { call: callDebugSnapshot(queued) });
-        await queued.answer({ video: false });
-        debugLog("answer-request-resolved", { call: callDebugSnapshot(queued) });
-      } catch (answerError) {
-        debugLog("answer-request-failed", {
-          call: callDebugSnapshot(queued),
-          message: errorMessageFor(answerError),
-        });
-        setAnsweringCallPending(callId, false);
-        if (isStaleTelnyxCallError(answerError)) {
-          debugLog("answer-deferred-after-stale-call", {
-            call: callDebugSnapshot(queued),
-            ringKey,
-          });
-          clearRingingCallUi(ringKey, "stale-answer");
-          setError(null);
-          return;
-        }
-        setAnsweringRingPending(ringKey, false);
-        setError(errorMessageFor(answerError) || "Unable to answer call");
-        return;
-      }
-
-      if (queued.state === "active") {
-        promoteToActiveCall(queued, true);
-      }
-    },
-    [
-      activeCall,
-      clearRingingCallUi,
-      debugLog,
-      incomingCall,
-      prepareMedia,
-      promoteToActiveCall,
-      queuedCalls,
-      setAnsweringCallPending,
-      setAnsweringPendingForCall,
-      setAnsweringRingPending,
-    ],
-  );
-
-  const declineCall = useCallback(
-    (callId: string) => {
-      const queued =
-        incomingCall?.id === callId
-          ? incomingCall
-          : queuedCalls.find((c) => c.id === callId);
-
-      if (!queued) {
-        debugLog("decline-click-missing-call", { callId });
-        return;
-      }
-      debugLog("decline-clicked", { call: callDebugSnapshot(queued) });
-      try {
-        queued.hangup();
-      } catch (declineError) {
-        debugLog("decline-failed", {
-          call: callDebugSnapshot(queued),
-          message:
-            declineError instanceof Error
-              ? declineError.message
-              : "Unable to decline call",
-        });
-        // ignore
-      }
-      clearRingingCallExpiryTimer(ringKeyFor(queued));
-      setAnsweringPendingForCall(queued, false);
-      const remainingIncomingCall = incomingCall?.id === callId ? null : incomingCall;
-      const remainingQueuedCalls = queuedCalls.filter((c) => c.id !== callId);
-      setIncomingCall(remainingIncomingCall);
-      setQueuedCalls(remainingQueuedCalls);
-      if (!activeCall && !remainingIncomingCall && remainingQueuedCalls.length === 0) {
-        setDirection(null);
-        setStatus((s) => (s === "error" ? s : "ready"));
-      }
-    },
-    [
-      activeCall,
-      clearRingingCallExpiryTimer,
-      debugLog,
-      incomingCall,
-      queuedCalls,
-      setAnsweringPendingForCall,
-    ],
-  );
-
   const resumeHeld = useCallback(
     (callId: string) => {
       const held = heldCalls.find((c) => c.id === callId);
@@ -2083,12 +1937,15 @@ const SoftphonePanel = forwardRef<
     Boolean(activeCall?.telnyxIDs?.telnyxCallControlId) &&
     Boolean(selectedTransferSeatId) &&
     !transferPending;
-  const incomingCallAnswering = incomingCall ? isAnsweringCall(incomingCall) : false;
+  const visualStatus =
+    !activeCall && ringingCallerKeys.length > 0 && status === "ringing"
+      ? "ready"
+      : status;
   const displayedStatus = !readiness.stationSelected
     ? "Station needed"
-    : status === "ready" && !readiness.ready
+    : visualStatus === "ready" && !readiness.ready
       ? "Setup needed"
-      : statusLabel(status);
+      : statusLabel(visualStatus);
   const visibleError = error ?? setupError;
 
   return (
@@ -2108,19 +1965,20 @@ const SoftphonePanel = forwardRef<
         <span
           className={cn(
             "inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold",
-            status === "ready" &&
+            visualStatus === "ready" &&
               readiness.ready &&
               "border-[var(--portal-live)] bg-[var(--portal-live-soft)] text-[var(--portal-live)]",
-            status === "ready" &&
+            visualStatus === "ready" &&
               !readiness.ready &&
               "border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] text-[var(--portal-warning)]",
-            status === "on-call" &&
+            visualStatus === "on-call" &&
               "border-[var(--portal-accent)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]",
-            status === "ringing" &&
+            visualStatus === "ringing" &&
               "border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] text-[var(--portal-warning)]",
-            (status === "error" || (status === "offline" && readiness.stationSelected)) &&
+            (visualStatus === "error" ||
+              (visualStatus === "offline" && readiness.stationSelected)) &&
               "border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] text-[var(--portal-danger)]",
-            (status === "initializing" || !readiness.stationSelected) &&
+            (visualStatus === "initializing" || !readiness.stationSelected) &&
               "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]",
           )}
         >
@@ -2158,53 +2016,6 @@ const SoftphonePanel = forwardRef<
                 {setupPending ? "Enabling" : "Enable calling"}
               </Button>
             ) : null}
-          </div>
-        ) : null}
-
-        {incomingCall && !activeCall ? (
-          <div className="rounded-lg border border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] p-3">
-            <div className="flex items-center gap-2 text-[var(--portal-warning)]">
-              <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
-              <p className="text-xs font-semibold uppercase tracking-[0.14em]">
-                Patient call
-              </p>
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-[var(--portal-warning)] bg-white px-3 py-2">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
-                  {formatPhone(callerNumberFor(incomingCall))}
-                </p>
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
-                  Ringing
-                </p>
-              </div>
-              <div className="flex shrink-0 gap-1">
-                <Button
-                  aria-label={
-                    incomingCallAnswering
-                      ? "Answering patient call"
-                      : "Answer patient call"
-                  }
-                  className="h-8 px-2"
-                  disabled={incomingCallAnswering}
-                  onClick={() => void answerCall(incomingCall.id)}
-                  size="sm"
-                  variant="primary"
-                >
-                  <Phone className="h-4 w-4" aria-hidden="true" />
-                  {incomingCallAnswering ? "Answering" : "Answer"}
-                </Button>
-                <Button
-                  aria-label="Decline incoming call"
-                  className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-danger)]"
-                  onClick={() => declineCall(incomingCall.id)}
-                  size="sm"
-                  variant="ghost"
-                >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </div>
-            </div>
           </div>
         ) : null}
 
@@ -2374,64 +2185,6 @@ const SoftphonePanel = forwardRef<
                 </Button>
               </div>
             </form>
-          </div>
-        ) : null}
-
-        {queuedCalls.length > 0 ? (
-          <div className="rounded-lg border border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] p-3">
-            <div className="flex items-center gap-2 text-[var(--portal-warning)]">
-              <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
-              <p className="text-xs font-semibold uppercase tracking-[0.14em]">
-                In queue · {queuedCalls.length}
-              </p>
-            </div>
-            <ul className="mt-2 space-y-2">
-              {queuedCalls.map((call) => {
-                const queuedCallAnswering = isAnsweringCall(call);
-
-                return (
-                  <li
-                    key={call.id}
-                    className="flex items-center justify-between gap-2 rounded-md border border-[var(--portal-warning)] bg-white px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
-                        {formatPhone(callerNumberFor(call))}
-                      </p>
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--portal-muted-soft)]">
-                        Ringing
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <Button
-                        aria-label={
-                          queuedCallAnswering
-                            ? "Answering queued call"
-                            : "Answer queued call"
-                        }
-                        className="h-8 px-2"
-                        disabled={queuedCallAnswering}
-                        onClick={() => void answerCall(call.id)}
-                        size="sm"
-                        variant="primary"
-                      >
-                        <Phone className="h-4 w-4" aria-hidden="true" />
-                        {queuedCallAnswering ? "Answering" : "Answer"}
-                      </Button>
-                      <Button
-                        aria-label="Decline queued call"
-                        className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-danger)]"
-                        onClick={() => declineCall(call.id)}
-                        size="sm"
-                        variant="ghost"
-                      >
-                        <X className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
           </div>
         ) : null}
 

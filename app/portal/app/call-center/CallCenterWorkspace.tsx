@@ -118,11 +118,11 @@ export default function CallCenterWorkspace({
     seatId: null,
   });
   const [presenceRetryToken, setPresenceRetryToken] = useState(0);
-  const [takingTransferIds, setTakingTransferIds] = useState<Set<string>>(
+  const [ringingCallerKeys, setRingingCallerKeys] = useState<Set<string>>(
     () => new Set(),
   );
-  const takingTransferIdsRef = useRef(new Set<string>());
-  const softphoneEngagedRef = useRef(false);
+  const [takingQueueIds, setTakingQueueIds] = useState<Set<string>>(() => new Set());
+  const takingQueueIdsRef = useRef(new Set<string>());
   const softphoneRef = useRef<SoftphoneHandle | null>(null);
   const presenceWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const selectedSeat = useMemo(
@@ -237,10 +237,6 @@ export default function CallCenterWorkspace({
 
     rememberSelectedSeatId(selectedSeatId);
   }, [seatPreferenceLoaded, selectedSeatId]);
-
-  useEffect(() => {
-    softphoneEngagedRef.current = softphoneEngaged;
-  }, [softphoneEngaged]);
 
   useEffect(() => {
     const seatId = selectedSeat?.id;
@@ -384,11 +380,7 @@ export default function CallCenterWorkspace({
         ? ""
         : `?locationId=${encodeURIComponent(eventLocationId ?? "__NULL__")}`;
     const source = new EventSource(`/api/portal/call-center/events${query}`);
-    const refresh = () => {
-      if (!softphoneEngagedRef.current) {
-        router.refresh();
-      }
-    };
+    const refresh = () => router.refresh();
 
     source.addEventListener("refresh", refresh);
 
@@ -401,11 +393,31 @@ export default function CallCenterWorkspace({
   const handleCallback = useCallback((number: string) => {
     setSeed({ token: Date.now(), value: number });
   }, []);
+  const handleRingingCallerKeysChange = useCallback((callerKeys: readonly string[]) => {
+    setRingingCallerKeys(new Set(callerKeys));
+  }, []);
+  const startTakingQueueItem = useCallback((queueItemId: string) => {
+    if (takingQueueIdsRef.current.has(queueItemId)) {
+      return false;
+    }
+
+    takingQueueIdsRef.current.add(queueItemId);
+    setTakingQueueIds((current) => new Set(current).add(queueItemId));
+    return true;
+  }, []);
+  const finishTakingQueueItem = useCallback((queueItemId: string) => {
+    takingQueueIdsRef.current.delete(queueItemId);
+    setTakingQueueIds((current) => {
+      const next = new Set(current);
+      next.delete(queueItemId);
+      return next;
+    });
+  }, []);
   const handleTakeQueuedCall = useCallback(
     async (queueItemId: string) => {
       const selectedSeatId = selectedSeat?.id;
 
-      if (!selectedSeatId) {
+      if (!selectedSeatId || !startTakingQueueItem(queueItemId)) {
         return;
       }
 
@@ -416,8 +428,14 @@ export default function CallCenterWorkspace({
       // E.164 number (resolved from the INVITE's remoteCallerNumber).
       const item = queue.find((entry) => entry.id === queueItemId);
       const callerKey = normalizeQueueCallerKey(item?.fromPhone);
-      if (callerKey) {
-        softphoneRef.current?.markAnswerPending(callerKey);
+      const hasLocalCall = callerKey
+        ? (softphoneRef.current?.markAnswerPending(callerKey) ?? false)
+        : false;
+
+      if (hasLocalCall) {
+        finishTakingQueueItem(queueItemId);
+        router.refresh();
+        return;
       }
 
       try {
@@ -443,34 +461,37 @@ export default function CallCenterWorkspace({
 
         console.error("[call-center] failed to take queued call");
       } finally {
+        finishTakingQueueItem(queueItemId);
         router.refresh();
       }
     },
-    [browserSessionId, queue, router, selectedSeat],
+    [
+      browserSessionId,
+      finishTakingQueueItem,
+      queue,
+      router,
+      selectedSeat,
+      startTakingQueueItem,
+    ],
   );
   const handleTakeTransfer = useCallback(
     async (queueItemId: string) => {
       const selectedSeatId = selectedSeat?.id;
 
-      if (!selectedSeatId) {
+      if (!selectedSeatId || !startTakingQueueItem(queueItemId)) {
         return;
       }
-
-      if (takingTransferIdsRef.current.has(queueItemId)) {
-        return;
-      }
-
-      takingTransferIdsRef.current.add(queueItemId);
-      setTakingTransferIds((current) => {
-        const next = new Set(current);
-        next.add(queueItemId);
-        return next;
-      });
 
       const item = queue.find((entry) => entry.id === queueItemId);
       const callerKey = normalizeQueueCallerKey(item?.fromPhone);
-      if (callerKey) {
-        softphoneRef.current?.markAnswerPending(callerKey);
+      const hasLocalCall = callerKey
+        ? (softphoneRef.current?.markAnswerPending(callerKey) ?? false)
+        : false;
+
+      if (hasLocalCall) {
+        finishTakingQueueItem(queueItemId);
+        router.refresh();
+        return;
       }
 
       try {
@@ -496,16 +517,18 @@ export default function CallCenterWorkspace({
 
         console.error("[call-center] failed to take transfer");
       } finally {
-        takingTransferIdsRef.current.delete(queueItemId);
-        setTakingTransferIds((current) => {
-          const next = new Set(current);
-          next.delete(queueItemId);
-          return next;
-        });
+        finishTakingQueueItem(queueItemId);
         router.refresh();
       }
     },
-    [browserSessionId, queue, router, selectedSeat],
+    [
+      browserSessionId,
+      finishTakingQueueItem,
+      queue,
+      router,
+      selectedSeat,
+      startTakingQueueItem,
+    ],
   );
 
   const hasWaitingCaller = useMemo(
@@ -589,13 +612,14 @@ export default function CallCenterWorkspace({
         <div className="space-y-4 lg:col-span-2">
           {inboundEnabled ? (
             <QueuePanel
-              canTake={Boolean(selectedSeat)}
+              canTake={Boolean(selectedSeat) && currentSoftphoneReadiness.ready}
               isAvailable={effectivePresenceStatus === "AVAILABLE"}
               onTake={handleTakeQueuedCall}
               onTakeTransfer={handleTakeTransfer}
               queue={queue}
+              ringingCallerKeys={ringingCallerKeys}
               selectedSeatId={selectedSeat?.id ?? null}
-              takingTransferIds={takingTransferIds}
+              takingQueueIds={takingQueueIds}
             />
           ) : null}
           <ActivityRail
@@ -722,6 +746,7 @@ export default function CallCenterWorkspace({
                 onActivityChange={setSoftphoneEngaged}
                 onBusyChange={setSoftphoneBusy}
                 onReadinessChange={setSoftphoneReadiness}
+                onRingingCallerKeysChange={handleRingingCallerKeysChange}
                 ref={softphoneRef}
                 seedNumber={seed}
                 stationLabel={selectedSeat ? formatSeatLabel(selectedSeat) : null}
@@ -1024,21 +1049,26 @@ function QueuePanel({
   onTake,
   onTakeTransfer,
   queue,
+  ringingCallerKeys,
   selectedSeatId,
-  takingTransferIds,
+  takingQueueIds,
 }: {
   canTake: boolean;
   isAvailable: boolean;
   onTake: (queueItemId: string) => void;
   onTakeTransfer: (queueItemId: string) => void;
   queue: PortalCallQueueItem[];
+  ringingCallerKeys: Set<string>;
   selectedSeatId: string | null;
-  takingTransferIds: Set<string>;
+  takingQueueIds: Set<string>;
 }) {
-  const visibleQueue = queue.filter(
-    (item) =>
-      !item.transferRequest || item.transferRequest.targetSeatId === selectedSeatId,
-  );
+  const visibleQueue = queue.filter((item) => {
+    if (item.transferRequest) {
+      return item.transferRequest.targetSeatId === selectedSeatId;
+    }
+
+    return ["WAITING", "RINGING", "ASSIGNED"].includes(item.status);
+  });
 
   return (
     <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5 shadow-sm">
@@ -1066,10 +1096,15 @@ function QueuePanel({
                 const isTakeableStatus = ["WAITING", "RINGING", "ASSIGNED"].includes(
                   item.status,
                 );
-                const showTake =
-                  isTakeableStatus && !isTransferRequest && !liveRingAttempt;
-                const showTakeTransfer = isTransferRequest && !liveRingAttempt;
-                const isTakingTransfer = takingTransferIds.has(item.id);
+                const callerKey = normalizeQueueCallerKey(item.fromPhone);
+                const locallyRinging = ringingCallerKeys.has(callerKey);
+                const isRinging =
+                  locallyRinging || liveRingAttempt || item.status === "RINGING";
+                const showTake = isTakeableStatus && !isTransferRequest;
+                const showTakeTransfer = isTransferRequest;
+                const isTaking = takingQueueIds.has(item.id);
+                const takeDisabled =
+                  !canTake || (!isAvailable && !locallyRinging) || isTaking;
 
                 return (
                   <>
@@ -1088,7 +1123,7 @@ function QueuePanel({
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {liveRingAttempt && !showTake && !showTakeTransfer ? (
+                      {isRinging ? (
                         <Button className="w-fit" disabled size="sm" variant="secondary">
                           Ringing
                         </Button>
@@ -1096,23 +1131,23 @@ function QueuePanel({
                       {showTake ? (
                         <Button
                           className="w-fit"
-                          disabled={!canTake || !isAvailable}
+                          disabled={takeDisabled}
                           onClick={() => onTake(item.id)}
                           size="sm"
                           variant="primary"
                         >
-                          Take
+                          {isTaking ? "Taking" : "Take"}
                         </Button>
                       ) : null}
                       {showTakeTransfer ? (
                         <Button
                           className="w-fit"
-                          disabled={!canTake || !isAvailable || isTakingTransfer}
+                          disabled={takeDisabled}
                           onClick={() => onTakeTransfer(item.id)}
                           size="sm"
                           variant="primary"
                         >
-                          Take transfer
+                          {isTaking ? "Taking" : "Take transfer"}
                         </Button>
                       ) : null}
                     </div>
