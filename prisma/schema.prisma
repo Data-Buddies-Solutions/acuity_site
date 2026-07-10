@@ -122,6 +122,30 @@ enum AgentCallEvaluationBucket {
   BAD
 }
 
+enum AgentTaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CLOSED_NO_ACTION
+}
+
+enum AgentTaskCategory {
+  BILLING
+  APPOINTMENTS
+  DOCUMENTATION
+  OTHER
+}
+
+enum AgentTaskPriority {
+  HIGH_PRIORITY
+  NORMAL
+  NON_URGENT
+}
+
+enum AgentTaskSource {
+  AGENT
+}
+
 enum LiveKitWebhookProcessingStatus {
   RECEIVED
   PROCESSED
@@ -285,6 +309,7 @@ model Practice {
   updatedAt            DateTime                    @updatedAt
   callEvaluationLabels AgentCallEvaluationLabel[]
   agentCalls           AgentCall[]
+  agentTasks           AgentTask[]
   agents               PracticeAgent[]
   callCenterAgentSeats CallCenterAgentSeat[]
   callCenterMissed     CallCenterMissedCall[]
@@ -391,6 +416,7 @@ model AgentCall {
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
   agent                PracticeAgent?             @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agentTasks           AgentTask[]
   callCenterMissed     CallCenterMissedCall[]
   callCenterSessions   CallCenterSession[]
   costLineItems        UsageCostLineItem[]
@@ -406,6 +432,43 @@ model AgentCall {
   @@index([callerPhone])
   @@index([officePhone])
   @@map("agent_call")
+}
+
+model AgentTask {
+  id                 String            @id @default(cuid())
+  practiceId         String
+  locationId         String?
+  agentCallId        String?
+  callId             String
+  idempotencyKey     String
+  status             AgentTaskStatus   @default(OPEN)
+  category           AgentTaskCategory
+  priority           AgentTaskPriority @default(NORMAL)
+  officeKey          String?
+  officePhone        String
+  inboundOfficePhone String?
+  summary            String
+  message            String
+  callerPhone        String
+  patientId          String?
+  patientName        String?
+  patientDob         String?
+  source             AgentTaskSource   @default(AGENT)
+  payload            Json              @default("{}")
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  completedAt        DateTime?
+  agentCall          AgentCall?        @relation(fields: [agentCallId], references: [id], onDelete: SetNull)
+  location           PracticeLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  practice           Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceId, idempotencyKey])
+  @@index([practiceId, status, category, createdAt])
+  @@index([practiceId, locationId, status, createdAt])
+  @@index([practiceId, status, priority, createdAt])
+  @@index([agentCallId])
+  @@index([callId])
+  @@map("agent_task")
 }
 
 model LiveKitWebhookEvent {
@@ -526,6 +589,7 @@ model PracticeLocation {
   callCenterQueueItems CallCenterQueueItem[]
   callCenterSessions   CallCenterSession[]
   callCenterVoicemails CallCenterVoicemail[]
+  agentTasks           AgentTask[]
   insuranceRuleSets    PracticeInsuranceRuleSet[]
   knowledgeDocuments   PracticeKnowledgeDocument[]
   membershipGrants     PracticeMembershipLocation[]
