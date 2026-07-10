@@ -32,7 +32,7 @@ The portal now has four practice data paths:
 
 2. Portal-native forward sync
    - `POST /api/livekit/calls`
-   - Auth is optional during migration. If `LIVEKIT_FORWARD_SYNC_SECRET` or `WEBHOOK_SECRET` is configured, requests must send `Authorization: Bearer <secret>`. If no secret is configured, the endpoint accepts unauthenticated posts and logs a production warning.
+   - Auth is required. Configure `LIVEKIT_FORWARD_SYNC_SECRET` (or `WEBHOOK_SECRET`) and have the caller send `Authorization: Bearer <secret>`. Requests with a missing/incorrect bearer token are rejected with `401`. If no secret is configured the endpoint is disabled and returns `503` (the previous behavior of accepting unauthenticated posts has been removed).
    - This endpoint normalizes both legacy call-summary payloads and the current LiveKit observability payload shape (`usage`, `llmMetrics`, `turnMetrics`, `sessionReport`) into `AgentCall` and estimated `UsageCostLineItem` rows.
    - It resolves the practice by explicit `practiceId` or by `officePhone` through `PracticePhoneNumber`.
 
@@ -138,7 +138,7 @@ The admin analytics Costs tab shows total estimated vendor cost, cost per call, 
 1. Configure the LiveKit agent to post call-end payloads to `/api/livekit/calls`.
 2. Ensure every live practice has `PracticePhoneNumber` rows for each routed office number.
 3. Decide whether the agent will send `practiceId` directly; this is more reliable than resolving only by phone number.
-4. Keep unauthenticated ingestion only long enough to verify the migration, then set a shared secret in the portal and LiveKit agent.
+4. Set the shared `LIVEKIT_FORWARD_SYNC_SECRET` (or `WEBHOOK_SECRET`) in both the portal and the LiveKit agent; ingestion is rejected until it is configured.
 5. Move the review worker output into `AgentCall.reviewResult`.
 6. Add a small ingestion smoke test that posts a fixture payload and verifies the portal overview updates.
 7. Add customer-facing call outcome fields if appointment review needs more structured data than tool payload parsing can provide.
