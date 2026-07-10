@@ -1,6 +1,7 @@
 import { createPublicKey, verify } from "crypto";
 
 const TELNYX_API_BASE = "https://api.telnyx.com";
+const TELNYX_REQUEST_TIMEOUT_MS = 10_000;
 const ED25519_SPKI_PREFIX = "302a300506032b6570032100";
 const WEBHOOK_TOLERANCE_SEC = 5 * 60;
 
@@ -38,6 +39,7 @@ export async function telnyxFetch(path: string, options: RequestInit = {}) {
       "Content-Type": "application/json",
       ...options.headers,
     },
+    signal: options.signal ?? AbortSignal.timeout(TELNYX_REQUEST_TIMEOUT_MS),
   });
 
   return response;
@@ -107,6 +109,7 @@ export async function dialTelnyxCall({
   from,
   linkTo,
   preventDoubleBridge,
+  signal,
   timeoutSecs,
   to,
 }: {
@@ -118,6 +121,7 @@ export async function dialTelnyxCall({
   from: string;
   linkTo?: string;
   preventDoubleBridge?: boolean;
+  signal?: AbortSignal;
   timeoutSecs?: number;
   to: string;
 }) {
@@ -157,6 +161,7 @@ export async function dialTelnyxCall({
   const response = await telnyxFetch("/v2/calls", {
     body: JSON.stringify(body),
     method: "POST",
+    signal,
   });
 
   if (!response.ok) {
@@ -172,18 +177,28 @@ export async function dialTelnyxCall({
 
 export async function speakOnTelnyxCall({
   callControlId,
+  commandId,
   language = "en-US",
   payload,
+  signal,
   voice = "Polly.Matthew",
 }: {
   callControlId: string;
+  commandId?: string;
   language?: string;
   payload: string;
+  signal?: AbortSignal;
   voice?: string;
 }) {
   return telnyxFetch(`/v2/calls/${callControlId}/actions/speak`, {
-    body: JSON.stringify({ language, payload, voice }),
+    body: JSON.stringify({
+      ...(commandId ? { command_id: commandId } : {}),
+      language,
+      payload,
+      voice,
+    }),
     method: "POST",
+    signal,
   });
 }
 
@@ -193,12 +208,14 @@ export async function startTelnyxPlayback({
   commandId,
   loop = 1,
   playbackContent,
+  signal,
 }: {
   audioType?: "mp3" | "wav";
   callControlId: string;
   commandId?: string;
   loop?: number | "infinity";
   playbackContent: string;
+  signal?: AbortSignal;
 }) {
   return telnyxFetch(`/v2/calls/${callControlId}/actions/playback_start`, {
     body: JSON.stringify({
@@ -210,29 +227,46 @@ export async function startTelnyxPlayback({
       ...(commandId ? { command_id: commandId } : {}),
     }),
     method: "POST",
+    signal,
   });
 }
 
-export async function stopTelnyxPlayback(callControlId: string) {
+export async function stopTelnyxPlayback(
+  callControlId: string,
+  commandId?: string,
+  signal?: AbortSignal,
+) {
   return telnyxFetch(`/v2/calls/${callControlId}/actions/playback_stop`, {
     body: JSON.stringify({
+      ...(commandId ? { command_id: commandId } : {}),
       stop: "all",
     }),
     method: "POST",
+    signal,
   });
 }
 
-export async function answerTelnyxCall(callControlId: string) {
+export async function answerTelnyxCall(
+  callControlId: string,
+  commandId?: string,
+  signal?: AbortSignal,
+) {
   return telnyxFetch(`/v2/calls/${callControlId}/actions/answer`, {
-    body: JSON.stringify({}),
+    body: JSON.stringify(commandId ? { command_id: commandId } : {}),
     method: "POST",
+    signal,
   });
 }
 
-export async function hangupTelnyxCall(callControlId: string) {
+export async function hangupTelnyxCall(
+  callControlId: string,
+  commandId?: string,
+  signal?: AbortSignal,
+) {
   const response = await telnyxFetch(`/v2/calls/${callControlId}/actions/hangup`, {
-    body: JSON.stringify({}),
+    body: JSON.stringify(commandId ? { command_id: commandId } : {}),
     method: "POST",
+    signal,
   });
 
   if (!response.ok) {
@@ -246,15 +280,52 @@ export async function hangupTelnyxCall(callControlId: string) {
   return response;
 }
 
-export async function startTelnyxRecording(callControlId: string) {
-  return telnyxFetch(`/v2/calls/${callControlId}/actions/record_start`, {
+export async function bridgeTelnyxCall({
+  callControlId,
+  commandId,
+  signal,
+  targetCallControlId,
+}: {
+  callControlId: string;
+  commandId?: string;
+  signal?: AbortSignal;
+  targetCallControlId: string;
+}) {
+  return telnyxFetch(`/v2/calls/${callControlId}/actions/bridge`, {
+    body: JSON.stringify({
+      call_control_id: targetCallControlId,
+      ...(commandId ? { command_id: commandId } : {}),
+    }),
+    method: "POST",
+    signal,
+  });
+}
+
+export async function startTelnyxRecording(
+  callControlId: string,
+  commandId?: string,
+  signal?: AbortSignal,
+) {
+  const response = await telnyxFetch(`/v2/calls/${callControlId}/actions/record_start`, {
     body: JSON.stringify({
       channels: "single",
+      ...(commandId ? { command_id: commandId } : {}),
       format: "mp3",
       max_length: 120,
     }),
     method: "POST",
+    signal,
   });
+
+  if (!response.ok) {
+    throw new TelnyxError(
+      "Failed to start Telnyx recording",
+      response.status,
+      await telnyxErrorMessage(response, "Failed to start Telnyx recording"),
+    );
+  }
+
+  return response;
 }
 
 export async function getTelnyxRecording(recordingId: string) {

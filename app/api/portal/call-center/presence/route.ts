@@ -8,32 +8,49 @@ import {
   withApiHandler,
 } from "@/lib/api/handler";
 import { buildCallCenterSeatAccessWhere } from "@/lib/call-center";
+import {
+  canWriteLegacyPresence,
+  isLegacyPresenceReadyForCalls,
+} from "@/lib/call-center/legacy-presence";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-const presenceSchema = z.object({
-  browserSessionId: z.string().trim().min(1, "browserSessionId is required"),
-  currentSessionId: z
-    .string()
-    .trim()
-    .optional()
-    .transform((value) => value || null),
-  seatId: z.string().trim().min(1, "seatId is required"),
-  status: z.preprocess(
-    (value) => (typeof value === "string" ? value.trim().toUpperCase() : value),
-    z.enum(CallCenterPresenceStatus, { error: "A valid status is required" }),
-  ),
-});
+const presenceSchema = z
+  .object({
+    browserSessionId: z.string().trim().min(1, "browserSessionId is required"),
+    currentSessionId: z
+      .string()
+      .trim()
+      .optional()
+      .transform((value) => value || null),
+    readyForCalls: z.boolean().default(false),
+    seatId: z.string().trim().min(1, "seatId is required"),
+    status: z.preprocess(
+      (value) => (typeof value === "string" ? value.trim().toUpperCase() : value),
+      z.enum(CallCenterPresenceStatus, { error: "A valid status is required" }),
+    ),
+  })
+  .superRefine((presence, context) => {
+    if (!canWriteLegacyPresence(presence)) {
+      context.addIssue({
+        code: "custom",
+        message: "AVAILABLE requires an explicitly ready softphone",
+        path: ["readyForCalls"],
+      });
+    }
+  });
 
 export const POST = withApiHandler(
   async (request: NextRequest) => {
     const context = await requirePortalCallCenterContext();
 
-    const { browserSessionId, currentSessionId, seatId, status } = await parseJsonBody(
-      request,
-      presenceSchema,
-    );
+    const { browserSessionId, currentSessionId, readyForCalls, seatId, status } =
+      await parseJsonBody(request, presenceSchema);
+    const persistedReadyForCalls = isLegacyPresenceReadyForCalls({
+      readyForCalls,
+      status,
+    });
 
     const seat = await prisma.callCenterAgentSeat.findFirst({
       select: {
@@ -59,6 +76,7 @@ export const POST = withApiHandler(
         browserSessionId,
         currentSessionId,
         lastSeenAt: new Date(),
+        readyForCalls: persistedReadyForCalls,
         seatId,
         status,
         userId: context.session.user.id,
@@ -66,11 +84,13 @@ export const POST = withApiHandler(
       select: {
         currentSessionId: true,
         lastSeenAt: true,
+        readyForCalls: true,
         status: true,
       },
       update: {
         currentSessionId,
         lastSeenAt: new Date(),
+        readyForCalls: persistedReadyForCalls,
         status,
         userId: context.session.user.id,
       },

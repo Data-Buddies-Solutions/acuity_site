@@ -7,6 +7,14 @@ on:
         description: "Type DEPLOY to run pending Prisma migrations against production."
         required: true
         type: string
+      recovery:
+        description: "Resolve the known failed call-center migration before deploy."
+        required: true
+        default: NONE
+        type: choice
+        options:
+          - NONE
+          - CALL_CENTER_PLATFORM_FOUNDATION_P3018
 
 permissions:
   contents: read
@@ -43,6 +51,12 @@ jobs:
       - name: Check migration status before deploy
         continue-on-error: true
         run: bunx prisma migrate status
+
+      - name: Resolve known failed call-center migration
+        if: ${{ inputs.recovery == 'CALL_CENTER_PLATFORM_FOUNDATION_P3018' }}
+        run: >-
+          bunx prisma migrate resolve --rolled-back
+          20260709120000_call_center_platform_foundation
 
       - name: Deploy pending migrations
         run: bunx prisma migrate deploy

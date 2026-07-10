@@ -29,6 +29,12 @@ import type { PortalCallCenterSeat } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
 import { saveCallCenterNoteAction } from "./actions";
+import { sanitizeCallCenterDebugDetails } from "./call-center-debug";
+import {
+  hasLocalProviderCallLeg,
+  resolveSoftphoneReadiness,
+  type SoftphoneReadiness,
+} from "./call-center-readiness";
 
 type TelnyxStatus =
   "initializing" | "ready" | "ringing" | "on-call" | "error" | "offline";
@@ -58,6 +64,7 @@ type TelnyxTokenResponse =
 
 const CALL_CENTER_DEBUG = process.env.NEXT_PUBLIC_CALL_CENTER_DEBUG === "true";
 const AGENT_RING_UI_TIMEOUT_MS = 30_500;
+const DEFAULT_STATION_KEY = "default";
 
 const keypadRows = [
   ["1", "2", "3"],
@@ -318,9 +325,11 @@ const SoftphonePanel = forwardRef<
     inboundEnabled: boolean;
     onActivityChange?: (active: boolean) => void;
     onBusyChange?: (busy: boolean) => void;
+    onReadinessChange?: (readiness: SoftphoneReadiness) => void;
     office?: string | null;
     seedNumber?: { value: string; token: number } | null;
     stationLabel?: string | null;
+    stationRequired?: boolean;
     stationSeatId?: string | null;
     transferTargets?: PortalCallCenterSeat[];
     voicemailTimeoutSec?: number;
@@ -333,9 +342,11 @@ const SoftphonePanel = forwardRef<
     inboundEnabled,
     onActivityChange,
     onBusyChange,
+    onReadinessChange,
     office,
     seedNumber,
     stationLabel,
+    stationRequired = false,
     stationSeatId,
     transferTargets = [],
     voicemailTimeoutSec,
@@ -366,6 +377,10 @@ const SoftphonePanel = forwardRef<
   const [selectedTransferSeatId, setSelectedTransferSeatId] = useState("");
   const [transferPending, setTransferPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupPending, setSetupPending] = useState(false);
+  const [connectedStationKey, setConnectedStationKey] = useState<string | null>(null);
+  const [microphoneReady, setMicrophoneReady] = useState(false);
   const [soundUnlocked, setSoundUnlocked] = useState(false);
   const [answeringCallIds, setAnsweringCallIds] = useState<Set<string>>(() => new Set());
   const [answeringRingKeys, setAnsweringRingKeys] = useState<Set<string>>(
@@ -411,6 +426,26 @@ const SoftphonePanel = forwardRef<
     AGENT_RING_UI_TIMEOUT_MS,
     Math.max(5_000, (voicemailTimeoutSec ?? 30) * 1000),
   );
+  const stationSelected = !stationRequired || Boolean(stationSeatId);
+  const stationKey = stationSeatId ?? (stationRequired ? null : DEFAULT_STATION_KEY);
+  const readiness = useMemo(
+    () =>
+      resolveSoftphoneReadiness({
+        microphoneReady,
+        providerReady: Boolean(stationKey && connectedStationKey === stationKey),
+        soundReady: soundUnlocked,
+        stationId: stationSeatId ?? null,
+        stationSelected,
+      }),
+    [
+      connectedStationKey,
+      microphoneReady,
+      soundUnlocked,
+      stationKey,
+      stationSeatId,
+      stationSelected,
+    ],
+  );
 
   const debugLog = useCallback((event: string, details: Record<string, unknown> = {}) => {
     if (!CALL_CENTER_DEBUG) {
@@ -423,7 +458,7 @@ const SoftphonePanel = forwardRef<
       at: new Date().toISOString(),
       elapsedMs: Math.round(now - debugStartMsRef.current),
       event,
-      ...details,
+      ...sanitizeCallCenterDebugDetails(details),
     });
   }, []);
 
@@ -605,7 +640,7 @@ const SoftphonePanel = forwardRef<
 
   const unlockSound = useCallback(async () => {
     if (soundUnlocked) {
-      return;
+      return true;
     }
 
     const AudioCtxCtor =
@@ -614,7 +649,7 @@ const SoftphonePanel = forwardRef<
         .webkitAudioContext;
 
     if (!AudioCtxCtor) {
-      return;
+      return false;
     }
 
     const ctx = new AudioCtxCtor();
@@ -634,8 +669,10 @@ const SoftphonePanel = forwardRef<
     try {
       await ctx.resume();
       setSoundUnlocked(true);
+      return true;
     } catch {
       // Browser audio policies vary; the next user gesture can retry.
+      return false;
     } finally {
       setTimeout(() => {
         ctx.close().catch(() => {});
@@ -645,8 +682,8 @@ const SoftphonePanel = forwardRef<
 
   const ensureMicrophonePermission = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
-      setStatus("error");
-      setError("This browser does not support microphone access.");
+      setMicrophoneReady(false);
+      setSetupError("This browser does not support microphone access.");
       return false;
     }
 
@@ -656,6 +693,8 @@ const SoftphonePanel = forwardRef<
         video: false,
       });
       stream.getTracks().forEach((track) => track.stop());
+      setMicrophoneReady(true);
+      setSetupError(null);
       return true;
     } catch (permissionError) {
       const message =
@@ -663,42 +702,94 @@ const SoftphonePanel = forwardRef<
           ? permissionError.message
           : "Microphone permission is required to answer calls.";
       debugLog("microphone-permission-failed", { message });
-      setStatus("error");
-      setError(`Microphone permission is required to answer calls. ${message}`);
+      setMicrophoneReady(false);
+      setSetupError(`Microphone permission is required to answer calls. ${message}`);
       return false;
     }
   }, [debugLog]);
 
+  const prepareMedia = useCallback(async () => {
+    setSetupPending(true);
+
+    try {
+      const [soundReady, hasMicrophone] = await Promise.all([
+        unlockSound(),
+        ensureMicrophonePermission(),
+      ]);
+
+      if (!hasMicrophone) {
+        return false;
+      }
+
+      if (!soundReady) {
+        setSetupError(
+          "Browser sound is blocked. Click Enable calling and allow audio playback.",
+        );
+        return false;
+      }
+
+      setSetupError(null);
+      return true;
+    } finally {
+      setSetupPending(false);
+    }
+  }, [ensureMicrophonePermission, unlockSound]);
+
   useEffect(() => {
-    if (!enabled || soundUnlocked) {
+    if (!navigator.permissions?.query) {
       return;
     }
 
-    const unlock = () => {
-      void unlockSound();
+    let cancelled = false;
+    let permission: PermissionStatus | null = null;
+    const syncPermission = () => {
+      if (permission?.state !== "granted") {
+        setMicrophoneReady(false);
+      }
     };
 
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
+    void navigator.permissions
+      .query({ name: "microphone" as PermissionName })
+      .then((status) => {
+        if (cancelled) {
+          return;
+        }
+
+        permission = status;
+        syncPermission();
+        permission.addEventListener("change", syncPermission);
+      })
+      .catch(() => {
+        // Some browsers support getUserMedia but not microphone permission queries.
+      });
 
     return () => {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
+      cancelled = true;
+      permission?.removeEventListener("change", syncPermission);
     };
-  }, [enabled, soundUnlocked, unlockSound]);
+  }, []);
 
   useEffect(() => {
     activeCallRef.current = activeCall;
   }, [activeCall]);
   useEffect(() => {
+    onReadinessChange?.(readiness);
+  }, [onReadinessChange, readiness]);
+  useEffect(() => {
     dialedNumberRef.current = dialedNumber;
   }, [dialedNumber]);
+  const hasLocalCallLeg = hasLocalProviderCallLeg({
+    active: Boolean(activeCall),
+    heldCount: heldCalls.length,
+    incoming: Boolean(incomingCall),
+    queuedCount: queuedCalls.length,
+  });
   useEffect(() => {
-    onBusyChange?.(Boolean(activeCall));
-  }, [activeCall, onBusyChange]);
+    onBusyChange?.(hasLocalCallLeg);
+  }, [hasLocalCallLeg, onBusyChange]);
   useEffect(() => {
-    onActivityChange?.(Boolean(activeCall || incomingCall || queuedCalls.length));
-  }, [activeCall, incomingCall, onActivityChange, queuedCalls.length]);
+    onActivityChange?.(hasLocalCallLeg);
+  }, [hasLocalCallLeg, onActivityChange]);
   useEffect(() => {
     incomingCallRef.current = incomingCall;
   }, [incomingCall]);
@@ -1079,6 +1170,8 @@ const SoftphonePanel = forwardRef<
   );
 
   useEffect(() => {
+    setConnectedStationKey(null);
+
     if (!enabled) {
       debugLog("softphone-disabled");
       setStatus("offline");
@@ -1136,6 +1229,7 @@ const SoftphonePanel = forwardRef<
         client.on("telnyx.ready", () => {
           if (!cancelled) {
             debugLog("telnyx-ready");
+            setConnectedStationKey(stationKey);
             setStatus("ready");
             setError(null);
           }
@@ -1146,6 +1240,7 @@ const SoftphonePanel = forwardRef<
             debugLog("telnyx-error", {
               message: event.error?.message ?? null,
             });
+            setConnectedStationKey(null);
             setStatus("error");
             setError(event.error?.message || "Telnyx connection failed");
           }
@@ -1163,6 +1258,7 @@ const SoftphonePanel = forwardRef<
           if (!cancelled) {
             const message = mediaErrorMessage(event);
             debugLog("telnyx-media-error", { message });
+            setConnectedStationKey(null);
             setStatus("error");
             setError(message);
           }
@@ -1172,6 +1268,7 @@ const SoftphonePanel = forwardRef<
           if (!cancelled) {
             const message = mediaErrorMessage(event);
             debugLog("telnyx-peer-connection-failure", { message });
+            setConnectedStationKey(null);
             setStatus("error");
             setError(message);
           }
@@ -1180,6 +1277,7 @@ const SoftphonePanel = forwardRef<
         client.on("telnyx.socket.close", () => {
           if (!cancelled) {
             debugLog("telnyx-socket-close");
+            setConnectedStationKey(null);
             setStatus("offline");
           }
         });
@@ -1442,6 +1540,7 @@ const SoftphonePanel = forwardRef<
                 ? connectError.message
                 : "Telnyx connection failed",
           });
+          setConnectedStationKey(null);
           setStatus("error");
           setError(
             connectError instanceof Error
@@ -1495,6 +1594,7 @@ const SoftphonePanel = forwardRef<
     setInboundRingingCall,
     startTimer,
     stationSeatId,
+    stationKey,
   ]);
 
   // Ringtone for queued incoming calls when nothing else is active.
@@ -1591,8 +1691,6 @@ const SoftphonePanel = forwardRef<
     const to = normalizeToE164(draftNumber);
     const client = clientRef.current;
 
-    void unlockSound();
-
     if (!client || !to || status !== "ready") {
       debugLog("outbound-call-blocked", {
         hasClient: Boolean(client),
@@ -1602,9 +1700,9 @@ const SoftphonePanel = forwardRef<
       return;
     }
 
-    const hasMicrophone = await ensureMicrophonePermission();
+    const mediaReady = await prepareMedia();
 
-    if (!hasMicrophone) {
+    if (!mediaReady) {
       return;
     }
 
@@ -1650,18 +1748,15 @@ const SoftphonePanel = forwardRef<
     callerNumber,
     debugLog,
     draftNumber,
-    ensureMicrophonePermission,
     office,
+    prepareMedia,
     stationLabel,
     stationSeatId,
     status,
-    unlockSound,
   ]);
 
   const answerCall = useCallback(
     async (callId: string) => {
-      void unlockSound();
-
       const queued =
         incomingCall?.id === callId
           ? incomingCall
@@ -1690,9 +1785,9 @@ const SoftphonePanel = forwardRef<
       });
       setError(null);
 
-      const hasMicrophone = await ensureMicrophonePermission();
+      const mediaReady = await prepareMedia();
 
-      if (!hasMicrophone) {
+      if (!mediaReady) {
         return;
       }
 
@@ -1775,13 +1870,12 @@ const SoftphonePanel = forwardRef<
       clearRingingCallUi,
       debugLog,
       incomingCall,
-      ensureMicrophonePermission,
+      prepareMedia,
       promoteToActiveCall,
       queuedCalls,
       setAnsweringCallPending,
       setAnsweringPendingForCall,
       setAnsweringRingPending,
-      unlockSound,
     ],
   );
 
@@ -1990,6 +2084,12 @@ const SoftphonePanel = forwardRef<
     Boolean(selectedTransferSeatId) &&
     !transferPending;
   const incomingCallAnswering = incomingCall ? isAnsweringCall(incomingCall) : false;
+  const displayedStatus = !readiness.stationSelected
+    ? "Station needed"
+    : status === "ready" && !readiness.ready
+      ? "Setup needed"
+      : statusLabel(status);
+  const visibleError = error ?? setupError;
 
   return (
     <section className="rounded-lg border border-[var(--portal-border)] bg-white shadow-[0_14px_40px_rgba(16,39,44,0.04)]">
@@ -2009,30 +2109,55 @@ const SoftphonePanel = forwardRef<
           className={cn(
             "inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold",
             status === "ready" &&
+              readiness.ready &&
               "border-[var(--portal-live)] bg-[var(--portal-live-soft)] text-[var(--portal-live)]",
+            status === "ready" &&
+              !readiness.ready &&
+              "border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] text-[var(--portal-warning)]",
             status === "on-call" &&
               "border-[var(--portal-accent)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]",
             status === "ringing" &&
               "border-[var(--portal-warning)] bg-[var(--portal-warning-soft)] text-[var(--portal-warning)]",
-            (status === "error" || status === "offline") &&
+            (status === "error" || (status === "offline" && readiness.stationSelected)) &&
               "border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] text-[var(--portal-danger)]",
-            status === "initializing" &&
+            (status === "initializing" || !readiness.stationSelected) &&
               "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]",
           )}
         >
-          {statusLabel(status)}
+          {displayedStatus}
         </span>
       </div>
 
       <div className="space-y-4 p-4">
         <audio ref={remoteAudioRef} autoPlay className="hidden" playsInline />
 
-        {error ? (
+        {visibleError ? (
           <div
             className="rounded-lg border border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] px-3 py-2 text-sm text-[var(--portal-danger)]"
             role="alert"
           >
-            {error}
+            {visibleError}
+          </div>
+        ) : null}
+
+        {!readiness.ready ? (
+          <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-3 py-3">
+            <p className="text-sm font-medium text-[var(--portal-ink)]" role="status">
+              {readiness.message}
+            </p>
+            {readiness.stationSelected &&
+            (!readiness.microphoneReady || !readiness.soundReady) ? (
+              <Button
+                className="mt-2"
+                disabled={setupPending}
+                onClick={() => void prepareMedia()}
+                size="sm"
+                variant="secondary"
+              >
+                <Mic className="h-4 w-4" aria-hidden="true" />
+                {setupPending ? "Enabling" : "Enable calling"}
+              </Button>
+            ) : null}
           </div>
         ) : null}
 

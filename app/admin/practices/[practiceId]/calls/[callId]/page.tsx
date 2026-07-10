@@ -1,6 +1,14 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, List, Star, ThumbsDown, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  List,
+  Star,
+  ThumbsDown,
+  X,
+} from "lucide-react";
 
 import { AudioPlayer } from "@/app/components/audio-player";
 import { CopyButton } from "@/app/components/copy-button";
@@ -47,6 +55,11 @@ import type {
   TurnRecord,
   VoiceLanguageTelemetry,
 } from "@/lib/call-types";
+import {
+  getCallCompleteness,
+  isCallCompletenessIssue,
+  type CallCompleteness,
+} from "@/lib/call-completeness";
 import {
   computePercentiles,
   deriveTotalLatency,
@@ -182,6 +195,47 @@ function getSummary(call: CallDetail): CallSummaryData {
     },
     turns: [],
   };
+}
+
+function CallCompletenessBadge({ completeness }: { completeness: CallCompleteness }) {
+  if (!isCallCompletenessIssue(completeness)) {
+    return null;
+  }
+
+  const destructive =
+    completeness.status === "livekit_recovered" ||
+    completeness.status === "webhook_error";
+
+  return (
+    <Badge
+      variant={destructive ? "destructive" : "outline"}
+      className="gap-1"
+      title={completeness.description ?? undefined}
+    >
+      <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+      {completeness.label}
+    </Badge>
+  );
+}
+
+function CallCompletenessNotice({ completeness }: { completeness: CallCompleteness }) {
+  if (!isCallCompletenessIssue(completeness)) {
+    return null;
+  }
+
+  return (
+    <Card className="border-amber-300 bg-amber-50/80 shadow-sm">
+      <CardHeader className="space-y-1">
+        <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+          <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+          {completeness.label}
+        </CardTitle>
+        <CardDescription className="text-amber-900">
+          {completeness.description}
+        </CardDescription>
+      </CardHeader>
+    </Card>
+  );
 }
 
 function getToolCalls(turns: TurnRecord[]) {
@@ -358,6 +412,12 @@ export default async function AdminCallDetailPage({
     : null;
 
   const data = getSummary(call);
+  const callCompleteness = getCallCompleteness(call.data, {
+    linkedWebhookFailed: call.liveKitWebhookEvents.some(
+      (event) => event.processingStatus === "FAILED",
+    ),
+    status: call.status,
+  });
   const turns = data.turns ?? [];
   const totals = data.totals ?? {};
   const llm = {
@@ -533,6 +593,7 @@ export default async function AdminCallDetailPage({
               {totalFailures} tool failure{totalFailures === 1 ? "" : "s"}
             </Badge>
           )}
+          <CallCompletenessBadge completeness={callCompleteness} />
           {evaluationBucket === "GOLDEN" && (
             <Badge variant="secondary" className="gap-1">
               <Star className="h-3.5 w-3.5 fill-current" />
@@ -547,6 +608,8 @@ export default async function AdminCallDetailPage({
           )}
         </div>
       </div>
+
+      <CallCompletenessNotice completeness={callCompleteness} />
 
       <Card className="border-border/70 bg-card/80 shadow-sm">
         <CardHeader>
