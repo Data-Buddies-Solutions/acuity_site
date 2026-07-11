@@ -19,6 +19,18 @@ tenant-scoped data.
   volume, a similar label, or the first row returned.
 - If the report finds existing generic queues, numbers, or endpoints, stop and
   reconcile that partial configuration before copying any legacy fact.
+- Read generic configuration with
+  `GET /api/admin/call-center/practices/{practiceId}/configuration`, then send
+  its strong `ETag` in `If-Match` on `PUT`. A stale version is a hard stop.
+- Endpoint credential and SIP values are write-only. Omit them to preserve the
+  stored values, send `null` to clear them, and never copy them into evidence.
+- An enabled queue, number, or endpoint must be explicitly disabled before it
+  may be omitted. Omitted disabled rows remain stored for review and rollback.
+- The first generic configuration write is rejected unless the Phase 2A report
+  is `READY_FOR_MANUAL_REVIEW`. Later edits do not re-run that bootstrap gate
+  because the report intentionally blocks when generic rows already exist.
+- Review the same redacted report on the practice admin **Call center** tab.
+  The view is read-only and never exposes an apply action.
 - Keep the legacy projections and queue-level rollback available through the
   observation window. Do not destructively roll back database migrations.
 

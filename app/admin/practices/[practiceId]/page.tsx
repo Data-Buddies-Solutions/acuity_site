@@ -20,12 +20,13 @@ import {
   type AdminPracticeRange,
 } from "@/lib/admin-analytics";
 import { parseCallTableState } from "@/lib/admin-call-table-state";
+import { CallCenterMigrationReport } from "./CallCenterMigrationReport";
 
 export const dynamic = "force-dynamic";
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 type AdminPracticeTab = "overview" | "performance" | "costs" | "tokens" | "tools";
-type PracticeView = "analytics" | "bad" | "command" | "golden";
+type PracticeView = "analytics" | "bad" | "call-center" | "command" | "golden";
 
 function parseRange(value: string | string[] | undefined): AdminPracticeRange {
   if (value === "24h" || value === "7d" || value === "30d" || value === "all") {
@@ -49,7 +50,12 @@ function parseTab(value: string | string[] | undefined): AdminPracticeTab {
 }
 
 function parseView(value: string | string[] | undefined): PracticeView {
-  if (value === "analytics" || value === "bad" || value === "golden") {
+  if (
+    value === "analytics" ||
+    value === "bad" ||
+    value === "call-center" ||
+    value === "golden"
+  ) {
     return value;
   }
 
@@ -113,12 +119,13 @@ function PracticeViewTabs({
     { label: "Golden", view: "golden" },
     { label: "Bad", view: "bad" },
     { label: "Analytics", view: "analytics" },
+    { label: "Call center", view: "call-center" },
   ] as const;
 
   return (
     <LinkSegmentedControl
       ariaLabel="Practice view"
-      className="grid w-full grid-cols-2 sm:inline-grid sm:w-fit sm:grid-cols-4"
+      className="grid w-full grid-cols-2 sm:inline-grid sm:w-fit sm:grid-cols-5"
       itemClassName="min-h-8 px-3 py-1.5 text-xs"
       items={items.map((item) => ({
         href: hrefWithParams(practiceId, {
@@ -215,7 +222,11 @@ export default async function AdminPracticeDetailPage({
         />
       </div>
 
-      {view === "command" ? (
+      {view === "call-center" ? (
+        <Suspense>
+          <CallCenterMigrationReport practiceId={practiceId} />
+        </Suspense>
+      ) : view === "command" ? (
         <>
           {detail.dashboardData ? <HealthKPIs data={detail.dashboardData} /> : null}
 
@@ -240,8 +251,8 @@ export default async function AdminPracticeDetailPage({
       ) : (
         <>
           <Suspense>
-          <AnalyticsTabs />
-        </Suspense>
+            <AnalyticsTabs />
+          </Suspense>
 
           {data && tab === "overview" && <OverviewTab data={data} />}
           {data && tab === "performance" && <PerformanceTab data={data} />}
