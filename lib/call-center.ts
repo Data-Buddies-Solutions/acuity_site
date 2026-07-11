@@ -97,6 +97,21 @@ const RING_ATTEMPT_STATUS_RANK: Record<CallCenterRingAttemptStatus, number> = {
   FAILED: 5,
 };
 
+const TAKE_RING_ATTEMPT_SELECT = {
+  endedAt: true,
+  id: true,
+  status: true,
+} satisfies Prisma.CallCenterRingAttemptSelect;
+
+type TakeRingAttempt = Prisma.CallCenterRingAttemptGetPayload<{
+  select: typeof TAKE_RING_ATTEMPT_SELECT;
+}>;
+
+type RingAttemptClaim = {
+  attempt: TakeRingAttempt;
+  created: boolean;
+};
+
 export function nextRingAttemptGeneration(
   existing: {
     generation: number;
@@ -4496,28 +4511,44 @@ async function findAvailableSeatsForInboundQueueItem({
   );
 }
 
-async function createNextRingAttempt({
+export function isLegacyTakeAttemptReusable(
+  attempt: { endedAt: Date | null; status: CallCenterRingAttemptStatus } | null,
+): boolean {
+  return Boolean(
+    attempt && !attempt.endedAt && LIVE_RING_ATTEMPT_STATUSES.includes(attempt.status),
+  );
+}
+
+async function createOrReuseRingAttempt({
   queueItemId,
   seatId,
 }: {
   queueItemId: string;
   seatId: string;
-}) {
+}): Promise<RingAttemptClaim | null> {
   for (let conflictCount = 0; conflictCount < 3; conflictCount += 1) {
     const existing = await prisma.callCenterRingAttempt.findFirst({
       orderBy: {
         generation: "desc",
       },
       select: {
+        ...TAKE_RING_ATTEMPT_SELECT,
         generation: true,
         hangupCause: true,
-        status: true,
       },
       where: {
         queueItemId,
         seatId,
       },
     });
+
+    if (existing && isLegacyTakeAttemptReusable(existing)) {
+      return {
+        attempt: existing,
+        created: false,
+      };
+    }
+
     const generation = nextRingAttemptGeneration(existing);
 
     if (generation === null) {
@@ -4525,17 +4556,20 @@ async function createNextRingAttempt({
     }
 
     try {
-      return await prisma.callCenterRingAttempt.create({
+      const attempt = await prisma.callCenterRingAttempt.create({
         data: {
           generation,
           queueItemId,
           seatId,
           status: "DIALING",
         },
-        select: {
-          id: true,
-        },
+        select: TAKE_RING_ATTEMPT_SELECT,
       });
+
+      return {
+        attempt,
+        created: true,
+      };
     } catch (error) {
       if (!isUniqueConstraintError(error)) {
         throw error;
@@ -4543,7 +4577,14 @@ async function createNextRingAttempt({
     }
   }
 
-  return null;
+  const existing = await findReusableRingAttemptForSeat({ queueItemId, seatId });
+
+  return existing
+    ? {
+        attempt: existing,
+        created: false,
+      }
+    : null;
 }
 
 async function ringAvailableSeatsForQueueItem({
@@ -4569,19 +4610,25 @@ async function ringAvailableSeatsForQueueItem({
 
   const results = await Promise.all(
     availableSeats.map(async (seat) => {
-      const attempt = await createNextRingAttempt({
+      const claim = await createOrReuseRingAttempt({
         queueItemId,
         seatId: seat.id,
       });
 
-      if (!attempt) {
+      if (!claim) {
         logger.info("skipping active duplicate station ring", {
           queueItemId,
           seatId: seat.id,
           seatLabel: seat.label,
         });
-        return false;
+        return null;
       }
+
+      if (!claim.created) {
+        return true;
+      }
+
+      const { attempt } = claim;
 
       const to = telnyxSipUri(seat.sipUsername);
 
@@ -4596,7 +4643,7 @@ async function ringAvailableSeatsForQueueItem({
             id: attempt.id,
           },
         });
-        return false;
+        return null;
       }
 
       try {
@@ -4800,14 +4847,11 @@ async function getQueueItemForStationTake({
     where: {
       id: queueItemId,
       practiceId,
-      status: {
-        in: ["RINGING", "WAITING", "ASSIGNED"],
-      },
     },
   });
 }
 
-async function findLiveRingAttemptForSeat({
+async function findReusableRingAttemptForSeat({
   queueItemId,
   seatId,
 }: {
@@ -4815,9 +4859,10 @@ async function findLiveRingAttemptForSeat({
   seatId: string;
 }) {
   return prisma.callCenterRingAttempt.findFirst({
-    select: {
-      id: true,
+    orderBy: {
+      generation: "desc",
     },
+    select: TAKE_RING_ATTEMPT_SELECT,
     where: {
       endedAt: null,
       queueItemId,
@@ -4829,21 +4874,29 @@ async function findLiveRingAttemptForSeat({
   });
 }
 
+function assertQueueItemCanBeTaken(status: CallCenterQueueStatus) {
+  if (["RINGING", "WAITING", "ASSIGNED"].includes(status)) {
+    return;
+  }
+
+  if (status === "ACTIVE") {
+    throw new TelnyxError("Call was already taken", 409, "call_already_taken");
+  }
+
+  throw new TelnyxError("Call is no longer available", 409, "call_not_takeable");
+}
+
 async function getStationTakeReadiness({
-  allowsSharedStation,
   browserSessionId,
-  queueItemId,
   seatId,
   userId,
 }: {
-  allowsSharedStation: boolean;
   browserSessionId: string;
-  queueItemId: string;
   seatId: string;
   userId: string;
 }) {
   const presenceCutoff = getPresenceExpirationCutoff();
-  const [presence, competingPresence, liveRingAttempt] = await Promise.all([
+  const [presence, competingPresence] = await Promise.all([
     prisma.callCenterPresence.findFirst({
       select: {
         readyForCalls: true,
@@ -4861,31 +4914,40 @@ async function getStationTakeReadiness({
         userId,
       },
     }),
-    allowsSharedStation
-      ? Promise.resolve(0)
-      : prisma.callCenterPresence.count({
-          where: {
-            browserSessionId: {
-              not: browserSessionId,
-            },
-            lastSeenAt: {
-              gte: presenceCutoff,
-            },
-            seatId,
-            status: {
-              not: CallCenterPresenceStatus.OFFLINE,
-            },
-          },
-        }),
-    findLiveRingAttemptForSeat({ queueItemId, seatId }),
+    prisma.callCenterPresence.count({
+      where: {
+        browserSessionId: {
+          not: browserSessionId,
+        },
+        lastSeenAt: {
+          gte: presenceCutoff,
+        },
+        seatId,
+        status: {
+          not: CallCenterPresenceStatus.OFFLINE,
+        },
+      },
+    }),
   ]);
 
   return {
     hasCompetingPresence: competingPresence > 0,
-    hasLiveRingAttempt: Boolean(presence && liveRingAttempt),
+    hasMatchingPresence: Boolean(presence),
     isAvailable:
       presence?.status === CallCenterPresenceStatus.AVAILABLE && presence.readyForCalls,
   };
+}
+
+export function canReplayLegacyTake({
+  allowsSharedStation,
+  hasCompetingPresence,
+  hasMatchingPresence,
+}: {
+  allowsSharedStation: boolean;
+  hasCompetingPresence: boolean;
+  hasMatchingPresence: boolean;
+}) {
+  return hasMatchingPresence && (allowsSharedStation || !hasCompetingPresence);
 }
 
 export async function ringStationForQueuedCall({
@@ -4964,21 +5026,46 @@ export async function ringStationForQueuedCall({
     throw new TelnyxError("Station does not belong to this queued call location", 422);
   }
 
-  const stationReadiness = await getStationTakeReadiness({
-    allowsSharedStation: allowsSharedCallCenterStation(context, seat),
-    browserSessionId,
-    queueItemId: queueItem.id,
-    seatId: seat.id,
-    userId: context.session.user.id,
-  });
+  if (!["RINGING", "WAITING", "ASSIGNED", "ACTIVE"].includes(queueItem.status)) {
+    assertQueueItemCanBeTaken(queueItem.status);
+  }
 
-  if (stationReadiness.hasCompetingPresence) {
+  const allowsSharedStation = allowsSharedCallCenterStation(context, seat);
+  const [reusableAttempt, stationReadiness] = await Promise.all([
+    findReusableRingAttemptForSeat({
+      queueItemId: queueItem.id,
+      seatId: seat.id,
+    }),
+    getStationTakeReadiness({
+      browserSessionId,
+      seatId: seat.id,
+      userId: context.session.user.id,
+    }),
+  ]);
+
+  if (stationReadiness.hasCompetingPresence && !allowsSharedStation) {
     throw new TelnyxError("Station is active in another browser", 409);
   }
 
-  if (stationReadiness.hasLiveRingAttempt) {
+  if (reusableAttempt) {
+    if (!canReplayLegacyTake({ ...stationReadiness, allowsSharedStation })) {
+      throw new TelnyxError("Station is not active in this browser", 409);
+    }
+
+    const winnerAttemptId = winningRingAttemptId(queueItem.metadata);
+
+    if (
+      queueItem.status === "ACTIVE" &&
+      winnerAttemptId &&
+      winnerAttemptId !== reusableAttempt.id
+    ) {
+      throw new TelnyxError("Call was already taken", 409, "call_already_taken");
+    }
+
     return { ok: true };
   }
+
+  assertQueueItemCanBeTaken(queueItem.status);
 
   if (!stationReadiness.isAvailable) {
     throw new TelnyxError("Station is not available", 409);
@@ -5015,7 +5102,16 @@ export async function ringStationForQueuedCall({
   });
 
   if (claimedForStation.count === 0) {
-    throw new TelnyxError("Queued call is no longer available", 409);
+    const replayedAttempt = await findReusableRingAttemptForSeat({
+      queueItemId: queueItem.id,
+      seatId: seat.id,
+    });
+
+    if (replayedAttempt) {
+      return { ok: true };
+    }
+
+    throw new TelnyxError("Call could not be taken", 409, "call_not_takeable");
   }
 
   let dialedAttemptCount = 0;
@@ -5039,7 +5135,7 @@ export async function ringStationForQueuedCall({
   }
 
   if (dialedAttemptCount === 0) {
-    const liveRingAttempt = await findLiveRingAttemptForSeat({
+    const liveRingAttempt = await findReusableRingAttemptForSeat({
       queueItemId: queueItem.id,
       seatId: seat.id,
     });
@@ -5055,9 +5151,7 @@ export async function ringStationForQueuedCall({
     throw new TelnyxError("No station leg could be dialed", 502);
   }
 
-  return {
-    ok: true,
-  };
+  return { ok: true };
 }
 
 export async function blindTransferActiveCallToSeat({
@@ -5300,7 +5394,6 @@ export async function takePendingBlindTransfer({
     where: {
       id: queueItemId,
       practiceId: context.practice.id,
-      status: "ACTIVE",
     },
   });
 
@@ -5329,11 +5422,32 @@ export async function takePendingBlindTransfer({
 
   const transfer = pendingBlindTransfer(queueItem.metadata);
 
-  if (!transfer || asString(transfer.targetSeatId) !== seatId) {
-    throw new TelnyxError("Transfer is not assigned to this station", 409);
+  if (queueItem.status !== "ACTIVE") {
+    throw new TelnyxError(
+      "Transfer is no longer available",
+      409,
+      "transfer_not_takeable",
+    );
   }
 
-  const sourceEndedAt = asString(transfer.sourceEndedAt);
+  const reusableTargetAttempt = await findReusableRingAttemptForSeat({
+    queueItemId: queueItem.id,
+    seatId,
+  });
+  const completedTargetReplay =
+    !transfer &&
+    reusableTargetAttempt?.id === winningRingAttemptId(queueItem.metadata) &&
+    asString(objectMetadata(queueItem.metadata).blindTransferLastEndReason) ===
+      "transfer_bridged";
+  const pendingTargetReplay =
+    Boolean(reusableTargetAttempt) && asString(transfer?.targetSeatId) === seatId;
+
+  if (
+    (!transfer || asString(transfer.targetSeatId) !== seatId) &&
+    !completedTargetReplay
+  ) {
+    throw new TelnyxError("Transfer is not assigned to this station", 409);
+  }
 
   const targetSeat = await prisma.callCenterAgentSeat.findFirst({
     select: {
@@ -5362,19 +5476,26 @@ export async function takePendingBlindTransfer({
   }
 
   const stationReadiness = await getStationTakeReadiness({
-    allowsSharedStation: allowsSharedCallCenterStation(context, targetSeat),
     browserSessionId,
-    queueItemId: queueItem.id,
     seatId: targetSeat.id,
     userId: context.session.user.id,
   });
+  const allowsSharedStation = allowsSharedCallCenterStation(context, targetSeat);
 
-  if (stationReadiness.hasCompetingPresence) {
+  if (stationReadiness.hasCompetingPresence && !allowsSharedStation) {
     throw new TelnyxError("Station is active in another browser", 409);
   }
 
-  if (stationReadiness.hasLiveRingAttempt) {
+  if (pendingTargetReplay || completedTargetReplay) {
+    if (!canReplayLegacyTake({ ...stationReadiness, allowsSharedStation })) {
+      throw new TelnyxError("Station is not active in this browser", 409);
+    }
+
     return { ok: true };
+  }
+
+  if (!transfer) {
+    throw new TelnyxError("Transfer is not assigned to this station", 409);
   }
 
   if (!stationReadiness.isAvailable) {
@@ -5402,6 +5523,7 @@ export async function takePendingBlindTransfer({
     throw new TelnyxError("Telnyx connection and caller number are required", 422);
   }
 
+  const sourceEndedAt = asString(transfer.sourceEndedAt);
   const sourceAttemptId = asString(transfer.sourceRingAttemptId);
   const sourceAttempt = sourceEndedAt
     ? null
@@ -5423,23 +5545,20 @@ export async function takePendingBlindTransfer({
     throw new TelnyxError("Source call is no longer active", 409);
   }
 
-  const targetAttempt = await createNextRingAttempt({
+  const targetClaim = await createOrReuseRingAttempt({
     queueItemId: queueItem.id,
     seatId: targetSeat.id,
   });
 
-  if (!targetAttempt) {
-    const liveRingAttempt = await findLiveRingAttemptForSeat({
-      queueItemId: queueItem.id,
-      seatId: targetSeat.id,
-    });
-
-    if (liveRingAttempt) {
-      return { ok: true };
-    }
-
+  if (!targetClaim) {
     throw new TelnyxError("Transfer station already has a live call leg", 409);
   }
+
+  if (!targetClaim.created) {
+    return { ok: true };
+  }
+
+  const targetAttempt = targetClaim.attempt;
 
   const clientState = encodeClientState({
     blindTransfer: true,
@@ -5512,9 +5631,7 @@ export async function takePendingBlindTransfer({
     throw new TelnyxError("Failed to transfer call", 502);
   }
 
-  return {
-    ok: true,
-  };
+  return { ok: true };
 }
 
 async function markQueueVoicemailError({
