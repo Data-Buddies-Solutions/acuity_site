@@ -1237,23 +1237,29 @@ model CallCenterTask {
 }
 
 model ProviderWebhookEvent {
-  id               String                          @id @default(cuid())
-  provider         CallCenterProvider
-  providerEventId  String
-  eventType        String
-  occurredAt       DateTime?
-  receivedAt       DateTime                        @default(now())
-  processingStatus ProviderWebhookProcessingStatus @default(RECEIVED)
-  attemptCount     Int                             @default(0)
-  nextAttemptAt    DateTime?
-  errorCode        String?
-  payload          Json
-  processedAt      DateTime?
-  createdAt        DateTime                        @default(now())
-  updatedAt        DateTime                        @updatedAt
+  id                               String                          @id @default(cuid())
+  provider                         CallCenterProvider
+  providerEventId                  String
+  eventType                        String
+  occurredAt                       DateTime?
+  receivedAt                       DateTime                        @default(now())
+  processingStatus                 ProviderWebhookProcessingStatus @default(RECEIVED)
+  attemptCount                     Int                             @default(0)
+  nextAttemptAt                    DateTime?
+  errorCode                        String?
+  payload                          Json
+  processedAt                      DateTime?
+  canonicalProjectionStatus        ProviderWebhookProcessingStatus @default(RECEIVED)
+  canonicalProjectionAttemptCount  Int                             @default(0)
+  canonicalProjectionNextAttemptAt DateTime?
+  canonicalProjectionErrorCode     String?                         @db.VarChar(100)
+  canonicalProjectedAt             DateTime?
+  createdAt                        DateTime                        @default(now())
+  updatedAt                        DateTime                        @updatedAt
 
   @@unique([provider, providerEventId])
   @@index([processingStatus, nextAttemptAt, receivedAt])
+  @@index([canonicalProjectionStatus, canonicalProjectionNextAttemptAt, receivedAt], map: "provider_webhook_event_canonical_projection_recovery_idx")
   @@index([provider, eventType, receivedAt])
   @@map("provider_webhook_event")
 }
