@@ -9,6 +9,7 @@ import {
   selectIncomingCalls,
   selectOperation,
   type CallCenterSnapshot,
+  type AgentSessionView,
   type CallView,
   type ProjectionEvent,
 } from "../realtime-contract";
@@ -51,6 +52,21 @@ function snapshot(calls: CallView[] = []): CallCenterSnapshot {
   };
 }
 
+function agentSession(overrides: Partial<AgentSessionView> = {}): AgentSessionView {
+  return {
+    audioReady: false,
+    clientInstanceId: "client-1",
+    connectionState: "FAILED",
+    endpointId: "endpoint-1",
+    id: "session-1",
+    leaseExpiresAt: "2026-07-11T12:01:00.000Z",
+    microphoneReady: false,
+    presence: "PAUSED",
+    stateVersion: 2,
+    ...overrides,
+  };
+}
+
 function event(revision: string, delta: ProjectionEvent["delta"]): ProjectionEvent {
   return {
     aggregateId: "call-1",
@@ -90,6 +106,31 @@ describe("call-center realtime reducer", () => {
 
     expect(applied.revision).toBe("18");
     expect(applied.calls).toEqual([current]);
+  });
+
+  it("advances the cursor without applying an older agent-session version", () => {
+    const current = agentSession();
+    const initial = createRealtimeState({ ...snapshot(), agentSession: current });
+    const applied = applyProjectionEvent(initial, {
+      aggregateId: current.id,
+      aggregateType: "AGENT_SESSION",
+      delta: {
+        kind: "AGENT_SESSION_UPSERT",
+        session: agentSession({
+          audioReady: true,
+          connectionState: "READY",
+          microphoneReady: true,
+          presence: "AVAILABLE",
+          stateVersion: 1,
+        }),
+      },
+      revision: "19",
+      schemaVersion: 1,
+      stateVersion: 1,
+    });
+
+    expect(applied.revision).toBe("19");
+    expect(applied.agentSession).toEqual(current);
   });
 
   it("preserves the current screen during reconnect and reset", () => {

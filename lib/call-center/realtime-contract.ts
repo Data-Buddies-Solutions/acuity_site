@@ -49,11 +49,13 @@ export type CallLegView = {
 export type AgentSessionView = {
   id: string;
   endpointId: string;
-  presence: "AVAILABLE" | "BUSY" | "OFFLINE" | "PAUSED";
+  clientInstanceId: string;
+  presence: "AVAILABLE" | "BUSY" | "OFFLINE" | "PAUSED" | "WRAP_UP";
   connectionState: "CONNECTING" | "DISCONNECTED" | "FAILED" | "READY";
   microphoneReady: boolean;
   audioReady: boolean;
   leaseExpiresAt: string;
+  stateVersion: number;
 };
 
 export type EndpointView = {
@@ -170,6 +172,12 @@ export function applyProjectionEvent(
         calls: state.calls.filter(({ id }) => id !== delta.callId),
       };
     case "AGENT_SESSION_UPSERT":
+      if (
+        state.agentSession?.id === delta.session.id &&
+        state.agentSession.stateVersion >= delta.session.stateVersion
+      ) {
+        return advanced;
+      }
       return { ...advanced, agentSession: delta.session };
     case "AGENT_SESSION_REMOVE":
       return {

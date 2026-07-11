@@ -377,6 +377,10 @@ Telnyx recommends backend-generated JWT authentication and waiting for
 Credential and SIP fields may be null while an endpoint is disabled. Enabling
 an endpoint requires both values.
 
+During migration, a backfilled endpoint keeps the legacy seat ID as its endpoint
+ID. This preserves provider-leg and operational correlation without a second
+identifier mapping table.
+
 ### `CallCenterAgentSession`
 
 Represents one user checked into one endpoint in one browser.
@@ -387,7 +391,8 @@ Fields:
 - `practiceId`;
 - `userId`;
 - `endpointId`;
-- `browserSessionId`;
+- `clientInstanceId` on the canonical wire, stored in the transitional
+  `browserSessionId` database column;
 - `presence`: `AVAILABLE`, `PAUSED`, `BUSY`, `WRAP_UP`, or `OFFLINE`;
 - `connectionState`: `CONNECTING`, `READY`, `ERROR`, or `CLOSED`;
 - `microphoneReady`;
@@ -396,6 +401,7 @@ Fields:
 - `readyAt` nullable;
 - `lastHeartbeatAt`;
 - `leaseExpiresAt`;
+- `stateVersion`, a nonnegative monotonic integer;
 - timestamps.
 
 Eligibility requires:
@@ -859,7 +865,17 @@ applied safely.
   - check out and release the lease.
 
 The server accepts `connectionState = READY` only after the frontend receives
-the provider-ready event. Lease expiry still handles abrupt browser loss.
+the provider-ready event. PATCH requires the last acknowledged `stateVersion`
+and rejects stale updates, so delayed ready notifications cannot overwrite a
+newer failure. Lease expiry still handles abrupt browser loss.
+The lease is 60 seconds. Acquisition locks the endpoint row, closes expired live
+sessions, commits the session and sanitized event together, and only then mints
+the short-lived provider token. Same-user, same-client live acquisition returns
+the existing session without a mutation or duplicate event; heartbeat PATCH owns
+lease renewal. A fresh different-client lease returns `409`. The client ID is
+session-storage-only, and a browser `BroadcastChannel` claim regenerates copied
+new-tab identities before POST. The wire serializer maps database `ERROR` and
+`CLOSED` connection states to `FAILED` and `DISCONNECTED`.
 
 ### Call commands
 

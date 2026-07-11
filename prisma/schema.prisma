@@ -1122,6 +1122,7 @@ model CallCenterAgentSession {
   readyAt          DateTime?
   lastHeartbeatAt  DateTime                       @default(now())
   leaseExpiresAt   DateTime
+  stateVersion     Int                            @default(0)
   createdAt        DateTime                       @default(now())
   updatedAt        DateTime                       @updatedAt
   practice         Practice                       @relation(fields: [practiceId], references: [id], onDelete: Cascade)

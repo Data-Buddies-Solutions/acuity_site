@@ -1,0 +1,151 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import {
+  CallCenterAgentConnectionState,
+  CallCenterAgentPresence,
+} from "@/generated/prisma/client";
+import {
+  parseJsonBody,
+  requirePortalCallCenterContext,
+  withApiHandler,
+} from "@/lib/api/handler";
+import {
+  acquireAgentSession,
+  AGENT_SESSION_LEASE_MS,
+  type AgentSessionActor,
+  releaseAgentSession,
+  updateAgentSessionReadiness,
+} from "@/lib/call-center/application/agent-sessions";
+import { prismaAgentSessionStore } from "@/lib/call-center/infrastructure/prisma-agent-session-store";
+import { getAllowedCallCenterOutboundPhoneNumbers } from "@/lib/call-center";
+import { serializeAgentSessionView } from "@/lib/call-center/domain/agent-session-wire";
+import { createTelnyxLoginToken } from "@/lib/telnyx";
+
+const identitySchema = z.object({
+  clientInstanceId: z.string().trim().min(1).max(200),
+  endpointId: z.string().trim().min(1).max(200),
+});
+const readinessSchema = identitySchema.extend({
+  audioReady: z.boolean(),
+  connectionState: z.enum(CallCenterAgentConnectionState),
+  expectedStateVersion: z.number().int().nonnegative(),
+  microphoneReady: z.boolean(),
+  presence: z.enum(CallCenterAgentPresence),
+});
+const releaseSchema = identitySchema.extend({
+  expectedStateVersion: z.number().int().nonnegative(),
+});
+const paramsSchema = z.object({ sessionId: z.string().trim().min(1).max(200) });
+
+type RouteContext = { params: Promise<{ sessionId: string }> };
+type RequestContext = {
+  actor: AgentSessionActor;
+  callerNumber: string | null;
+};
+type AgentSessionHandlersDependencies = {
+  acquire?: typeof acquireAgentSession;
+  clock?: () => Date;
+  createToken?: typeof createTelnyxLoginToken;
+  getContext?: () => Promise<RequestContext>;
+  release?: typeof releaseAgentSession;
+  updateReadiness?: typeof updateAgentSessionReadiness;
+};
+
+async function getRequestContext(): Promise<RequestContext> {
+  const context = await requirePortalCallCenterContext();
+  return {
+    actor: {
+      allowedLocationIds: context.allowedLocationIds,
+      hasAllLocationAccess: context.hasAllLocationAccess,
+      practiceId: context.practice.id,
+      userId: context.session.user.id,
+    },
+    callerNumber:
+      getAllowedCallCenterOutboundPhoneNumbers(context)[0]?.phoneNumber ??
+      context.practice.callCenterSettings.outboundCallerNumber,
+  };
+}
+
+async function readSessionId(routeContext: RouteContext) {
+  return paramsSchema.parse(await routeContext.params).sessionId;
+}
+
+export function createAgentSessionHandlers({
+  acquire = acquireAgentSession,
+  clock = () => new Date(),
+  createToken = createTelnyxLoginToken,
+  getContext = getRequestContext,
+  release = releaseAgentSession,
+  updateReadiness = updateAgentSessionReadiness,
+}: AgentSessionHandlersDependencies = {}) {
+  const POST = withApiHandler(
+    async (request: Request) => {
+      const context = await getContext();
+      const input = await parseJsonBody(request, identitySchema);
+      const acquired = await acquire(
+        prismaAgentSessionStore,
+        context.actor,
+        input,
+        clock(),
+      );
+
+      // The lease and audit event commit before this external provider call.
+      const token = await createToken(acquired.endpoint.providerCredentialId);
+
+      return NextResponse.json({
+        callerNumber: context.callerNumber,
+        endpoint: { id: acquired.endpoint.id, label: acquired.endpoint.label },
+        leaseDurationMs: AGENT_SESSION_LEASE_MS,
+        session: serializeAgentSessionView(acquired.session),
+        token,
+      });
+    },
+    {
+      errorMessage: "Failed to acquire call center endpoint",
+      logLabel: "[portal-call-center] Failed to acquire canonical endpoint",
+    },
+  );
+
+  const PATCH = withApiHandler(
+    async (request: Request, routeContext: RouteContext) => {
+      const context = await getContext();
+      const sessionId = await readSessionId(routeContext);
+      const input = await parseJsonBody(request, readinessSchema);
+      const result = await updateReadiness(
+        prismaAgentSessionStore,
+        context.actor,
+        { ...input, sessionId },
+        clock(),
+      );
+
+      return NextResponse.json({ session: serializeAgentSessionView(result.session) });
+    },
+    {
+      errorMessage: "Failed to update call center readiness",
+      logLabel: "[portal-call-center] Failed to update canonical readiness",
+    },
+  );
+
+  const DELETE = withApiHandler(
+    async (request: Request, routeContext: RouteContext) => {
+      const context = await getContext();
+      const sessionId = await readSessionId(routeContext);
+      const input = await parseJsonBody(request, releaseSchema);
+      const result = await release(
+        prismaAgentSessionStore,
+        context.actor,
+        { ...input, sessionId },
+        clock(),
+      );
+
+      return NextResponse.json({ session: serializeAgentSessionView(result.session) });
+    },
+    {
+      errorMessage: "Failed to release call center endpoint",
+      logLabel: "[portal-call-center] Failed to release canonical endpoint",
+    },
+  );
+
+  return { DELETE, PATCH, POST };
+}
