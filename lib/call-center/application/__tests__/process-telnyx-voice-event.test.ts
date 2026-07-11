@@ -84,6 +84,7 @@ describe("Telnyx voice event processor", () => {
 
     await expect(process(envelope)).resolves.toMatchObject({
       duplicate: false,
+      providerWebhookEventId: "inbox-1",
       processingStatus: "PROCESSED",
     });
     expect(projectedBody).toEqual(envelope.body);
@@ -126,6 +127,7 @@ describe("Telnyx voice event processor", () => {
 
     await expect(process(envelope)).resolves.toEqual({
       duplicate: true,
+      providerWebhookEventId: "inbox-1",
       processingStatus: "PROCESSED",
     });
     expect(projectionCount).toBe(0);
@@ -186,6 +188,7 @@ describe("Telnyx voice event processor", () => {
     await expect(process(envelope)).resolves.toEqual({
       errorCode: "legacy_projection_failed",
       exhausted: true,
+      providerWebhookEventId: "inbox-1",
       processingStatus: "FAILED",
     });
     expect(projectionCount).toBe(0);

@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 
 import { ApiError, withApiHandler } from "@/lib/api/handler";
 import { handleTelnyxWebhookEvent } from "@/lib/call-center";
+import { createDurableTelnyxWebhookCoordinator } from "@/lib/call-center/application/process-durable-telnyx-webhook";
 import { processTelnyxVoiceEvent } from "@/lib/call-center/application/process-telnyx-voice-event";
+import { scheduleImmediateCanonicalProjection } from "@/lib/call-center/application/schedule-canonical-telnyx-event";
 import { resolveDurableWebhookIngressConfig } from "@/lib/call-center/infrastructure/durable-ingress-config";
 import { parseTelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
 import { handleTelnyxSmsWebhookEvent, isTelnyxSmsEvent } from "@/lib/sms/service";
@@ -10,6 +12,11 @@ import { verifyTelnyxWebhookSignature } from "@/lib/telnyx";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const processDurableTelnyxWebhook = createDurableTelnyxWebhookCoordinator({
+  processLegacy: processTelnyxVoiceEvent,
+  scheduleCanonical: (eventId) => scheduleImmediateCanonicalProjection(eventId, after),
+});
 
 export const POST = withApiHandler(
   async (request: NextRequest) => {
@@ -37,7 +44,7 @@ export const POST = withApiHandler(
     if (isTelnyxSmsEvent(body)) {
       result = await handleTelnyxSmsWebhookEvent(body);
     } else if (resolveDurableWebhookIngressConfig().enabled) {
-      result = await processTelnyxVoiceEvent(parseTelnyxVoiceWebhookEnvelope(body));
+      result = await processDurableTelnyxWebhook(parseTelnyxVoiceWebhookEnvelope(body));
     } else {
       result = await handleTelnyxWebhookEvent(body);
     }

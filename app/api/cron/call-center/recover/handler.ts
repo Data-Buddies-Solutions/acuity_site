@@ -1,4 +1,5 @@
 import { recoverProviderWebhooks } from "@/lib/call-center/application/recover-provider-webhooks";
+import { InvalidCanonicalProjectionConfigError } from "@/lib/call-center/infrastructure/canonical-projection-config";
 import { InvalidDurableWebhookIngressConfigError } from "@/lib/call-center/infrastructure/durable-ingress-config";
 import { createLogger } from "@/lib/logger";
 
@@ -32,7 +33,11 @@ export function createCallCenterRecoveryHandler({
       return Response.json(
         { error: RECOVERY_ERROR, ok: false },
         {
-          status: error instanceof InvalidDurableWebhookIngressConfigError ? 503 : 500,
+          status:
+            error instanceof InvalidDurableWebhookIngressConfigError ||
+            error instanceof InvalidCanonicalProjectionConfigError
+              ? 503
+              : 500,
         },
       );
     }

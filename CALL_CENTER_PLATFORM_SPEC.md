@@ -583,6 +583,13 @@ owner. Canonical projection may retry or fail without replaying legacy effects.
 Both checkpoints use the provider-processing state vocabulary, but neither
 checkpoint advances the other.
 
+After successful durable legacy processing, Next.js schedules one
+failure-contained canonical attempt after the provider response. This keeps the
+normal projection path out of the minute-level recovery cadence. The scheduled
+callback receives only the inbox event ID, never invokes the legacy projector,
+and cannot change the provider acknowledgement. The cron remains the bounded
+recovery owner for failed, stale, or unscheduled canonical work.
+
 The checkpoint migration initializes historical events as `IGNORED` because
 their retained payload may already be redacted. Events received after the
 migration begin at `RECEIVED` and are eligible for passive projection.
@@ -590,6 +597,13 @@ migration begin at `RECEIVED` and are eligible for passive projection.
 Raw payload access is restricted and retained only as long as operations and
 compliance require. Application logs receive only event ID, type, internal call
 ID, processing status, and categorical error code.
+
+The retention worker may redact a payload only after both checkpoints are
+terminal (`PROCESSED`, `IGNORED`, or an exhausted `FAILED`). When passive
+projection is intentionally disabled through the retention deadline, redaction
+atomically marks its checkpoint `IGNORED`; a later rollout must not resurrect
+that event. This prevents both indefinite raw retention and deletion of input
+still required by an enabled canonical worker.
 
 ### `CallCenterCommand`
 
@@ -1284,6 +1298,19 @@ deterministic without changing the legacy routing owner.
 3. Process each durable event through the legacy projector as the sole effect
    owner and add a passive canonical projection from the same event. Canonical
    code issues no provider effects.
+   The passive lane consumes only call lifecycle facts, resolves generic
+   numbers, queues, and endpoints only when exactly one tenant-scoped mapping
+   exists, and writes the call, leg, revisioned event, and checkpoint completion
+   in one database transaction. Unsupported facts become `IGNORED`; incomplete
+   or ambiguous mappings fail with bounded categorical retries.
+   Generic `call.recording.saved` events are not voicemail evidence; only an
+   explicit voicemail-completed fact may refine a call to `VOICEMAIL`.
+   Exact stored provider leg identity is resolved before interpreting later
+   events that omit `client_state`; phone direction is never used to guess an
+   agent leg. Earlier or richer facts may only move call/leg start timestamps
+   earlier and fill missing caller identity or phone fields. Persisted bridge,
+   voicemail, and terminal timestamps are reconciled on every fact, so a call
+   with bridge evidence cannot converge to `VOICEMAIL` in any delivery order.
 4. Backfill historical calls where mapping is unambiguous.
 5. Report and isolate ambiguous historical rows; do not invent missing state.
 6. Run invariant audits continuously.

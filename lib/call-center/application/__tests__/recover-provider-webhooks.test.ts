@@ -4,6 +4,13 @@ import type { ProviderWebhookRecord } from "../../infrastructure/provider-webhoo
 import { createProviderWebhookRecovery } from "../recover-provider-webhooks";
 
 const now = new Date("2026-07-11T12:00:00.000Z");
+const canonicalDisabled = {
+  enabled: false,
+  failed: 0,
+  ignored: 0,
+  projected: 0,
+  selected: 0,
+} as const;
 
 function record(id: string): ProviderWebhookRecord {
   return {
@@ -47,6 +54,7 @@ describe("provider webhook recovery", () => {
     });
 
     await expect(recover()).resolves.toEqual({
+      canonical: canonicalDisabled,
       enabled: false,
       failed: 0,
       recovered: 0,
@@ -58,7 +66,8 @@ describe("provider webhook recovery", () => {
 
   it("continues payload redaction while durable ingress is disabled", async () => {
     let recoveryCalls = 0;
-    let redactionInput: { before: Date; limit?: number } | undefined;
+    let redactionInput:
+      { before: Date; canonicalProjectionEnabled: boolean; limit?: number } | undefined;
     const recover = createProviderWebhookRecovery({
       clock: () => now,
       config: () => ({ enabled: false, payloadRetentionDays: 3 }),
@@ -78,6 +87,7 @@ describe("provider webhook recovery", () => {
     });
 
     await expect(recover()).resolves.toEqual({
+      canonical: canonicalDisabled,
       enabled: false,
       failed: 0,
       recovered: 0,
@@ -87,6 +97,7 @@ describe("provider webhook recovery", () => {
     expect(recoveryCalls).toBe(0);
     expect(redactionInput).toEqual({
       before: new Date("2026-07-08T12:00:00.000Z"),
+      canonicalProjectionEnabled: false,
       limit: 100,
     });
   });
@@ -116,11 +127,16 @@ describe("provider webhook recovery", () => {
         if (envelope.providerEventId === "event-2") {
           throw new Error("temporary projection failure");
         }
-        return { duplicate: false, processingStatus: "PROCESSED" };
+        return {
+          duplicate: false,
+          processingStatus: "PROCESSED",
+          providerWebhookEventId: envelope.providerEventId,
+        };
       },
     });
 
     await expect(recover()).resolves.toEqual({
+      canonical: canonicalDisabled,
       enabled: true,
       failed: 1,
       recovered: 2,
@@ -133,7 +149,8 @@ describe("provider webhook recovery", () => {
   });
 
   it("redacts terminal payloads before the configured retention boundary", async () => {
-    let redactionInput: { before: Date; limit?: number } | undefined;
+    let redactionInput:
+      { before: Date; canonicalProjectionEnabled: boolean; limit?: number } | undefined;
     const recover = createProviderWebhookRecovery({
       clock: () => now,
       config: () => ({ enabled: true, payloadRetentionDays: 3 }),
@@ -147,6 +164,7 @@ describe("provider webhook recovery", () => {
       processEvent: async () => ({
         duplicate: false,
         processingStatus: "PROCESSED",
+        providerWebhookEventId: "event-1",
       }),
     });
 
@@ -154,6 +172,7 @@ describe("provider webhook recovery", () => {
 
     expect(redactionInput).toEqual({
       before: new Date("2026-07-08T12:00:00.000Z"),
+      canonicalProjectionEnabled: false,
       limit: 100,
     });
   });

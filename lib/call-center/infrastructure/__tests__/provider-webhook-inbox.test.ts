@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   createProviderWebhookInbox,
   decideProviderWebhookClaim,
+  providerWebhookPayloadRetentionWhere,
   providerWebhookRetryAt,
   type ProviderWebhookInboxMaintenanceStore,
   type ProviderWebhookInboxStore,
@@ -167,7 +168,56 @@ describe("provider webhook claim decisions", () => {
     const inbox = createProviderWebhookInbox(store, { maxAttempts: 4 });
     const before = new Date("2026-07-01T00:00:00.000Z");
 
-    await expect(inbox.redactPayloads({ before, limit: 10_000 })).resolves.toBe(2);
-    expect(inputs[0]).toEqual({ before, limit: 500, maxAttempts: 4 });
+    await expect(
+      inbox.redactPayloads({
+        before,
+        canonicalProjectionEnabled: true,
+        limit: 10_000,
+      }),
+    ).resolves.toBe(2);
+    expect(inputs[0]).toEqual({
+      before,
+      canonicalProjectionEnabled: true,
+      limit: 500,
+      maxAttempts: 4,
+      redactedAt: expect.any(Date),
+    });
+  });
+
+  it("retains raw input until both legacy and canonical lanes are terminal", () => {
+    const before = new Date("2026-07-01T00:00:00.000Z");
+    const where = providerWebhookPayloadRetentionWhere(before, 8, true);
+
+    expect(where).toMatchObject({
+      AND: [
+        {
+          OR: [
+            { processingStatus: { in: ["PROCESSED", "IGNORED"] } },
+            { attemptCount: { gte: 8 }, processingStatus: "FAILED" },
+          ],
+        },
+        {
+          OR: [
+            { canonicalProjectionStatus: { in: ["PROCESSED", "IGNORED"] } },
+            {
+              canonicalProjectionAttemptCount: { gte: 8 },
+              canonicalProjectionStatus: "FAILED",
+            },
+          ],
+        },
+      ],
+      receivedAt: { lt: before },
+    });
+
+    expect(providerWebhookPayloadRetentionWhere(before, 8, false)).toMatchObject({
+      AND: [
+        {
+          OR: [
+            { processingStatus: { in: ["PROCESSED", "IGNORED"] } },
+            { attemptCount: { gte: 8 }, processingStatus: "FAILED" },
+          ],
+        },
+      ],
+    });
   });
 });

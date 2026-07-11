@@ -54,8 +54,10 @@ export type ProviderWebhookInboxMaintenanceStore = {
   }): Promise<ProviderWebhookRecord[]>;
   redactPayloads(input: {
     before: Date;
+    canonicalProjectionEnabled: boolean;
     limit: number;
     maxAttempts: number;
+    redactedAt: Date;
   }): Promise<number>;
 };
 
@@ -162,15 +164,25 @@ export function createProviderWebhookInbox(
         staleBefore: new Date(now.getTime() - processingLeaseMs),
       });
     },
-    async redactPayloads({ before, limit }: { before: Date; limit?: number }) {
+    async redactPayloads({
+      before,
+      canonicalProjectionEnabled,
+      limit,
+    }: {
+      before: Date;
+      canonicalProjectionEnabled: boolean;
+      limit?: number;
+    }) {
       if (!store.redactPayloads) {
         throw new Error("Provider webhook payload redaction is not configured");
       }
 
       return store.redactPayloads({
         before,
+        canonicalProjectionEnabled,
         limit: boundedBatchSize(limit),
         maxAttempts,
+        redactedAt: clock(),
       });
     },
     async claim(event: ProviderWebhookRecord) {
@@ -213,6 +225,47 @@ const selectedFields = {
 
 function jsonInput(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
+}
+
+export function providerWebhookPayloadRetentionWhere(
+  before: Date,
+  maxAttempts: number,
+  canonicalProjectionEnabled: boolean,
+): Prisma.ProviderWebhookEventWhereInput {
+  const redactedPayload = jsonInput(PROVIDER_WEBHOOK_REDACTED_PAYLOAD);
+  return {
+    NOT: { payload: { equals: redactedPayload } },
+    AND: [
+      {
+        OR: [
+          { processingStatus: { in: ["PROCESSED", "IGNORED"] as const } },
+          {
+            attemptCount: { gte: maxAttempts },
+            processingStatus: "FAILED" as const,
+          },
+        ],
+      },
+      ...(canonicalProjectionEnabled
+        ? [
+            {
+              OR: [
+                {
+                  canonicalProjectionStatus: {
+                    in: ["PROCESSED", "IGNORED"] as Array<"PROCESSED" | "IGNORED">,
+                  },
+                },
+                {
+                  canonicalProjectionAttemptCount: { gte: maxAttempts },
+                  canonicalProjectionStatus: "FAILED" as const,
+                },
+              ],
+            },
+          ]
+        : []),
+    ],
+    provider: "TELNYX" as const,
+    receivedAt: { lt: before },
+  };
 }
 
 export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
@@ -332,17 +385,19 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
       },
     });
   },
-  async redactPayloads({ before, limit, maxAttempts }) {
+  async redactPayloads({
+    before,
+    canonicalProjectionEnabled,
+    limit,
+    maxAttempts,
+    redactedAt,
+  }) {
     const redactedPayload = jsonInput(PROVIDER_WEBHOOK_REDACTED_PAYLOAD);
-    const eligible = {
-      NOT: { payload: { equals: redactedPayload } },
-      OR: [
-        { processingStatus: { in: ["PROCESSED", "IGNORED"] as const } },
-        { attemptCount: { gte: maxAttempts }, processingStatus: "FAILED" as const },
-      ],
-      provider: "TELNYX" as const,
-      receivedAt: { lt: before },
-    } satisfies Prisma.ProviderWebhookEventWhereInput;
+    const eligible = providerWebhookPayloadRetentionWhere(
+      before,
+      maxAttempts,
+      canonicalProjectionEnabled,
+    );
     const events = await prisma.providerWebhookEvent.findMany({
       orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
       select: { id: true },
@@ -354,15 +409,41 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
       return 0;
     }
 
-    const redacted = await prisma.providerWebhookEvent.updateMany({
-      data: { payload: redactedPayload },
-      where: {
-        ...eligible,
-        id: { in: events.map((event) => event.id) },
-      },
-    });
+    const ids = events.map((event) => event.id);
+    if (canonicalProjectionEnabled) {
+      const redacted = await prisma.providerWebhookEvent.updateMany({
+        data: { payload: redactedPayload },
+        where: { ...eligible, id: { in: ids } },
+      });
+      return redacted.count;
+    }
 
-    return redacted.count;
+    const [terminal, skipped] = await prisma.$transaction([
+      prisma.providerWebhookEvent.updateMany({
+        data: { payload: redactedPayload },
+        where: {
+          ...eligible,
+          canonicalProjectionStatus: { in: ["PROCESSED", "IGNORED"] },
+          id: { in: ids },
+        },
+      }),
+      prisma.providerWebhookEvent.updateMany({
+        data: {
+          canonicalProjectedAt: redactedAt,
+          canonicalProjectionErrorCode: null,
+          canonicalProjectionNextAttemptAt: null,
+          canonicalProjectionStatus: "IGNORED",
+          payload: redactedPayload,
+        },
+        where: {
+          ...eligible,
+          canonicalProjectionStatus: { in: ["RECEIVED", "PROCESSING", "FAILED"] },
+          id: { in: ids },
+        },
+      }),
+    ]);
+
+    return terminal.count + skipped.count;
   },
 };
 

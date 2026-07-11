@@ -1,8 +1,17 @@
 import { describe, expect, it } from "bun:test";
 
+import { InvalidCanonicalProjectionConfigError } from "@/lib/call-center/infrastructure/canonical-projection-config";
+
 import { createCallCenterRecoveryHandler } from "./handler";
 
 const url = "https://example.test/api/cron/call-center/recover";
+const canonicalDisabled = {
+  enabled: false,
+  failed: 0,
+  ignored: 0,
+  projected: 0,
+  selected: 0,
+} as const;
 
 function request(token?: string) {
   return new Request(url, {
@@ -18,6 +27,7 @@ describe("call center webhook recovery cron", () => {
       recover: async () => {
         recoveryCalls += 1;
         return {
+          canonical: canonicalDisabled,
           enabled: false,
           failed: 0,
           recovered: 0,
@@ -40,6 +50,7 @@ describe("call center webhook recovery cron", () => {
       recover: async () => {
         recoveryCalls += 1;
         return {
+          canonical: canonicalDisabled,
           enabled: false,
           failed: 0,
           recovered: 0,
@@ -58,6 +69,13 @@ describe("call center webhook recovery cron", () => {
     const GET = createCallCenterRecoveryHandler({
       environment: { CRON_SECRET: "correct-secret" },
       recover: async () => ({
+        canonical: {
+          enabled: true,
+          failed: 0,
+          ignored: 1,
+          projected: 2,
+          selected: 3,
+        },
         enabled: true,
         failed: 1,
         recovered: 2,
@@ -70,6 +88,13 @@ describe("call center webhook recovery cron", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
+      canonical: {
+        enabled: true,
+        failed: 0,
+        ignored: 1,
+        projected: 2,
+        selected: 3,
+      },
       enabled: true,
       failed: 1,
       ok: true,
@@ -90,6 +115,23 @@ describe("call center webhook recovery cron", () => {
     const response = await GET(request("correct-secret"));
 
     expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "call_center_webhook_recovery_failed",
+      ok: false,
+    });
+  });
+
+  it("reports invalid canonical activation as unavailable without leaking config", async () => {
+    const GET = createCallCenterRecoveryHandler({
+      environment: { CRON_SECRET: "correct-secret" },
+      recover: async () => {
+        throw new InvalidCanonicalProjectionConfigError("sensitive config detail");
+      },
+    });
+
+    const response = await GET(request("correct-secret"));
+
+    expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
       error: "call_center_webhook_recovery_failed",
       ok: false,
