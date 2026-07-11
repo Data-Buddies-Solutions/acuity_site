@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { ApiError, withApiHandler } from "@/lib/api/handler";
 import { handleTelnyxWebhookEvent } from "@/lib/call-center";
+import { processTelnyxVoiceEvent } from "@/lib/call-center/application/process-telnyx-voice-event";
+import { resolveDurableWebhookIngressConfig } from "@/lib/call-center/infrastructure/durable-ingress-config";
+import { parseTelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
 import { handleTelnyxSmsWebhookEvent, isTelnyxSmsEvent } from "@/lib/sms/service";
 import { verifyTelnyxWebhookSignature } from "@/lib/telnyx";
 
@@ -29,9 +32,16 @@ export const POST = withApiHandler(
       throw new ApiError("Invalid JSON", 400);
     }
 
-    const result = isTelnyxSmsEvent(body)
-      ? await handleTelnyxSmsWebhookEvent(body)
-      : await handleTelnyxWebhookEvent(body);
+    let result: Record<string, unknown>;
+
+    if (isTelnyxSmsEvent(body)) {
+      result = await handleTelnyxSmsWebhookEvent(body);
+    } else if (resolveDurableWebhookIngressConfig().enabled) {
+      result = await processTelnyxVoiceEvent(parseTelnyxVoiceWebhookEnvelope(body));
+    } else {
+      result = await handleTelnyxWebhookEvent(body);
+    }
+
     return NextResponse.json({ ok: true, ...result });
   },
   {
