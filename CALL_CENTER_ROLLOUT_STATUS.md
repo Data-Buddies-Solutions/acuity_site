@@ -42,10 +42,10 @@ remount, and reconnect production receipts are still required before the
 coordination gate closes.
 
 PR [#90](https://github.com/Data-Buddies-Solutions/acuity_site/pull/90) merged
-default-off durable inbox processing, bounded recovery, and payload retention.
-Its production deployment is Ready and its authenticated recovery cron returned
-`200`. Durable ingress activation is still awaiting an explicit production
-receipt; legacy processing remains authoritative.
+durable inbox processing, bounded recovery, and payload retention. Durable
+ingress is enabled in production and the authenticated recovery cron returns
+`200`; the first live webhook backlog receipt is still pending. Legacy
+processing remains authoritative.
 
 PR [#91](https://github.com/Data-Buddies-Solutions/acuity_site/pull/91) merged
 Phase 2A as an admin-only, redacted configuration report. It makes no writes and
@@ -57,13 +57,23 @@ only current practice members already observed on those legacy seats, so the
 report can preserve proven access without inferring a user from a name or
 email. The report remains read-only and blocked when no such evidence exists.
 
-Draft PR [#93](https://github.com/Data-Buddies-Solutions/acuity_site/pull/93)
-implements Phase 2B with an admin-only, ETag-protected generic configuration
-snapshot. It preserves omitted disabled rows, keeps credentials write-only,
-rejects `ACTIVE` and unsafe `SHADOW` configuration, and emits one transactional
-audit event. The practice admin exposes the redacted Phase 2A report without an
-apply control, and the first write is blocked until that report is ready for
-manual review. It does not change the live routing owner.
+PR [#92](https://github.com/Data-Buddies-Solutions/acuity_site/pull/92) added the
+independent passive-projection checkpoint and its production migration is
+applied. PR [#93](https://github.com/Data-Buddies-Solutions/acuity_site/pull/93)
+merged the admin-only, ETag-protected generic configuration snapshot. PR
+[#94](https://github.com/Data-Buddies-Solutions/acuity_site/pull/94) merged the
+pure revision, reset, snapshot, and reducer contracts. PR
+[#95](https://github.com/Data-Buddies-Solutions/acuity_site/pull/95) merged
+canonical endpoint leasing with stale-readiness rejection and canonical
+client-instance identity. None of these PRs changes the live routing or
+frontend owner.
+
+The Phase 5A snapshot/SSE branch adds a transactionally consistent,
+queue-authorized canonical snapshot and an explicit
+`contract=canonical&queueId=...` event stream. The existing refresh stream
+remains the default. The canonical stream uses decimal revision strings,
+supports resume and reset semantics, emits only projection-derived deltas, and
+closes after a bounded invocation window. It has no frontend wiring.
 
 Legacy routing and projections remain authoritative. Phase 3B now has a
 default-off passive projector implementation: its recovery lane is independent,
@@ -71,25 +81,25 @@ its canonical writes and checkpoint completion are transactional, and it cannot
 issue provider commands or write legacy projections. Production activation and
 comparison evidence remain pending.
 
-Draft PR [#97](https://github.com/Data-Buddies-Solutions/acuity_site/pull/97)
-adds an isolated post-response canonical attempt, keeps cron as recovery, binds
+PR [#97](https://github.com/Data-Buddies-Solutions/acuity_site/pull/97) merged
+an isolated post-response canonical attempt, keeps cron as recovery, binds
 later callbacks through exact provider leg identity, monotonically enriches
 earlier/richer facts, and reconciles handled outcomes from persisted bridge and
 voicemail evidence rather than delivery order.
 
 ## Phase status
 
-| Phase | Scope                                                                    | Code status                              | Production status                  |
-| ----- | ------------------------------------------------------------------------ | ---------------------------------------- | ---------------------------------- |
-| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89         | #89 synthetic gate pending         |
-| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | PR #90 merged and deployed               | Cron 200; activation proof pending |
-| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PR #91 merged; draft PR #93              | Legacy configuration remains owner |
-| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | Draft #97 passive projector; default off | Inactive; comparison gate pending  |
-| 4A    | Canonical routing and durable command foundations                        | Not started                              | Blocked by Phases 1-3              |
-| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | Legacy UI repaired only                  | Route-refresh stream remains       |
-| 4B/5B | Per-queue routing and frontend cutover                                   | Not started                              | Must activate together             |
-| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                              | Blocked until observation closes   |
-| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred      | Public-number handoff remains      |
+| Phase | Scope                                                                    | Code status                                   | Production status                  |
+| ----- | ------------------------------------------------------------------------ | --------------------------------------------- | ---------------------------------- |
+| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89              | #89 synthetic gate pending         |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | PR #90 merged and deployed                    | Cron 200; activation proof pending |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, and #95 merged                  | Legacy configuration remains owner |
+| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged       | Projector disabled by default      |
+| 4A    | Canonical routing and durable command foundations                        | Not started                                   | Blocked by Phases 1-3              |
+| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94 primitives; snapshot/SSE branch in review | Route-refresh stream remains       |
+| 4B/5B | Per-queue routing and frontend cutover                                   | Not started                                   | Must activate together             |
+| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                                   | Blocked until observation closes   |
+| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred           | Public-number handoff remains      |
 
 ## Release sequence
 
@@ -131,11 +141,14 @@ voicemail evidence rather than delivery order.
   build, and its Vercel preview. Production activation gates remain open.
 - PR #91 passed local Prisma, format, lint, typecheck, 170 tests, and a
   production build. It has no migration or runtime activation and is merged.
-- Draft PR #93 passed local Prisma, format, lint, typecheck, 245 tests, and a
+- PR #93 passed local Prisma, format, lint, typecheck, 245 tests, and a
   production build. It has no migration and leaves legacy routing authoritative.
-- The Phase 3B passive projector passed Prisma validation, lint, typecheck, 319
-  tests, changed-file formatting, and the optimized production build. It adds
-  no migration and remains disabled by default.
+- PR #97 passed Prisma validation, lint, typecheck, 319 tests,
+  changed-file formatting, and the optimized production build. It adds no
+  migration and remains disabled by default.
+- The Phase 5A snapshot/SSE branch passes full CI with 308 tests and a
+  production build. It has no migration and leaves the legacy event
+  stream and frontend ownership unchanged.
 
 ## Proposed defaults and production gates
 
