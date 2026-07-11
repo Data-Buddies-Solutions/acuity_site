@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Call, INotification, TelnyxRTC } from "@telnyx/webrtc";
 import {
   Delete,
   Grid3X3,
@@ -33,6 +32,7 @@ import {
   resolveSoftphoneReadiness,
   type SoftphoneReadiness,
 } from "./call-center-readiness";
+import { useLegacySoftphoneMedia, type LegacySoftphoneCall } from "./use-softphone";
 
 type TelnyxStatus =
   "initializing" | "ready" | "ringing" | "on-call" | "error" | "offline";
@@ -47,22 +47,10 @@ type CompletedCallWrapUp = {
   token: number;
 };
 
-type TelnyxCall = Call;
-
-type TelnyxTokenResponse =
-  | {
-      callerNumber?: string;
-      login: string;
-      password: string;
-    }
-  | {
-      callerNumber?: string;
-      token: string;
-    };
+type TelnyxCall = LegacySoftphoneCall;
 
 const CALL_CENTER_DEBUG = process.env.NEXT_PUBLIC_CALL_CENTER_DEBUG === "true";
 const AGENT_RING_UI_TIMEOUT_MS = 30_500;
-const DEFAULT_STATION_KEY = "default";
 
 const keypadRows = [
   ["1", "2", "3"],
@@ -256,56 +244,21 @@ function isStaleTelnyxCallError(error: unknown) {
   );
 }
 
-function mediaErrorMessage(event: unknown) {
-  if (event && typeof event === "object") {
-    const error = "error" in event ? (event as { error?: unknown }).error : null;
-
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    if (error && typeof error === "object" && "message" in error) {
-      const message = (error as { message?: unknown }).message;
-
-      if (typeof message === "string") {
-        return message;
-      }
-    }
-
-    if (
-      "message" in event &&
-      typeof (event as { message?: unknown }).message === "string"
-    ) {
-      return (event as { message: string }).message;
-    }
-  }
-
-  return "Browser microphone or WebRTC media failed";
-}
-
 function callDebugSnapshot(call: TelnyxCall | null | undefined) {
   if (!call) {
     return null;
   }
 
-  const remoteStream = call.remoteStream;
-
   return {
     callerNumber: call.options?.callerNumber ?? null,
     direction: call.direction ?? null,
-    hasRemoteStream: Boolean(remoteStream),
+    hasRemoteStream: call.remoteAudioReady,
     id: call.id,
     remoteCallerNumber: call.options?.remoteCallerNumber ?? null,
-    remoteStreamTracks:
-      remoteStream?.getTracks().map((track) => ({
-        enabled: track.enabled,
-        kind: track.kind,
-        muted: track.muted,
-        readyState: track.readyState,
-      })) ?? [],
     state: call.state ?? null,
-    telnyxCallControlId: call.telnyxIDs?.telnyxCallControlId ?? null,
-    telnyxSessionId: call.telnyxIDs?.telnyxSessionId ?? null,
+    telnyxCallControlId: call.providerCallControlId,
+    telnyxLegId: call.providerCallLegId,
+    telnyxSessionId: call.providerCallSessionId,
   };
 }
 
@@ -353,9 +306,6 @@ const SoftphonePanel = forwardRef<
   },
   ref,
 ) {
-  const clientRef = useRef<TelnyxRTC | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const debugStartMsRef = useRef<number>(
     typeof performance === "undefined" ? Date.now() : performance.now(),
   );
@@ -377,11 +327,6 @@ const SoftphonePanel = forwardRef<
   const [selectedTransferSeatId, setSelectedTransferSeatId] = useState("");
   const [transferPending, setTransferPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [setupError, setSetupError] = useState<string | null>(null);
-  const [setupPending, setSetupPending] = useState(false);
-  const [connectedStationKey, setConnectedStationKey] = useState<string | null>(null);
-  const [microphoneReady, setMicrophoneReady] = useState(false);
-  const [soundUnlocked, setSoundUnlocked] = useState(false);
   const [answeringCallIds, setAnsweringCallIds] = useState<Set<string>>(() => new Set());
   const [, setAnsweringRingKeys] = useState<Set<string>>(() => new Set());
   const [postCallWrapUp, setPostCallWrapUp] = useState<CompletedCallWrapUp | null>(null);
@@ -425,25 +370,6 @@ const SoftphonePanel = forwardRef<
     Math.max(5_000, (voicemailTimeoutSec ?? 30) * 1000),
   );
   const stationSelected = !stationRequired || Boolean(stationSeatId);
-  const stationKey = stationSeatId ?? (stationRequired ? null : DEFAULT_STATION_KEY);
-  const readiness = useMemo(
-    () =>
-      resolveSoftphoneReadiness({
-        microphoneReady,
-        providerReady: Boolean(stationKey && connectedStationKey === stationKey),
-        soundReady: soundUnlocked,
-        stationId: stationSeatId ?? null,
-        stationSelected,
-      }),
-    [
-      connectedStationKey,
-      microphoneReady,
-      soundUnlocked,
-      stationKey,
-      stationSeatId,
-      stationSelected,
-    ],
-  );
 
   const debugLog = useCallback((event: string, details: Record<string, unknown> = {}) => {
     if (!CALL_CENTER_DEBUG) {
@@ -459,6 +385,42 @@ const SoftphonePanel = forwardRef<
       ...sanitizeCallCenterDebugDetails(details),
     });
   }, []);
+
+  const media = useLegacySoftphoneMedia({
+    browserSessionId,
+    enabled,
+    onDebug: debugLog,
+    stationSeatId,
+  });
+  const {
+    activate: activateMediaLeg,
+    answer: answerMediaLeg,
+    deactivate: deactivateMediaLeg,
+    decline: declineMediaLeg,
+    dial: dialMediaLeg,
+    hangup: hangupMediaLeg,
+    hold: holdMediaLeg,
+    mute: muteMediaLeg,
+    sendDtmf,
+    subscribeLegacy,
+  } = media;
+  const readiness = useMemo(
+    () =>
+      resolveSoftphoneReadiness({
+        microphoneReady: media.microphoneReady,
+        providerReady: media.connection === "READY",
+        soundReady: media.soundReady,
+        stationId: stationSeatId ?? null,
+        stationSelected,
+      }),
+    [
+      media.connection,
+      media.microphoneReady,
+      media.soundReady,
+      stationSeatId,
+      stationSelected,
+    ],
+  );
 
   const eligibleTransferTargets = useMemo(
     () =>
@@ -620,11 +582,7 @@ const SoftphonePanel = forwardRef<
         ) {
           const currentActiveCall = activeCallRef.current;
           if (currentActiveCall && currentActiveCall.id !== match.id) {
-            try {
-              currentActiveCall.hold();
-            } catch {
-              // The provider rejects this when the current call is no longer holdable.
-            }
+            void holdMediaLeg(currentActiveCall.id, true).catch(() => {});
             setHeldCalls((current) =>
               current.some((call) => call.id === currentActiveCall.id)
                 ? current
@@ -633,7 +591,7 @@ const SoftphonePanel = forwardRef<
           }
 
           setAnsweringCallPending(match.id, true);
-          void match.answer({ video: false }).catch(() => {
+          void answerMediaLeg(match.id).catch(() => {
             setAnsweringCallPending(match.id, false);
             setAnsweringRingPending(ringKey, false);
           });
@@ -644,142 +602,15 @@ const SoftphonePanel = forwardRef<
     }),
     [
       scheduleAnswerPendingExpiry,
+      answerMediaLeg,
+      holdMediaLeg,
       setAnsweringCallPending,
       setAnsweringPendingForCall,
       setAnsweringRingPending,
     ],
   );
 
-  const unlockSound = useCallback(async () => {
-    if (soundUnlocked) {
-      return true;
-    }
-
-    const AudioCtxCtor =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-
-    if (!AudioCtxCtor) {
-      return false;
-    }
-
-    const ctx = new AudioCtxCtor();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const now = ctx.currentTime;
-
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.03, now + 0.01);
-    gain.gain.linearRampToValueAtTime(0, now + 0.06);
-    osc.frequency.value = 880;
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.07);
-
-    try {
-      await ctx.resume();
-      setSoundUnlocked(true);
-      return true;
-    } catch {
-      // Browser audio policies vary; the next user gesture can retry.
-      return false;
-    } finally {
-      setTimeout(() => {
-        ctx.close().catch(() => {});
-      }, 120);
-    }
-  }, [soundUnlocked]);
-
-  const ensureMicrophonePermission = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setMicrophoneReady(false);
-      setSetupError("This browser does not support microphone access.");
-      return false;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: false,
-      });
-      stream.getTracks().forEach((track) => track.stop());
-      setMicrophoneReady(true);
-      setSetupError(null);
-      return true;
-    } catch (permissionError) {
-      const message =
-        permissionError instanceof Error
-          ? permissionError.message
-          : "Microphone permission is required to answer calls.";
-      debugLog("microphone-permission-failed", { message });
-      setMicrophoneReady(false);
-      setSetupError(`Microphone permission is required to answer calls. ${message}`);
-      return false;
-    }
-  }, [debugLog]);
-
-  const prepareMedia = useCallback(async () => {
-    setSetupPending(true);
-
-    try {
-      const [soundReady, hasMicrophone] = await Promise.all([
-        unlockSound(),
-        ensureMicrophonePermission(),
-      ]);
-
-      if (!hasMicrophone) {
-        return false;
-      }
-
-      if (!soundReady) {
-        setSetupError(
-          "Browser sound is blocked. Click Enable calling and allow audio playback.",
-        );
-        return false;
-      }
-
-      setSetupError(null);
-      return true;
-    } finally {
-      setSetupPending(false);
-    }
-  }, [ensureMicrophonePermission, unlockSound]);
-
-  useEffect(() => {
-    if (!navigator.permissions?.query) {
-      return;
-    }
-
-    let cancelled = false;
-    let permission: PermissionStatus | null = null;
-    const syncPermission = () => {
-      if (permission?.state !== "granted") {
-        setMicrophoneReady(false);
-      }
-    };
-
-    void navigator.permissions
-      .query({ name: "microphone" as PermissionName })
-      .then((status) => {
-        if (cancelled) {
-          return;
-        }
-
-        permission = status;
-        syncPermission();
-        permission.addEventListener("change", syncPermission);
-      })
-      .catch(() => {
-        // Some browsers support getUserMedia but not microphone permission queries.
-      });
-
-    return () => {
-      cancelled = true;
-      permission?.removeEventListener("change", syncPermission);
-    };
-  }, []);
+  const prepareMedia = media.prepare;
 
   useEffect(() => {
     activeCallRef.current = activeCall;
@@ -979,42 +810,6 @@ const SoftphonePanel = forwardRef<
     }, 1000);
   }, []);
 
-  const detachAudio = useCallback(() => {
-    if (audioRef.current) {
-      debugLog("audio-detached");
-      audioRef.current.srcObject = null;
-      audioRef.current.remove();
-      audioRef.current = null;
-    }
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = null;
-    }
-  }, [debugLog]);
-
-  const attachAudio = useCallback(
-    (call: TelnyxCall) => {
-      detachAudio();
-      const stream = call.remoteStream;
-
-      if (!stream) {
-        debugLog("audio-attach-skipped", { call: callDebugSnapshot(call) });
-        return;
-      }
-
-      const audio = remoteAudioRef.current ?? document.createElement("audio");
-      audio.autoplay = true;
-      audio.setAttribute("playsinline", "true");
-      audio.srcObject = stream;
-      if (!remoteAudioRef.current) {
-        document.body.appendChild(audio);
-        audioRef.current = audio;
-      }
-      audio.play().catch(() => {});
-      debugLog("audio-attached", { call: callDebugSnapshot(call) });
-    },
-    [debugLog, detachAudio],
-  );
-
   const queuePostCallWrapUp = useCallback(
     (reason: string) => {
       const connected = activeCallConnectedRef.current;
@@ -1050,11 +845,12 @@ const SoftphonePanel = forwardRef<
   );
 
   const resetActiveCallUi = useCallback(() => {
+    const activeMediaLegId = activeCallRef.current?.id ?? null;
     debugLog("active-call-reset", { call: callDebugSnapshot(activeCallRef.current) });
+    if (activeMediaLegId) deactivateMediaLeg(activeMediaLegId);
     activeCallConnectedRef.current = false;
     activeCallWrapUpRef.current = null;
     clearTimer();
-    detachAudio();
     setActiveCall(null);
     setDialedNumber("");
     setDirection(null);
@@ -1065,7 +861,7 @@ const SoftphonePanel = forwardRef<
     clearTransferPendingTimer();
     transferPendingRef.current = false;
     setTransferPending(false);
-  }, [clearTimer, clearTransferPendingTimer, debugLog, detachAudio]);
+  }, [clearTimer, clearTransferPendingTimer, deactivateMediaLeg, debugLog]);
 
   const setInboundRingingCall = useCallback(
     (call: TelnyxCall) => {
@@ -1172,7 +968,7 @@ const SoftphonePanel = forwardRef<
       }
       clearRingingCallExpiryTimer(ringKeyFor(call));
       setAnsweringPendingForCall(call, false);
-      attachAudio(call);
+      activateMediaLeg(call.id);
       startTimer();
       setActiveCall(call);
       setIncomingCall((current) => (current?.id === call.id ? null : current));
@@ -1184,7 +980,7 @@ const SoftphonePanel = forwardRef<
       setStatus("on-call");
     },
     [
-      attachAudio,
+      activateMediaLeg,
       clearRingingCallExpiryTimer,
       debugLog,
       setAnsweringPendingForCall,
@@ -1192,432 +988,299 @@ const SoftphonePanel = forwardRef<
     ],
   );
 
-  useEffect(() => {
-    setConnectedStationKey(null);
+  const handleMediaCallUpdate = useCallback(
+    (call: TelnyxCall) => {
+      const expectingOutbound =
+        expectingOutboundUntilRef.current > 0 &&
+        Date.now() < expectingOutboundUntilRef.current &&
+        !inboundCallIdsRef.current.has(call.id) &&
+        !isInboundDirection(call.direction);
+      const outbound = outboundCallIdsRef.current.has(call.id) || expectingOutbound;
+      if (expectingOutbound) {
+        outboundCallIdsRef.current.add(call.id);
+        expectingOutboundUntilRef.current = 0;
+      }
+      const knownInbound =
+        inboundCallIdsRef.current.has(call.id) ||
+        incomingCallRef.current?.id === call.id ||
+        queuedCallsRef.current.some((queuedCall) => queuedCall.id === call.id);
+      const inbound = !outbound;
+      const ringingStates = ["new", "trying", "requesting", "ringing", "early"];
+      debugLog("call-update", {
+        call: callDebugSnapshot(call),
+        classifiedInbound: inbound,
+        classifiedOutbound: outbound,
+        knownInbound,
+        incomingCallId: incomingCallRef.current?.id ?? null,
+        isAnswerPending: answeringInboundCallIdsRef.current.has(call.id),
+        queuedCallIds: queuedCallsRef.current.map((queuedCall) => queuedCall.id),
+      });
 
-    if (!enabled) {
-      debugLog("softphone-disabled");
+      if (ringingStates.includes(call.state || "")) {
+        if (outbound) {
+          activeCallConnectedRef.current = false;
+          activeCallWrapUpRef.current = null;
+          setIncomingCall((current) => (current?.id === call.id ? null : current));
+          setQueuedCalls((current) => current.filter((queued) => queued.id !== call.id));
+          setActiveCall(call);
+          setDirection("outbound");
+          setStatus("ringing");
+          startTimer();
+        } else if (inbound) {
+          if (!inboundEnabled) {
+            debugLog("inbound-call-ignored-outbound-only", {
+              call: callDebugSnapshot(call),
+            });
+            void declineMediaLeg(call.id).catch(() => {});
+            return;
+          }
+          setInboundRingingCall(call);
+          setStatus("ringing");
+          const ringKey = ringKeyFor(call);
+          const queueItemId = clientStateQueueItemId(call);
+          const armedKey = answeringRingKeysRef.current.has(ringKey)
+            ? ringKey
+            : queueItemId && answeringRingKeysRef.current.has(queueItemId)
+              ? queueItemId
+              : "";
+
+          if (
+            armedKey &&
+            !answeringInboundCallIdsRef.current.has(call.id) &&
+            !isEndedCall(call)
+          ) {
+            if (!isAnswerableInboundCall(call)) {
+              debugLog("pending-answer-waiting-for-ringing", {
+                armedKey,
+                call: callDebugSnapshot(call),
+                ringKey,
+              });
+              return;
+            }
+
+            debugLog("pending-answer-resumed", {
+              armedKey,
+              call: callDebugSnapshot(call),
+              ringKey,
+            });
+            setAnsweringCallPending(call.id, true);
+            if (armedKey !== ringKey) {
+              setAnsweringRingPending(ringKey, true);
+            }
+            void answerMediaLeg(call.id).catch((answerError) => {
+              debugLog("pending-answer-failed", {
+                armedKey,
+                call: callDebugSnapshot(call),
+                message: errorMessageFor(answerError),
+                ringKey,
+              });
+              setAnsweringCallPending(call.id, false);
+              if (isStaleTelnyxCallError(answerError)) {
+                clearRingingCallUi(ringKey, "stale-pending-answer");
+                if (armedKey !== ringKey) {
+                  setAnsweringRingPending(armedKey, false);
+                }
+              } else {
+                setAnsweringRingPending(ringKey, false);
+                if (armedKey !== ringKey) {
+                  setAnsweringRingPending(armedKey, false);
+                }
+                setError(errorMessageFor(answerError) || "Unable to answer call");
+              }
+            });
+          }
+        } else {
+          debugLog("call-update-unclassified-ringing", {
+            call: callDebugSnapshot(call),
+          });
+        }
+        return;
+      }
+
+      if (call.state === "active") {
+        if (activeCallRef.current?.id === call.id) {
+          if (activeCallConnectedRef.current) {
+            setActiveCall(call);
+          } else {
+            promoteToActiveCall(call, inbound);
+          }
+          return;
+        }
+
+        if (inbound && !inboundEnabled) {
+          debugLog("inbound-active-ignored-outbound-only", {
+            call: callDebugSnapshot(call),
+          });
+          void declineMediaLeg(call.id).catch(() => {});
+          return;
+        }
+
+        const ringKey = ringKeyFor(call);
+        const answerWasRequested =
+          answeringInboundCallIdsRef.current.has(call.id) ||
+          answeringRingKeysRef.current.has(ringKey) ||
+          answeredInboundCallIdsRef.current.has(call.id);
+
+        if (inbound && !answerWasRequested && !knownInbound) {
+          debugLog("inbound-active-without-answer-flag", {
+            call: callDebugSnapshot(call),
+          });
+          setInboundRingingCall(call);
+          setStatus("ringing");
+          return;
+        }
+
+        promoteToActiveCall(call, inbound);
+        return;
+      }
+
+      if (call.state === "hangup" || call.state === "destroy") {
+        const ringKey = ringKeyFor(call);
+        setAnsweringCallPending(call.id, false);
+        answeredInboundCallIdsRef.current.delete(call.id);
+        inboundCallIdsRef.current.delete(call.id);
+        outboundCallIdsRef.current.delete(call.id);
+
+        if (activeCallRef.current?.id === call.id) {
+          clearRingingCallExpiryTimer(ringKey);
+          setAnsweringRingPending(ringKey, false);
+          queuePostCallWrapUp("call-terminal");
+          resetActiveCallUi();
+          setStatus((s) =>
+            incomingCallRef.current || queuedCallsRef.current.length > 0
+              ? "ringing"
+              : s === "error"
+                ? s
+                : "ready",
+          );
+          return;
+        }
+
+        if (inbound) {
+          debugLog("inbound-terminal-pending", {
+            call: callDebugSnapshot(call),
+            ringKey,
+          });
+          // Debounce the clear — if the SDK fires hangup transiently
+          // (renegotiation, brief network hiccup) and a fresh ringing
+          // notification arrives within PENDING_TERMINAL_CLEAR_MS,
+          // setInboundRingingCall will cancel this timer and the UI
+          // stays put. Otherwise, we clear after the debounce window.
+          const existing = pendingTerminalClearRef.current.get(ringKey);
+          if (existing) {
+            clearTimeout(existing);
+          }
+          const timer = setTimeout(() => {
+            pendingTerminalClearRef.current.delete(ringKey);
+            debugLog("inbound-terminal-cleared", {
+              call: callDebugSnapshot(call),
+              ringKey,
+            });
+            clearRingingCallUi(ringKey, "sdk-terminal");
+          }, PENDING_TERMINAL_CLEAR_MS);
+          pendingTerminalClearRef.current.set(ringKey, timer);
+          return;
+        }
+
+        clearRingingCallExpiryTimer(ringKey);
+        setAnsweringRingPending(ringKey, false);
+        let remainingQueuedCalls = queuedCallsRef.current.filter((c) => c.id !== call.id);
+        let remainingIncomingCall = incomingCallRef.current;
+
+        if (incomingCallRef.current?.id === call.id) {
+          const replacement = remainingQueuedCalls.find((c) => isSameCaller(c, call));
+
+          if (replacement) {
+            remainingIncomingCall = replacement;
+            remainingQueuedCalls = remainingQueuedCalls.filter(
+              (c) => c.id !== replacement.id,
+            );
+          } else {
+            scheduleIncomingClear(call);
+          }
+        }
+
+        setIncomingCall(remainingIncomingCall);
+        setQueuedCalls(remainingQueuedCalls);
+        setHeldCalls((current) => current.filter((c) => c.id !== call.id));
+
+        if (
+          !activeCallRef.current &&
+          !remainingIncomingCall &&
+          remainingQueuedCalls.length === 0
+        ) {
+          setDirection(null);
+          setStatus((s) => (s === "error" ? s : "ready"));
+        }
+      }
+    },
+    [
+      clearRingingCallExpiryTimer,
+      clearRingingCallUi,
+      debugLog,
+      answerMediaLeg,
+      declineMediaLeg,
+      inboundEnabled,
+      promoteToActiveCall,
+      queuePostCallWrapUp,
+      resetActiveCallUi,
+      scheduleIncomingClear,
+      setAnsweringCallPending,
+      setAnsweringRingPending,
+      setInboundRingingCall,
+      startTimer,
+    ],
+  );
+
+  useEffect(
+    () => subscribeLegacy(handleMediaCallUpdate),
+    [handleMediaCallUpdate, subscribeLegacy],
+  );
+
+  useEffect(() => {
+    if (media.connection === "CONNECTING") {
+      setStatus("initializing");
+      return;
+    }
+    if (media.connection === "FAILED") {
+      setStatus("error");
+      setError(media.error || "Telnyx connection failed");
+      return;
+    }
+    if (media.connection === "OFFLINE") {
       setStatus("offline");
       return;
     }
 
-    let cancelled = false;
+    setStatus((current) =>
+      current === "initializing" || current === "offline" || current === "error"
+        ? "ready"
+        : current,
+    );
+    setError(null);
+  }, [media.connection, media.error]);
 
-    async function connect() {
-      try {
-        debugLog("token-request-start");
-        const params = new URLSearchParams();
-        if (stationSeatId) {
-          params.set("seatId", stationSeatId);
-        }
-        if (browserSessionId) {
-          params.set("browserSessionId", browserSessionId);
-        }
-        const query = params.toString();
-        const tokenUrl = `/api/portal/call-center/telnyx-token${query ? `?${query}` : ""}`;
-        const response = await fetch(tokenUrl);
-        const data = await response.json();
-        debugLog("token-request-finished", {
-          ok: response.ok,
-          status: response.status,
-          tokenMode:
-            data && typeof data === "object" && "login" in data
-              ? "login-password"
-              : "login-token",
-        });
-
-        if (!response.ok) {
-          throw new Error(data.error || "Unable to connect Telnyx");
-        }
-
-        if (cancelled) {
-          return;
-        }
-
-        const { TelnyxRTC } = await import("@telnyx/webrtc");
-
-        if (cancelled) {
-          return;
-        }
-
-        const auth = data as TelnyxTokenResponse;
-        const client =
-          "login" in auth && auth.login && auth.password
-            ? new TelnyxRTC({ login: auth.login, password: auth.password })
-            : new TelnyxRTC({ login_token: (auth as { token: string }).token });
-        if (remoteAudioRef.current) {
-          client.remoteElement = remoteAudioRef.current;
-        }
-
-        client.on("telnyx.ready", () => {
-          if (!cancelled) {
-            debugLog("telnyx-ready");
-            setConnectedStationKey(stationKey);
-            setStatus("ready");
-            setError(null);
-          }
-        });
-
-        client.on("telnyx.error", (event) => {
-          if (!cancelled) {
-            debugLog("telnyx-error", {
-              message: event.error?.message ?? null,
-            });
-            setConnectedStationKey(null);
-            setStatus("error");
-            setError(event.error?.message || "Telnyx connection failed");
-          }
-        });
-
-        client.on("telnyx.warning", (event: unknown) => {
-          if (!cancelled) {
-            debugLog("telnyx-warning", {
-              message: mediaErrorMessage(event),
-            });
-          }
-        });
-
-        client.on("telnyx.rtc.mediaError", (event: unknown) => {
-          if (!cancelled) {
-            const message = mediaErrorMessage(event);
-            debugLog("telnyx-media-error", { message });
-            setConnectedStationKey(null);
-            setStatus("error");
-            setError(message);
-          }
-        });
-
-        client.on("telnyx.rtc.peerConnectionFailureError", (event: unknown) => {
-          if (!cancelled) {
-            const message = mediaErrorMessage(event);
-            debugLog("telnyx-peer-connection-failure", { message });
-            setConnectedStationKey(null);
-            setStatus("error");
-            setError(message);
-          }
-        });
-
-        client.on("telnyx.socket.close", () => {
-          if (!cancelled) {
-            debugLog("telnyx-socket-close");
-            setConnectedStationKey(null);
-            setStatus("offline");
-          }
-        });
-
-        client.on("telnyx.notification", (notification: INotification) => {
-          if (cancelled || notification.type !== "callUpdate") {
-            return;
-          }
-
-          const call = notification.call;
-          if (!call) {
-            return;
-          }
-
-          const expectingOutbound =
-            expectingOutboundUntilRef.current > 0 &&
-            Date.now() < expectingOutboundUntilRef.current &&
-            !inboundCallIdsRef.current.has(call.id) &&
-            !isInboundDirection(call.direction);
-          const outbound = outboundCallIdsRef.current.has(call.id) || expectingOutbound;
-          if (expectingOutbound) {
-            outboundCallIdsRef.current.add(call.id);
-            expectingOutboundUntilRef.current = 0;
-          }
-          const knownInbound =
-            inboundCallIdsRef.current.has(call.id) ||
-            incomingCallRef.current?.id === call.id ||
-            queuedCallsRef.current.some((queuedCall) => queuedCall.id === call.id);
-          const inbound = !outbound;
-          const ringingStates = ["new", "trying", "requesting", "ringing", "early"];
-          debugLog("call-update", {
-            call: callDebugSnapshot(call),
-            classifiedInbound: inbound,
-            classifiedOutbound: outbound,
-            knownInbound,
-            incomingCallId: incomingCallRef.current?.id ?? null,
-            isAnswerPending: answeringInboundCallIdsRef.current.has(call.id),
-            queuedCallIds: queuedCallsRef.current.map((queuedCall) => queuedCall.id),
-          });
-
-          if (ringingStates.includes(call.state || "")) {
-            if (outbound) {
-              activeCallConnectedRef.current = false;
-              activeCallWrapUpRef.current = null;
-              setIncomingCall((current) => (current?.id === call.id ? null : current));
-              setQueuedCalls((current) =>
-                current.filter((queued) => queued.id !== call.id),
-              );
-              setActiveCall(call);
-              setDirection("outbound");
-              setStatus("ringing");
-              startTimer();
-            } else if (inbound) {
-              if (!inboundEnabled) {
-                debugLog("inbound-call-ignored-outbound-only", {
-                  call: callDebugSnapshot(call),
-                });
-                try {
-                  call.hangup();
-                } catch {
-                  // The call may already be gone.
-                }
-                return;
-              }
-              setInboundRingingCall(call);
-              setStatus("ringing");
-              const ringKey = ringKeyFor(call);
-              const queueItemId = clientStateQueueItemId(call);
-              const armedKey = answeringRingKeysRef.current.has(ringKey)
-                ? ringKey
-                : queueItemId && answeringRingKeysRef.current.has(queueItemId)
-                  ? queueItemId
-                  : "";
-
-              if (
-                armedKey &&
-                !answeringInboundCallIdsRef.current.has(call.id) &&
-                !isEndedCall(call)
-              ) {
-                if (!isAnswerableInboundCall(call)) {
-                  debugLog("pending-answer-waiting-for-ringing", {
-                    armedKey,
-                    call: callDebugSnapshot(call),
-                    ringKey,
-                  });
-                  return;
-                }
-
-                debugLog("pending-answer-resumed", {
-                  armedKey,
-                  call: callDebugSnapshot(call),
-                  ringKey,
-                });
-                setAnsweringCallPending(call.id, true);
-                if (armedKey !== ringKey) {
-                  setAnsweringRingPending(ringKey, true);
-                }
-                void call.answer().catch((answerError) => {
-                  debugLog("pending-answer-failed", {
-                    armedKey,
-                    call: callDebugSnapshot(call),
-                    message: errorMessageFor(answerError),
-                    ringKey,
-                  });
-                  setAnsweringCallPending(call.id, false);
-                  if (isStaleTelnyxCallError(answerError)) {
-                    clearRingingCallUi(ringKey, "stale-pending-answer");
-                    if (armedKey !== ringKey) {
-                      setAnsweringRingPending(armedKey, false);
-                    }
-                  } else {
-                    setAnsweringRingPending(ringKey, false);
-                    if (armedKey !== ringKey) {
-                      setAnsweringRingPending(armedKey, false);
-                    }
-                    setError(errorMessageFor(answerError) || "Unable to answer call");
-                  }
-                });
-              }
-            } else {
-              debugLog("call-update-unclassified-ringing", {
-                call: callDebugSnapshot(call),
-              });
-            }
-            return;
-          }
-
-          if (call.state === "active") {
-            if (activeCallRef.current?.id === call.id) {
-              if (activeCallConnectedRef.current) {
-                setActiveCall(call);
-              } else {
-                promoteToActiveCall(call, inbound);
-              }
-              return;
-            }
-
-            if (inbound && !inboundEnabled) {
-              debugLog("inbound-active-ignored-outbound-only", {
-                call: callDebugSnapshot(call),
-              });
-              try {
-                call.hangup();
-              } catch {
-                // The call may already be gone.
-              }
-              return;
-            }
-
-            const ringKey = ringKeyFor(call);
-            const answerWasRequested =
-              answeringInboundCallIdsRef.current.has(call.id) ||
-              answeringRingKeysRef.current.has(ringKey) ||
-              answeredInboundCallIdsRef.current.has(call.id);
-
-            if (inbound && !answerWasRequested && !knownInbound) {
-              debugLog("inbound-active-without-answer-flag", {
-                call: callDebugSnapshot(call),
-              });
-              setInboundRingingCall(call);
-              setStatus("ringing");
-              return;
-            }
-
-            promoteToActiveCall(call, inbound);
-            return;
-          }
-
-          if (call.state === "hangup" || call.state === "destroy") {
-            const ringKey = ringKeyFor(call);
-            setAnsweringCallPending(call.id, false);
-            answeredInboundCallIdsRef.current.delete(call.id);
-            inboundCallIdsRef.current.delete(call.id);
-            outboundCallIdsRef.current.delete(call.id);
-
-            if (activeCallRef.current?.id === call.id) {
-              clearRingingCallExpiryTimer(ringKey);
-              setAnsweringRingPending(ringKey, false);
-              queuePostCallWrapUp("call-terminal");
-              resetActiveCallUi();
-              setStatus((s) =>
-                incomingCallRef.current || queuedCallsRef.current.length > 0
-                  ? "ringing"
-                  : s === "error"
-                    ? s
-                    : "ready",
-              );
-              return;
-            }
-
-            if (inbound) {
-              debugLog("inbound-terminal-pending", {
-                call: callDebugSnapshot(call),
-                ringKey,
-              });
-              // Debounce the clear — if the SDK fires hangup transiently
-              // (renegotiation, brief network hiccup) and a fresh ringing
-              // notification arrives within PENDING_TERMINAL_CLEAR_MS,
-              // setInboundRingingCall will cancel this timer and the UI
-              // stays put. Otherwise, we clear after the debounce window.
-              const existing = pendingTerminalClearRef.current.get(ringKey);
-              if (existing) {
-                clearTimeout(existing);
-              }
-              const timer = setTimeout(() => {
-                pendingTerminalClearRef.current.delete(ringKey);
-                debugLog("inbound-terminal-cleared", {
-                  call: callDebugSnapshot(call),
-                  ringKey,
-                });
-                clearRingingCallUi(ringKey, "sdk-terminal");
-              }, PENDING_TERMINAL_CLEAR_MS);
-              pendingTerminalClearRef.current.set(ringKey, timer);
-              return;
-            }
-
-            clearRingingCallExpiryTimer(ringKey);
-            setAnsweringRingPending(ringKey, false);
-            let remainingQueuedCalls = queuedCallsRef.current.filter(
-              (c) => c.id !== call.id,
-            );
-            let remainingIncomingCall = incomingCallRef.current;
-
-            if (incomingCallRef.current?.id === call.id) {
-              const replacement = remainingQueuedCalls.find((c) => isSameCaller(c, call));
-
-              if (replacement) {
-                remainingIncomingCall = replacement;
-                remainingQueuedCalls = remainingQueuedCalls.filter(
-                  (c) => c.id !== replacement.id,
-                );
-              } else {
-                scheduleIncomingClear(call);
-              }
-            }
-
-            setIncomingCall(remainingIncomingCall);
-            setQueuedCalls(remainingQueuedCalls);
-            setHeldCalls((current) => current.filter((c) => c.id !== call.id));
-
-            if (
-              !activeCallRef.current &&
-              !remainingIncomingCall &&
-              remainingQueuedCalls.length === 0
-            ) {
-              setDirection(null);
-              setStatus((s) => (s === "error" ? s : "ready"));
-            }
-          }
-        });
-
-        debugLog("telnyx-connect-start");
-        client.connect();
-        clientRef.current = client;
-      } catch (connectError) {
-        if (!cancelled) {
-          debugLog("telnyx-connect-failed", {
-            message:
-              connectError instanceof Error
-                ? connectError.message
-                : "Telnyx connection failed",
-          });
-          setConnectedStationKey(null);
-          setStatus("error");
-          setError(
-            connectError instanceof Error
-              ? connectError.message
-              : "Telnyx connection failed",
-          );
-        }
-      }
-    }
-
-    connect();
-
+  useEffect(() => {
     const answeringRingKeys = answeringRingKeysRef.current;
     const answeredInboundCallIds = answeredInboundCallIdsRef.current;
     const dismissedRingKeys = dismissedRingKeysRef.current;
     const inboundCallIds = inboundCallIdsRef.current;
 
     return () => {
-      cancelled = true;
-      debugLog("softphone-cleanup");
       clearTimer();
       clearTransferPendingTimer();
       clearIncomingClearTimer();
       clearAllRingingCallExpiryTimers();
-      detachAudio();
       answeringRingKeys.clear();
       answeredInboundCallIds.clear();
       dismissedRingKeys.clear();
       inboundCallIds.clear();
-      clientRef.current?.disconnect();
-      clientRef.current = null;
     };
   }, [
-    clearTimer,
     clearAllRingingCallExpiryTimers,
-    clearTransferPendingTimer,
     clearIncomingClearTimer,
-    clearRingingCallExpiryTimer,
-    clearRingingCallUi,
-    debugLog,
-    browserSessionId,
-    detachAudio,
-    enabled,
-    inboundEnabled,
-    promoteToActiveCall,
-    queuePostCallWrapUp,
-    resetActiveCallUi,
-    scheduleIncomingClear,
-    setAnsweringCallPending,
-    setAnsweringRingPending,
-    setInboundRingingCall,
-    startTimer,
-    stationSeatId,
-    stationKey,
+    clearTimer,
+    clearTransferPendingTimer,
   ]);
 
   // Ringtone for queued incoming calls when nothing else is active.
@@ -1712,11 +1375,10 @@ const SoftphonePanel = forwardRef<
 
   const makeCall = useCallback(async () => {
     const to = normalizeToE164(draftNumber);
-    const client = clientRef.current;
 
-    if (!client || !to || status !== "ready") {
+    if (media.connection !== "READY" || !to || status !== "ready") {
       debugLog("outbound-call-blocked", {
-        hasClient: Boolean(client),
+        hasClient: media.connection === "READY",
         hasDestination: Boolean(to),
         status,
       });
@@ -1744,7 +1406,7 @@ const SoftphonePanel = forwardRef<
     expectingOutboundUntilRef.current = Date.now() + 5_000;
 
     try {
-      const call = client.newCall({
+      const mediaLegId = dialMediaLeg({
         callerNumber,
         clientState: encodeCallClientState({
           browserSessionId,
@@ -1754,9 +1416,9 @@ const SoftphonePanel = forwardRef<
         }),
         destinationNumber: to,
       });
-      outboundCallIdsRef.current.add(call.id);
+      outboundCallIdsRef.current.add(mediaLegId);
       expectingOutboundUntilRef.current = 0;
-      debugLog("outbound-call-created", { call: callDebugSnapshot(call) });
+      debugLog("outbound-call-created", { mediaLegId });
       setDraftNumber("");
     } catch (callError) {
       expectingOutboundUntilRef.current = 0;
@@ -1772,6 +1434,8 @@ const SoftphonePanel = forwardRef<
     debugLog,
     draftNumber,
     office,
+    dialMediaLeg,
+    media.connection,
     prepareMedia,
     stationLabel,
     stationSeatId,
@@ -1785,46 +1449,32 @@ const SoftphonePanel = forwardRef<
 
       // Hold current active if any, then unhold the selected
       if (activeCall && activeCall.id !== callId) {
-        try {
-          activeCall.hold();
-        } catch {
-          // ignore
-        }
+        void holdMediaLeg(activeCall.id, true).catch(() => {});
         setHeldCalls((current) =>
           current.some((c) => c.id === activeCall.id)
             ? current
             : [...current, activeCall],
         );
       }
-      try {
-        held.unhold();
-      } catch {
-        // ignore
-      }
+      void holdMediaLeg(held.id, false).catch(() => {});
     },
-    [activeCall, heldCalls],
+    [activeCall, heldCalls, holdMediaLeg],
   );
 
   const endHeld = useCallback(
     (callId: string) => {
       const held = heldCalls.find((c) => c.id === callId);
       if (!held) return;
-      try {
-        held.hangup();
-      } catch {
-        // ignore
-      }
+      void hangupMediaLeg(held.id).catch(() => {});
       setHeldCalls((current) => current.filter((c) => c.id !== callId));
     },
-    [heldCalls],
+    [hangupMediaLeg, heldCalls],
   );
 
   const hangUp = useCallback(() => {
     if (activeCall) {
       debugLog("hangup-clicked", { call: callDebugSnapshot(activeCall) });
-      try {
-        activeCall.hangup();
-      } catch (hangupError) {
+      void hangupMediaLeg(activeCall.id).catch((hangupError) => {
         debugLog("hangup-failed", {
           call: callDebugSnapshot(activeCall),
           message: errorMessageFor(hangupError),
@@ -1835,33 +1485,31 @@ const SoftphonePanel = forwardRef<
         } else {
           setError(errorMessageFor(hangupError) || "Unable to end call");
         }
-      }
+      });
     }
-  }, [activeCall, debugLog, queuePostCallWrapUp, resetActiveCallUi]);
+  }, [activeCall, debugLog, hangupMediaLeg, queuePostCallWrapUp, resetActiveCallUi]);
 
   const toggleMute = useCallback(() => {
     if (!activeCall) return;
-    if (isMuted) activeCall.unmuteAudio();
-    else activeCall.muteAudio();
+    muteMediaLeg(activeCall.id, !isMuted);
     setMuted((current) => !current);
-  }, [activeCall, isMuted]);
+  }, [activeCall, isMuted, muteMediaLeg]);
 
   const toggleHold = useCallback(() => {
     if (!activeCall) return;
-    if (isHeld) activeCall.unhold();
-    else activeCall.hold();
+    void holdMediaLeg(activeCall.id, !isHeld).catch(() => {});
     setHeld((current) => !current);
-  }, [activeCall, isHeld]);
+  }, [activeCall, holdMediaLeg, isHeld]);
 
   const sendDigit = useCallback(
     (digit: string) => {
-      activeCall?.dtmf(digit);
+      if (activeCall) sendDtmf(activeCall.id, digit);
     },
-    [activeCall],
+    [activeCall, sendDtmf],
   );
 
   const transferCall = useCallback(async () => {
-    const sourceCallControlId = activeCall?.telnyxIDs?.telnyxCallControlId;
+    const sourceCallControlId = activeCall?.providerCallControlId;
 
     if (!activeCall || !sourceCallControlId || !selectedTransferSeatId) {
       setError("Choose an available station before transferring.");
@@ -1934,7 +1582,7 @@ const SoftphonePanel = forwardRef<
       : dialedNumber || (activeCall ? callerNumberFor(activeCall) : "");
   const canDial = status === "ready" && Boolean(normalizeToE164(draftNumber));
   const canTransfer =
-    Boolean(activeCall?.telnyxIDs?.telnyxCallControlId) &&
+    Boolean(activeCall?.providerCallControlId) &&
     Boolean(selectedTransferSeatId) &&
     !transferPending;
   const visualStatus =
@@ -1946,7 +1594,7 @@ const SoftphonePanel = forwardRef<
     : visualStatus === "ready" && !readiness.ready
       ? "Setup needed"
       : statusLabel(visualStatus);
-  const visibleError = error ?? setupError;
+  const visibleError = error ?? media.setupError;
 
   return (
     <section className="rounded-lg border border-[var(--portal-border)] bg-white shadow-[0_14px_40px_rgba(16,39,44,0.04)]">
@@ -1987,7 +1635,7 @@ const SoftphonePanel = forwardRef<
       </div>
 
       <div className="space-y-4 p-4">
-        <audio ref={remoteAudioRef} autoPlay className="hidden" playsInline />
+        <audio ref={media.remoteAudioRef} autoPlay className="hidden" playsInline />
 
         {visibleError ? (
           <div
@@ -2007,13 +1655,13 @@ const SoftphonePanel = forwardRef<
             (!readiness.microphoneReady || !readiness.soundReady) ? (
               <Button
                 className="mt-2"
-                disabled={setupPending}
+                disabled={media.setupPending}
                 onClick={() => void prepareMedia()}
                 size="sm"
                 variant="secondary"
               >
                 <Mic className="h-4 w-4" aria-hidden="true" />
-                {setupPending ? "Enabling" : "Enable calling"}
+                {media.setupPending ? "Enabling" : "Enable calling"}
               </Button>
             ) : null}
           </div>
