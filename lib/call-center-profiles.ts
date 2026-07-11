@@ -13,7 +13,10 @@ const ABITA_SWEETWATER_OPTICAL_PHONE = "+17864657479";
 const ABITA_NORTH_MIAMI_BEACH_OPTICAL_PHONE = "+13055095333";
 const ABITA_SWEETWATER_OPTICAL_QUEUE_KEY = "abita-sweetwater-optical";
 
-type CallCenterProfileContext = Pick<PortalPracticeAccessContext, "practice" | "session">;
+type CallCenterProfileContext = {
+  practice: { name: string };
+  session: { user: { email?: string | null } };
+};
 
 type PracticeLocation = { id: string; name: string };
 
@@ -284,9 +287,7 @@ export function getCallCenterProfileOutboundCallerNumbers(
   ];
 }
 
-export function getCallCenterSeatQueueKeyForProfile(
-  context: PortalPracticeAccessContext,
-) {
+export function getCallCenterSeatQueueKeyForProfile(context: CallCenterProfileContext) {
   if (isAbitaSouthFloridaCallCenterContext(context)) {
     return ABITA_SOUTH_FLORIDA_QUEUE_KEY;
   }

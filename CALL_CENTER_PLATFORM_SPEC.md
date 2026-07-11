@@ -36,7 +36,7 @@ This is an incremental replacement, not a flag-day rewrite.
 
 The detailed rollout ledger is
 [`CALL_CENTER_ROLLOUT_STATUS.md`](./CALL_CENTER_ROLLOUT_STATUS.md). As of July
-10, 2026:
+11, 2026:
 
 - PR #83 repaired the partially applied production migration and left the
   production schema current.
@@ -54,9 +54,18 @@ The detailed rollout ledger is
   duplicate requests that returned uniqueness failures or stale not-found
   responses. Successfully processed calls still bridged once and ended normally,
   so command and UI coordination remains open.
-- The additive Phase 1-3 tables exist, but the durable inbox, generic routing,
-  and canonical call model are not active application owners yet. Legacy
-  projections and routing remain authoritative.
+- PR #88 merged the coordinated backend/frontend cutover, compatibility, and
+  Phase 7 documentation. It changed no runtime owner.
+- PR #89 made legacy Take replay-safe by reusing the owned live ring attempt and
+  returning typed conflicts for a different winner or terminal call. Its
+  production normal-call and transfer gates remain open.
+- The additive Phase 1-3 tables exist. Draft PR #90 implements default-off
+  durable inbox processing, bounded recovery, and retention using the existing
+  table. Generic routing and canonical calls remain inactive, and legacy
+  routing and projections remain authoritative.
+- Draft PR #91 implements Phase 2A as a protected, redacted, report-only
+  discovery path. It proposes no writes and preserves legacy seat IDs as the
+  future endpoint correlation key.
 
 The current Abita handoff still uses the public-number path:
 
@@ -460,6 +469,7 @@ Fields:
 - `endpointId` nullable;
 - `agentSessionId` nullable;
 - `providerCallControlId` unique nullable;
+- `providerCallLegId` unique nullable;
 - `providerCallSessionId` nullable;
 - `status`: `CREATED`, `DIALING`, `RINGING`, `ANSWERED`, `BRIDGED`, `ENDED`, or
   `FAILED`;
@@ -482,7 +492,7 @@ leg facts and queue deadlines, so a late webhook cannot downgrade the call.
 
 Represents a voicemail recording attached to a call.
 
-Fields:
+Target fields after canonical cutover:
 
 - `id`;
 - `callId` unique;
@@ -492,6 +502,11 @@ Fields:
 - `providerReadyAt` nullable;
 - `listenedAt` nullable;
 - timestamps.
+
+The deployed `CallCenterVoicemail` is transitional: it still carries legacy
+practice, location, session, missed-call, caller, and recording URL fields and
+links to the canonical call through nullable unique `callCenterCallId`. Preserve
+it until authorized recording storage and the Phase 6B migration are proven.
 
 Do not persist a public recording URL as durable state. Either copy the asset to
 controlled object storage or fetch a short-lived provider URL behind the
@@ -506,7 +521,7 @@ Fields:
 - `id`;
 - `practiceId`;
 - `callId` nullable;
-- `sourceEventId`;
+- `sourceEventRevision`, referencing `CallCenterEvent.revision`;
 - `callerPhone` normalized nullable;
 - `kind`: `MISSED_CALL`, `VOICEMAIL`, `CALLBACK`, or `FOLLOW_UP`;
 - `status`: `OPEN` or `RESOLVED`;
@@ -1180,13 +1195,26 @@ This is the incident fix and remains independently deployable.
 Gate: duplicate and out-of-order fixtures pass; production event backlog remains
 empty under normal traffic.
 
-### Phase 2: Add generic configuration
+### Phase 2A: Discover legacy configuration without writes
+
+1. Read existing settings and profile constants and emit a redacted proposed
+   queue, number, location, member, and endpoint mapping.
+2. Preserve each deployed legacy seat ID as its proposed endpoint ID so legacy
+   correlation is not lost.
+3. Report missing, conflicting, cross-tenant, and ambiguous mappings; make no
+   writes and stop if any generic configuration already exists.
+4. Expose the same deterministic report through a protected admin endpoint.
+
+Gate: every ambiguity is explicitly reviewed and the report remains
+deterministic and mutation-free.
+
+### Phase 2B: Add protected generic configuration
 
 1. Add queues, queue locations, numbers, queue members, endpoints, and agent
-   sessions.
-2. Backfill current accounts from existing settings and profile constants.
+   sessions from a reviewed Phase 2A report.
+2. Apply the full configuration as one validated, version-checked transaction.
 3. Compare legacy and generic access/routing decisions in shadow mode.
-4. Build admin validation that refuses incomplete routing configuration.
+4. Refuse incomplete, cross-tenant, or cyclic routing configuration.
 
 Gate: shadow decisions match intended current access, with every mismatch
 reviewed explicitly.
@@ -1194,7 +1222,9 @@ reviewed explicitly.
 ### Phase 3: Add canonical call model
 
 1. Add `Call`, `CallLeg`, `CallCenterTask`, and `CallCenterEvent`.
-2. Project new provider events into both legacy and canonical models temporarily.
+2. Process each durable event through the legacy projector as the sole effect
+   owner and add a passive canonical projection from the same event. Canonical
+   code issues no provider effects.
 3. Backfill historical calls where mapping is unambiguous.
 4. Report and isolate ambiguous historical rows; do not invent missing state.
 5. Run invariant audits continuously.
@@ -1204,11 +1234,12 @@ fails for a full observation window.
 
 ### Temporary compatibility bridge
 
-During Phases 3-5, one compatibility bridge may write the minimum legacy
-projection needed for rollback. It runs from the durable event processor, never
-as a second webhook handler. It may not issue provider commands, apply profile
-routing, copy raw payloads, synthesize ambiguous facts, or regress terminal
-state. Every bridge write and mismatch is measured.
+Through Phase 4A, legacy routing and projectors remain the sole effect owner and
+canonical state is a passive observer. There is no canonical-to-legacy bridge in
+this interval. Only when a queue activates canonical routing in Phase 4B may one
+compatibility bridge write the minimum legacy read projection needed for
+rollback. It runs from the durable processor, never issues provider commands or
+applies profile routing, and every write and mismatch is measured.
 
 ### Phase 4A: Build canonical routing and commands
 
