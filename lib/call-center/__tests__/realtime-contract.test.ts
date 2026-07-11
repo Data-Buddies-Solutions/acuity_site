@@ -38,8 +38,9 @@ function snapshot(calls: CallView[] = []): CallCenterSnapshot {
     agentSession: null,
     availableQueues: [{ id: "queue-1", name: "Optical" }],
     calls,
+    counts: { active: 0, openTasks: 0, recent: 0, waiting: 0 },
     endpoints: [],
-    operations: [],
+    operations: null,
     queue: {
       id: "queue-1",
       maxWaitSec: 30,
@@ -180,6 +181,17 @@ describe("call-center realtime reducer", () => {
       event("21", { kind: "OPERATION_UPSERT", operation: confirmed }),
     );
     expect(selectOperation(complete, "20")).toEqual(confirmed);
+  });
+
+  it("replaces operational counts with the authorized batch projection", () => {
+    const initial = createRealtimeState(snapshot());
+    const counts = { active: 1, openTasks: 2, recent: 3, waiting: 4 };
+    const applied = applyProjectionEvent(initial, {
+      ...event("22", { callId: "call-1", kind: "CALL_REMOVE" }),
+      counts,
+    });
+
+    expect(applied.counts).toEqual(counts);
   });
 
   it("requests a snapshot for malformed revisions without clearing state", () => {

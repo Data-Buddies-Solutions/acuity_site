@@ -292,6 +292,11 @@ existing first-bridge-wins behavior.
 `overflowQueueId` must reference a queue in the same practice and may not form a
 cycle.
 
+A queue with no `CallCenterQueueLocation` rows is practice-wide. Only a portal
+membership with all-location access may read or occupy it. Selected-location
+members require an explicit queue-location row, and calls are scoped through
+the assigned practice number's location rather than `queueId` alone.
+
 Require `0 < ringTimeoutSec <= maxWaitSec`. Wrap-up may be zero; all other
 timeouts are positive and bounded by application constants.
 
@@ -835,6 +840,10 @@ Returns:
 - open tasks; and
 - operational counts.
 
+Until Phase 4A creates durable user-operation receipts, `operations` is `null`,
+not an empty success projection. Provider commands are infrastructure effects
+and are not presented as user operations.
+
 This is the only initial live-workspace read.
 
 ### Realtime stream
@@ -843,12 +852,22 @@ This is the only initial live-workspace read.
 
 The stream emits authorized `CallCenterEvent` rows in revision order.
 
+During the Phase 5A shadow interval, canonical consumers must also send
+`contract=canonical&queueId=<id>`. Omitting that explicit discriminator keeps
+the existing refresh stream unchanged. Remove the temporary discriminator only
+when the canonical frontend becomes the queue owner in Phase 5B.
+
 SSE messages use:
 
 - `id` as the revision;
 - `event` as the domain event type;
 - `data` as the sanitized projection delta; and
 - heartbeat comments to keep the connection alive.
+
+An authorized `cursor` event carries only the last fully scanned global
+revision. It lets bounded reconnects advance across batches containing only
+other queues' events without exposing those events. A batch cursor is emitted
+only after the full batch has been scanned and queued for delivery.
 
 If the requested revision is older than retained events, return a reset event
 that tells the client to fetch a fresh snapshot. Native EventSource reconnects

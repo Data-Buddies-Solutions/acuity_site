@@ -84,6 +84,13 @@ export type OperationView = {
   errorCode: string | null;
 };
 
+export type OperationalCounts = {
+  active: number;
+  openTasks: number;
+  recent: number;
+  waiting: number;
+};
+
 export type CallCenterSnapshot = {
   schemaVersion: typeof CALL_CENTER_SCHEMA_VERSION;
   revision: Revision;
@@ -92,8 +99,10 @@ export type CallCenterSnapshot = {
   agentSession: AgentSessionView | null;
   endpoints: EndpointView[];
   calls: CallView[];
+  counts: OperationalCounts;
   tasks: TaskView[];
-  operations: OperationView[];
+  // Null means Phase 4A durable user-operation receipts are not available yet.
+  operations: OperationView[] | null;
 };
 
 export type ProjectionDelta =
@@ -111,6 +120,7 @@ export type ProjectionEvent = {
   aggregateType: "AGENT_SESSION" | "CALL" | "COMMAND" | "CONFIGURATION" | "TASK";
   aggregateId: string;
   stateVersion: number;
+  counts?: OperationalCounts;
   delta: ProjectionDelta;
 };
 
@@ -157,7 +167,11 @@ export function applyProjectionEvent(
 
   if (candidate <= cursor) return state;
 
-  const advanced = { ...state, revision: event.revision };
+  const advanced = {
+    ...state,
+    ...(event.counts ? { counts: event.counts } : {}),
+    revision: event.revision,
+  };
   const delta = event.delta;
 
   switch (delta.kind) {
@@ -193,7 +207,7 @@ export function applyProjectionEvent(
         tasks: state.tasks.filter(({ id }) => id !== delta.taskId),
       };
     case "OPERATION_UPSERT": {
-      const operations = state.operations.filter(
+      const operations = (state.operations ?? []).filter(
         ({ operationEventRevision }) =>
           operationEventRevision !== delta.operation.operationEventRevision,
       );
@@ -222,7 +236,7 @@ export function selectOperation(
   operationEventRevision: Revision,
 ) {
   return (
-    state.operations.find(
+    state.operations?.find(
       (operation) => operation.operationEventRevision === operationEventRevision,
     ) ?? null
   );

@@ -11,6 +11,8 @@ import {
 import { canAccessPortalLocation } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
+import { createCanonicalEventsHandler } from "./canonical-handler";
+
 export const dynamic = "force-dynamic";
 
 const STREAM_POLL_MS = 2_000;
@@ -133,7 +135,7 @@ async function getCallCenterStateVersion({
   });
 }
 
-export const GET = withApiHandler(
+const legacyGET = withApiHandler(
   async (request: NextRequest) => {
     const context = await requirePortalCallCenterContext();
 
@@ -248,3 +250,27 @@ export const GET = withApiHandler(
     logLabel: "[portal-call-center] Failed to stream call center events",
   },
 );
+
+const canonicalGET = withApiHandler(
+  createCanonicalEventsHandler({
+    getActor: async () => {
+      const context = await requirePortalCallCenterContext();
+      return {
+        allowedLocationIds: context.allowedLocationIds,
+        hasAllLocationAccess: context.hasAllLocationAccess,
+        practiceId: context.practice.id,
+        userId: context.session.user.id,
+      };
+    },
+  }),
+  {
+    errorMessage: "Failed to stream canonical call center events",
+    logLabel: "[portal-call-center] Failed to stream canonical events",
+  },
+);
+
+export function GET(request: NextRequest) {
+  return new URL(request.url).searchParams.get("contract") === "canonical"
+    ? canonicalGET(request)
+    : legacyGET(request);
+}
