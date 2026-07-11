@@ -51,6 +51,14 @@ PR [#91](https://github.com/Data-Buddies-Solutions/acuity_site/pull/91) merged
 Phase 2A as an admin-only, redacted configuration report. It makes no writes and
 preserves each legacy seat ID as the proposed endpoint ID.
 
+Draft PR [#93](https://github.com/Data-Buddies-Solutions/acuity_site/pull/93)
+implements Phase 2B with an admin-only, ETag-protected generic configuration
+snapshot. It preserves omitted disabled rows, keeps credentials write-only,
+rejects `ACTIVE` and unsafe `SHADOW` configuration, and emits one transactional
+audit event. The practice admin exposes the redacted Phase 2A report without an
+apply control, and the first write is blocked until that report is ready for
+manual review. It does not change the live routing owner.
+
 Legacy routing and projections remain authoritative. The durable provider
 inbox, generic database routing, canonical call model, and revisioned frontend
 stream are schema or design foundations only.
@@ -61,7 +69,7 @@ stream are schema or design foundations only.
 | ----- | ------------------------------------------------------------------------ | --------------------------------------------- | ---------------------------------- |
 | 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89              | #89 synthetic gate pending         |
 | 1     | Durable provider inbox, retries, recovery, dead letters, retention       | PR #90 merged and deployed                    | Cron 200; activation proof pending |
-| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PR #91 merged; report only                    | Legacy configuration remains owner |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PR #91 merged; draft PR #93                   | Legacy configuration remains owner |
 | 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | Schema plus independent projection checkpoint | Inactive                           |
 | 4A    | Canonical routing and durable command foundations                        | Not started                                   | Blocked by Phases 1-3              |
 | 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | Legacy UI repaired only                       | Route-refresh stream remains       |
@@ -71,18 +79,18 @@ stream are schema or design foundations only.
 
 ## Release sequence
 
-| Release                  | Contents                                                     | Current state                   | Exit gate                                              |
-| ------------------------ | ------------------------------------------------------------ | ------------------------------- | ------------------------------------------------------ |
-| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                   | Closed by migration recovery                           |
-| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean | Complete                                               |
-| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed      | Included in current observation gate                   |
-| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed      | Cross-profile synthetic call gate                      |
-| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed      | Coordination gate failed on duplicate Take burst       |
-| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                   | Normal, transfer, remount, and reconnect gates         |
-| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | PR #90 merged and deployed      | Cron 200; activation and backlog proof pending         |
-| Canonical foundations    | Generic configuration and passive canonical calls            | PR #91 merged; Phase 2A report  | Complete remaining Phases 2-3                          |
-| Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | Not started                     | Build 4A/5A, then activate 4B/5B together per queue    |
-| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred     | Phases 0-6 complete and provider contract tests proven |
+| Release                  | Contents                                                     | Current state                         | Exit gate                                              |
+| ------------------------ | ------------------------------------------------------------ | ------------------------------------- | ------------------------------------------------------ |
+| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                         | Closed by migration recovery                           |
+| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean       | Complete                                               |
+| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed            | Included in current observation gate                   |
+| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed            | Cross-profile synthetic call gate                      |
+| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed            | Coordination gate failed on duplicate Take burst       |
+| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                         | Normal, transfer, remount, and reconnect gates         |
+| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | PR #90 merged and deployed            | Cron 200; activation and backlog proof pending         |
+| Canonical foundations    | Generic configuration and passive canonical calls            | #91 report; #92 checkpoint; draft #93 | Complete remaining Phases 2-3                          |
+| Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | Not started                           | Build 4A/5A, then activate 4B/5B together per queue    |
+| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred           | Phases 0-6 complete and provider contract tests proven |
 
 ## Validation receipt
 
@@ -105,10 +113,12 @@ stream are schema or design foundations only.
   completion.
 - PR #89 passed CI, build, and Vercel checks, including 54 focused call-center
   tests. Production duplicate-Take synthetics remain required.
-- Draft PR #90 passed Prisma, format, lint, typecheck, 197 tests, the production
+- PR #90 passed Prisma, format, lint, typecheck, 197 tests, the production
   build, and its Vercel preview. Production activation gates remain open.
-- Draft PR #91 passed local Prisma, format, lint, typecheck, 170 tests, and a
+- PR #91 passed local Prisma, format, lint, typecheck, 170 tests, and a
   production build. It has no migration or runtime activation.
+- Draft PR #93 passed local Prisma, format, lint, typecheck, 245 tests, and a
+  production build. It has no migration and leaves legacy routing authoritative.
 
 ## Proposed defaults and production gates
 

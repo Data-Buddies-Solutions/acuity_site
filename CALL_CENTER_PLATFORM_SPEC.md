@@ -1225,14 +1225,37 @@ deterministic and mutation-free.
 
 ### Phase 2B: Add protected generic configuration
 
-1. Add queues, queue locations, numbers, queue members, endpoints, and agent
-   sessions from a reviewed Phase 2A report.
-2. Apply the full configuration as one validated, version-checked transaction.
-3. Compare legacy and generic access/routing decisions in shadow mode.
-4. Refuse incomplete, cross-tenant, or cyclic routing configuration.
+1. Add queues, queue locations, numbers, queue members, and endpoints from a
+   reviewed Phase 2A report. Preserve each legacy seat ID as the endpoint ID.
+2. Apply one tenant-scoped snapshot in a transaction guarded by a strong ETag
+   and `If-Match`. An enabled queue, number, endpoint, or queue membership must
+   be explicitly disabled before omission; omitted disabled rows remain present.
+3. Treat endpoint credential and SIP identities as write-only. Reads expose
+   only configured booleans, and audit events contain counts and versions.
+4. Refuse `ACTIVE`, incomplete `SHADOW`, cross-tenant references, invalid
+   inbound or outbound routes, duplicate identities, and overflow cycles.
+5. Emit `CONFIGURATION_UPDATED` in the configuration transaction. Legacy
+   routing remains the sole live effect owner.
+6. Require a `READY_FOR_MANUAL_REVIEW` Phase 2A report before the first generic
+   configuration write. Once generic rows exist, later edits use the protected
+   snapshot contract rather than re-running the bootstrap gate.
+7. Compare the validated canonical version while the practice lock is held. An
+   identical replay returns the locked snapshot/version without another write
+   or audit event; a successful change returns that transaction's exact
+   snapshot/version without a post-commit reread.
 
-Gate: shadow decisions match intended current access, with every mismatch
-reviewed explicitly.
+Gate: protected configuration is deterministic under replay and concurrency,
+and the reviewed snapshot remains `LEGACY` until decision-only shadow exists.
+
+### Phase 2C: Add endpoint leases
+
+1. Add atomic browser-session leases for canonical endpoints.
+2. Make same-browser check-in idempotent, reject a different live browser, and
+   reclaim only expired leases.
+3. Mint provider JWTs only after the lease transaction commits.
+
+Gate: concurrent check-in, expiry, reconnect, and loser demotion are
+deterministic without changing the legacy routing owner.
 
 ### Phase 3: Add canonical call model
 
