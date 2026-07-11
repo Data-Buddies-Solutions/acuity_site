@@ -14,6 +14,7 @@ import {
   buildPortalHistorySessionWhere,
   buildPortalPatientSessionWhere,
   buildPortalNeedsActionGroups,
+  canReplayLegacyTake,
   callCenterSessionDirectionFromPayload,
   canUseClientStateLocationForPresence,
   extractAcuityLiveKitHandoff,
@@ -27,6 +28,7 @@ import {
   isInboundSeatEligibleForAutomaticRing,
   isDefinitiveRingAttemptFailureCode,
   isPortalPatientCallSessionMetadata,
+  isLegacyTakeAttemptReusable,
   mergeCallCenterSessionStatus,
   mergeQueueStatus,
   mergeRingAttemptStatus,
@@ -251,6 +253,58 @@ describe("call-center session status monotonicity", () => {
 });
 
 describe("call-center ring-attempt monotonicity", () => {
+  it("replays Take only for this browser under the shared-station policy", () => {
+    expect(
+      canReplayLegacyTake({
+        allowsSharedStation: false,
+        hasCompetingPresence: false,
+        hasMatchingPresence: true,
+      }),
+    ).toBe(true);
+    expect(
+      canReplayLegacyTake({
+        allowsSharedStation: false,
+        hasCompetingPresence: false,
+        hasMatchingPresence: false,
+      }),
+    ).toBe(false);
+    expect(
+      canReplayLegacyTake({
+        allowsSharedStation: false,
+        hasCompetingPresence: true,
+        hasMatchingPresence: true,
+      }),
+    ).toBe(false);
+    expect(
+      canReplayLegacyTake({
+        allowsSharedStation: true,
+        hasCompetingPresence: true,
+        hasMatchingPresence: true,
+      }),
+    ).toBe(true);
+    expect(
+      canReplayLegacyTake({
+        allowsSharedStation: true,
+        hasCompetingPresence: true,
+        hasMatchingPresence: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("reuses only unfinished Take attempts", () => {
+    expect(isLegacyTakeAttemptReusable({ endedAt: null, status: "DIALING" })).toBe(true);
+    expect(isLegacyTakeAttemptReusable({ endedAt: null, status: "RINGING" })).toBe(true);
+    expect(isLegacyTakeAttemptReusable({ endedAt: null, status: "ANSWERED" })).toBe(true);
+    expect(isLegacyTakeAttemptReusable({ endedAt: null, status: "BRIDGED" })).toBe(true);
+    expect(
+      isLegacyTakeAttemptReusable({
+        endedAt: new Date("2026-07-11T12:00:00.000Z"),
+        status: "BRIDGED",
+      }),
+    ).toBe(false);
+    expect(isLegacyTakeAttemptReusable({ endedAt: null, status: "FAILED" })).toBe(false);
+  });
+
   it("advances live attempts without reviving terminal or bridged attempts", () => {
     expect(mergeRingAttemptStatus("DIALING", "RINGING")).toBe("RINGING");
     expect(mergeRingAttemptStatus("RINGING", "ANSWERED")).toBe("ANSWERED");
