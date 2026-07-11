@@ -53,6 +53,15 @@ const legacyBackfillSelect = {
       id: true,
       enabled: true,
       locationId: true,
+      presence: {
+        distinct: ["userId"],
+        select: {
+          userId: true,
+        },
+        where: {
+          userId: { not: null },
+        },
+      },
       queueKey: true,
       telnyxCredentialId: true,
       sipUsername: true,
@@ -98,6 +107,8 @@ function legacyProfileContext(practiceName: string, userEmail: string) {
 }
 
 function toSnapshot(practice: LegacyBackfillPractice): LegacyCallCenterBackfillSnapshot {
+  const currentMemberUserIds = new Set(practice.memberships.map(({ userId }) => userId));
+
   return {
     practiceId: practice.id,
     locationIds: practice.locations.map(({ id }) => id),
@@ -108,10 +119,19 @@ function toSnapshot(practice: LegacyBackfillPractice): LegacyCallCenterBackfillS
     },
     settings: practice.callCenterSettings,
     phoneNumbers: practice.phoneNumbers,
-    seats: practice.callCenterAgentSeats.map(({ telnyxCredentialId, ...seat }) => ({
-      ...seat,
-      providerCredentialId: telnyxCredentialId,
-    })),
+    seats: practice.callCenterAgentSeats.map(
+      ({ presence, telnyxCredentialId, ...seat }) => ({
+        ...seat,
+        observedUserIds: [
+          ...new Set(
+            presence.flatMap(({ userId }) =>
+              userId && currentMemberUserIds.has(userId) ? [userId] : [],
+            ),
+          ),
+        ].sort(),
+        providerCredentialId: telnyxCredentialId,
+      }),
+    ),
     profileAssignments: practice.memberships.flatMap((membership) => {
       const { userId, user } = membership;
       const context = legacyProfileContext(practice.name, user.email);

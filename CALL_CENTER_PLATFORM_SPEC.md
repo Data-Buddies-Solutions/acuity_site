@@ -1230,6 +1230,9 @@ empty under normal traffic.
 
 1. Read existing settings and profile constants and emit a redacted proposed
    queue, number, location, member, and endpoint mapping.
+   Current practice members observed on a legacy seat are deterministic
+   membership evidence for that seat's proposed queue; former or cross-practice
+   users are excluded.
 2. Preserve each deployed legacy seat ID as its proposed endpoint ID so legacy
    correlation is not lost.
 3. Report missing, conflicting, cross-tenant, and ambiguous mappings; make no

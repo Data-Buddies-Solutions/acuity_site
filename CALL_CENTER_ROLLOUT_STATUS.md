@@ -51,6 +51,12 @@ PR [#91](https://github.com/Data-Buddies-Solutions/acuity_site/pull/91) merged
 Phase 2A as an admin-only, redacted configuration report. It makes no writes and
 preserves each legacy seat ID as the proposed endpoint ID.
 
+The production Abita report exposed one location-scoped legacy queue with
+endpoints but no profile-derived member. The next Phase 2A refinement reads
+only current practice members already observed on those legacy seats, so the
+report can preserve proven access without inferring a user from a name or
+email. The report remains read-only and blocked when no such evidence exists.
+
 Draft PR [#93](https://github.com/Data-Buddies-Solutions/acuity_site/pull/93)
 implements Phase 2B with an admin-only, ETag-protected generic configuration
 snapshot. It preserves omitted disabled rows, keeps credentials write-only,
