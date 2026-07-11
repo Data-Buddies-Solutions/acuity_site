@@ -4,6 +4,7 @@ import {
   createProviderWebhookInbox,
   decideProviderWebhookClaim,
   providerWebhookRetryAt,
+  type ProviderWebhookInboxMaintenanceStore,
   type ProviderWebhookInboxStore,
   type ProviderWebhookRecord,
 } from "../provider-webhook-inbox";
@@ -115,5 +116,58 @@ describe("provider webhook claim decisions", () => {
 
     expect(claims.filter((claim) => claim.decision === "CLAIM")).toHaveLength(1);
     expect(claims.filter((claim) => claim.decision === "PROCESSING")).toHaveLength(1);
+  });
+
+  it("lists a bounded recovery batch with the claim lease", async () => {
+    const inputs: Parameters<
+      ProviderWebhookInboxMaintenanceStore["listRecoverable"]
+    >[0][] = [];
+    const recoverable = event({ processingStatus: "FAILED" });
+    const store: ProviderWebhookInboxStore & ProviderWebhookInboxMaintenanceStore = {
+      claim: async () => null,
+      complete: async () => true,
+      fail: async () => true,
+      listRecoverable: async (value) => {
+        inputs.push(value);
+        return [recoverable];
+      },
+      receive: async () => event(),
+      redactPayloads: async () => 0,
+    };
+    const inbox = createProviderWebhookInbox(store, {
+      clock: () => now,
+      maxAttempts: 4,
+      processingLeaseMs: 60_000,
+    });
+
+    await expect(inbox.listRecoverable(10_000)).resolves.toEqual([recoverable]);
+    expect(inputs[0]).toEqual({
+      limit: 500,
+      maxAttempts: 4,
+      now,
+      staleBefore: new Date(now.getTime() - 60_000),
+    });
+  });
+
+  it("bounds a payload redaction batch", async () => {
+    const inputs: Parameters<
+      ProviderWebhookInboxMaintenanceStore["redactPayloads"]
+    >[0][] = [];
+    const store: ProviderWebhookInboxStore & ProviderWebhookInboxMaintenanceStore = {
+      claim: async () => null,
+      complete: async () => true,
+      fail: async () => true,
+      listRecoverable: async () => [],
+      receive: async () => event(),
+      redactPayloads: async (value) => {
+        inputs.push(value);
+        return 2;
+      },
+    };
+    const inbox = createProviderWebhookInbox(store, { maxAttempts: 4 });
+    const before = new Date("2026-07-01T00:00:00.000Z");
+
+    await expect(inbox.redactPayloads({ before, limit: 10_000 })).resolves.toBe(2);
+    expect(inputs[0]).toEqual({ before, limit: 500, maxAttempts: 4 });
   });
 });

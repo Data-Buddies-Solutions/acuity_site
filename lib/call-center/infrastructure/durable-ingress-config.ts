@@ -6,7 +6,8 @@ const MAX_RETENTION_DAYS = 30;
 type Environment = Record<string, string | undefined>;
 
 export type DurableWebhookIngressConfig =
-  { enabled: false } | { enabled: true; payloadRetentionDays: number };
+  | { enabled: false; payloadRetentionDays: number | null }
+  | { enabled: true; payloadRetentionDays: number };
 
 export class InvalidDurableWebhookIngressConfigError extends Error {
   readonly status = 503;
@@ -24,25 +25,28 @@ export class InvalidDurableWebhookIngressConfigError extends Error {
 export function resolveDurableWebhookIngressConfig(
   environment: Environment = process.env,
 ): DurableWebhookIngressConfig {
-  const enabled = environment[ENABLED_ENV]?.trim().toLowerCase();
+  const enabledValue = environment[ENABLED_ENV]?.trim().toLowerCase();
 
-  if (!enabled || enabled === "false") {
-    return { enabled: false };
-  }
-
-  if (enabled !== "true") {
+  if (enabledValue && enabledValue !== "true" && enabledValue !== "false") {
     throw new InvalidDurableWebhookIngressConfigError(
       `${ENABLED_ENV} must be true or false`,
     );
   }
 
-  if (environment[RETENTION_APPROVED_ENV]?.trim().toLowerCase() !== "true") {
+  const enabled = enabledValue === "true";
+  const retentionApproved = environment[RETENTION_APPROVED_ENV]?.trim().toLowerCase();
+  const retentionDays = environment[RETENTION_DAYS_ENV]?.trim() ?? "";
+  const retentionConfigured = retentionApproved === "true" || retentionDays.length > 0;
+
+  if (!enabled && !retentionConfigured) {
+    return { enabled: false, payloadRetentionDays: null };
+  }
+
+  if (retentionApproved !== "true") {
     throw new InvalidDurableWebhookIngressConfigError(
       "Durable webhook payload retention is not approved",
     );
   }
-
-  const retentionDays = environment[RETENTION_DAYS_ENV]?.trim() ?? "";
 
   if (!/^\d+$/.test(retentionDays)) {
     throw new InvalidDurableWebhookIngressConfigError(
@@ -58,5 +62,5 @@ export function resolveDurableWebhookIngressConfig(
     );
   }
 
-  return { enabled: true, payloadRetentionDays };
+  return { enabled, payloadRetentionDays };
 }

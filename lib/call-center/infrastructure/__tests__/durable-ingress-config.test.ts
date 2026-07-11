@@ -7,12 +7,15 @@ import {
 
 describe("durable webhook ingress configuration", () => {
   it("is disabled by default without activating payload persistence", () => {
-    expect(resolveDurableWebhookIngressConfig({})).toEqual({ enabled: false });
+    expect(resolveDurableWebhookIngressConfig({})).toEqual({
+      enabled: false,
+      payloadRetentionDays: null,
+    });
     expect(
       resolveDurableWebhookIngressConfig({
         CALL_CENTER_DURABLE_WEBHOOK_INGRESS_ENABLED: "false",
       }),
-    ).toEqual({ enabled: false });
+    ).toEqual({ enabled: false, payloadRetentionDays: null });
   });
 
   it("requires explicit retention approval when enabled", () => {
@@ -45,5 +48,15 @@ describe("durable webhook ingress configuration", () => {
         CALL_CENTER_WEBHOOK_RETENTION_DAYS: "7",
       }),
     ).toEqual({ enabled: true, payloadRetentionDays: 7 });
+  });
+
+  it("keeps an approved retention window active while ingress is disabled", () => {
+    expect(
+      resolveDurableWebhookIngressConfig({
+        CALL_CENTER_DURABLE_WEBHOOK_INGRESS_ENABLED: "false",
+        CALL_CENTER_WEBHOOK_PAYLOAD_RETENTION_APPROVED: "true",
+        CALL_CENTER_WEBHOOK_RETENTION_DAYS: "7",
+      }),
+    ).toEqual({ enabled: false, payloadRetentionDays: 7 });
   });
 });

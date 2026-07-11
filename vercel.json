@@ -1,3 +1,9 @@
 {
-  "buildCommand": "bun run vercel-build"
+  "buildCommand": "bun run vercel-build",
+  "crons": [
+    {
+      "path": "/api/cron/call-center/recover",
+      "schedule": "* * * * *"
+    }
+  ]
 }
