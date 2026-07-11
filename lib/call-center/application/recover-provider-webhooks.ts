@@ -3,6 +3,10 @@ import {
   type ProviderWebhookInbox,
 } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import {
+  recoverCanonicalTelnyxEvents,
+  type CanonicalRecoveryResult,
+} from "@/lib/call-center/application/recover-canonical-telnyx-events";
+import {
   resolveDurableWebhookIngressConfig,
   type DurableWebhookIngressConfig,
 } from "@/lib/call-center/infrastructure/durable-ingress-config";
@@ -17,6 +21,7 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 type RecoveryInbox = Pick<ProviderWebhookInbox, "listRecoverable" | "redactPayloads">;
 
 type ProviderWebhookRecoveryDependencies = {
+  canonicalRecovery?: () => Promise<CanonicalRecoveryResult>;
   clock?: () => Date;
   config?: () => DurableWebhookIngressConfig;
   inbox: RecoveryInbox;
@@ -24,6 +29,7 @@ type ProviderWebhookRecoveryDependencies = {
 };
 
 export type ProviderWebhookRecoveryResult = {
+  canonical: CanonicalRecoveryResult;
   enabled: boolean;
   failed: number;
   recovered: number;
@@ -37,6 +43,13 @@ export type ProviderWebhookRecoveryResult = {
  * rest of the batch. The result deliberately contains aggregate counts only.
  */
 export function createProviderWebhookRecovery({
+  canonicalRecovery = async () => ({
+    enabled: false,
+    failed: 0,
+    ignored: 0,
+    projected: 0,
+    selected: 0,
+  }),
   clock = () => new Date(),
   config = resolveDurableWebhookIngressConfig,
   inbox,
@@ -47,6 +60,7 @@ export function createProviderWebhookRecovery({
 
     if (durableIngress.payloadRetentionDays === null) {
       return {
+        canonical: await canonicalRecovery(),
         enabled: false,
         failed: 0,
         recovered: 0,
@@ -71,13 +85,19 @@ export function createProviderWebhookRecovery({
       }
     }
 
+    // Canonical recovery owns a separate checkpoint. It never calls the legacy
+    // processor, so projection retries cannot replay routing/provider effects.
+    const canonical = await canonicalRecovery();
+
     const before = new Date(now.getTime() - durableIngress.payloadRetentionDays * DAY_MS);
     const redacted = await inbox.redactPayloads({
       before,
+      canonicalProjectionEnabled: canonical.enabled,
       limit: REDACTION_BATCH_SIZE,
     });
 
     return {
+      canonical,
       enabled: durableIngress.enabled,
       failed,
       recovered,
@@ -88,6 +108,7 @@ export function createProviderWebhookRecovery({
 }
 
 export const recoverProviderWebhooks = createProviderWebhookRecovery({
+  canonicalRecovery: recoverCanonicalTelnyxEvents,
   inbox: providerWebhookInbox,
   processEvent: processTelnyxVoiceEvent,
 });

@@ -61,6 +61,7 @@ export function createTelnyxVoiceEventProcessor({
         return {
           errorCode,
           exhausted: true as const,
+          providerWebhookEventId: received.id,
           processingStatus: received.processingStatus,
         };
       }
@@ -72,6 +73,7 @@ export function createTelnyxVoiceEventProcessor({
       });
       return {
         duplicate: true as const,
+        providerWebhookEventId: received.id,
         processingStatus: received.processingStatus,
       };
     }
@@ -95,6 +97,7 @@ export function createTelnyxVoiceEventProcessor({
       return {
         ...result,
         duplicate: false as const,
+        providerWebhookEventId: received.id,
         processingStatus,
       };
     } catch (error) {

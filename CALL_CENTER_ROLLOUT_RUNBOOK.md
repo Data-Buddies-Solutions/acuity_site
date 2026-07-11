@@ -58,13 +58,21 @@ open.
    tenant-scoped migration report for one practice. Review every
    ambiguity and copy only confirmed facts through the protected configuration
    API. Start all queues in `LEGACY`.
-4. Publish Phase 3 canonical projection and its temporary compatibility bridge.
-   One durable processor may update the canonical model and the minimum legacy
-   rollback projection. The bridge may not issue provider commands, apply
-   profile routing, copy raw payloads, or synthesize ambiguous state.
+4. Publish Phase 3 passive canonical projection with
+   `CALL_CENTER_CANONICAL_PROJECTION_ENABLED=false`. Confirm generic number,
+   queue, and endpoint mappings first, then enable the projection worker only.
+   Durable webhook ingress must remain enabled whenever passive projection is
+   enabled.
+   Legacy remains the sole routing and provider-effect owner. The passive lane
+   must not issue commands or write any legacy projection; canonical facts,
+   revisioned event, and checkpoint completion commit atomically.
+   Confirm successful webhooks schedule one failure-contained post-response
+   canonical attempt, while failed, stale, or unscheduled attempts remain
+   claimable by the existing bounded recovery cron. Test both bridge/voicemail
+   delivery orders and later agent callbacks without `client_state`.
 5. Move one reviewed queue to `SHADOW`. Compare routing, configuration, call
-   outcomes, tasks, and legacy bridge output without sending canonical provider
-   commands.
+   outcomes, tasks, and passive canonical output without sending canonical
+   provider commands.
 6. Publish Phase 4A canonical command APIs and Phase 5A snapshot, ordered SSE,
    reducer, and media adapter in shadow. Do not activate either owner alone.
 7. Activate Phase 4B routing and Phase 5B frontend together for optical. Repeat
