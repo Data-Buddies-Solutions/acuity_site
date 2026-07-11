@@ -1,5 +1,8 @@
 # Call Center Visibility Plan
 
+Status: implemented legacy UX reference. `CALL_CENTER_PLATFORM_SPEC.md` now
+owns call-center architecture, migration sequencing, and legacy deletion.
+
 ## Scope
 
 This plan covers the first four implementation items for the Hollywood / Sweetwater call-center visibility work:

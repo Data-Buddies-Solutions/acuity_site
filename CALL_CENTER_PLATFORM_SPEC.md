@@ -2,7 +2,7 @@
 
 Status: Active phased migration
 
-Last reviewed: 2026-07-10
+Last reviewed: 2026-07-11
 
 Scope: `acuity_site` call-center schema, backend, provider integration, APIs,
 realtime delivery, and portal frontend.
@@ -50,6 +50,10 @@ The detailed rollout ledger is
 - PR #87 made Live Queue the single pre-answer surface for normal calls and
   transfers. Softphone remains the WebRTC/media owner and renders connected-call
   controls only after answer.
+- Post-#87 production evidence showed one successful Take followed by concurrent
+  duplicate requests that returned uniqueness failures or stale not-found
+  responses. Successfully processed calls still bridged once and ended normally,
+  so command and UI coordination remains open.
 - The additive Phase 1-3 tables exist, but the durable inbox, generic routing,
   and canonical call model are not active application owners yet. Legacy
   projections and routing remain authoritative.
@@ -79,7 +83,9 @@ The current implementation has correct pieces but no single call-center model:
 - browser presence can say `AVAILABLE` before the WebRTC client is actually
   ready;
 - live UI updates poll aggregate state and refresh the route rather than apply
-  ordered domain events; and
+  ordered domain events;
+- one `Take` interaction can issue several HTTP commands while route refreshes
+  and browser media notifications independently change presentation state; and
 - `lib/call-center.ts` and `SoftphonePanel.tsx` combine domain rules, provider
   transport, persistence, authorization, orchestration, and presentation.
 
@@ -171,6 +177,16 @@ is seeded into queues, numbers, memberships, endpoints, and locations.
     phone-number literal.
 14. Logs contain internal IDs and categorical error codes, not caller phone
     numbers, patient data, credentials, provider tokens, or raw payloads.
+15. One user action keeps one idempotency key through retries, remounts, and
+    network ambiguity.
+16. Repeating a key for the same command returns the original receipt; reusing
+    it for another target returns a conflict.
+17. Browser media notifications never independently change logical queue or
+    call state.
+18. Browser media correlates through call, leg, endpoint, and provider IDs, not
+    a caller phone number.
+19. A pending command remains visible until an authoritative event or snapshot
+    reports success or failure.
 
 ## Target Architecture
 
@@ -384,8 +400,10 @@ Eligibility requires:
 - no current call; and
 - endpoint enabled.
 
-Use a partial unique index so an endpoint has at most one non-expired live
-session. Browser cleanup is helpful but lease expiry is authoritative.
+Use the deployed partial unique index over active session states. Endpoint
+acquisition locks the endpoint, closes any expired active session, and claims
+the endpoint in one transaction. The index prevents two active owners; the
+recovery worker is a fallback, not the correctness mechanism.
 
 ### `Call`
 
@@ -556,10 +574,14 @@ Fields:
 - `arguments` restricted JSON;
 - timestamps.
 
-Unique `(practiceId, type, idempotencyKey)`. Background commands use stable
-keys derived from the intended effect, such as one dial command for one call
-leg. User commands use the request's idempotency key. The internal command ID,
-not the user-supplied key, is sent as the provider `command_id`.
+Unique `(practiceId, type, idempotencyKey)`. Provider commands use stable keys
+derived from the intended effect, such as one dial command for one call leg.
+The internal command ID is sent as the provider `command_id`.
+
+HTTP operation idempotency is separate. A successful user operation records a
+domain event with the request's `Idempotency-Key` in the same transaction as its
+state change and provider-command creation. A retry for the same target returns
+that operation receipt; reuse for another target returns `409`.
 
 Examples are answer customer leg, start ringback, dial agent leg, stop playback,
 hang up losing leg, start voicemail greeting, and start recording.
@@ -755,7 +777,7 @@ queue memberships, caller IDs, and endpoint ownership are never trusted.
 
 Returns:
 
-- current event revision;
+- a global event high-water revision read consistently with the projections;
 - visible queue configuration;
 - the current user's agent session and endpoint readiness;
 - active and waiting calls;
@@ -769,7 +791,7 @@ This is the only initial live-workspace read.
 
 `GET /api/portal/call-center/events?after=<revision>`
 
-The stream emits tenant-scoped `CallCenterEvent` rows in revision order.
+The stream emits authorized `CallCenterEvent` rows in revision order.
 
 SSE messages use:
 
@@ -787,6 +809,13 @@ automatically, and SSE event IDs support resuming from the last delivered event:
 SSE is preferred over WebSocket because realtime application data is
 server-to-browser only; browser commands remain authenticated HTTP requests and
 media already uses WebRTC.
+
+`revision` is a global delivery cursor, not a tenant-local counter. Tenant and
+queue filtering therefore creates expected numeric gaps. Clients accept any
+strictly increasing authorized revision, ignore revisions at or below their
+cursor, and use aggregate `stateVersion` to reject stale deltas. A reset is
+required only when the cursor predates retained history or a delta cannot be
+applied safely.
 
 ### Agent session commands
 
@@ -815,9 +844,9 @@ the provider-ready event. Lease expiry still handles abrupt browser loss.
 
 Call and task mutations require an `Idempotency-Key` header. Agent heartbeats
 are naturally idempotent by session ID and do not. Successful responses return
-the logical call ID, durable command ID when applicable, and current state
-version. They do not claim that an asynchronous provider effect already
-completed.
+the logical call ID, operation-event revision, durable provider-command ID when
+applicable, and current state version. They acknowledge durable intent, not
+completion of an asynchronous provider effect.
 
 ### Task commands
 
@@ -913,8 +942,14 @@ One reducer owns the snapshot and applies versioned domain-event deltas. Do not
 add a state-management library until React primitives are proven insufficient.
 
 `useSoftphone` owns only WebRTC lifecycle and media controls. It reports
-provider readiness and call notifications upward. It does not own queue state,
-task state, call winner selection, history, or routing.
+provider readiness and media notifications upward. It does not own queue state,
+task state, call winner selection, history, or routing. Media legs bind through
+internal call, leg, endpoint, and provider identifiers; caller-phone matching is
+not an allowed correlation path.
+
+An accepted `Take` or transfer remains visibly `Connecting` until a canonical
+event or replacement snapshot reports `ACTIVE` or `FAILED`. Request completion,
+component remount, and browser media notification do not clear that state.
 
 ### Readiness UX
 
@@ -945,10 +980,12 @@ states name the broken boundary and offer one recovery action.
 
 1. Fetch one snapshot.
 2. Open the SSE stream after the snapshot revision.
-3. Apply events only when `revision = currentRevision + 1`.
-4. Ignore duplicates.
-5. On a gap, fetch a new snapshot.
-6. Reconnect from the last applied revision.
+3. Apply authorized events with `revision > currentRevision`; numeric gaps are
+   expected after tenant and queue filtering.
+4. Ignore duplicate or older revisions and stale aggregate versions.
+5. Fetch a new snapshot only when the cursor is outside retention or a delta
+   cannot be applied safely.
+6. Reconnect with `Last-Event-ID` from the last applied global revision.
 
 Do not use `router.refresh()` for live call state.
 
@@ -1082,6 +1119,9 @@ tests verify parsing without leaking provider payload shapes into domain tests.
 - another agent wins while this agent is ringing;
 - sound and microphone permission failures;
 - page refresh and SSE reconnect during idle, ringing, and active calls;
+- duplicate Take and transfer clicks, concurrent tabs, request retry, component
+  remount, stale response, and reconnect while `Connecting`;
+- provider callback correlation when `command_id` is absent;
 - post-call disposition and task creation; and
 - tenant, queue, and location scoping.
 
@@ -1162,26 +1202,47 @@ reviewed explicitly.
 Gate: fresh-call canonical outcomes match provider facts and no invariant audit
 fails for a full observation window.
 
-### Phase 4: Cut over routing
+### Temporary compatibility bridge
+
+During Phases 3-5, one compatibility bridge may write the minimum legacy
+projection needed for rollback. It runs from the durable event processor, never
+as a second webhook handler. It may not issue provider commands, apply profile
+routing, copy raw payloads, synthesize ambiguous facts, or regress terminal
+state. Every bridge write and mismatch is measured.
+
+### Phase 4A: Build canonical routing and commands
 
 1. Run the generic engine in decision-only shadow mode.
-2. Enable it for the optical queue behind a queue-level flag.
-3. Verify synthetic and real aggregate outcomes.
-4. Expand to South Florida and then remaining queues.
-5. Keep one-step queue-level rollback until the observation window closes.
+2. Add idempotent claim, transfer, outbound, and routing commands.
+3. Keep canonical provider-command production disabled until the Phase 5A
+   frontend passes its shadow gates.
 
-Gate: first-ring latency, answer rate, voicemail rate, provider failures, and
-state invariants remain within agreed thresholds.
+Gate: each user operation produces one receipt and each intended provider effect
+produces one durable command under retry and concurrency.
 
-### Phase 5: Replace realtime frontend
+### Phase 5A: Build the canonical realtime frontend
 
 1. Add snapshot and revisioned SSE APIs.
 2. Introduce the reducer-based shell and readiness flow.
 3. Run old and new UI against the same canonical projections during testing.
-4. Cut over one queue at a time.
+4. Keep the new UI shadowed until command, reconnect, and media-correlation
+   tests pass.
+
+### Phases 4B and 5B: Cut over routing and frontend together
+
+1. Activate canonical routing and canonical frontend ownership together for the
+   optical queue.
+2. Verify synthetic calls and real aggregate outcomes.
+3. Expand to South Florida and then remaining queues.
+4. Keep one-step queue-level rollback of both owners until the observation
+   window closes.
 5. Remove route-refresh live behavior after all queues converge.
 
-### Phase 6: Delete legacy code and tables
+Gate: first-ring latency, answer rate, voicemail rate, provider failures,
+realtime convergence, duplicate-command rate, and state invariants remain
+within agreed thresholds.
+
+### Phase 6A: Delete legacy application code
 
 After all queues use the canonical model:
 
@@ -1196,6 +1257,19 @@ After all queues use the canonical model:
 - reduce `SoftphonePanel.tsx` to the media hook and focused presentation
   components; and
 - remove compatibility flags, dual writes, and reconciliation code.
+
+Phase 6A requires canonical live, history, voicemail, task, and caller views;
+zero direct provider effects outside the dispatcher; no nonterminal legacy-only
+calls; zero bridge mismatches and invariant failures for the observation window;
+and a rehearsed queue rollback. Keep the legacy tables read-only for at least
+one full release window and prove zero runtime reads and writes.
+
+### Phase 6B: Drop legacy schema
+
+Use a separate SQL-only contract migration after Phase 6A evidence is complete
+and rollback no longer depends on legacy state. Preserve required audit evidence,
+migrate the hybrid voicemail projection, then drop legacy tables, columns,
+indexes, and compatibility flags.
 
 Deletion is part of completion, not optional cleanup.
 
@@ -1334,10 +1408,12 @@ The project is complete only when:
 - canonical calls and legs power live queue, history, voicemail, and follow-up;
 - provider inbox, commands, deadlines, and retries are operationally visible;
 - the frontend uses snapshot plus ordered resumable events;
+- live call state performs no route refresh or caller-phone correlation;
+- one user operation cannot create duplicate provider effects;
 - production synthetic calls verify answer and voicemail paths;
 - invariant audits remain clean through the rollout window;
-- old writes, dual reads, feature flags, compatibility code, and legacy tables
-  are removed; and
+- direct provider effects, old writes, dual reads, feature flags, compatibility
+  code, and legacy tables are removed; and
 - focused tests, full checks, migration verification, and rollback rehearsal pass.
 
 ## Open Decisions Before Implementation

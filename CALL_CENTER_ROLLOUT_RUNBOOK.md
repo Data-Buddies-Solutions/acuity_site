@@ -24,55 +24,44 @@ tenant-scoped data.
 
 ## Release order
 
-1. Publish Release PR A with only the SQL migration file. Do not include the
-   expanded Prisma schema or application code: a deploy generated from the new
-   schema can select new scalar columns before the migration exists. Merge the
-   SQL-only PR and let the unchanged application deploy complete. This expand
-   migration must keep the legacy
-   `call_center_ring_attempt_queueItemId_seatId_key` unique index while adding
-   `generation` and the new three-column unique index; the unchanged app relies
-   on the legacy index to suppress duplicate station dials.
-2. From `main` after Release PR A is merged, run the manual GitHub Actions
-   **Production Migrations** workflow with `confirm=DEPLOY`. Do not use
-   `prisma db push`; Vercel builds do not run production migrations.
-3. Verify the migration completed and the new columns, tables, constraints, and
-   indexes exist. If migration proof is missing, stop all application releases.
-4. Publish Release PR B with the expanded Prisma schema and the Phase 0
-   automatic-ring/readiness repair. Confirm the optical test endpoint rings,
-   voicemail fallback still works, and legacy routing remains the only
-   command-producing path.
-5. Wait until every Release PR A/old application instance has drained, then
-   publish a separate SQL-only contract PR that drops only the legacy
-   two-column ring-attempt unique index. Run the manual migration workflow and
-   verify the new generation index remains. Fresh generation retries are not
-   enabled until this contract step; before it, a legacy uniqueness conflict
-   must safely suppress the retry.
+PRs #83, #84, #86, and #87 are merged and deployed. The additive schema is
+clean, but legacy routing, projections, and route-refresh UI remain
+authoritative. The post-#87 duplicate Take burst keeps the coordination gate
+open.
 
-   ```sql
-   DROP INDEX "call_center_ring_attempt_queueItemId_seatId_key";
-   ```
-
-6. Configure a strong `CRON_SECRET` and the approved integer
+1. Configure a strong `CRON_SECRET` and the approved integer
    `CALL_CENTER_WEBHOOK_RETENTION_DAYS` in the production runtime before
-   Release PR C. An absent, zero, fractional, or greater-than-3650 retention
-   value disables deletion and therefore blocks durable ingress.
-7. Publish Release PR C only after migration proof, the Phase 0 synthetic gate,
-   secret configuration, and the raw-webhook governance gate below. This release
-   may enable durable webhook ingress, command recovery, protected generic
-   configuration, and the inactive canonical foundations. Keeping these slices
-   in one local implementation diff is acceptable, but they must be separated
-   at publish time.
-8. After Release PR C deploys, confirm the recovery route rejects a missing or
+   durable ingress. An absent, zero, fractional, or greater-than-3650 retention
+   value disables deletion and blocks that release.
+2. Publish Phase 1 durable ingress and recovery without changing the production
+   routing owner. Confirm the recovery route rejects a missing or
    incorrect bearer token and accepts only the configured secret. Verify webhook
    acknowledgement, inbox processing, retry, and stale-work recovery with
    sanitized fixtures.
-9. Generate the tenant-scoped migration report for one practice. Review every
+3. Publish Phase 2 generic configuration and endpoint leasing. Generate the
+   tenant-scoped migration report for one practice. Review every
    ambiguity and copy only confirmed facts through the protected configuration
    API. Start all queues in `LEGACY`.
-10. Move one reviewed queue to `SHADOW`. Compare queue, number, membership,
-    endpoint, and voicemail decisions without sending generic provider commands.
-11. Repeat for the optical queue first, then South Florida, then other queues.
-    Do not widen rollout while any mismatch is unexplained.
+4. Publish Phase 3 canonical projection and its temporary compatibility bridge.
+   One durable processor may update the canonical model and the minimum legacy
+   rollback projection. The bridge may not issue provider commands, apply
+   profile routing, copy raw payloads, or synthesize ambiguous state.
+5. Move one reviewed queue to `SHADOW`. Compare routing, configuration, call
+   outcomes, tasks, and legacy bridge output without sending canonical provider
+   commands.
+6. Publish Phase 4A canonical command APIs and Phase 5A snapshot, ordered SSE,
+   reducer, and media adapter in shadow. Do not activate either owner alone.
+7. Activate Phase 4B routing and Phase 5B frontend together for optical. Repeat
+   for South Florida and then other queues only after every gate below passes.
+8. Complete Phase 6A by removing legacy application reads and writes. Keep the
+   tables read-only for a full release window and prove zero runtime access.
+9. Publish the separate Phase 6B SQL contract migration only after rollback no
+   longer depends on legacy state. Migrate the hybrid voicemail projection
+   before dropping legacy tables or columns.
+
+Do not alter a legacy index or constraint without verified production schema
+evidence. Do not use `prisma db push`; production migrations run through the
+manual **Production Migrations** workflow with `confirm=DEPLOY`.
 
 ## Production activation gates
 
@@ -111,6 +100,26 @@ before expanding a queue or tenant.
   command may remain unresolved. Any event or command that maps to zero or more
   than one canonical aggregate also blocks activation.
 
+### UI and command convergence
+
+- One user action keeps one HTTP idempotency key across retry and remount. A
+  duplicate for the same target returns the original operation receipt; reuse
+  for another target returns a conflict.
+- One accepted operation creates at most one intended provider command. The
+  operation receipt and provider-effect idempotency key are separate facts.
+- `Take` and transfer remain `Connecting` until a canonical event or snapshot
+  reports `ACTIVE` or `FAILED`. Request completion and browser media state do
+  not clear the pending state.
+- Snapshot and its global event high-water cursor come from one consistent read.
+  Tenant-filtered revision gaps are normal; reconnect resumes with
+  `Last-Event-ID` and resets only outside retention or on an unsafe delta.
+- Live call state does not use `router.refresh()` or caller-phone correlation.
+  Provider contract tests must prove call, leg, endpoint, and provider-ID
+  binding before activation.
+- Canonical routing and canonical frontend ownership activate and roll back
+  together for each queue. Legacy and canonical paths must never both produce
+  commands for one call.
+
 ### Raw webhook governance
 
 - Durable production ingress remains blocked until an owner approves the raw
@@ -137,26 +146,32 @@ Use dedicated test identities and a dedicated test number so synthetic calls
 cannot enter patient reporting or follow-up queues. Before each expansion,
 prove both paths:
 
-1. Ready endpoint: inbound event is durably recorded, the first eligible test
-   endpoint rings, answer and bridge complete, losing test legs cancel, and the
-   final state is terminal.
-2. No ready endpoint: the queue waits for the configured deadline, voicemail
+1. Ready endpoint: inbound event is durably recorded, the eligible test
+   endpoints ring, answer and bridge complete once, losing test legs cancel,
+   and the final state is terminal.
+2. Command convergence: one click, repeated clicks, concurrent tabs, request
+   retry, component remount, and reconnect create one operation receipt and one
+   intended provider effect. The UI stays `Connecting` until canonical state
+   resolves it.
+3. No ready endpoint: the queue waits for the configured deadline, voicemail
    starts exactly once, recording is authorized, and the final state is
    terminal.
-3. Recovery: replay a duplicate event and one out-of-order fixture; no terminal
+4. Recovery: replay a duplicate event and one out-of-order fixture; no terminal
    state regresses and no provider command is duplicated.
-4. Realtime: refresh and reconnect during idle, ringing, and active states; the
-   UI converges to the database snapshot.
+5. Realtime: refresh and reconnect during idle, ringing, connecting, and active
+   states; the UI converges to the database snapshot without route refresh.
+6. Transfer and correlation: transfer Take follows the same command contract,
+   and provider callbacks bind to one call leg even when `command_id` is absent.
 
-Do not move beyond `SHADOW` until the synthetic gates pass, the durable backlog
-is empty under normal load, bounded stale `SENT`, dead-letter, and ambiguous
-aggregate counts are all zero, and every shadow mismatch has an explicit owner
-and resolution.
+Do not activate a customer queue beyond `SHADOW` until the synthetic gates pass
+on a dedicated test queue, the durable backlog is empty under normal load,
+bounded stale `SENT`, dead-letter, and ambiguous aggregate counts are all zero,
+and every shadow mismatch has an explicit owner and resolution.
 
 ## Rollback
 
-1. Set the affected queue back to `LEGACY`; this is the first and preferred
-   rollback.
+1. Set both routing and frontend ownership for the affected queue back to
+   `LEGACY`; this is the first and preferred rollback.
 2. Stop new generic provider commands, but keep durable webhook capture and
    recovery running so evidence is not lost.
 3. Keep canonical and legacy records readable. Reconcile calls that began before
@@ -167,6 +182,10 @@ and resolution.
 5. Record the exact queue, time window, synthetic-call IDs, backlog counts, and
    rollback decision. Never place caller details or provider credentials in the
    incident log.
+
+After Phase 6A begins, do not proceed to the Phase 6B contract migration until
+the canonical rollback path is rehearsed and no rollback depends on a legacy
+write.
 
 ## Completion evidence
 
@@ -179,10 +198,17 @@ and resolution.
 - approved raw-webhook retention/access policy and bounded purge-job receipt;
 - zero unexplained migration-report ambiguities for the queue being tested;
 - persisted leg/provider-ID callback-correlation proof without `command_id`;
+- one-operation/one-effect proof across duplicate clicks, retries, remount, and
+  concurrent tabs;
+- canonical `Connecting` convergence without route refresh or caller-phone
+  correlation;
 - zero bounded stale `SENT`, exhausted, dead-letter, and ambiguous aggregates;
 - shadow comparison receipt;
 - answer/bridge and voicemail synthetic-call receipts;
 - empty or bounded-recovering durable backlog;
+- zero compatibility-bridge mismatches through the observation window;
+- Phase 6A receipt proving zero legacy runtime reads and writes for a full
+  release window before the Phase 6B SQL contract migration;
 - queue-level rollback rehearsal; and
 - focused tests, Prisma validation, lint, typecheck, and production build.
 
