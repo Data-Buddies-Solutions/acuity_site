@@ -1,0 +1,360 @@
+import { describe, expect, it } from "bun:test";
+
+import {
+  acquireAgentSession,
+  AgentSessionError,
+  type AgentSessionEvent,
+  type AgentSessionRecord,
+  type AgentSessionStore,
+  type AgentSessionTransaction,
+  releaseAgentSession,
+  updateAgentSessionReadiness,
+} from "../agent-sessions";
+
+const actor = {
+  allowedLocationIds: ["location-1"],
+  hasAllLocationAccess: false,
+  practiceId: "practice-1",
+  userId: "user-1",
+};
+
+class FakeStore implements AgentSessionStore {
+  endpoint = {
+    id: "seat-legacy-id",
+    label: "Optical",
+    locationId: "location-1",
+    providerCredentialId: "credential-1",
+  };
+  events: AgentSessionEvent[] = [];
+  queueAccess = true;
+  sessions: AgentSessionRecord[] = [];
+  private nextId = 1;
+  private locks = new Map<string, Promise<void>>();
+
+  createId() {
+    return `session-${this.nextId++}`;
+  }
+
+  async withEndpointLock<T>(
+    endpointId: string,
+    work: (transaction: AgentSessionTransaction) => Promise<T>,
+  ) {
+    const previous = this.locks.get(endpointId) ?? Promise.resolve();
+    let unlock = () => {};
+    const current = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    this.locks.set(
+      endpointId,
+      previous.then(() => current),
+    );
+    await previous;
+
+    const transaction: AgentSessionTransaction = {
+      appendEvent: async (event) => {
+        this.events.push(event);
+      },
+      closeExpiredSessions: async (id, now) => {
+        const expired = this.sessions.filter(
+          (session) =>
+            session.endpointId === id &&
+            session.presence !== "OFFLINE" &&
+            session.connectionState !== "CLOSED" &&
+            session.leaseExpiresAt <= now,
+        );
+        for (const session of expired) {
+          Object.assign(session, {
+            audioReady: false,
+            connectionState: "CLOSED",
+            lastHeartbeatAt: now,
+            leaseExpiresAt: now,
+            microphoneReady: false,
+            presence: "OFFLINE",
+            readyAt: null,
+            stateVersion: session.stateVersion + 1,
+          });
+        }
+        return expired.map((session) => ({ ...session }));
+      },
+      createSession: async (input) => {
+        const created = { ...input };
+        this.sessions.push(created);
+        return { ...created };
+      },
+      findActiveSession: async (id) => {
+        const found = this.sessions.find(
+          (session) =>
+            session.endpointId === id &&
+            session.presence !== "OFFLINE" &&
+            session.connectionState !== "CLOSED",
+        );
+        return found ? { ...found } : null;
+      },
+      findSession: async (id, clientInstanceId) => {
+        const found = this.sessions.find(
+          (session) =>
+            session.endpointId === id && session.clientInstanceId === clientInstanceId,
+        );
+        return found ? { ...found } : null;
+      },
+      getAccessibleEndpoint: async (requestActor, id) => {
+        const allowedLocation =
+          requestActor.hasAllLocationAccess ||
+          requestActor.allowedLocationIds.includes(this.endpoint.locationId);
+        return id === this.endpoint.id &&
+          requestActor.practiceId === actor.practiceId &&
+          allowedLocation
+          ? this.endpoint
+          : null;
+      },
+      hasQueueAccess: async () => this.queueAccess,
+      updateSession: async (id, update) => {
+        const session = this.sessions.find((candidate) => candidate.id === id);
+        if (!session) throw new Error("missing fake session");
+        Object.assign(session, update);
+        return { ...session };
+      },
+    };
+
+    try {
+      return await work(transaction);
+    } finally {
+      unlock();
+    }
+  }
+}
+
+const identity = {
+  clientInstanceId: "browser-1",
+  endpointId: "seat-legacy-id",
+};
+const start = new Date("2026-07-11T12:00:00.000Z");
+
+describe("canonical endpoint leasing", () => {
+  it("serializes concurrent browsers so only one can own an endpoint", async () => {
+    const store = new FakeStore();
+    const results = await Promise.allSettled([
+      acquireAgentSession(store, actor, identity, start),
+      acquireAgentSession(
+        store,
+        actor,
+        { ...identity, clientInstanceId: "browser-2" },
+        start,
+      ),
+    ]);
+
+    expect(results.map((result) => result.status).sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect((rejected as PromiseRejectedResult).reason).toMatchObject({ status: 409 });
+    expect(
+      store.sessions.filter(
+        (session) =>
+          session.presence !== "OFFLINE" && session.connectionState !== "CLOSED",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("makes acquisition replay read-only for the same user and client", async () => {
+    const store = new FakeStore();
+    const first = await acquireAgentSession(store, actor, identity, start);
+    const second = await acquireAgentSession(
+      store,
+      actor,
+      identity,
+      new Date(start.getTime() + 1_000),
+    );
+
+    expect(second.session.id).toBe(first.session.id);
+    expect(first.session.stateVersion).toBe(0);
+    expect(second.session.stateVersion).toBe(0);
+    expect(store.sessions).toHaveLength(1);
+    expect(store.events.map((event) => event.type)).toEqual([
+      "AGENT_SESSION_LEASE_ACQUIRED",
+    ]);
+  });
+
+  it("serializes concurrent same-client replays without mutating twice", async () => {
+    const store = new FakeStore();
+    const [first, replay] = await Promise.all([
+      acquireAgentSession(store, actor, identity, start),
+      acquireAgentSession(store, actor, identity, start),
+    ]);
+
+    expect(replay.session.id).toBe(first.session.id);
+    expect(replay.session.stateVersion).toBe(0);
+    expect(store.sessions).toHaveLength(1);
+    expect(store.events).toHaveLength(1);
+  });
+
+  it("closes an expired lease before a different browser acquires it", async () => {
+    const store = new FakeStore();
+    const first = await acquireAgentSession(store, actor, identity, start);
+    const second = await acquireAgentSession(
+      store,
+      actor,
+      { ...identity, clientInstanceId: "browser-2" },
+      new Date(start.getTime() + 60_001),
+    );
+
+    expect(
+      store.sessions.find((session) => session.id === first.session.id),
+    ).toMatchObject({
+      connectionState: "CLOSED",
+      presence: "OFFLINE",
+      stateVersion: 1,
+    });
+    expect(second.session.id).not.toBe(first.session.id);
+    expect(store.events.map((event) => event.type)).toContain(
+      "AGENT_SESSION_LEASE_EXPIRED",
+    );
+  });
+
+  it("requires tenant location access and an enabled queue membership", async () => {
+    const store = new FakeStore();
+
+    await expect(
+      acquireAgentSession(
+        store,
+        { ...actor, allowedLocationIds: ["location-2"] },
+        identity,
+        start,
+      ),
+    ).rejects.toMatchObject({ status: 404 });
+
+    store.queueAccess = false;
+    await expect(
+      acquireAgentSession(store, actor, identity, start),
+    ).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(store.sessions).toHaveLength(0);
+  });
+
+  it("persists explicit readiness and its event together", async () => {
+    const store = new FakeStore();
+    await acquireAgentSession(store, actor, identity, start);
+
+    const result = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "AVAILABLE",
+        expectedStateVersion: 0,
+        sessionId: "session-1",
+      },
+      new Date(start.getTime() + 1_000),
+    );
+
+    expect(result.session).toMatchObject({
+      audioReady: true,
+      connectionState: "READY",
+      microphoneReady: true,
+      presence: "AVAILABLE",
+      readyAt: new Date(start.getTime() + 1_000),
+      stateVersion: 1,
+    });
+    expect(store.events.at(-1)?.type).toBe("AGENT_SESSION_READINESS_UPDATED");
+    expect(store.events.at(-1)?.data.stateVersion).toBe(1);
+  });
+
+  it("rejects incomplete availability without changing the session", async () => {
+    const store = new FakeStore();
+    await acquireAgentSession(store, actor, identity, start);
+
+    await expect(
+      updateAgentSessionReadiness(
+        store,
+        actor,
+        {
+          ...identity,
+          audioReady: true,
+          connectionState: "READY",
+          expectedStateVersion: 0,
+          microphoneReady: false,
+          presence: "AVAILABLE",
+          sessionId: "session-1",
+        },
+        new Date(start.getTime() + 1_000),
+      ),
+    ).rejects.toEqual(new AgentSessionError("AVAILABLE requires microphone access", 422));
+    expect(store.sessions[0]).toMatchObject({ presence: "PAUSED" });
+  });
+
+  it("does not let a delayed older readiness update restore availability", async () => {
+    const store = new FakeStore();
+    const acquired = await acquireAgentSession(store, actor, identity, start);
+
+    const failed = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: false,
+        connectionState: "ERROR",
+        expectedStateVersion: acquired.session.stateVersion,
+        microphoneReady: false,
+        presence: "PAUSED",
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 2_000),
+    );
+
+    await expect(
+      updateAgentSessionReadiness(
+        store,
+        actor,
+        {
+          ...identity,
+          audioReady: true,
+          connectionState: "READY",
+          expectedStateVersion: acquired.session.stateVersion,
+          microphoneReady: true,
+          presence: "AVAILABLE",
+          sessionId: acquired.session.id,
+        },
+        new Date(start.getTime() + 1_000),
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+
+    expect(failed.session).toMatchObject({
+      connectionState: "ERROR",
+      presence: "PAUSED",
+      stateVersion: 1,
+    });
+    expect(store.sessions[0]).toMatchObject({
+      connectionState: "ERROR",
+      presence: "PAUSED",
+      stateVersion: 1,
+    });
+  });
+
+  it("releases a lease idempotently", async () => {
+    const store = new FakeStore();
+    const acquired = await acquireAgentSession(store, actor, identity, start);
+    const ownedIdentity = {
+      ...identity,
+      expectedStateVersion: acquired.session.stateVersion,
+      sessionId: acquired.session.id,
+    };
+    const first = await releaseAgentSession(store, actor, ownedIdentity, start);
+    const second = await releaseAgentSession(store, actor, ownedIdentity, start);
+
+    expect(first.session.id).toBe(acquired.session.id);
+    expect(second.session.id).toBe(acquired.session.id);
+    expect(second.session).toMatchObject({
+      connectionState: "CLOSED",
+      presence: "OFFLINE",
+      stateVersion: 1,
+    });
+    expect(
+      store.events.filter((event) => event.type === "AGENT_SESSION_RELEASED"),
+    ).toHaveLength(1);
+  });
+});
