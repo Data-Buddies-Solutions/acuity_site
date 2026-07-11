@@ -1285,7 +1285,9 @@ deterministic and mutation-free.
 3. Treat endpoint credential and SIP identities as write-only. Reads expose
    only configured booleans, and audit events contain counts and versions.
 4. Refuse `ACTIVE`, incomplete `SHADOW`, cross-tenant references, invalid
-   inbound or outbound routes, duplicate identities, and overflow cycles.
+   inbound or outbound routes, enabled inbound numbers whose phone-number
+   location is outside the queue locations, duplicate identities, and overflow
+   cycles.
 5. Emit `CONFIGURATION_UPDATED` in the configuration transaction. Legacy
    routing remains the sole live effect owner.
 6. Require a `READY_FOR_MANUAL_REVIEW` Phase 2A report before the first generic
@@ -1295,6 +1297,12 @@ deterministic and mutation-free.
    identical replay returns the locked snapshot/version without another write
    or audit event; a successful change returns that transaction's exact
    snapshot/version without a post-commit reread.
+8. The one-time production bootstrap uses the exact SHA-256 version of the
+   reviewed redacted report. A guarded `main` workflow rebuilds the secret-bearing
+   snapshot inside the production boundary, refuses report drift and partial or
+   different generic configuration, applies `LEGACY` only, and logs no
+   credentials or caller data. An exact committed replay is a locked no-op. The
+   audit stores the original and triggering GitHub actors plus run ID and attempt.
 
 Gate: protected configuration is deterministic under replay and concurrency,
 and the reviewed snapshot remains `LEGACY` until decision-only shadow exists.

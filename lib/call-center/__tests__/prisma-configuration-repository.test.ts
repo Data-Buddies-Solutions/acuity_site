@@ -174,6 +174,44 @@ describe("Prisma call-center configuration persistence", () => {
     expect(committed).toEqual([]);
   });
 
+  it("records the protected workflow identity for a legacy bootstrap", async () => {
+    const { committed, runner } = recordingRunner();
+    const repository = new PrismaCallCenterConfigurationRepository(runner);
+
+    await repository.transaction((transaction) =>
+      transaction.persistValidatedSnapshot(configuration(), {
+        actorUserId: null,
+        automation: {
+          actor: "original-user",
+          triggeringActor: "rerun-user",
+          runId: "123456789",
+          runAttempt: 2,
+        },
+        previousVersion: "version-1",
+        source: "LEGACY_BOOTSTRAP",
+      }),
+    );
+
+    expect(committed.find(({ name }) => name === "callCenterEvent.create")).toMatchObject(
+      {
+        input: {
+          data: {
+            actorUserId: null,
+            data: {
+              actorSource: "LEGACY_BOOTSTRAP",
+              automation: {
+                actor: "original-user",
+                triggeringActor: "rerun-user",
+                runId: "123456789",
+                runAttempt: 2,
+              },
+            },
+          },
+        },
+      },
+    );
+  });
+
   it("locks the practice before loading tenant and global ownership", async () => {
     const calls: string[] = [];
     const transaction = {
@@ -197,7 +235,7 @@ describe("Prisma call-center configuration persistence", () => {
         },
       },
       practicePhoneNumber: {
-        findMany: async () => [{ id: "phone-1" }],
+        findMany: async () => [{ id: "phone-1", locationId: "location-1" }],
       },
       practiceMembership: {
         findMany: async () => [{ userId: "user-1" }],
@@ -249,6 +287,7 @@ describe("Prisma call-center configuration persistence", () => {
       queueOwnerPracticeIds: new Map([["queue-1", "practice-1"]]),
       providerCredentialEndpointIds: new Map([["credential-1", "endpoint-other"]]),
       providerNumberOwnerNumberIds: new Map([["provider-number-1", "number-1"]]),
+      practicePhoneNumberLocationIds: new Map([["phone-1", "location-1"]]),
       sipUsernameEndpointIds: new Map([["sip-1", "endpoint-other"]]),
     });
   });

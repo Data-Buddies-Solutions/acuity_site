@@ -18,7 +18,9 @@ tenant-scoped data.
 - Resolve every reported ambiguity manually. Never choose a queue from call
   volume, a similar label, or the first row returned.
 - If the report finds existing generic queues, numbers, or endpoints, stop and
-  reconcile that partial configuration before copying any legacy fact.
+  reconcile them. The guarded bootstrap accepts only its exact previously
+  committed snapshot as an idempotent replay; any partial or different
+  configuration is a hard stop.
 - Read generic configuration with
   `GET /api/admin/call-center/practices/{practiceId}/configuration`, then send
   its strong `ETag` in `If-Match` on `PUT`. A stale version is a hard stop.
@@ -32,6 +34,14 @@ tenant-scoped data.
   because the report intentionally blocks when generic rows already exist.
 - Review the same redacted report on the practice admin **Call center** tab.
   The view is read-only and never exposes an apply action.
+- Record the full report version shown on that tab. For a one-time legacy
+  bootstrap, run **Bootstrap Call Center Configuration** from `main` with the
+  practice ID, that exact version, and
+  `confirm=BOOTSTRAP:<practice_id>`. Any report drift, ambiguity, or existing
+  configuration other than the exact bootstrap candidate is a hard stop. An
+  exact replay is a locked no-op. The workflow writes every queue as `LEGACY`
+  and logs counts and versions only; the audit event records the original and
+  triggering GitHub actors plus workflow run ID and attempt.
 - An identical `PUT` replay is a locked no-op and emits no duplicate audit
   event. Use the returned committed snapshot and `ETag`; do not reread to infer
   what the request committed.
@@ -56,8 +66,9 @@ open.
    sanitized fixtures.
 3. Publish Phase 2 generic configuration and endpoint leasing. Generate the
    tenant-scoped migration report for one practice. Review every
-   ambiguity and copy only confirmed facts through the protected configuration
-   API. Start all queues in `LEGACY`.
+   ambiguity and apply the exact reviewed version through the guarded bootstrap
+   workflow. Start all queues in `LEGACY`; later edits use the protected
+   configuration API.
 4. Publish Phase 3 passive canonical projection with
    `CALL_CENTER_CANONICAL_PROJECTION_ENABLED=false`. Confirm generic number,
    queue, and endpoint mappings first, then enable the projection worker only.

@@ -175,9 +175,17 @@ export async function readLegacyCallCenterBackfillReport(
   practiceId: string,
   client: LegacyBackfillReadClient = prisma,
 ): Promise<LegacyCallCenterBackfillReport | null> {
+  const snapshot = await readLegacyCallCenterBackfillSnapshot(practiceId, client);
+  return snapshot ? buildLegacyCallCenterBackfillReport(snapshot) : null;
+}
+
+export async function readLegacyCallCenterBackfillSnapshot(
+  practiceId: string,
+  client: LegacyBackfillReadClient = prisma,
+): Promise<LegacyCallCenterBackfillSnapshot | null> {
   const practice = await client.practice.findUnique({
     select: legacyBackfillSelect,
     where: { id: practiceId },
   });
-  return practice ? buildLegacyCallCenterBackfillReport(toSnapshot(practice)) : null;
+  return practice ? toSnapshot(practice) : null;
 }
