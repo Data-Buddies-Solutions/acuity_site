@@ -33,6 +33,7 @@ export type LegacyCallCenterBackfillSnapshot = {
     id: string;
     enabled: boolean;
     locationId: string | null;
+    observedUserIds: string[];
     queueKey: string | null;
     providerCredentialId: string | null;
     sipUsername: string | null;
@@ -289,6 +290,7 @@ export function buildLegacyCallCenterBackfillReport(
       queue.locationIds.add(seat.locationId);
     }
     queue.sourceSeatIds.add(seat.id);
+    seat.observedUserIds.forEach((userId) => queue.memberUserIds.add(userId));
     queueBySource.set(key, queue);
     queueIdBySeatId.set(seat.id, queue.proposedId);
   }

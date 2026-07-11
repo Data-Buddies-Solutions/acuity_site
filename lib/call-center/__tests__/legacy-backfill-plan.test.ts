@@ -41,6 +41,7 @@ function completeSnapshot(): LegacyCallCenterBackfillSnapshot {
         id: "seat-1",
         enabled: true,
         locationId: "location-1",
+        observedUserIds: [],
         queueKey: "abita-sweetwater-optical",
         providerCredentialId: "provider-secret-1",
         sipUsername: "sip-secret-1",
@@ -120,6 +121,7 @@ describe("legacy call-center backfill report", () => {
         id: "seat-2",
         enabled: true,
         locationId: "location-2",
+        observedUserIds: [],
         queueKey: "other-queue",
         providerCredentialId: "provider-secret-1",
         sipUsername: "sip-secret-2",
@@ -128,6 +130,7 @@ describe("legacy call-center backfill report", () => {
         id: "seat-unscoped",
         enabled: true,
         locationId: null,
+        observedUserIds: [],
         queueKey: null,
         providerCredentialId: null,
         sipUsername: null,
@@ -161,6 +164,7 @@ describe("legacy call-center backfill report", () => {
         id: "seat-unscoped",
         enabled: true,
         locationId: null,
+        observedUserIds: [],
         queueKey: null,
         providerCredentialId: "provider-secret-1",
         sipUsername: "sip-secret-1",
@@ -279,6 +283,7 @@ describe("legacy call-center backfill report", () => {
                 id: "seat-1",
                 enabled: true,
                 locationId: "location-1",
+                presence: [{ userId: "user-1" }, { userId: "former-user" }],
                 queueKey: "abita-sweetwater-optical",
                 telnyxCredentialId: "provider-secret-1",
                 sipUsername: "sip-secret-1",
@@ -307,5 +312,20 @@ describe("legacy call-center backfill report", () => {
     expect(serialized).not.toContain("sweetwateropticals@abitaeye.com");
     expect(serialized).not.toContain("provider-secret-1");
     expect(serialized).not.toContain("sip-secret-1");
+    expect(serialized).not.toContain("former-user");
+  });
+
+  it("proposes current members observed on legacy seats without guessing", () => {
+    const snapshot = completeSnapshot();
+    snapshot.profileAssignments = [];
+    snapshot.seats[0]!.observedUserIds = ["user-observed"];
+
+    const report = buildLegacyCallCenterBackfillReport(snapshot);
+
+    expect(report.queues[0]?.memberUserIds).toEqual(["user-observed"]);
+    expect(report.ambiguities.map(({ code }) => code)).not.toContain(
+      "QUEUE_MEMBER_MISSING",
+    );
+    expect(report.overallReadiness).toBe("READY_FOR_MANUAL_REVIEW");
   });
 });
