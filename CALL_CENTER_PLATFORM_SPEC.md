@@ -564,7 +564,22 @@ Fields:
 - `errorCode` nullable;
 - `payload` restricted JSON;
 - `processedAt` nullable;
+- `canonicalProjectionStatus`, independent from legacy `processingStatus`;
+- `canonicalProjectionAttemptCount`;
+- `canonicalProjectionNextAttemptAt` nullable;
+- `canonicalProjectionErrorCode` nullable and limited to 100 characters;
+- `canonicalProjectedAt` nullable;
 - timestamps.
+
+The legacy processor and canonical projector have separate checkpoints. During
+the passive-projection phase, legacy processing remains the only provider-effect
+owner. Canonical projection may retry or fail without replaying legacy effects.
+Both checkpoints use the provider-processing state vocabulary, but neither
+checkpoint advances the other.
+
+The checkpoint migration initializes historical events as `IGNORED` because
+their retained payload may already be redacted. Events received after the
+migration begin at `RECEIVED` and are eligible for passive projection.
 
 Raw payload access is restricted and retained only as long as operations and
 compliance require. Application logs receive only event ID, type, internal call
@@ -1222,12 +1237,14 @@ reviewed explicitly.
 ### Phase 3: Add canonical call model
 
 1. Add `Call`, `CallLeg`, `CallCenterTask`, and `CallCenterEvent`.
-2. Process each durable event through the legacy projector as the sole effect
+2. Claim and complete the independent canonical projection checkpoint; never
+   reuse or mutate the legacy processing checkpoint for projection recovery.
+3. Process each durable event through the legacy projector as the sole effect
    owner and add a passive canonical projection from the same event. Canonical
    code issues no provider effects.
-3. Backfill historical calls where mapping is unambiguous.
-4. Report and isolate ambiguous historical rows; do not invent missing state.
-5. Run invariant audits continuously.
+4. Backfill historical calls where mapping is unambiguous.
+5. Report and isolate ambiguous historical rows; do not invent missing state.
+6. Run invariant audits continuously.
 
 Gate: fresh-call canonical outcomes match provider facts and no invariant audit
 fails for a full observation window.
