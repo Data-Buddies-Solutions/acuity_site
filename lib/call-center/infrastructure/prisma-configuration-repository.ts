@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import {
+  callCenterConfigurationVersion,
+  callCenterMembershipKey,
   collectCallCenterConfigurationReferences,
   type CallCenterConfigurationAudit,
   type CallCenterConfigurationReferences,
@@ -45,28 +45,6 @@ const runPrismaTransaction: ConfigurationTransactionRunner = (operation) =>
     maxWait: 5_000,
     timeout: 30_000,
   });
-
-function configurationVersion(configuration: ValidatedCallCenterConfiguration) {
-  const canonical = {
-    ...configuration,
-    queues: configuration.queues
-      .map((queue) => ({
-        ...queue,
-        locationIds: [...queue.locationIds].sort(),
-        members: [...queue.members].sort((left, right) =>
-          left.userId.localeCompare(right.userId),
-        ),
-      }))
-      .sort((left, right) => left.id.localeCompare(right.id)),
-    numbers: [...configuration.numbers].sort((left, right) =>
-      left.id.localeCompare(right.id),
-    ),
-    endpoints: [...configuration.endpoints].sort((left, right) =>
-      left.id.localeCompare(right.id),
-    ),
-  };
-  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
-}
 
 function ownerMap(rows: Array<{ id: string; practiceId: string }>) {
   return new Map(rows.map(({ id, practiceId }) => [id, practiceId]));
@@ -216,6 +194,13 @@ export async function loadConfigurationValidationContext(
         .filter(({ enabled }) => enabled)
         .map(({ id }) => id) ?? [],
     ),
+    enabledMembershipKeys: new Set(
+      currentConfiguration?.configuration.queues.flatMap((queue) =>
+        queue.members.flatMap(({ enabled, userId }) =>
+          enabled ? [callCenterMembershipKey(queue.id, userId)] : [],
+        ),
+      ) ?? [],
+    ),
     currentConfiguration: currentConfiguration?.configuration ?? null,
   };
 }
@@ -331,7 +316,7 @@ export async function persistConfigurationSnapshot(
     },
     { ACTIVE: 0, LEGACY: 0, SHADOW: 0 },
   );
-  const nextVersion = configurationVersion(configuration);
+  const nextVersion = callCenterConfigurationVersion(configuration);
   await transaction.callCenterEvent.create({
     data: {
       actorUserId: audit.actorUserId,
@@ -449,6 +434,6 @@ export async function readCallCenterConfiguration(
   };
   return {
     configuration,
-    version: configurationVersion(configuration),
+    version: callCenterConfigurationVersion(configuration),
   };
 }

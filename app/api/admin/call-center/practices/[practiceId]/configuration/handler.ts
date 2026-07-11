@@ -4,6 +4,7 @@ import {
   CallCenterConfigurationError,
   saveCallCenterConfiguration,
   type CallCenterConfigurationInput,
+  type SavedCallCenterConfiguration,
 } from "@/lib/call-center/application/configuration";
 import {
   callCenterConfigurationWireSchema,
@@ -41,7 +42,7 @@ type ConfigurationHandlerDependencies = {
     input: CallCenterConfigurationInput,
     expectedVersion: string,
     actorUserId: string,
-  ) => Promise<unknown>;
+  ) => Promise<SavedCallCenterConfiguration>;
 };
 
 function databaseErrorCode(error: unknown) {
@@ -183,7 +184,7 @@ export function createConfigurationHandlers({
           );
         }
       }
-      await saveConfiguration(
+      const saved = await saveConfiguration(
         resolveCallCenterConfigurationWireInput(
           practiceId,
           parsed.data,
@@ -192,14 +193,12 @@ export function createConfigurationHandlers({
         expectedVersion,
         session.user.id,
       );
-      const updated = await readConfiguration(practiceId);
-      if (!updated) throw new Error("Configuration practice disappeared");
       return Response.json(
-        { configuration: redactCallCenterConfiguration(updated.configuration) },
+        { configuration: redactCallCenterConfiguration(saved.configuration) },
         {
           headers: {
             "Cache-Control": "no-store",
-            ETag: formatConfigurationEtag(updated.version),
+            ETag: formatConfigurationEtag(saved.version),
           },
         },
       );

@@ -24,13 +24,17 @@ tenant-scoped data.
   its strong `ETag` in `If-Match` on `PUT`. A stale version is a hard stop.
 - Endpoint credential and SIP values are write-only. Omit them to preserve the
   stored values, send `null` to clear them, and never copy them into evidence.
-- An enabled queue, number, or endpoint must be explicitly disabled before it
-  may be omitted. Omitted disabled rows remain stored for review and rollback.
+- An enabled queue, number, endpoint, or queue membership must be explicitly
+  disabled before it may be omitted. Omitted disabled rows remain stored for
+  review and rollback.
 - The first generic configuration write is rejected unless the Phase 2A report
   is `READY_FOR_MANUAL_REVIEW`. Later edits do not re-run that bootstrap gate
   because the report intentionally blocks when generic rows already exist.
 - Review the same redacted report on the practice admin **Call center** tab.
   The view is read-only and never exposes an apply action.
+- An identical `PUT` replay is a locked no-op and emits no duplicate audit
+  event. Use the returned committed snapshot and `ETag`; do not reread to infer
+  what the request committed.
 - Keep the legacy projections and queue-level rollback available through the
   observation window. Do not destructively roll back database migrations.
 

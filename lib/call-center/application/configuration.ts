@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { isValidQueuePolicy } from "@/lib/call-center/domain/queue-policy";
 
 export type CallCenterRoutingMode = "LEGACY" | "SHADOW" | "ACTIVE";
@@ -45,6 +47,36 @@ export type CallCenterConfigurationInput = {
 
 export type ValidatedCallCenterConfiguration = CallCenterConfigurationInput;
 
+export type SavedCallCenterConfiguration = {
+  changed: boolean;
+  configuration: ValidatedCallCenterConfiguration;
+  version: string;
+};
+
+export function callCenterConfigurationVersion(
+  configuration: ValidatedCallCenterConfiguration,
+) {
+  const canonical = {
+    ...configuration,
+    queues: configuration.queues
+      .map((queue) => ({
+        ...queue,
+        locationIds: [...queue.locationIds].sort(),
+        members: [...queue.members].sort((left, right) =>
+          left.userId.localeCompare(right.userId),
+        ),
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    numbers: [...configuration.numbers].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    ),
+    endpoints: [...configuration.endpoints].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    ),
+  };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
 export type CallCenterConfigurationAudit = {
   actorUserId: string;
   previousVersion: string;
@@ -77,6 +109,7 @@ export type CallCenterConfigurationValidationContext = {
   enabledQueueIds: ReadonlySet<string>;
   enabledNumberIds: ReadonlySet<string>;
   enabledEndpointIds: ReadonlySet<string>;
+  enabledMembershipKeys: ReadonlySet<string>;
   currentConfiguration: ValidatedCallCenterConfiguration | null;
 };
 
@@ -102,6 +135,7 @@ export type CallCenterConfigurationIssueCode =
   | "STALE_CONFIGURATION"
   | "ACTIVE_NOT_AVAILABLE"
   | "OMITTED_ENABLED_ENTITY"
+  | "OMITTED_ENABLED_MEMBERSHIP"
   | "VOICEMAIL_GREETING_REQUIRED";
 
 export type CallCenterConfigurationIssue = {
@@ -326,10 +360,31 @@ function preserveOmittedDisabledEntities(
   };
   return {
     ...input,
-    queues: preserve(input.queues, current.queues),
+    queues: preserve(
+      input.queues.map((queue) => {
+        const existing = current.queues.find(({ id }) => id === queue.id.trim());
+        if (!existing) return queue;
+        const submittedUserIds = new Set(
+          queue.members.map(({ userId }) => userId.trim()),
+        );
+        return {
+          ...queue,
+          members: queue.members.concat(
+            existing.members.filter(
+              ({ enabled, userId }) => !enabled && !submittedUserIds.has(userId),
+            ),
+          ),
+        };
+      }),
+      current.queues,
+    ),
     numbers: preserve(input.numbers, current.numbers),
     endpoints: preserve(input.endpoints, current.endpoints),
   };
+}
+
+export function callCenterMembershipKey(queueId: string, userId: string) {
+  return `${queueId}\u0000${userId}`;
 }
 
 export function validateCallCenterConfiguration(
@@ -415,6 +470,20 @@ export function validateCallCenterConfiguration(
     context.enabledQueueIds,
     issues,
   );
+  const submittedMembershipKeys = new Set(
+    configuration.queues.flatMap((queue) =>
+      queue.members.map(({ userId }) => callCenterMembershipKey(queue.id, userId)),
+    ),
+  );
+  for (const membershipKey of context.enabledMembershipKeys) {
+    if (!submittedMembershipKeys.has(membershipKey)) {
+      issues.push({
+        code: "OMITTED_ENABLED_MEMBERSHIP",
+        path: "queues",
+        message: "Enabled queue memberships must be explicitly disabled before omission",
+      });
+    }
+  }
   rejectOmittedEnabledEntities(
     "numbers",
     new Set(configuration.numbers.map(({ id }) => id)),
@@ -743,10 +812,14 @@ export async function saveCallCenterConfiguration(
       preserveOmittedDisabledEntities(input, context.currentConfiguration),
       context,
     );
+    const version = callCenterConfigurationVersion(configuration);
+    if (version === context.configurationVersion) {
+      return { changed: false, configuration, version };
+    }
     await transaction.persistValidatedSnapshot(configuration, {
       actorUserId,
       previousVersion: context.configurationVersion,
     });
-    return configuration;
+    return { changed: true, configuration, version };
   });
 }

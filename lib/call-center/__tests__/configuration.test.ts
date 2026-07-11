@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 
 import {
   CallCenterConfigurationError,
+  callCenterConfigurationVersion,
+  callCenterMembershipKey,
   type CallCenterConfigurationInput,
   type CallCenterConfigurationRepository,
   type CallCenterConfigurationValidationContext,
@@ -69,6 +71,7 @@ function validContext(): CallCenterConfigurationValidationContext {
     enabledQueueIds: new Set(),
     enabledNumberIds: new Set(),
     enabledEndpointIds: new Set(),
+    enabledMembershipKeys: new Set(),
     currentConfiguration: null,
   };
 }
@@ -222,6 +225,19 @@ describe("call-center configuration validation", () => {
     ]);
   });
 
+  it("does not remove the last enabled agent membership by omission", () => {
+    const input = validInput();
+    input.queues[0]!.members = [];
+    const context = validContext();
+    context.enabledMembershipKeys = new Set([
+      callCenterMembershipKey("queue-1", "user-1"),
+    ]);
+
+    expect(issueCodes(() => validateCallCenterConfiguration(input, context))).toEqual(
+      expect.arrayContaining(["OMITTED_ENABLED_MEMBERSHIP", "INCOMPLETE_ROUTING"]),
+    );
+  });
+
   it("rejects queue policy violations and overflow cycles", () => {
     const input = validInput();
     input.queues[0]!.ringTimeoutSec = 31;
@@ -287,7 +303,11 @@ describe("transactional configuration boundary", () => {
       "version-1",
       "admin-1",
     );
-    expect(result.practiceId).toBe("practice-1");
+    expect(result).toMatchObject({
+      changed: true,
+      configuration: { practiceId: "practice-1" },
+      version: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
     expect(events).toEqual([
       "transaction:start",
       "load:practice-1:queue-1",
@@ -316,6 +336,79 @@ describe("transactional configuration boundary", () => {
     expect(persisted).toBe(false);
   });
 
+  it("returns a locked no-op without writing a duplicate audit event", async () => {
+    const current = validateCallCenterConfiguration(validInput(), validContext());
+    const version = callCenterConfigurationVersion(current);
+    let persisted = false;
+    const repository: CallCenterConfigurationRepository = {
+      transaction: (operation) =>
+        operation({
+          async loadValidationContextForUpdate() {
+            return {
+              ...validContext(),
+              configurationVersion: version,
+              currentConfiguration: current,
+              enabledQueueIds: new Set(["queue-1"]),
+              enabledNumberIds: new Set(["number-1"]),
+              enabledEndpointIds: new Set(["endpoint-1"]),
+              enabledMembershipKeys: new Set([
+                callCenterMembershipKey("queue-1", "user-1"),
+              ]),
+            };
+          },
+          async persistValidatedSnapshot() {
+            persisted = true;
+          },
+        }),
+    };
+
+    const result = await saveCallCenterConfiguration(
+      repository,
+      validInput(),
+      version,
+      "admin-1",
+    );
+
+    expect(result).toEqual({ changed: false, configuration: current, version });
+    expect(persisted).toBe(false);
+  });
+
+  it("persists when returning to an older configuration version", async () => {
+    const target = validateCallCenterConfiguration(validInput(), validContext());
+    const current = {
+      ...target,
+      queues: target.queues.map((queue) => ({ ...queue, name: "Temporary queue" })),
+    };
+    const currentVersion = callCenterConfigurationVersion(current);
+    let persisted = false;
+    const repository: CallCenterConfigurationRepository = {
+      transaction: (operation) =>
+        operation({
+          async loadValidationContextForUpdate() {
+            return {
+              ...validContext(),
+              configurationVersion: currentVersion,
+              currentConfiguration: current,
+            };
+          },
+          async persistValidatedSnapshot() {
+            persisted = true;
+          },
+        }),
+    };
+
+    const result = await saveCallCenterConfiguration(
+      repository,
+      validInput(),
+      currentVersion,
+      "admin-1",
+    );
+
+    expect(result.changed).toBe(true);
+    expect(result.version).toBe(callCenterConfigurationVersion(target));
+    expect(persisted).toBe(true);
+  });
+
   it("preserves disabled rows omitted from the submitted snapshot", async () => {
     const current = validInput();
     current.queues.push({
@@ -326,6 +419,11 @@ describe("transactional configuration boundary", () => {
       routingMode: "LEGACY",
       locationIds: [],
       members: [],
+    });
+    current.queues[0]!.members.push({
+      userId: "user-2",
+      role: "AGENT",
+      enabled: false,
     });
     current.numbers.push({
       ...current.numbers[0]!,
@@ -354,6 +452,7 @@ describe("transactional configuration boundary", () => {
               ...validContext(),
               currentConfiguration: current,
               ownedPracticePhoneNumberIds: new Set(["phone-1", "phone-2"]),
+              practiceMemberUserIds: new Set(["user-1", "user-2"]),
               queueOwnerPracticeIds: new Map([
                 ["queue-1", "practice-1"],
                 ["queue-disabled", "practice-1"],
@@ -377,7 +476,15 @@ describe("transactional configuration boundary", () => {
     await saveCallCenterConfiguration(repository, validInput(), "version-1", "admin-1");
 
     expect(persisted).toMatchObject({
-      queues: expect.arrayContaining([expect.objectContaining({ id: "queue-disabled" })]),
+      queues: expect.arrayContaining([
+        expect.objectContaining({ id: "queue-disabled" }),
+        expect.objectContaining({
+          id: "queue-1",
+          members: expect.arrayContaining([
+            expect.objectContaining({ userId: "user-2", enabled: false }),
+          ]),
+        }),
+      ]),
       numbers: expect.arrayContaining([
         expect.objectContaining({ id: "number-disabled" }),
       ]),

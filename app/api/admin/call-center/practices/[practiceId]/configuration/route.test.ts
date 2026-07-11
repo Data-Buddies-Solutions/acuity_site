@@ -31,6 +31,10 @@ function storedConfiguration(currentVersion = version): VersionedCallCenterConfi
   };
 }
 
+function savedConfiguration(currentVersion = nextVersion) {
+  return { ...storedConfiguration(currentVersion), changed: true };
+}
+
 function adminDependencies() {
   return {
     getSession: async () => ({
@@ -83,6 +87,7 @@ describe("admin call-center configuration route", () => {
       readConfiguration: async () => storedConfiguration(),
       saveConfiguration: async () => {
         writes += 1;
+        return savedConfiguration();
       },
     });
 
@@ -143,6 +148,7 @@ describe("admin call-center configuration route", () => {
       readMigrationReport: async () => ({ overallReadiness: "BLOCKED" }),
       saveConfiguration: async () => {
         writes += 1;
+        return savedConfiguration();
       },
     });
     const response = await PUT(
@@ -167,13 +173,19 @@ describe("admin call-center configuration route", () => {
   });
 
   it("returns the committed redacted snapshot and new ETag", async () => {
-    const reads = [storedConfiguration(), storedConfiguration(nextVersion)];
+    let reads = 0;
     let savedActor = "";
     const { PUT } = createConfigurationHandlers({
       ...adminDependencies(),
-      readConfiguration: async () => reads.shift() ?? null,
+      readConfiguration: async () => {
+        reads += 1;
+        return reads === 1 ? storedConfiguration() : storedConfiguration("c".repeat(64));
+      },
       saveConfiguration: async (_input, _expectedVersion, actorUserId) => {
         savedActor = actorUserId;
+        const saved = savedConfiguration();
+        saved.configuration.endpoints[0]!.label = "Committed front desk";
+        return saved;
       },
     });
     const response = await PUT(
@@ -193,6 +205,9 @@ describe("admin call-center configuration route", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("etag")).toBe(`"${nextVersion}"`);
     expect(savedActor).toBe("admin-1");
-    expect(JSON.stringify(await response.json())).not.toContain("secret-credential");
+    expect(reads).toBe(1);
+    const serialized = JSON.stringify(await response.json());
+    expect(serialized).toContain("Committed front desk");
+    expect(serialized).not.toContain("secret-credential");
   });
 });

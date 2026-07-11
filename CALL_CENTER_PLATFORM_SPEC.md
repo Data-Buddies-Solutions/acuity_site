@@ -1228,8 +1228,8 @@ deterministic and mutation-free.
 1. Add queues, queue locations, numbers, queue members, and endpoints from a
    reviewed Phase 2A report. Preserve each legacy seat ID as the endpoint ID.
 2. Apply one tenant-scoped snapshot in a transaction guarded by a strong ETag
-   and `If-Match`. An enabled row must be explicitly disabled before omission;
-   omitted disabled rows remain present.
+   and `If-Match`. An enabled queue, number, endpoint, or queue membership must
+   be explicitly disabled before omission; omitted disabled rows remain present.
 3. Treat endpoint credential and SIP identities as write-only. Reads expose
    only configured booleans, and audit events contain counts and versions.
 4. Refuse `ACTIVE`, incomplete `SHADOW`, cross-tenant references, invalid
@@ -1239,6 +1239,10 @@ deterministic and mutation-free.
 6. Require a `READY_FOR_MANUAL_REVIEW` Phase 2A report before the first generic
    configuration write. Once generic rows exist, later edits use the protected
    snapshot contract rather than re-running the bootstrap gate.
+7. Compare the validated canonical version while the practice lock is held. An
+   identical replay returns the locked snapshot/version without another write
+   or audit event; a successful change returns that transaction's exact
+   snapshot/version without a post-commit reread.
 
 Gate: protected configuration is deterministic under replay and concurrency,
 and the reviewed snapshot remains `LEGACY` until decision-only shadow exists.
