@@ -1,6 +1,6 @@
 # Call Center Rollout Status
 
-Last updated: July 10, 2026
+Last updated: July 11, 2026
 
 ## Current position
 
@@ -34,6 +34,22 @@ followed by stale `404` or `502` responses. Successfully processed calls still
 bridged once and ended normally. Legacy Take is therefore not command-idempotent,
 and browser media state plus route refresh remain competing UI owners.
 
+PR [#88](https://github.com/Data-Buddies-Solutions/acuity_site/pull/88) merged
+the coordinated cutover and direct-SIP documentation without changing a runtime
+owner. PR [#89](https://github.com/Data-Buddies-Solutions/acuity_site/pull/89)
+made legacy Take replay-safe. Its checks passed, but the normal-call, transfer,
+remount, and reconnect production receipts are still required before the
+coordination gate closes.
+
+Draft PR [#90](https://github.com/Data-Buddies-Solutions/acuity_site/pull/90)
+implements default-off durable inbox processing, bounded recovery, and payload
+retention using the existing schema. It remains inactive until its environment,
+deployment, and backlog gates are complete.
+
+Draft PR [#91](https://github.com/Data-Buddies-Solutions/acuity_site/pull/91)
+implements Phase 2A as an admin-only, redacted configuration report. It makes no
+writes and preserves each legacy seat ID as the proposed endpoint ID.
+
 Legacy routing and projections remain authoritative. The durable provider
 inbox, generic database routing, canonical call model, and revisioned frontend
 stream are schema or design foundations only.
@@ -42,9 +58,9 @@ stream are schema or design foundations only.
 
 | Phase | Scope                                                                    | Code status                         | Production status                  |
 | ----- | ------------------------------------------------------------------------ | ----------------------------------- | ---------------------------------- |
-| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, and #87         | Deployed; coordination gate failed |
-| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | Schema only                         | Processing inactive                |
-| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | Schema only                         | Legacy configuration remains owner |
+| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89    | #89 synthetic gate pending         |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | Draft PR #90; default off           | Inactive; rollout gates pending    |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | Draft PR #91; report only           | Legacy configuration remains owner |
 | 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | Schema only                         | Inactive                           |
 | 4A    | Canonical routing and durable command foundations                        | Not started                         | Blocked by Phases 1-3              |
 | 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | Legacy UI repaired only             | Route-refresh stream remains       |
@@ -61,7 +77,9 @@ stream are schema or design foundations only.
 | Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed      | Included in current observation gate                   |
 | Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed      | Cross-profile synthetic call gate                      |
 | Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed      | Coordination gate failed on duplicate Take burst       |
-| Canonical foundations    | Durable ingress, generic routing, canonical calls            | Not started                     | Complete Phases 1-3                                    |
+| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                   | Normal, transfer, remount, and reconnect gates         |
+| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | Draft PR #90; no migration      | Environment, deploy, activation, and backlog proof     |
+| Canonical foundations    | Generic configuration and passive canonical calls            | Draft PR #91 starts Phase 2A    | Complete remaining Phases 2-3                          |
 | Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | Not started                     | Build 4A/5A, then activate 4B/5B together per queue    |
 | Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred     | Phases 0-6 complete and provider contract tests proven |
 
@@ -84,6 +102,12 @@ stream are schema or design foundations only.
   `502` failures, plus other successful requests followed by stale `404` or
   `502` responses. Successful call records still showed one bridge and normal
   completion.
+- PR #89 passed CI, build, and Vercel checks, including 54 focused call-center
+  tests. Production duplicate-Take synthetics remain required.
+- Draft PR #90 passed Prisma, format, lint, typecheck, 197 tests, the production
+  build, and its Vercel preview. Production activation gates remain open.
+- Draft PR #91 passed local Prisma, format, lint, typecheck, 170 tests, and a
+  production build. It has no migration or runtime activation.
 
 ## Proposed defaults and production gates
 
@@ -92,8 +116,10 @@ stream are schema or design foundations only.
 - Confirm optional wrap-up during migration.
 - Confirm provider-hosted voicemail behind the authorized proxy during
   migration.
-- Set and approve `CALL_CENTER_WEBHOOK_RETENTION_DAYS` before durable ingress.
-- Set a strong `CRON_SECRET` before enabling the recovery schedule.
+- Set a strong `CRON_SECRET`, approve payload retention, and set
+  `CALL_CENTER_WEBHOOK_RETENTION_DAYS` before deploying PR #90.
+- Deploy first with `CALL_CENTER_DURABLE_WEBHOOK_INGRESS_ENABLED=false`, verify
+  the authorized recovery route, then enable durable ingress and redeploy.
 - Keep one active browser per provider credential until canonical endpoint
   leasing is proven under concurrent check-in.
 - Require zero dead letters, ambiguous commands, and stale unconfirmed commands
