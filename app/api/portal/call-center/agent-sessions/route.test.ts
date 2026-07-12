@@ -24,6 +24,7 @@ const session: AgentSessionRecord = {
   clientInstanceId: "browser-1",
   connectionState: "CONNECTING",
   currentCallId: null,
+  offeredCallId: null,
   endpointId: "seat-legacy-id",
   id: "session-1",
   lastHeartbeatAt: now,

@@ -239,8 +239,12 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
       const argumentsRecord = record(existingCommand.arguments);
       if (
         argumentsRecord?.replacesLegId === sourceLeg.id &&
-        session.currentCallId === call.id &&
-        session.presence === "BUSY"
+        ((session.offeredCallId === call.id &&
+          session.currentCallId === null &&
+          session.presence === "AVAILABLE") ||
+          (session.offeredCallId === null &&
+            session.currentCallId === call.id &&
+            session.presence === "BUSY"))
       ) {
         return {
           callId: call.id,
@@ -256,20 +260,25 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
       }
       throw new TransferCallError("Transfer target is already occupied", 409);
     }
-    if (session.presence !== "AVAILABLE" || session.currentCallId) {
+    if (
+      session.presence !== "AVAILABLE" ||
+      session.currentCallId ||
+      session.offeredCallId
+    ) {
       throw new TransferCallError("Transfer target is already occupied", 409);
     }
 
     const reserved = await this.transaction.callCenterAgentSession.updateMany({
       data: {
-        currentCallId: call.id,
-        presence: "BUSY",
+        offeredCallId: call.id,
+        readyAt: null,
         stateVersion: { increment: 1 },
       },
       where: {
         audioReady: true,
         connectionState: "READY",
         currentCallId: null,
+        offeredCallId: null,
         endpointId: session.endpointId,
         id: session.id,
         leaseExpiresAt: { gt: now },
@@ -328,13 +337,14 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
         aggregateType: "AGENT_SESSION",
         data: {
           callId: call.id,
-          presence: "BUSY",
+          presence: "AVAILABLE",
           replacesLegId: sourceLeg.id,
+          stateVersion: session.stateVersion + 1,
         },
         idempotencyKey: `transfer-session:${leg.id}`,
         occurredAt: now,
         practiceId: call.practiceId,
-        type: "AGENT_SESSION_BUSY",
+        type: "AGENT_SESSION_CALL_OFFERED",
       },
     });
 

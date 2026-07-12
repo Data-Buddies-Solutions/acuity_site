@@ -185,7 +185,15 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
       throw new ClaimCallError("Existing claim is missing its provider command", 409);
     }
     if (existing && existingCommand) {
-      if (session.currentCallId !== call.id || session.presence !== "BUSY") {
+      const offered =
+        session.offeredCallId === call.id &&
+        session.currentCallId === null &&
+        session.presence === "AVAILABLE";
+      const active =
+        session.offeredCallId === null &&
+        session.currentCallId === call.id &&
+        session.presence === "BUSY";
+      if (!offered && !active) {
         throw new ClaimCallError("Existing claim session is inconsistent", 409);
       }
       return {
@@ -203,7 +211,11 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     if (session.stateVersion !== input.expectedSessionStateVersion) {
       throw new ClaimCallError("Agent session changed; refresh and try again", 409);
     }
-    if (session.presence !== "AVAILABLE" || session.currentCallId) {
+    if (
+      session.presence !== "AVAILABLE" ||
+      session.currentCallId ||
+      session.offeredCallId
+    ) {
       throw new ClaimCallError("Agent session is not ready to claim calls", 409);
     }
     const attemptNumber =
@@ -239,8 +251,8 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     });
     const updatedSession = await this.transaction.callCenterAgentSession.update({
       data: {
-        currentCallId: call.id,
-        presence: "BUSY",
+        offeredCallId: call.id,
+        readyAt: null,
         stateVersion: { increment: 1 },
       },
       select: { stateVersion: true },
@@ -271,13 +283,13 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
         aggregateType: "AGENT_SESSION",
         data: {
           callId: call.id,
-          presence: "BUSY",
+          presence: "AVAILABLE",
           stateVersion: updatedSession.stateVersion,
         },
         idempotencyKey: `claim-session:${leg.id}`,
         occurredAt: now,
         practiceId: call.practiceId,
-        type: "AGENT_SESSION_BUSY",
+        type: "AGENT_SESSION_CALL_OFFERED",
       },
     });
 

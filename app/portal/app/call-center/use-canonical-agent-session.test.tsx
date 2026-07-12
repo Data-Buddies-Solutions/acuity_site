@@ -3,7 +3,10 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 
-import { useCanonicalAgentSession } from "./use-canonical-agent-session";
+import {
+  canonicalHeartbeatPresence,
+  useCanonicalAgentSession,
+} from "./use-canonical-agent-session";
 
 const originalFetch = globalThis.fetch;
 
@@ -17,6 +20,7 @@ function agentSession(stateVersion = 0): AgentSessionView {
     id: "session-1",
     leaseExpiresAt: "2026-07-12T12:01:00.000Z",
     microphoneReady: Boolean(stateVersion),
+    offeredCallId: null,
     presence: stateVersion ? "AVAILABLE" : "PAUSED",
     stateVersion,
   };
@@ -38,6 +42,21 @@ function deferred<T>() {
 }
 
 describe("useCanonicalAgentSession", () => {
+  it("does not infer busy from a ringing offer", () => {
+    expect(
+      canonicalHeartbeatPresence(
+        { currentCallId: null, offeredCallId: "call-1", presence: "AVAILABLE" },
+        "BUSY",
+      ),
+    ).toBe("AVAILABLE");
+    expect(
+      canonicalHeartbeatPresence(
+        { currentCallId: "call-1", offeredCallId: null, presence: "BUSY" },
+        "AVAILABLE",
+      ),
+    ).toBe("BUSY");
+  });
+
   beforeEach(() => {
     globalThis.fetch = mock(async (_input, init) => {
       if (init?.method === "POST") return acquisition();

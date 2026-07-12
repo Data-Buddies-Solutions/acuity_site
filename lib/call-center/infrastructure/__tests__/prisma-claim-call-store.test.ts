@@ -69,7 +69,8 @@ function fakeDatabase({
     audioReady: true,
     browserSessionId: "browser-1",
     connectionState: "READY" as const,
-    currentCallId: existing ? "call-1" : null,
+    currentCallId: null,
+    offeredCallId: existing ? "call-1" : null,
     endpoint: {
       enabled: true,
       id: "endpoint-1",
@@ -82,7 +83,7 @@ function fakeDatabase({
     leaseExpiresAt: new Date(now.getTime() + (leaseExpired ? -1 : 60_000)),
     microphoneReady: true,
     practiceId: "practice-1",
-    presence: (existing ? "BUSY" : "AVAILABLE") as "AVAILABLE" | "BUSY",
+    presence: "AVAILABLE" as const,
     stateVersion: sessionStateVersion,
     userId: "user-1",
   };
@@ -99,8 +100,7 @@ function fakeDatabase({
       findFirst: async () => session,
       update: async () => {
         operations.push("session.update");
-        session.currentCallId = "call-1";
-        session.presence = "BUSY";
+        session.offeredCallId = "call-1";
         session.stateVersion += 1;
         return { stateVersion: session.stateVersion };
       },
@@ -221,7 +221,7 @@ describe("Prisma canonical manual claim", () => {
       "session.update",
       "call.update",
       "event.create:CALL_CLAIM_STARTED",
-      "event.create:AGENT_SESSION_BUSY",
+      "event.create:AGENT_SESSION_CALL_OFFERED",
       "receipt.create",
     ]);
   });

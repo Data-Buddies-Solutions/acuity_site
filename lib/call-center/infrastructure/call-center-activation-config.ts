@@ -6,6 +6,10 @@ const ACTIVATION_ENV = "CALL_CENTER_CANONICAL_ACTIVATION_ENABLED";
 type Environment = Record<string, string | undefined>;
 
 export type CallCenterActivationConfig = Readonly<{ enabled: boolean }>;
+export type PortalCallCenterActivationConfig = Readonly<{
+  enabled: boolean;
+  valid: boolean;
+}>;
 
 export class InvalidCallCenterActivationConfigError extends Error {
   readonly code = "INVALID_CALL_CENTER_ACTIVATION_CONFIG";
@@ -45,4 +49,15 @@ export function resolveCallCenterActivationConfig(
   const enabled = booleanValue(environment[ACTIVATION_ENV]);
   if (enabled) assertCallCenterActivationPrerequisites(environment);
   return { enabled };
+}
+
+/** Portal rendering falls back to legacy; effect-producing routes stay strict. */
+export function resolvePortalCallCenterActivationConfig(
+  environment: Environment = process.env,
+): PortalCallCenterActivationConfig {
+  try {
+    return { ...resolveCallCenterActivationConfig(environment), valid: true };
+  } catch {
+    return { enabled: false, valid: false };
+  }
 }

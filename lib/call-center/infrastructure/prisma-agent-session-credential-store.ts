@@ -66,12 +66,24 @@ export class PrismaAgentSessionCredentialStore implements AgentSessionCredential
           ...(input.activationEnabled
             ? {}
             : {
-                currentCall: {
-                  is: {
-                    effectOwner: "CANONICAL",
-                    status: { in: [...NONTERMINAL_CALL_STATUSES] },
+                OR: [
+                  {
+                    currentCall: {
+                      is: {
+                        effectOwner: "CANONICAL",
+                        status: { in: [...NONTERMINAL_CALL_STATUSES] },
+                      },
+                    },
                   },
-                },
+                  {
+                    offeredCall: {
+                      is: {
+                        effectOwner: "CANONICAL",
+                        status: { in: [...NONTERMINAL_CALL_STATUSES] },
+                      },
+                    },
+                  },
+                ],
               }),
         },
       });

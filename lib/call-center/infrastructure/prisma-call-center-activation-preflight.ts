@@ -348,6 +348,7 @@ export class PrismaCallCenterActivationPreflightStore implements CallCenterActiv
             AND NULLIF(BTRIM(endpoint."sipUsername"), '') IS NOT NULL
             AND session."presence" = CAST('AVAILABLE' AS "CallCenterAgentPresence")
             AND session."currentCallId" IS NULL
+            AND session."offeredCallId" IS NULL
             AND session."connectionState" = CAST('READY' AS "CallCenterAgentConnectionState")
             AND session."microphoneReady" = true
             AND session."audioReady" = true

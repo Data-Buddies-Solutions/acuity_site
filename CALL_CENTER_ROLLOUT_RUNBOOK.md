@@ -174,6 +174,14 @@ Telnyx connection ID.
 
 ### UI and command convergence
 
+- Persist ringing ownership separately from active-call ownership. Routing or
+  transfer sets `offeredCallId` while the session remains `AVAILABLE`.
+- Only a confirmed provider answer or bridge for that exact offered leg may
+  promote it to `currentCallId` and set the session `BUSY`. A browser click,
+  command acceptance, or local media state is not connection proof.
+- A terminal call or agent leg clears the matching offer or active call. A
+  ready session returns to `AVAILABLE`; an explicitly paused or disconnected
+  session keeps its non-ready state.
 - Send the same canonical `clientInstanceId` to snapshot, stream, and endpoint
   lease APIs. Reject a missing identity rather than selecting another tab.
 - Listen only for `projection`, `cursor`, and `reset` SSE events. Apply domain
@@ -196,6 +204,10 @@ Telnyx connection ID.
 - Canonical routing and canonical frontend ownership activate and roll back
   together for all configured queues and phone numbers. Legacy and canonical
   paths must never both produce commands for one call.
+- If the portal cannot validate the activation snapshot, log only sanitized
+  configuration diagnostics and render the legacy workspace. Provider-effect
+  APIs remain strict and fail closed; a page-render error must never become a
+  routing decision.
 
 ### Raw webhook governance
 
@@ -224,8 +236,10 @@ synthetic calls cannot enter patient reporting or follow-up queues. Immediately
 after global activation, prove both paths:
 
 1. Ready endpoint: inbound event is durably recorded, the eligible test
-   endpoints ring, answer and bridge complete once, losing test legs cancel,
-   and the final state is terminal.
+   endpoints ring while their agents remain `AVAILABLE`, Take answers and
+   bridges exactly once, the winning agent becomes `BUSY` only after provider
+   confirmation, losing test legs cancel, and hangup returns the ready agent to
+   `AVAILABLE`.
 2. Command convergence: one click, repeated clicks, concurrent tabs, request
    retry, component remount, and reconnect create one operation receipt and one
    intended provider effect. The UI stays `Connecting` until canonical state

@@ -53,6 +53,7 @@ export type AgentSessionView = {
   presence: "AVAILABLE" | "BUSY" | "OFFLINE" | "PAUSED" | "WRAP_UP";
   connectionState: "CONNECTING" | "DISCONNECTED" | "FAILED" | "READY";
   currentCallId: string | null;
+  offeredCallId: string | null;
   microphoneReady: boolean;
   audioReady: boolean;
   leaseExpiresAt: string;

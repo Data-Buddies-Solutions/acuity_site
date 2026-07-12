@@ -17,6 +17,7 @@ const sessionSelect = {
   browserSessionId: true,
   connectionState: true,
   currentCallId: true,
+  offeredCallId: true,
   endpointId: true,
   id: true,
   lastHeartbeatAt: true,
@@ -107,6 +108,7 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
         endpointId,
         OR: [
           { currentCallId: { not: null } },
+          { offeredCallId: { not: null } },
           {
             connectionState: { not: "CLOSED" },
             presence: { not: "OFFLINE" },

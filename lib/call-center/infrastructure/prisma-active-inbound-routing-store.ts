@@ -98,6 +98,7 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
               audioReady: true,
               connectionState: true,
               currentCallId: true,
+              offeredCallId: true,
               endpoint: {
                 select: {
                   enabled: true,
@@ -139,6 +140,7 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
               audioReady: session.audioReady,
               connectionState: session.connectionState,
               currentCallId: session.currentCallId,
+              offeredCallId: session.offeredCallId,
               endpoint: {
                 configured: Boolean(
                   session.endpoint.providerCredentialId && session.endpoint.sipUsername,
@@ -295,14 +297,15 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
 
       const reserved = await this.transaction.callCenterAgentSession.updateMany({
         data: {
-          currentCallId: context.callId,
-          presence: "BUSY",
+          offeredCallId: context.callId,
+          readyAt: null,
           stateVersion: { increment: 1 },
         },
         where: {
           audioReady: true,
           connectionState: "READY",
           currentCallId: null,
+          offeredCallId: null,
           endpoint: {
             enabled: true,
             id: selection.endpointId,
@@ -348,6 +351,21 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
           type: "DIAL_AGENT",
         },
         select: { id: true },
+      });
+      await this.transaction.callCenterEvent.create({
+        data: {
+          aggregateId: selection.agentSessionId,
+          aggregateType: "AGENT_SESSION",
+          data: {
+            callId: context.callId,
+            presence: "AVAILABLE",
+            stateVersion: session.stateVersion + 1,
+          },
+          idempotencyKey: `route:${routingKey}:offer:${selection.agentSessionId}`,
+          occurredAt: now,
+          practiceId: context.practiceId,
+          type: "AGENT_SESSION_CALL_OFFERED",
+        },
       });
       routed.push({ ...selection, commandId: command.id, legId: leg.id });
     }

@@ -93,14 +93,28 @@ describe("Prisma canonical agent-session credential store", () => {
     });
     expect(sessionWhere).toEqual(
       expect.objectContaining({
-        currentCall: {
-          is: {
-            effectOwner: "CANONICAL",
-            status: {
-              in: ["RECEIVED", "QUEUED", "RINGING", "CONNECTED", "WRAP_UP"],
+        OR: [
+          {
+            currentCall: {
+              is: {
+                effectOwner: "CANONICAL",
+                status: {
+                  in: ["RECEIVED", "QUEUED", "RINGING", "CONNECTED", "WRAP_UP"],
+                },
+              },
             },
           },
-        },
+          {
+            offeredCall: {
+              is: {
+                effectOwner: "CANONICAL",
+                status: {
+                  in: ["RECEIVED", "QUEUED", "RINGING", "CONNECTED", "WRAP_UP"],
+                },
+              },
+            },
+          },
+        ],
       }),
     );
   });
@@ -143,6 +157,7 @@ describe("Prisma canonical agent-session credential store", () => {
     await expect(
       store.resolve(actor, { ...input, activationEnabled: false }, now),
     ).resolves.toBeNull();
-    expect(sessionWhere).toHaveProperty("currentCall.is.effectOwner", "CANONICAL");
+    expect(sessionWhere).toHaveProperty("OR.0.currentCall.is.effectOwner", "CANONICAL");
+    expect(sessionWhere).toHaveProperty("OR.1.offeredCall.is.effectOwner", "CANONICAL");
   });
 });

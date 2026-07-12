@@ -13,6 +13,7 @@ import type {
 } from "@/lib/call-center/application/operation-receipts";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveQueueAccess } from "@/lib/call-center/auth/queue-access";
+import { isAgentSessionReady } from "@/lib/call-center/domain/agent-session-readiness";
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastructure/prisma-operation-receipts";
 import { normalizePhone } from "@/lib/phone";
@@ -167,11 +168,7 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       !session ||
       session.stateVersion !== input.expectedSessionStateVersion ||
       session.leaseExpiresAt <= now ||
-      session.presence !== "AVAILABLE" ||
-      session.connectionState !== "READY" ||
-      !session.microphoneReady ||
-      !session.audioReady ||
-      session.currentCallId ||
+      !isAgentSessionReady(session) ||
       !session.endpoint.enabled ||
       !session.endpoint.providerCredentialId ||
       !session.endpoint.sipUsername ||
@@ -221,8 +218,8 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     });
     const updatedSession = await this.transaction.callCenterAgentSession.update({
       data: {
-        currentCallId: call.id,
-        presence: "BUSY",
+        offeredCallId: call.id,
+        readyAt: null,
         stateVersion: { increment: 1 },
       },
       select: { stateVersion: true },
@@ -253,13 +250,13 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
         aggregateType: "AGENT_SESSION",
         data: {
           callId: call.id,
-          presence: "BUSY",
+          presence: "AVAILABLE",
           stateVersion: updatedSession.stateVersion,
         },
         idempotencyKey: `outbound-session:${call.id}`,
         occurredAt: now,
         practiceId: actor.practiceId,
-        type: "AGENT_SESSION_BUSY",
+        type: "AGENT_SESSION_CALL_OFFERED",
       },
     });
 

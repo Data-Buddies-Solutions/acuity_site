@@ -69,6 +69,7 @@ const sessionSelect = {
   browserSessionId: true,
   connectionState: true,
   currentCallId: true,
+  offeredCallId: true,
   endpointId: true,
   id: true,
   leaseExpiresAt: true,

@@ -158,6 +158,10 @@ function fakeDatabase({ failedReservation = false } = {}) {
     },
     callCenterEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
+        if (data.type !== "CALL_ROUTING_ACTIVE_STARTED") {
+          operations.push(`session-event.create:${String(data.aggregateId)}`);
+          return { data: data.data, occurredAt: data.occurredAt, revision: BigInt(18) };
+        }
         operations.push("routing-event.create");
         routingEvent = {
           data: data.data,

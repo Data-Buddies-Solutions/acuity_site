@@ -173,6 +173,7 @@ function ConnectedCanonicalActiveWorkspace({
   const leasedSession = canonicalSession.session;
   const leasedSessionId = leasedSession?.id ?? null;
   const leasedCurrentCallId = leasedSession?.currentCallId ?? null;
+  const leasedOfferedCallId = leasedSession?.offeredCallId ?? null;
   const media = useSoftphoneMedia({
     agentSessionId: leasedSessionId,
     browserSessionId: clientInstanceId,
@@ -224,8 +225,20 @@ function ConnectedCanonicalActiveWorkspace({
 
   useEffect(() => {
     if (!state || !leasedSessionId) return;
-    setCallCenterCurrentCallGuard(session?.currentCallId ?? leasedCurrentCallId);
-  }, [leasedCurrentCallId, leasedSessionId, session?.currentCallId, state]);
+    setCallCenterCurrentCallGuard(
+      session?.currentCallId ??
+        session?.offeredCallId ??
+        leasedCurrentCallId ??
+        leasedOfferedCallId,
+    );
+  }, [
+    leasedCurrentCallId,
+    leasedOfferedCallId,
+    leasedSessionId,
+    session?.currentCallId,
+    session?.offeredCallId,
+    state,
+  ]);
   const incomingCalls = useMemo(() => (state ? selectIncomingCalls(state) : []), [state]);
   const transferTakeCandidate =
     state && session
@@ -717,7 +730,10 @@ function ConnectedCanonicalActiveWorkspace({
             Endpoint
             <select
               className="mt-1 h-10 w-full rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm"
-              disabled={currentCallGuarded || Boolean(session?.currentCallId)}
+              disabled={
+                currentCallGuarded ||
+                Boolean(session?.currentCallId || session?.offeredCallId)
+              }
               onChange={(event) => setEndpointChoice(event.target.value)}
               value={selectedEndpointId}
             >
@@ -732,13 +748,13 @@ function ConnectedCanonicalActiveWorkspace({
             Presence
             <select
               className="mt-1 h-10 w-full rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm"
-              disabled={Boolean(session?.currentCallId)}
+              disabled={Boolean(session?.currentCallId || session?.offeredCallId)}
               onChange={(event) =>
                 setPresence(event.target.value as AgentSessionView["presence"])
               }
-              value={session?.currentCallId ? "BUSY" : presence}
+              value={session?.presence ?? presence}
             >
-              {session?.currentCallId ? <option value="BUSY">Busy</option> : null}
+              {session?.presence === "BUSY" ? <option value="BUSY">Busy</option> : null}
               <option value="AVAILABLE">Available</option>
               <option value="PAUSED">Paused</option>
             </select>

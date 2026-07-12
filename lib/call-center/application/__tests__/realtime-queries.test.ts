@@ -107,6 +107,7 @@ describe("canonical realtime serializers", () => {
       browserSessionId: "tab-1",
       connectionState: "ERROR",
       currentCallId: "call-1",
+      offeredCallId: null,
       endpointId: "endpoint-1",
       id: "session-1",
       leaseExpiresAt: now,

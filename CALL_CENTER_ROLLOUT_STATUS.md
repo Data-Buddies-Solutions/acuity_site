@@ -154,9 +154,21 @@ The activation follow-up replaces the unsafe lock key, terminates proven
 out-of-scope `LEGACY` sessions as `IGNORED`, adds a private exact-session
 historical repair with a sanitized audit receipt, and strengthens preflight so
 every enabled queue must have one coherent number/member/endpoint route. The
-remaining production configuration repair must add the South Florida and
-optical inbound targets and bind their shared seats to explicit permitted
-locations before ingress/projection are re-enabled.
+production configuration repair added the optical inbound target and bound its
+test seat to an explicit permitted location. South Florida remains deliberately
+disabled until its number and seats are intentionally configured and tested.
+
+After that repair, the automated preflight passed all twelve checks for the
+dedicated optical endpoint. The activation redeploy was rolled back before a
+controlled call because its runtime configuration snapshot failed strict
+activation validation and the portal Server Component threw instead of falling
+back to legacy. Activation remains off. The next application slice makes the
+portal fail closed to the legacy workspace while effect-producing routes stay
+strict, and separates an agent's ringing offer from its connected call. An
+offer keeps the agent `AVAILABLE`; a confirmed provider answer or bridge
+promotes that exact offer to `BUSY`; terminal hangup releases it to
+`AVAILABLE`. Its additive migration must be applied before the next activation
+preflight and optical test.
 
 Legacy routing and projections remain authoritative. Phase 3B has an independent
 passive projector recovery lane; canonical writes and checkpoint completion are
@@ -202,7 +214,7 @@ endpoints, and seven memberships.
 | 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92/#97; out-of-scope repair pending         | Projection rolled back off            |
 | 4A    | Canonical routing, commands, and immutable effect ownership              | #103/#111-#113 merged                        | No commands; all queues stay LEGACY   |
 | 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #111 merged                                  | Legacy UI remains authoritative       |
-| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; activation fix pending          | Deployed off; preflight blocked       |
+| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; offer-state fix pending         | Deployed off after rollback           |
 | 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                                  | Blocked until observation closes      |
 | 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred          | Public-number handoff remains         |
 

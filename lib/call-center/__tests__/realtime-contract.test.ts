@@ -61,6 +61,7 @@ function agentSession(overrides: Partial<AgentSessionView> = {}): AgentSessionVi
     clientInstanceId: "client-1",
     connectionState: "FAILED",
     currentCallId: null,
+    offeredCallId: null,
     endpointId: "endpoint-1",
     id: "session-1",
     leaseExpiresAt: "2026-07-11T12:01:00.000Z",

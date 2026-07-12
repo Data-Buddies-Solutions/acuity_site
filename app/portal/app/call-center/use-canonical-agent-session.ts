@@ -36,6 +36,13 @@ type Readiness = Pick<
   "audioReady" | "connectionState" | "microphoneReady" | "presence"
 >;
 
+export function canonicalHeartbeatPresence(
+  session: Pick<AgentSessionView, "currentCallId" | "offeredCallId" | "presence">,
+  requested: AgentSessionView["presence"],
+) {
+  return session.currentCallId || session.offeredCallId ? session.presence : requested;
+}
+
 function message(error: unknown) {
   return error instanceof Error ? error.message : "Call center session failed";
 }
@@ -107,7 +114,10 @@ export function useCanonicalAgentSession({
             clientInstanceId: active.clientInstanceId,
             endpointId: active.endpointId,
             expectedStateVersion: requestedStateVersion,
-            ...(active.session.currentCallId ? { presence: "BUSY" } : {}),
+            presence: canonicalHeartbeatPresence(
+              active.session,
+              readinessRef.current.presence,
+            ),
           }),
           headers: { "Content-Type": "application/json" },
           method: "PATCH",

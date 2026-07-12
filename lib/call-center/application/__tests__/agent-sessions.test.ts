@@ -87,6 +87,7 @@ class FakeStore implements AgentSessionStore {
           (session) =>
             session.endpointId === id &&
             (session.currentCallId !== null ||
+              session.offeredCallId !== null ||
               (session.presence !== "OFFLINE" && session.connectionState !== "CLOSED")),
         );
         return found ? { ...found } : null;

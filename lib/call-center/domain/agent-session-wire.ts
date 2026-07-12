@@ -9,6 +9,7 @@ type AgentSessionWireSource = {
   clientInstanceId: string;
   connectionState: CallCenterAgentConnectionState;
   currentCallId: string | null;
+  offeredCallId: string | null;
   endpointId: string;
   id: string;
   leaseExpiresAt: Date;
@@ -41,6 +42,7 @@ export function serializeAgentSessionView(
     clientInstanceId: session.clientInstanceId,
     connectionState: serializeAgentConnectionState(session.connectionState),
     currentCallId: session.currentCallId,
+    offeredCallId: session.offeredCallId,
     endpointId: session.endpointId,
     id: session.id,
     leaseExpiresAt: session.leaseExpiresAt.toISOString(),
