@@ -132,14 +132,31 @@ PR #114 added nullable active-call deadlines, durable command dependencies, and
 the indexed recovery scan. It merged before the application slice, and
 Production Migrations run `29205313102` applied it successfully on July 12, 2026. The application-ahead-of-database risk is closed.
 
-The active-routing application branch now implements the generic Phase 4B/5B
-cutover for every enabled queue and configured number: immutable admission,
-ordered commands, first-agent winner and loser cleanup, overflow/voicemail,
-transfer, outbound, disposition and task handling, exact session-bound media,
-multi-queue selection, reconnect/remount, mixed canonical/legacy observation
-reads, automated preflight, and rollback drainage. It remains default-off and
-is not production-authoritative until the final repository validation, PR merge,
-deployment, preflight, and controlled per-number calls complete.
+PR #115 merged the generic Phase 4B/5B cutover for every enabled queue and
+configured number: immutable admission, ordered commands, first-agent winner
+and loser cleanup, overflow/voicemail, transfer, outbound, disposition and task
+handling, exact session-bound media, multi-queue selection, reconnect/remount,
+mixed canonical/legacy observation reads, automated preflight, and rollback
+drainage. Its production deployment is Ready and the one global activation
+switch remains off.
+
+The first post-#115 durable-ingress activation attempt exposed two fail-closed
+preflight blockers before any routing cutover. Fifteen older `LEGACY` callbacks
+had exhausted passive projection because their phone numbers were outside the
+generic call-center configuration. Four new callbacks then failed owner
+resolution because the PostgreSQL advisory-lock key contained a literal NUL
+byte and the void-returning lock query was not cast to a Prisma-supported type.
+Durable ingress and passive projection were rolled back off before the new
+callbacks exhausted their retry budget; payload retention remains approved at
+seven days and canonical activation remains off.
+
+The activation follow-up replaces the unsafe lock key, terminates proven
+out-of-scope `LEGACY` sessions as `IGNORED`, adds a private exact-session
+historical repair with a sanitized audit receipt, and strengthens preflight so
+every enabled queue must have one coherent number/member/endpoint route. The
+remaining production configuration repair must add the South Florida and
+optical inbound targets and bind their shared seats to explicit permitted
+locations before ingress/projection are re-enabled.
 
 Legacy routing and projections remain authoritative. Phase 3B has an independent
 passive projector recovery lane; canonical writes and checkpoint completion are
@@ -180,12 +197,12 @@ endpoints, and seven memberships.
 | Phase | Scope                                                                    | Code status                             | Production status                     |
 | ----- | ------------------------------------------------------------------------ | --------------------------------------- | ------------------------------------- |
 | 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89        | #89 synthetic gate pending            |
-| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | #90/#104 merged and deployed            | Empty backlog; live proof pending     |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | #90/#104; lock/dead-letter follow-up pending | Rolled back off pending fix       |
 | 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100-#102 merged     | Bootstrap applied and replay verified |
-| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged | Enabled; no live events observed yet  |
+| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92/#97; out-of-scope repair pending    | Projection rolled back off            |
 | 4A    | Canonical routing, commands, and immutable effect ownership              | #103/#111-#113 merged                   | No commands; all queues stay LEGACY   |
 | 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #111 merged                             | Legacy UI remains authoritative       |
-| 4B/5B | Global routing and frontend cutover for all configured numbers           | Implementation complete; final PR gate  | Deploy off; preflight; activate once  |
+| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; activation fix pending     | Deployed off; preflight blocked       |
 | 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                             | Blocked until observation closes      |
 | 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred     | Public-number handoff remains         |
 

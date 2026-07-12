@@ -12,6 +12,7 @@ export type CanonicalProjectionRecord = {
   eventType: string;
   id: string;
   payload: unknown;
+  providerCallSessionId: string | null;
   providerEventId: string;
   receivedAt: Date;
   updatedAt: Date;
@@ -28,6 +29,7 @@ export type CanonicalProjectionInboxStore = {
     attemptCount: number;
     eventId: string;
     now: Date;
+    reasonCode?: string;
   }): Promise<boolean>;
   fail(input: {
     attemptCount: number;
@@ -41,13 +43,19 @@ export type CanonicalProjectionInboxStore = {
     now: Date;
     staleBefore: Date;
   }): Promise<CanonicalProjectionRecord[]>;
+  hasIgnoredLegacySession(input: {
+    eventId: string;
+    providerCallSessionId: string;
+  }): Promise<boolean>;
 };
 
-const MAX_ATTEMPTS = 8;
+export const CANONICAL_PROJECTION_MAX_ATTEMPTS = 8;
 const PROCESSING_LEASE_MS = 5 * 60_000;
 const RETRY_BASE_MS = 5_000;
 const RETRY_MAX_MS = 5 * 60_000;
 const MAX_BATCH_SIZE = 25;
+
+export const PASSIVE_LEGACY_OUT_OF_SCOPE_CODE = "LEGACY_OUT_OF_SCOPE";
 
 export const canonicalProjectionMainLaneWhere = {
   processingStatus: {
@@ -56,7 +64,7 @@ export const canonicalProjectionMainLaneWhere = {
 } as const;
 
 export function canonicalProjectionRetryAt(attemptCount: number, now: Date) {
-  if (attemptCount >= MAX_ATTEMPTS) return null;
+  if (attemptCount >= CANONICAL_PROJECTION_MAX_ATTEMPTS) return null;
   const delay = Math.min(
     RETRY_MAX_MS,
     RETRY_BASE_MS * 2 ** Math.max(0, attemptCount - 1),
@@ -73,12 +81,13 @@ export function createCanonicalProjectionInbox(
       const now = clock();
       return store.claim({
         eventId,
-        maxAttempts: MAX_ATTEMPTS,
+        maxAttempts: CANONICAL_PROJECTION_MAX_ATTEMPTS,
         now,
         staleBefore: new Date(now.getTime() - PROCESSING_LEASE_MS),
       });
     },
     completeIgnored: store.completeIgnored,
+    hasIgnoredLegacySession: store.hasIgnoredLegacySession,
     async fail(event: CanonicalProjectionRecord, errorCode: string) {
       const now = clock();
       return store.fail({
@@ -95,7 +104,7 @@ export function createCanonicalProjectionInbox(
       const now = clock();
       return store.listRecoverable({
         limit: Math.max(1, Math.min(MAX_BATCH_SIZE, Math.trunc(limit))),
-        maxAttempts: MAX_ATTEMPTS,
+        maxAttempts: CANONICAL_PROJECTION_MAX_ATTEMPTS,
         now,
         staleBefore: new Date(now.getTime() - PROCESSING_LEASE_MS),
       });
@@ -112,6 +121,7 @@ const selectedFields = {
   eventType: true,
   id: true,
   payload: true,
+  providerCallSessionId: true,
   providerEventId: true,
   receivedAt: true,
   updatedAt: true,
@@ -168,11 +178,11 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
     });
     return event ? requireEffectOwner(event) : null;
   },
-  async completeIgnored({ attemptCount, eventId, now }) {
+  async completeIgnored({ attemptCount, eventId, now, reasonCode }) {
     const completed = await prisma.providerWebhookEvent.updateMany({
       data: {
         canonicalProjectedAt: now,
-        canonicalProjectionErrorCode: null,
+        canonicalProjectionErrorCode: reasonCode ?? null,
         canonicalProjectionNextAttemptAt: null,
         canonicalProjectionStatus: "IGNORED",
       },
@@ -183,6 +193,20 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
       },
     });
     return completed.count === 1;
+  },
+  async hasIgnoredLegacySession({ eventId, providerCallSessionId }) {
+    const event = await prisma.providerWebhookEvent.findFirst({
+      select: { id: true },
+      where: {
+        canonicalProjectionErrorCode: PASSIVE_LEGACY_OUT_OF_SCOPE_CODE,
+        canonicalProjectionStatus: "IGNORED",
+        effectOwner: "LEGACY",
+        id: { not: eventId },
+        provider: "TELNYX",
+        providerCallSessionId,
+      },
+    });
+    return Boolean(event);
   },
   async fail({ attemptCount, errorCode, eventId, nextAttemptAt }) {
     const failed = await prisma.providerWebhookEvent.updateMany({

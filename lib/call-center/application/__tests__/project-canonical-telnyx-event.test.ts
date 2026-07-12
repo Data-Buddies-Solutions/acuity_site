@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { CanonicalProjectionRecord } from "../../infrastructure/canonical-provider-webhook-inbox";
+import { CanonicalProjectionError } from "../../infrastructure/prisma-canonical-call-projector";
 import { createCanonicalTelnyxEventProcessor } from "../project-canonical-telnyx-event";
 
 const now = new Date("2026-07-11T12:00:00.000Z");
@@ -15,6 +16,7 @@ function record(payload: unknown): CanonicalProjectionRecord {
     eventType: "call.initiated",
     id: "inbox-1",
     payload,
+    providerCallSessionId: "session-1",
     providerEventId: "event-1",
     receivedAt: now,
     updatedAt: now,
@@ -163,6 +165,111 @@ describe("canonical Telnyx event processor", () => {
 
     await expect(process(event.id)).resolves.toEqual({ outcome: "IGNORED" });
     expect(ignoredInput).toMatchObject({ attemptCount: 1, eventId: "inbox-1" });
+  });
+
+  it("terminates an unconfigured LEGACY number as out of scope", async () => {
+    const event = record(callEnvelope());
+    let failed = false;
+    let ignoredInput: unknown;
+    const process = createCanonicalTelnyxEventProcessor({
+      inbox: {
+        claim: async () => event,
+        completeIgnored: async (input) => {
+          ignoredInput = input;
+          return true;
+        },
+        fail: async () => {
+          failed = true;
+          return true;
+        },
+      },
+      projector: {
+        projectAndComplete: async () => {
+          throw new CanonicalProjectionError("CANONICAL_NUMBER_NOT_FOUND");
+        },
+      },
+    });
+
+    await expect(process(event.id)).resolves.toEqual({ outcome: "IGNORED" });
+    expect(ignoredInput).toMatchObject({
+      eventId: event.id,
+      reasonCode: "LEGACY_OUT_OF_SCOPE",
+    });
+    expect(failed).toBe(false);
+  });
+
+  it("terminates later LEGACY events for an ignored provider session", async () => {
+    const event = {
+      ...record(callEnvelope("call.hangup")),
+      eventType: "call.hangup",
+    };
+    let projected = false;
+    let ignoredInput: unknown;
+    const sessionChecks: unknown[] = [];
+    const process = createCanonicalTelnyxEventProcessor({
+      inbox: {
+        claim: async () => event,
+        completeIgnored: async (input) => {
+          ignoredInput = input;
+          return true;
+        },
+        fail: async () => true,
+        hasIgnoredLegacySession: async (input) => {
+          sessionChecks.push(input);
+          return true;
+        },
+      },
+      projector: {
+        projectAndComplete: async () => {
+          projected = true;
+          throw new Error("must not project an out-of-scope session");
+        },
+      },
+    });
+
+    await expect(process(event.id)).resolves.toEqual({ outcome: "IGNORED" });
+    expect(sessionChecks).toEqual([
+      { eventId: event.id, providerCallSessionId: "session-1" },
+    ]);
+    expect(ignoredInput).toMatchObject({ reasonCode: "LEGACY_OUT_OF_SCOPE" });
+    expect(projected).toBe(false);
+  });
+
+  it("keeps configured and CANONICAL projection failures fail closed", async () => {
+    for (const [effectOwner, code] of [
+      ["LEGACY", "CANONICAL_QUEUE_NOT_CONFIGURED"],
+      ["CANONICAL", "CANONICAL_NUMBER_NOT_FOUND"],
+    ] as const) {
+      const event = { ...record(callEnvelope()), effectOwner };
+      const failures: string[] = [];
+      let ignored = false;
+      const process = createCanonicalTelnyxEventProcessor({
+        inbox: {
+          claim: async () => event,
+          completeIgnored: async () => {
+            ignored = true;
+            return true;
+          },
+          fail: async (_event, errorCode) => {
+            failures.push(errorCode);
+            return true;
+          },
+          hasIgnoredLegacySession: async () => false,
+        },
+        projector: {
+          projectAndComplete: async () => {
+            throw new CanonicalProjectionError(code);
+          },
+        },
+      });
+
+      await expect(process(event.id)).resolves.toEqual({
+        errorCode: code,
+        outcome: "FAILED",
+      });
+      expect(failures).toEqual([code]);
+      expect(ignored).toBe(false);
+    }
   });
 
   it("dispatches committed canonical commands in dependency order after projection", async () => {
