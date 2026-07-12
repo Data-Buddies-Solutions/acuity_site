@@ -1423,9 +1423,12 @@ scope, endpoint readiness, and the session reservation; and terminally rejects
 invalid intent without provider I/O. Terminal rejection, a losing leg, or an
 ended winner releases only the reservation-owned `BUSY` state and preserves an
 agent's explicit pause. Snapshot and SSE expose every accepted receipt and its
-current command state. This route performs no provider I/O. Until the
-coordinated cutover is installed, protected configuration still rejects
-`ACTIVE` and command dispatch remains disabled.
+current command state. This route performs no provider I/O. After the transaction
+returns, the route may wake the exact committed command through Next.js
+`after()`; scheduling and callback failures are contained because the same row
+remains claimable by bounded recovery. Immediate and recovery paths share one
+dispatcher composition. Until the coordinated cutover is installed, protected
+configuration still rejects `ACTIVE` and command dispatch remains disabled.
 
 Gate: each user operation produces one receipt and each intended provider effect
 produces one durable command under retry and concurrency.

@@ -26,6 +26,7 @@ function request(body: unknown, idempotencyKey?: string) {
 describe("canonical claim route", () => {
   it("passes only authenticated identity and bounded canonical input", async () => {
     let captured: unknown;
+    const scheduled: string[] = [];
     const POST = createClaimCallHandler({
       claim: async (_store, claimActor, input) => {
         captured = { actor: claimActor, input };
@@ -41,6 +42,7 @@ describe("canonical claim route", () => {
         };
       },
       getActor: async () => actor,
+      scheduleCommand: (commandId) => scheduled.push(commandId),
     });
     const response = await POST(
       request(
@@ -65,9 +67,11 @@ describe("canonical claim route", () => {
         idempotencyKey: "operation-1",
       },
     });
+    expect(scheduled).toEqual(["command-1"]);
   });
 
   it("returns the original receipt for an exact replay", async () => {
+    const scheduled: string[] = [];
     const POST = createClaimCallHandler({
       claim: async () => ({
         callId: "call-1",
@@ -80,6 +84,7 @@ describe("canonical claim route", () => {
         status: "CONFIRMED",
       }),
       getActor: async () => actor,
+      scheduleCommand: (commandId) => scheduled.push(commandId),
     });
 
     const response = await POST(
@@ -96,6 +101,40 @@ describe("canonical claim route", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ replayed: true, revision: "12" });
+    expect(scheduled).toEqual([]);
+  });
+
+  it("reschedules a pending replay while cron remains the durable fallback", async () => {
+    const scheduled: string[] = [];
+    const POST = createClaimCallHandler({
+      claim: async () => ({
+        callId: "call-1",
+        occurredAt: "2026-07-12T12:00:00.000Z",
+        operationType: "CLAIM",
+        providerCommandId: "command-1",
+        replayed: true,
+        revision: "12",
+        stateVersion: 3,
+        status: "PENDING",
+      }),
+      getActor: async () => actor,
+      scheduleCommand: (commandId) => scheduled.push(commandId),
+    });
+
+    const response = await POST(
+      request(
+        {
+          clientInstanceId: "browser-1",
+          endpointId: "endpoint-1",
+          expectedSessionStateVersion: 2,
+        },
+        "operation-1",
+      ),
+      routeContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(scheduled).toEqual(["command-1"]);
   });
 
   it("rejects a missing idempotency key and client-owned scope", async () => {
