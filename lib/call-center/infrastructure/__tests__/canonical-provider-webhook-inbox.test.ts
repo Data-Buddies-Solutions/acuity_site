@@ -20,6 +20,7 @@ function event(): CanonicalProjectionRecord {
     eventType: "call.initiated",
     id: "event-1",
     payload: {},
+    providerCallSessionId: "session-1",
     providerEventId: "provider-event-1",
     receivedAt: now,
     updatedAt: now,
@@ -33,6 +34,7 @@ function store(
     claim: async () => event(),
     completeIgnored: async () => true,
     fail: async () => true,
+    hasIgnoredLegacySession: async () => false,
     listRecoverable: async () => [],
     ...overrides,
   };

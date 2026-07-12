@@ -14,6 +14,7 @@ function event(id: string): CanonicalProjectionRecord {
     eventType: "call.initiated",
     id,
     payload: {},
+    providerCallSessionId: null,
     providerEventId: id,
     receivedAt: now,
     updatedAt: now,

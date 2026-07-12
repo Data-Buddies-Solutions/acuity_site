@@ -167,12 +167,19 @@ async function lockProviderSession(
   eventId: string,
   providerCallSessionId: string | null,
 ) {
-  const lockKey = providerCallSessionId
-    ? `TELNYX\u0000${providerCallSessionId}`
-    : `TELNYX_EVENT\u0000${eventId}`;
+  const lockKey = telnyxEventOwnerLockKey(eventId, providerCallSessionId);
   await tx.$queryRaw(
-    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
   );
+}
+
+export function telnyxEventOwnerLockKey(
+  eventId: string,
+  providerCallSessionId: string | null,
+) {
+  return providerCallSessionId
+    ? `TELNYX_SESSION:${providerCallSessionId}`
+    : `TELNYX_EVENT:${eventId}`;
 }
 
 async function storedSessionOwner(

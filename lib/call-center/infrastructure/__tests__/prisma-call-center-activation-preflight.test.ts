@@ -70,6 +70,67 @@ describe("Prisma call center activation preflight", () => {
     expect(queries[0]).not.toContain("phoneNumber =");
   });
 
+  it("requires one coherent static number, member, and endpoint route per queue", async () => {
+    let sql = "";
+    const store = new PrismaCallCenterActivationPreflightStore(async (query) => {
+      sql = query.strings.join(" ");
+      return [
+        {
+          ambiguousCommandCount: BigInt(0),
+          ambiguousEventCount: BigInt(0),
+          blockedCommandCount: BigInt(0),
+          commandDeadLetterCount: BigInt(0),
+          enabledNumberCount: BigInt(1),
+          enabledQueueCount: BigInt(1),
+          eventDeadLetterCount: BigInt(0),
+          incompleteNumberCount: BigInt(0),
+          incompleteQueueCount: BigInt(0),
+          missingMigrationCount: BigInt(0),
+          readyTestEndpointCount: BigInt(1),
+          runtimeConfigReadyCount: BigInt(1),
+          staleSentCommandCount: BigInt(0),
+          unresolvedOwnershipCount: BigInt(0),
+        },
+      ];
+    });
+
+    await store.inspect(input);
+
+    const incompleteQueueSql = sql.slice(
+      sql.indexOf('AS "enabledQueueCount"'),
+      sql.indexOf('AS "incompleteQueueCount"'),
+    );
+    expect(incompleteQueueSql).toContain('FROM "call_center_number" AS route_number');
+    expect(incompleteQueueSql).toContain('JOIN "practice_phone_number" AS route_phone');
+    expect(incompleteQueueSql).toContain(
+      'JOIN "call_center_queue_location" AS route_phone_location',
+    );
+    expect(incompleteQueueSql).toContain(
+      'JOIN "call_center_queue_member" AS route_member',
+    );
+    expect(incompleteQueueSql).toContain(
+      'JOIN "practice_membership" AS route_membership',
+    );
+    expect(incompleteQueueSql).toContain('JOIN "call_center_endpoint" AS route_endpoint');
+    expect(incompleteQueueSql).toContain(
+      'JOIN "call_center_queue_location" AS route_endpoint_location',
+    );
+    expect(incompleteQueueSql).toContain(
+      'FROM "practice_membership_location" AS route_phone_access',
+    );
+    expect(incompleteQueueSql).toContain(
+      'FROM "practice_membership_location" AS route_endpoint_access',
+    );
+    expect(incompleteQueueSql).not.toContain('"call_center_agent_session"');
+    expect(incompleteQueueSql).not.toContain('route_endpoint."userId"');
+
+    const readyEndpointSql = sql.slice(
+      sql.indexOf('SELECT COUNT(DISTINCT endpoint."id")'),
+    );
+    expect(readyEndpointSql).toContain('JOIN "call_center_agent_session" AS session');
+    expect(readyEndpointSql).toContain('WHERE endpoint."id" =');
+  });
+
   it("rejects missing or invalid aggregate results", async () => {
     const missing = new PrismaCallCenterActivationPreflightStore(async () => []);
     await expect(missing.inspect(input)).rejects.toThrow(

@@ -145,34 +145,48 @@ export class PrismaCallCenterActivationPreflightStore implements CallCenterActiv
               )
               OR (queue."voicemailEnabled" = true AND BTRIM(queue."voicemailGreeting") = '')
               OR NOT EXISTS (
-                SELECT 1 FROM "call_center_queue_member" AS member
-                WHERE member."queueId" = queue."id"
-                  AND member."enabled" = true
-                  AND member."role" = CAST('AGENT' AS "CallCenterQueueMemberRole")
-              )
-              OR NOT EXISTS (
-                SELECT 1 FROM "call_center_number" AS number
-                WHERE number."inboundQueueId" = queue."id"
-                  AND number."practiceId" = queue."practiceId"
-                  AND number."enabled" = true
-                  AND number."inboundEnabled" = true
-              )
-              OR NOT EXISTS (
                 SELECT 1
-                FROM "call_center_endpoint" AS endpoint
-                WHERE endpoint."practiceId" = queue."practiceId"
-                  AND endpoint."enabled" = true
-                  AND NULLIF(BTRIM(endpoint."providerCredentialId"), '') IS NOT NULL
-                  AND NULLIF(BTRIM(endpoint."sipUsername"), '') IS NOT NULL
+                FROM "call_center_number" AS route_number
+                JOIN "practice_phone_number" AS route_phone
+                  ON route_phone."id" = route_number."practicePhoneNumberId"
+                 AND route_phone."practiceId" = queue."practiceId"
+                JOIN "call_center_queue_location" AS route_phone_location
+                  ON route_phone_location."queueId" = queue."id"
+                 AND route_phone_location."locationId" = route_phone."locationId"
+                JOIN "call_center_queue_member" AS route_member
+                  ON route_member."queueId" = queue."id"
+                 AND route_member."enabled" = true
+                 AND route_member."role" = CAST('AGENT' AS "CallCenterQueueMemberRole")
+                JOIN "practice_membership" AS route_membership
+                  ON route_membership."practiceId" = queue."practiceId"
+                 AND route_membership."userId" = route_member."userId"
+                JOIN "call_center_endpoint" AS route_endpoint
+                  ON route_endpoint."practiceId" = queue."practiceId"
+                 AND route_endpoint."enabled" = true
+                 AND NULLIF(BTRIM(route_endpoint."providerCredentialId"), '') IS NOT NULL
+                 AND NULLIF(BTRIM(route_endpoint."sipUsername"), '') IS NOT NULL
+                JOIN "call_center_queue_location" AS route_endpoint_location
+                  ON route_endpoint_location."queueId" = queue."id"
+                 AND route_endpoint_location."locationId" = route_endpoint."locationId"
+                WHERE route_number."inboundQueueId" = queue."id"
+                  AND route_number."practiceId" = queue."practiceId"
+                  AND route_number."enabled" = true
+                  AND route_number."inboundEnabled" = true
                   AND (
-                    NOT EXISTS (
-                      SELECT 1 FROM "call_center_queue_location" AS location
-                      WHERE location."queueId" = queue."id"
-                    )
-                    OR EXISTS (
-                      SELECT 1 FROM "call_center_queue_location" AS location
-                      WHERE location."queueId" = queue."id"
-                        AND location."locationId" = endpoint."locationId"
+                    route_membership."locationScope" = CAST('ALL' AS "PracticeMembershipLocationScope")
+                    OR (
+                      EXISTS (
+                        SELECT 1
+                        FROM "practice_membership_location" AS route_phone_access
+                        WHERE route_phone_access."membershipId" = route_membership."id"
+                          AND route_phone_access."locationId" = route_phone."locationId"
+                      )
+                      AND EXISTS (
+                        SELECT 1
+                        FROM "practice_membership_location" AS route_endpoint_access
+                        WHERE route_endpoint_access."membershipId" = route_membership."id"
+                          AND route_endpoint_access."locationId" = route_endpoint."locationId"
+                      )
                     )
                   )
               )

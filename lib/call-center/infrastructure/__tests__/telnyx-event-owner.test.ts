@@ -4,6 +4,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import {
   resolveTelnyxEventOwner,
+  telnyxEventOwnerLockKey,
   TelnyxEventOwnerError,
   type TelnyxEventOwner,
 } from "@/lib/call-center/infrastructure/telnyx-event-owner";
@@ -133,6 +134,7 @@ function database({
 }: TestDatabaseOptions = {}) {
   const assigned: TelnyxEventOwner[] = [];
   const created: Array<Record<string, unknown>> = [];
+  const queries: string[] = [];
   let configuredNumber = number;
   const queryText = (query: unknown) =>
     Array.isArray((query as { strings?: string[] })?.strings)
@@ -141,6 +143,7 @@ function database({
   const transaction = {
     $queryRaw: async (query: unknown) => {
       const sql = queryText(query);
+      queries.push(sql);
       if (sql.includes("call_center_call_leg")) return [{ id: legs[0]?.id }];
       if (sql.includes('FROM "practice"')) {
         return [{ id: configuredNumber?.practiceId }];
@@ -228,6 +231,7 @@ function database({
     assigned,
     created,
     legs,
+    queries,
     prisma: {
       $transaction: async (operation: (tx: typeof transaction) => Promise<unknown>) =>
         operation(transaction),
@@ -239,6 +243,14 @@ function database({
 }
 
 describe("Telnyx event effect owner", () => {
+  it("uses PostgreSQL-safe advisory lock keys", () => {
+    expect(telnyxEventOwnerLockKey("event-1", "session-1")).toBe(
+      "TELNYX_SESSION:session-1",
+    );
+    expect(telnyxEventOwnerLockKey("event-1", null)).toBe("TELNYX_EVENT:event-1");
+    expect(telnyxEventOwnerLockKey("event-1", "session-1")).not.toContain("\u0000");
+  });
+
   it("records ACTIVE call and event ownership before canonical projection", async () => {
     const db = database();
     await expect(
@@ -246,6 +258,8 @@ describe("Telnyx event effect owner", () => {
     ).resolves.toBe("CANONICAL");
 
     expect(db.assigned).toEqual(["CANONICAL"]);
+    expect(db.queries[0]).toContain("pg_advisory_xact_lock");
+    expect(db.queries[0]).toContain('::text AS "lock"');
     expect(db.created[0]).toMatchObject({
       direction: "INBOUND",
       effectOwner: "CANONICAL",
