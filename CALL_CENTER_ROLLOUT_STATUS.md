@@ -125,7 +125,7 @@ endpoints, and seven memberships.
 | 1     | Durable provider inbox, retries, recovery, dead letters, retention       | #90/#104 merged and deployed            | Empty backlog; live proof pending     |
 | 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100-#102 merged     | Bootstrap applied and replay verified |
 | 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged | Enabled; no live events observed yet  |
-| 4A    | Canonical routing and durable command foundations                        | Decision/receipt foundation in draft    | No commands; all queues stay LEGACY   |
+| 4A    | Canonical routing and durable command foundations                        | Decision plus bounded recovery in draft | No commands; all queues stay LEGACY   |
 | 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94/#99 merged; media adapter extracted | Legacy UI remains authoritative       |
 | 4B/5B | Per-queue routing and frontend cutover                                   | Not started                             | Must activate together                |
 | 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                             | Blocked until observation closes      |
@@ -133,18 +133,18 @@ endpoints, and seven memberships.
 
 ## Release sequence
 
-| Release                  | Contents                                                     | Current state                   | Exit gate                                              |
-| ------------------------ | ------------------------------------------------------------ | ------------------------------- | ------------------------------------------------------ |
-| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                   | Closed by migration recovery                           |
-| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean | Complete                                               |
-| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed      | Included in current observation gate                   |
-| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed      | Cross-profile synthetic call gate                      |
-| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed      | Coordination gate failed on duplicate Take burst       |
-| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                   | Normal, transfer, remount, and reconnect gates         |
-| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed    | Empty aggregate report; live receipt pending           |
-| Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102    | Enabled passively; observation gate remains            |
-| Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | Not started                     | Build 4A/5A, then activate 4B/5B together per queue    |
-| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred     | Phases 0-6 complete and provider contract tests proven |
+| Release                  | Contents                                                     | Current state                      | Exit gate                                              |
+| ------------------------ | ------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------ |
+| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                      | Closed by migration recovery                           |
+| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean    | Complete                                               |
+| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed         | Included in current observation gate                   |
+| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed         | Cross-profile synthetic call gate                      |
+| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed         | Coordination gate failed on duplicate Take burst       |
+| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                      | Normal, transfer, remount, and reconnect gates         |
+| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed       | Empty aggregate report; live receipt pending           |
+| Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102       | Enabled passively; observation gate remains            |
+| Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | Effect-free 4A foundation in draft | Build commands/shell, then activate 4B/5B together     |
+| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred        | Phases 0-6 complete and provider contract tests proven |
 
 ## Validation receipt
 

@@ -1,4 +1,8 @@
 import { processCanonicalTelnyxEvent } from "@/lib/call-center/application/project-canonical-telnyx-event";
+import {
+  recoverShadowRoutingDecisions,
+  type ShadowRoutingRecoveryResult,
+} from "@/lib/call-center/application/recover-shadow-routing";
 import { canonicalProjectionInbox } from "@/lib/call-center/infrastructure/canonical-provider-webhook-inbox";
 import { resolveCanonicalProjectionConfig } from "@/lib/call-center/infrastructure/canonical-projection-config";
 
@@ -10,22 +14,41 @@ export type CanonicalRecoveryResult = {
   ignored: number;
   projected: number;
   selected: number;
+  shadowRouting: ShadowRoutingRecoveryResult;
 };
 
 type Dependencies = {
   config?: typeof resolveCanonicalProjectionConfig;
   inbox: Pick<typeof canonicalProjectionInbox, "listRecoverable">;
   processEvent: typeof processCanonicalTelnyxEvent;
+  shadowRecovery?: () => Promise<ShadowRoutingRecoveryResult>;
 };
+
+const noShadowRecovery = (): ShadowRoutingRecoveryResult => ({
+  failed: 0,
+  remaining: 0,
+  recorded: 0,
+  replayed: 0,
+  selected: 0,
+  skipped: 0,
+});
 
 export function createCanonicalTelnyxRecovery({
   config = resolveCanonicalProjectionConfig,
   inbox,
   processEvent,
+  shadowRecovery = recoverShadowRoutingDecisions,
 }: Dependencies) {
   return async function recoverCanonicalTelnyxEvents(): Promise<CanonicalRecoveryResult> {
     if (!config().enabled) {
-      return { enabled: false, failed: 0, ignored: 0, projected: 0, selected: 0 };
+      return {
+        enabled: false,
+        failed: 0,
+        ignored: 0,
+        projected: 0,
+        selected: 0,
+        shadowRouting: noShadowRecovery(),
+      };
     }
 
     const events = await inbox.listRecoverable(RECOVERY_BATCH_SIZE);
@@ -46,6 +69,7 @@ export function createCanonicalTelnyxRecovery({
       ignored,
       projected,
       selected: events.length,
+      shadowRouting: await shadowRecovery(),
     };
   };
 }

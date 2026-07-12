@@ -1378,9 +1378,12 @@ endpoint, transfer target, or arguments returns `409`. This foundation does not
 yet expose claim, transfer, or outbound APIs and does not dispatch commands.
 
 The shadow receipt attempt after passive projection is failure-contained so it
-cannot invalidate an already committed projection. A bounded recovery scan for
-active `SHADOW` calls without a decision receipt remains required before moving
-any production queue to `SHADOW`.
+cannot invalidate an already committed projection. The recovery cron scans at
+most five oldest inbound, non-terminal `SHADOW` calls without a decision,
+records them through the same call lock, and reports the remaining gap. Inline
+and recovered receipts are labeled separately because recovery-time readiness
+is useful evidence but is not equivalent to the original routing-time snapshot.
+Queue-mode changes and terminal-call races skip without writing.
 
 Gate: each user operation produces one receipt and each intended provider effect
 produces one durable command under retry and concurrency.
