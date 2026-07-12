@@ -828,7 +828,7 @@ queue memberships, caller IDs, and endpoint ownership are never trusted.
 
 ### Snapshot
 
-`GET /api/portal/call-center/snapshot?queueId=<id>`
+`GET /api/portal/call-center/snapshot?queueId=<id>&clientInstanceId=<id>`
 
 Returns:
 
@@ -853,14 +853,14 @@ This is the only initial live-workspace read.
 The stream emits authorized `CallCenterEvent` rows in revision order.
 
 During the Phase 5A shadow interval, canonical consumers must also send
-`contract=canonical&queueId=<id>`. Omitting that explicit discriminator keeps
+`contract=canonical&queueId=<id>&clientInstanceId=<id>`. Omitting that explicit discriminator keeps
 the existing refresh stream unchanged. Remove the temporary discriminator only
 when the canonical frontend becomes the queue owner in Phase 5B.
 
 SSE messages use:
 
 - `id` as the revision;
-- `event` as the domain event type;
+- `event` as one stable `projection` type;
 - `data` as the sanitized projection delta; and
 - heartbeat comments to keep the connection alive.
 
@@ -878,6 +878,12 @@ automatically, and SSE event IDs support resuming from the last delivered event:
 SSE is preferred over WebSocket because realtime application data is
 server-to-browser only; browser commands remain authenticated HTTP requests and
 media already uses WebRTC.
+
+Snapshot and stream bind the local session projection to the supplied canonical
+`clientInstanceId`; another tab's lease is never selected. The snapshot exposes
+queue `routingMode`, which is the only persisted frontend/backend ownership
+switch. Domain delta types remain inside projection data. Filtered revisions
+advance through `cursor` without clearing or mutating visible state.
 
 `revision` is a global delivery cursor, not a tenant-local counter. Tenant and
 queue filtering therefore creates expected numeric gaps. Clients accept any

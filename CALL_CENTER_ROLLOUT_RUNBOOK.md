@@ -145,6 +145,10 @@ before expanding a queue or tenant.
 
 ### UI and command convergence
 
+- Send the same canonical `clientInstanceId` to snapshot, stream, and endpoint
+  lease APIs. Reject a missing identity rather than selecting another tab.
+- Listen only for `projection`, `cursor`, and `reset` SSE events. Apply domain
+  types from the projection payload; do not enumerate provider event names.
 - One user action keeps one HTTP idempotency key across retry and remount. A
   duplicate for the same target returns the original operation receipt; reuse
   for another target returns a conflict.

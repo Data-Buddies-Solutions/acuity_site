@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   buildCanonicalBatchItems,
+  localAgentSessionWhere,
   queueCallWhere,
   readCanonicalEventBatch,
   serializeAgentSession,
@@ -11,6 +12,26 @@ import {
 const now = new Date("2026-07-11T12:00:00.000Z");
 
 describe("canonical realtime serializers", () => {
+  it("binds the local session projection to this browser instance", () => {
+    expect(
+      localAgentSessionWhere(
+        {
+          allowedLocationIds: [],
+          hasAllLocationAccess: true,
+          practiceId: "practice-1",
+          userId: "user-1",
+        },
+        ["endpoint-1"],
+        "tab-1",
+        now,
+      ),
+    ).toMatchObject({
+      browserSessionId: "tab-1",
+      endpointId: { in: ["endpoint-1"] },
+      practiceId: "practice-1",
+      userId: "user-1",
+    });
+  });
   it("scopes queue calls through the configured practice-number location", () => {
     expect(
       queueCallWhere(
@@ -102,6 +123,7 @@ describe("canonical realtime serializers", () => {
         {
           aggregateId: "task-1",
           aggregateType: "TASK",
+          data: {},
           revision: BigInt(42),
           type: "TASK_RESOLVED",
         },
@@ -144,6 +166,7 @@ describe("canonical realtime serializers", () => {
             Array.from({ length: eventCount }, (_, index) => ({
               aggregateId: `other-call-${index}`,
               aggregateType: "CALL",
+              data: {},
               revision: BigInt(index + 1),
               type: "CALL_UPDATED",
             })),
@@ -156,6 +179,7 @@ describe("canonical realtime serializers", () => {
             maxWaitSec: 30,
             name: "Optical",
             ringTimeoutSec: 20,
+            routingMode: "LEGACY",
           }),
         },
         callCenterTask: {
@@ -173,6 +197,7 @@ describe("canonical realtime serializers", () => {
       const batch = await readCanonicalEventBatch(
         { practiceId: "practice-1", userId: "user-1" },
         "queue-1",
+        "tab-1",
         BigInt(0),
         database,
       );

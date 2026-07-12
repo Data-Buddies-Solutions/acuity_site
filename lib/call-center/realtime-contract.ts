@@ -66,7 +66,11 @@ export type EndpointView = {
 };
 
 export type QueueSummary = { id: string; name: string };
-export type QueueView = QueueSummary & { maxWaitSec: number; ringTimeoutSec: number };
+export type QueueView = QueueSummary & {
+  maxWaitSec: number;
+  ringTimeoutSec: number;
+  routingMode: "LEGACY" | "SHADOW" | "ACTIVE";
+};
 
 export type TaskView = {
   id: string;
@@ -214,6 +218,18 @@ export function applyProjectionEvent(
       return { ...advanced, operations: [...operations, delta.operation] };
     }
   }
+}
+
+export function applyCursor(
+  state: CallCenterRealtimeState,
+  revision: Revision,
+): CallCenterRealtimeState {
+  const current = parseRevision(state.revision);
+  const candidate = parseRevision(revision);
+  if (current === null || candidate === null) {
+    return requestSnapshotReset(state, "INVALID_CURSOR");
+  }
+  return candidate > current ? { ...state, revision } : state;
 }
 
 export function selectIncomingCalls(state: CallCenterRealtimeState) {

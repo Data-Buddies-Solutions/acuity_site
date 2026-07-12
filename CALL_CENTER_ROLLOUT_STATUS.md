@@ -126,7 +126,7 @@ endpoints, and seven memberships.
 | 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100-#102 merged          | Bootstrap applied and replay verified |
 | 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged      | Enabled; no live events observed yet  |
 | 4A    | Canonical routing and durable command foundations                        | Recovery plus default-off dial lane in draft | No commands; all queues stay LEGACY   |
-| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94/#99 merged; media adapter extracted      | Legacy UI remains authoritative       |
+| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | Contract hardening and media adapter ready   | Legacy UI remains authoritative       |
 | 4B/5B | Per-queue routing and frontend cutover                                   | Not started                                  | Must activate together                |
 | 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                                  | Blocked until observation closes      |
 | 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred          | Public-number handoff remains         |

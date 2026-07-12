@@ -79,6 +79,7 @@ const taskSelect = {
 const eventSelect = {
   aggregateId: true,
   aggregateType: true,
+  data: true,
   revision: true,
   type: true,
 } satisfies Prisma.CallCenterEventSelect;
@@ -91,7 +92,6 @@ type SelectedTask = Prisma.CallCenterTaskGetPayload<{ select: typeof taskSelect 
 type SelectedEvent = Prisma.CallCenterEventGetPayload<{ select: typeof eventSelect }>;
 
 export type CanonicalEventBatchItem = {
-  eventType: string;
   projection: ProjectionEvent | null;
   reset: boolean;
   revision: bigint;
@@ -131,7 +131,6 @@ export function buildCanonicalBatchItems({
     if (event.aggregateType === "CALL") {
       const call = callById.get(event.aggregateId);
       return {
-        eventType: event.type,
         projection: call
           ? {
               ...base,
@@ -151,7 +150,6 @@ export function buildCanonicalBatchItems({
         event.type === "AGENT_SESSION_RELEASED" ||
         event.type === "AGENT_SESSION_LEASE_EXPIRED";
       return {
-        eventType: event.type,
         projection: session
           ? {
               ...base,
@@ -173,7 +171,6 @@ export function buildCanonicalBatchItems({
     if (event.aggregateType === "TASK") {
       const task = taskById.get(event.aggregateId);
       return {
-        eventType: event.type,
         projection: task
           ? {
               ...base,
@@ -191,7 +188,6 @@ export function buildCanonicalBatchItems({
     }
 
     return {
-      eventType: event.type,
       projection: null,
       reset: event.aggregateType === "CONFIGURATION",
       revision: event.revision,
@@ -270,6 +266,23 @@ function endpointWhere(
   };
 }
 
+export function localAgentSessionWhere(
+  actor: QueueAccessActor,
+  endpointIds: string[],
+  clientInstanceId: string,
+  now: Date,
+): Prisma.CallCenterAgentSessionWhereInput {
+  return {
+    browserSessionId: clientInstanceId,
+    connectionState: { not: "CLOSED" },
+    endpointId: { in: endpointIds },
+    leaseExpiresAt: { gt: now },
+    practiceId: actor.practiceId,
+    presence: { not: "OFFLINE" },
+    userId: actor.userId,
+  };
+}
+
 async function readOperationalCounts(
   transaction: Prisma.TransactionClient,
   callWhere: Prisma.CallCenterCallWhereInput,
@@ -297,6 +310,7 @@ async function readOperationalCounts(
 export async function readCallCenterSnapshot(
   actor: QueueAccessActor,
   queueId: string,
+  clientInstanceId: string,
   now = new Date(),
 ): Promise<CallCenterSnapshot> {
   return prisma.$transaction(
@@ -317,14 +331,7 @@ export async function readCallCenterSnapshot(
           transaction.callCenterAgentSession.findFirst({
             orderBy: [{ lastHeartbeatAt: "desc" }, { id: "asc" }],
             select: sessionSelect,
-            where: {
-              connectionState: { not: "CLOSED" },
-              endpointId: { in: endpointIds },
-              leaseExpiresAt: { gt: now },
-              practiceId: actor.practiceId,
-              presence: { not: "OFFLINE" },
-              userId: actor.userId,
-            },
+            where: localAgentSessionWhere(actor, endpointIds, clientInstanceId, now),
           }),
           transaction.callCenterCall.findMany({
             orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
@@ -359,6 +366,7 @@ export async function readCallCenterSnapshot(
           maxWaitSec: queue.maxWaitSec,
           name: queue.name,
           ringTimeoutSec: queue.ringTimeoutSec,
+          routingMode: queue.routingMode,
         },
         revision: revisionString(highWater._max.revision ?? BigInt(0)),
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
@@ -383,6 +391,7 @@ export async function readEventBounds() {
 export async function readCanonicalEventBatch(
   identity: QueueAccessIdentity,
   queueId: string,
+  clientInstanceId: string,
   cursor: bigint,
   database: Pick<PrismaClient, "$transaction"> = prisma,
 ): Promise<CanonicalEventBatch> {
@@ -421,6 +430,7 @@ export async function readCanonicalEventBatch(
           select: sessionSelect,
           where: {
             endpoint: endpointScope,
+            browserSessionId: clientInstanceId,
             id: { in: sessionIds },
             practiceId: actor.practiceId,
             userId: actor.userId,
