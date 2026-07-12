@@ -1,17 +1,11 @@
-import {
-  createProviderCommandDispatcher,
-  type ProviderCommandDispatchResult,
-} from "@/lib/call-center/application/dispatch-provider-command";
+import type { ProviderCommandDispatchResult } from "@/lib/call-center/application/dispatch-provider-command";
+import { dispatchProviderCommand } from "@/lib/call-center/application/provider-command-runtime";
 import {
   PROVIDER_COMMAND_MAX_ATTEMPTS,
   PROVIDER_COMMAND_SENDING_LEASE_MS,
 } from "@/lib/call-center/domain/provider-command";
 import { resolveCanonicalCommandDispatchConfig } from "@/lib/call-center/infrastructure/command-dispatch-config";
 import { prismaProviderCommandStore } from "@/lib/call-center/infrastructure/prisma-provider-command-store";
-import {
-  telnyxProviderCommandSender,
-  telnyxProviderSendErrorClassifier,
-} from "@/lib/call-center/infrastructure/telnyx-provider-command-sender";
 
 const RECOVERY_BATCH_SIZE = 5;
 
@@ -89,13 +83,6 @@ export function createProviderCommandRecovery({
     };
   };
 }
-
-const dispatchProviderCommand = createProviderCommandDispatcher({
-  classifyError: telnyxProviderSendErrorClassifier,
-  enabled: true,
-  sender: telnyxProviderCommandSender,
-  store: prismaProviderCommandStore,
-});
 
 export const recoverProviderCommands = createProviderCommandRecovery({
   dispatch: dispatchProviderCommand,

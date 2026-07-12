@@ -16,6 +16,11 @@ export type ClaimCallInput = {
   idempotencyKey: string;
 };
 
+export type ClaimCallReceipt = OperationReceipt & {
+  providerCommandId: string;
+  status: "PENDING" | "SENT" | "CONFIRMED" | "FAILED";
+};
+
 export interface ClaimCallTransaction extends OperationReceiptTransaction {
   createClaim(
     actor: QueueAccessActor,
@@ -57,7 +62,7 @@ export function claimCall(
   actor: QueueAccessActor,
   input: ClaimCallInput,
   now = new Date(),
-): Promise<OperationReceipt> {
+): Promise<ClaimCallReceipt> {
   return store.transaction((transaction) =>
     executeIdempotentOperation(
       transaction,
@@ -73,5 +78,5 @@ export function claimCall(
       (current) => current.createClaim(actor, input, now),
       now,
     ),
-  );
+  ) as Promise<ClaimCallReceipt>;
 }

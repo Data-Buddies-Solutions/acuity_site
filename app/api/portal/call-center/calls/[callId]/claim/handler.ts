@@ -20,6 +20,7 @@ type RouteContext = { params: Promise<{ callId: string }> };
 type Dependencies = {
   claim?: typeof claimCall;
   getActor: () => Promise<QueueAccessActor>;
+  scheduleCommand?: (commandId: string) => void;
 };
 
 function idempotencyKey(request: Request) {
@@ -30,7 +31,11 @@ function idempotencyKey(request: Request) {
   return key;
 }
 
-export function createClaimCallHandler({ claim = claimCall, getActor }: Dependencies) {
+export function createClaimCallHandler({
+  claim = claimCall,
+  getActor,
+  scheduleCommand,
+}: Dependencies) {
   return withApiHandler(
     async (request: Request, routeContext: RouteContext) => {
       const actor = await getActor();
@@ -44,6 +49,9 @@ export function createClaimCallHandler({ claim = claimCall, getActor }: Dependen
         idempotencyKey: idempotencyKey(request),
       };
       const receipt = await claim(prismaClaimCallStore, actor, input);
+      if (receipt.status === "PENDING") {
+        scheduleCommand?.(receipt.providerCommandId);
+      }
 
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 202 });
     },

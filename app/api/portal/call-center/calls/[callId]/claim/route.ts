@@ -1,4 +1,7 @@
+import { after } from "next/server";
+
 import { ApiError, requirePortalCallCenterContext } from "@/lib/api/handler";
+import { scheduleImmediateProviderCommand } from "@/lib/call-center/application/schedule-provider-command";
 
 import { createClaimCallHandler } from "./handler";
 
@@ -14,6 +17,9 @@ const POST = createClaimCallHandler({
       practiceId: context.practice.id,
       userId: context.session.user.id,
     };
+  },
+  scheduleCommand: (commandId) => {
+    scheduleImmediateProviderCommand(commandId, after);
   },
 });
 
