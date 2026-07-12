@@ -163,6 +163,15 @@ describe("call-center configuration validation", () => {
     );
   });
 
+  it("requires a shadow endpoint to belong to one of its queue locations", () => {
+    const input = validInput();
+    input.endpoints[0]!.locationId = null;
+
+    expect(
+      issueCodes(() => validateCallCenterConfiguration(input, validContext())),
+    ).toContain("INCOMPLETE_ROUTING");
+  });
+
   it("rejects endpoint identities already assigned elsewhere", () => {
     const context = validContext();
     context.providerCredentialEndpointIds = new Map([["credential-1", "endpoint-other"]]);

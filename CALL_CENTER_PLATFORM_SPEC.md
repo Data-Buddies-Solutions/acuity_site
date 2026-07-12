@@ -1361,6 +1361,27 @@ applies profile routing, and every write and mismatch is measured.
 3. Keep canonical provider-command production disabled until the Phase 5A
    frontend passes its shadow gates.
 
+The first Phase 4A foundation is deliberately effect-free. A pure decision
+function evaluates enabled membership, endpoint scope and credentials, the
+current endpoint lease, provider readiness, microphone/audio readiness,
+presence, and current-call ownership in stable endpoint/session order. For a
+`SHADOW` queue it records one immutable `CALL_ROUTING_SHADOW_DECIDED` event per
+call under the call lock. `LEGACY` and `ACTIVE` queues never execute the decision
+function, and the shadow boundary has no command or provider adapter.
+
+HTTP operation idempotency is a separate reusable transaction primitive. It
+serializes `(practiceId, operationType, Idempotency-Key)`, binds the key to a
+server-derived target fingerprint, runs the state mutation and any durable
+command inserts through the caller's same transaction, and appends the receipt
+last. An exact replay returns the original revision; reuse for a different call,
+endpoint, transfer target, or arguments returns `409`. This foundation does not
+yet expose claim, transfer, or outbound APIs and does not dispatch commands.
+
+The shadow receipt attempt after passive projection is failure-contained so it
+cannot invalidate an already committed projection. A bounded recovery scan for
+active `SHADOW` calls without a decision receipt remains required before moving
+any production queue to `SHADOW`.
+
 Gate: each user operation produces one receipt and each intended provider effect
 produces one durable command under retry and concurrency.
 

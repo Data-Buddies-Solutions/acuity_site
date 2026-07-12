@@ -84,11 +84,17 @@ remains the default. The canonical stream uses decimal revision strings,
 supports resume and reset semantics, emits only projection-derived deltas, and
 closes after a bounded invocation window. It has no frontend wiring.
 
-Legacy routing and projections remain authoritative. Phase 3B now has a
-default-off passive projector implementation: its recovery lane is independent,
-its canonical writes and checkpoint completion are transactional, and it cannot
-issue provider commands or write legacy projections. Production activation and
-comparison evidence remain pending.
+Legacy routing and projections remain authoritative. Phase 3B has an independent
+passive projector recovery lane; canonical writes and checkpoint completion are
+transactional, and it cannot issue provider commands or write legacy
+projections. After the reviewed configuration replay passed, production enabled
+`CALL_CENTER_CANONICAL_PROJECTION_ENABLED` and redeployed as
+`acuity-health-3196tqbxd`. Observation and comparison evidence remain pending.
+PR #104 added a permanent aggregate recovery report. Production run
+`29191111693` found zero durable inbox rows, zero canonical projection rows,
+zero commands, zero canonical calls, and zero shadow decisions. This proves no
+backlog or failed work exists, but a real or dedicated synthetic event is still
+required to prove the live projection path.
 
 PR [#97](https://github.com/Data-Buddies-Solutions/acuity_site/pull/97) merged
 an isolated post-response canonical attempt, keeps cron as recovery, binds
@@ -105,26 +111,25 @@ only in the legacy panel until the coordinated frontend cutover.
 The first intentional no-op replay, run `29184046620`, exposed that raw legacy
 text was hashed before the protected save normalized it. PR #101 aligned that
 normalization, but run `29184305911` still stopped safely. Protected diagnostic
-run `29184443612` then proved the candidate and persisted configuration have no
-value differences while their hashes differ. The remaining cause is object-key
-insertion order from the database read model. The follow-up recursively orders
-JSON object keys before hashing, making configuration identity semantic rather
-than construction-order-dependent. Passive projection stays disabled until the
-no-op replay returns `changed: false`.
+run `29184443612` then proved the candidate and persisted configuration had no
+value differences while their hashes differed. PR #102 made configuration
+identity independent of object insertion order. Production replay `29184635301`
+then returned `changed: false` with three `LEGACY` queues, two numbers, nine
+endpoints, and seven memberships.
 
 ## Phase status
 
-| Phase | Scope                                                                    | Code status                             | Production status                      |
-| ----- | ------------------------------------------------------------------------ | --------------------------------------- | -------------------------------------- |
-| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89        | #89 synthetic gate pending             |
-| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | PR #90 merged and deployed              | Cron 200; activation proof pending     |
-| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100, #101 merged    | Bootstrap applied; stable hash pending |
-| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged | Projector disabled by default          |
-| 4A    | Canonical routing and durable command foundations                        | Not started                             | Blocked by Phases 1-3                  |
-| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94/#99 merged; media adapter extracted | Legacy UI remains authoritative        |
-| 4B/5B | Per-queue routing and frontend cutover                                   | Not started                             | Must activate together                 |
-| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                             | Blocked until observation closes       |
-| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred     | Public-number handoff remains          |
+| Phase | Scope                                                                    | Code status                             | Production status                     |
+| ----- | ------------------------------------------------------------------------ | --------------------------------------- | ------------------------------------- |
+| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89        | #89 synthetic gate pending            |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | #90/#104 merged and deployed            | Empty backlog; live proof pending     |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100-#102 merged     | Bootstrap applied and replay verified |
+| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged | Enabled; no live events observed yet  |
+| 4A    | Canonical routing and durable command foundations                        | Decision/receipt foundation in draft    | No commands; all queues stay LEGACY   |
+| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94/#99 merged; media adapter extracted | Legacy UI remains authoritative       |
+| 4B/5B | Per-queue routing and frontend cutover                                   | Not started                             | Must activate together                |
+| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                             | Blocked until observation closes      |
+| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred     | Public-number handoff remains         |
 
 ## Release sequence
 
@@ -136,8 +141,8 @@ no-op replay returns `changed: false`.
 | Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed      | Cross-profile synthetic call gate                      |
 | Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed      | Coordination gate failed on duplicate Take burst       |
 | Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                   | Normal, transfer, remount, and reconnect gates         |
-| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | PR #90 merged and deployed      | Cron 200; activation and backlog proof pending         |
-| Canonical foundations    | Generic configuration and passive canonical calls            | #91, #92, #93, and #97 merged   | Enable only after reviewed generic mappings            |
+| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed    | Empty aggregate report; live receipt pending           |
+| Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102    | Enabled passively; observation gate remains            |
 | Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | Not started                     | Build 4A/5A, then activate 4B/5B together per queue    |
 | Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred     | Phases 0-6 complete and provider contract tests proven |
 

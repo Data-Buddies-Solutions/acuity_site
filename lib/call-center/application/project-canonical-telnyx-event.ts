@@ -1,3 +1,4 @@
+import { recordShadowRoutingDecision } from "@/lib/call-center/application/shadow-routing";
 import {
   canonicalProjectionInbox,
   type CanonicalProjectionRecord,
@@ -11,6 +12,7 @@ import {
   CanonicalTelnyxFactError,
   parseCanonicalTelnyxCallFact,
 } from "@/lib/call-center/infrastructure/telnyx-canonical-call-fact";
+import { prismaShadowRoutingStore } from "@/lib/call-center/infrastructure/prisma-shadow-routing-store";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("call-center-canonical-projector");
@@ -24,7 +26,13 @@ type Dependencies = {
   clock?: () => Date;
   inbox: ProjectionInbox;
   projector: CanonicalCallProjector;
+  recordShadowDecision?: (
+    input: { callId: string; practiceId: string },
+    now: Date,
+  ) => ReturnType<typeof recordShadowRoutingDecision>;
 };
+
+const SHADOW_ERROR = "SHADOW_ROUTING_DECISION_FAILED";
 
 function categoricalErrorCode(error: unknown) {
   if (
@@ -40,6 +48,7 @@ export function createCanonicalTelnyxEventProcessor({
   clock = () => new Date(),
   inbox,
   projector,
+  recordShadowDecision,
 }: Dependencies) {
   return async function processCanonicalTelnyxEvent(eventId: string) {
     const event = await inbox.claim(eventId);
@@ -58,6 +67,16 @@ export function createCanonicalTelnyxEventProcessor({
       }
 
       const projection = await projector.projectAndComplete(event, fact, clock());
+      if (recordShadowDecision && projection.routingMode === "SHADOW") {
+        try {
+          await recordShadowDecision(
+            { callId: projection.callId, practiceId: projection.practiceId },
+            clock(),
+          );
+        } catch {
+          logger.warn("shadow routing decision failed", { errorCode: SHADOW_ERROR });
+        }
+      }
       return { outcome: "PROCESSED" as const, projection };
     } catch (error) {
       const errorCode = categoricalErrorCode(error);
@@ -75,6 +94,8 @@ export function createCanonicalTelnyxEventProcessor({
 export const processCanonicalTelnyxEvent = createCanonicalTelnyxEventProcessor({
   inbox: canonicalProjectionInbox,
   projector: prismaCanonicalCallProjector,
+  recordShadowDecision: (input, now) =>
+    recordShadowRoutingDecision(prismaShadowRoutingStore, input, now),
 });
 
 export type { CanonicalProjectionRecord };

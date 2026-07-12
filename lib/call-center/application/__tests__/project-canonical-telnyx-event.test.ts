@@ -40,6 +40,7 @@ describe("canonical Telnyx event processor", () => {
   it("completes a supported fact only through the transactional projector", async () => {
     const event = record(callEnvelope());
     const projectedEvents: CanonicalProjectionRecord[] = [];
+    let shadowCalls = 0;
     const process = createCanonicalTelnyxEventProcessor({
       clock: () => now,
       inbox: {
@@ -57,13 +58,52 @@ describe("canonical Telnyx event processor", () => {
             callStatus: "QUEUED",
             legId: "leg-1",
             legStatus: "RINGING",
+            practiceId: "practice-1",
+            routingMode: "LEGACY",
           };
         },
+      },
+      recordShadowDecision: async () => {
+        shadowCalls += 1;
+        throw new Error("LEGACY must not invoke shadow routing");
       },
     });
 
     await expect(process(event.id)).resolves.toMatchObject({ outcome: "PROCESSED" });
     expect(projectedEvents).toEqual([event]);
+    expect(shadowCalls).toBe(0);
+  });
+
+  it("contains shadow decision failure after canonical projection commits", async () => {
+    const event = record(callEnvelope());
+    let failed = false;
+    const process = createCanonicalTelnyxEventProcessor({
+      clock: () => now,
+      inbox: {
+        claim: async () => event,
+        completeIgnored: async () => true,
+        fail: async () => {
+          failed = true;
+          return true;
+        },
+      },
+      projector: {
+        projectAndComplete: async () => ({
+          callId: "call-1",
+          callStatus: "QUEUED",
+          legId: "leg-1",
+          legStatus: "RINGING",
+          practiceId: "practice-1",
+          routingMode: "SHADOW",
+        }),
+      },
+      recordShadowDecision: async () => {
+        throw new Error("contained shadow failure");
+      },
+    });
+
+    await expect(process(event.id)).resolves.toMatchObject({ outcome: "PROCESSED" });
+    expect(failed).toBe(false);
   });
 
   it("marks unsupported facts ignored without touching legacy processing", async () => {

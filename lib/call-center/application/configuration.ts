@@ -776,7 +776,7 @@ export function validateCallCenterConfiguration(
       (endpoint) =>
         endpoint.enabled &&
         Boolean(endpoint.providerCredentialId && endpoint.sipUsername) &&
-        (endpoint.locationId === null || queueLocations.has(endpoint.locationId)),
+        Boolean(endpoint.locationId && queueLocations.has(endpoint.locationId)),
     );
 
     if (!queue.locationIds.length) {
