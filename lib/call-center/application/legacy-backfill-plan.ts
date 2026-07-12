@@ -611,6 +611,14 @@ function requiredBootstrapNumber(value: number | null) {
   return value;
 }
 
+function requiredBootstrapText(value: string | null | undefined) {
+  const cleaned = cleanOptional(value);
+  if (!cleaned) {
+    throw new LegacyCallCenterBootstrapError("BOOTSTRAP_SOURCE_MISSING");
+  }
+  return cleaned;
+}
+
 export function buildLegacyCallCenterBootstrap(
   snapshot: LegacyCallCenterBackfillSnapshot,
 ): {
@@ -640,7 +648,7 @@ export function buildLegacyCallCenterBootstrap(
       maxWaitSec: requiredBootstrapNumber(queue.maxWaitSec),
       wrapUpSec: queue.wrapUpSec,
       voicemailEnabled: queue.voicemailEnabled,
-      voicemailGreeting: settings.voicemailGreeting,
+      voicemailGreeting: requiredBootstrapText(settings.voicemailGreeting),
       overflowQueueId: null,
       locationIds: queue.locationIds,
       members: queue.memberUserIds.map((userId) => ({
@@ -667,8 +675,8 @@ export function buildLegacyCallCenterBootstrap(
         id: endpoint.proposedId,
         locationId: endpoint.locationId,
         label: endpoint.proposedLabel,
-        providerCredentialId: source.providerCredentialId,
-        sipUsername: source.sipUsername,
+        providerCredentialId: requiredBootstrapText(source.providerCredentialId),
+        sipUsername: requiredBootstrapText(source.sipUsername),
         enabled: endpoint.enabled,
       };
     }),
