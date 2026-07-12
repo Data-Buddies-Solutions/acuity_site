@@ -28,6 +28,8 @@ export type CanonicalProjectionResult = {
   callStatus: string;
   legId: string;
   legStatus: string;
+  practiceId: string;
+  routingMode: "LEGACY" | "SHADOW" | "ACTIVE" | null;
 };
 
 export type CanonicalCallProjector = {
@@ -302,7 +304,11 @@ async function lockCall(tx: Transaction, callId: string) {
   await tx.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${callId} FOR UPDATE`,
   );
-  return tx.callCenterCall.findUniqueOrThrow({ where: { id: callId } });
+  const { queue, ...call } = await tx.callCenterCall.findUniqueOrThrow({
+    include: { queue: { select: { routingMode: true } } },
+    where: { id: callId },
+  });
+  return { call, routingMode: queue?.routingMode ?? null };
 }
 
 function callObservation(
@@ -337,7 +343,8 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         : resolvedFact.legKind === "AGENT"
           ? await resolveAgentContext(tx, resolvedFact)
           : { call: await resolveCustomerCall(tx, resolvedFact), endpointId: null };
-      let call = await lockCall(tx, resolved.call.id);
+      const locked = await lockCall(tx, resolved.call.id);
+      let call = locked.call;
 
       if (call.practiceId !== resolved.call.practiceId) {
         throw new CanonicalProjectionError("CANONICAL_CALL_OWNER_MISMATCH");
@@ -471,6 +478,8 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         callStatus: call.status,
         legId: leg.id,
         legStatus: leg.status,
+        practiceId: call.practiceId,
+        routingMode: locked.routingMode,
       };
     });
   },
