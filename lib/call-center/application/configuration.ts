@@ -57,6 +57,16 @@ function compareCodeUnits(left: string, right: string) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => compareCodeUnits(left, right))
+      .map(([key, nested]) => [key, canonicalJson(nested)]),
+  );
+}
+
 export function callCenterConfigurationVersion(
   configuration: ValidatedCallCenterConfiguration,
 ) {
@@ -78,7 +88,9 @@ export function callCenterConfigurationVersion(
       compareCodeUnits(left.id, right.id),
     ),
   };
-  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalJson(canonical)))
+    .digest("hex");
 }
 
 export type CallCenterConfigurationAudit = {
