@@ -40,7 +40,10 @@ function transaction() {
     createClaim: async (_actor, claimInput) => {
       calls.push("claim.create");
       return {
+        agentSessionId: "session-1",
         callId: claimInput.callId,
+        endpointId: claimInput.endpointId,
+        legId: "leg-1",
         operationType: "CLAIM",
         providerCommandId: "command-1",
         status: "PENDING",
@@ -74,7 +77,10 @@ describe("canonical manual claim", () => {
       "receipt.append",
     ]);
     expect(result).toEqual({
+      agentSessionId: "session-1",
       callId: "call-1",
+      endpointId: "endpoint-1",
+      legId: "leg-1",
       occurredAt: "2026-07-12T12:00:00.000Z",
       operationType: "CLAIM",
       providerCommandId: "command-1",

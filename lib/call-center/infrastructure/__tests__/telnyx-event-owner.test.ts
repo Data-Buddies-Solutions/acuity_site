@@ -9,12 +9,14 @@ import {
 } from "@/lib/call-center/infrastructure/telnyx-event-owner";
 
 const occurredAt = new Date("2026-07-12T12:00:00.000Z");
+const activation = (enabled: boolean) => () => ({ enabled });
 
 function event({
   callControlId = "control-1",
   callLegId = "provider-leg-1",
   callSessionId = "provider-session-1",
   clientState,
+  direction = "incoming",
   effectOwner = null,
   eventId = "event-1",
   eventType = "call.initiated",
@@ -26,6 +28,7 @@ function event({
   callLegId?: string | null;
   callSessionId?: string | null;
   clientState?: Record<string, unknown>;
+  direction?: "incoming" | "outgoing";
   effectOwner?: TelnyxEventOwner | null;
   eventId?: string;
   eventType?: string;
@@ -49,7 +52,7 @@ function event({
           : payloadClientState
             ? { client_state: payloadClientState }
             : {}),
-        direction: "incoming",
+        direction,
         from,
         to,
       },
@@ -96,6 +99,12 @@ type TestDatabaseOptions = {
     practiceId: string;
     practicePhoneNumberId: string;
   } | null;
+  outboundMapping?: {
+    callId: string;
+    legId: string;
+    practiceId: string;
+    token: string;
+  } | null;
   queue?: {
     enabled: boolean;
     id: string;
@@ -114,6 +123,7 @@ function database({
     practiceId: "practice-1",
     practicePhoneNumberId: "phone-1",
   },
+  outboundMapping = null,
   queue = {
     enabled: true,
     id: "queue-1",
@@ -177,6 +187,31 @@ function database({
         return leg;
       },
     },
+    callCenterEvent: {
+      findUnique: async ({
+        where,
+      }: {
+        where: {
+          practiceId_type_idempotencyKey: {
+            idempotencyKey: string;
+            practiceId: string;
+            type: string;
+          };
+        };
+      }) => {
+        const key = where.practiceId_type_idempotencyKey;
+        return outboundMapping &&
+          key.practiceId === outboundMapping.practiceId &&
+          key.type === "CALL_OUTBOUND_CREATED" &&
+          key.idempotencyKey === `outbound-client-state:${outboundMapping.token}`
+          ? {
+              aggregateId: outboundMapping.callId,
+              aggregateType: "CALL",
+              data: { legId: outboundMapping.legId },
+            }
+          : null;
+      },
+    },
     callCenterNumber: {
       findMany: async () => (configuredNumber ? [configuredNumber] : []),
     },
@@ -206,7 +241,9 @@ function database({
 describe("Telnyx event effect owner", () => {
   it("records ACTIVE call and event ownership before canonical projection", async () => {
     const db = database();
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("CANONICAL");
+    await expect(
+      resolveTelnyxEventOwner(event(), db.prisma, activation(true)),
+    ).resolves.toBe("CANONICAL");
 
     expect(db.assigned).toEqual(["CANONICAL"]);
     expect(db.created[0]).toMatchObject({
@@ -217,6 +254,15 @@ describe("Telnyx event effect owner", () => {
       providerCallSessionId: "provider-session-1",
       queueId: "queue-1",
     });
+
+    await expect(
+      resolveTelnyxEventOwner(
+        event({ eventId: "event-after-rollback" }),
+        db.prisma,
+        activation(false),
+      ),
+    ).resolves.toBe("CANONICAL");
+    expect(db.created).toHaveLength(1);
   });
 
   it("freezes LEGACY and SHADOW ownership for configured inbound calls", async () => {
@@ -235,9 +281,37 @@ describe("Telnyx event effect owner", () => {
     }
   });
 
+  it("globally activates every configured queue without a per-queue exception", async () => {
+    const legacyQueue = database({
+      queue: {
+        enabled: true,
+        id: "queue-1",
+        practiceId: "practice-1",
+        routingMode: "LEGACY",
+      },
+    });
+    await expect(
+      resolveTelnyxEventOwner(event(), legacyQueue.prisma, activation(true)),
+    ).resolves.toBe("CANONICAL");
+
+    const shadowQueue = database({
+      queue: {
+        enabled: true,
+        id: "queue-1",
+        practiceId: "practice-1",
+        routingMode: "SHADOW",
+      },
+    });
+    await expect(
+      resolveTelnyxEventOwner(event(), shadowQueue.prisma, activation(true)),
+    ).resolves.toBe("CANONICAL");
+  });
+
   it("persists unconfigured ingress as LEGACY across a later activation", async () => {
     const db = database({ number: null });
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("LEGACY");
+    await expect(
+      resolveTelnyxEventOwner(event(), db.prisma, activation(false)),
+    ).resolves.toBe("LEGACY");
     db.setNumber({
       id: "number-1",
       inboundQueueId: "queue-1",
@@ -245,7 +319,7 @@ describe("Telnyx event effect owner", () => {
       practicePhoneNumberId: "phone-1",
     });
     await expect(
-      resolveTelnyxEventOwner(event({ eventId: "event-2" }), db.prisma),
+      resolveTelnyxEventOwner(event({ eventId: "event-2" }), db.prisma, activation(true)),
     ).resolves.toBe("LEGACY");
     expect(db.created).toHaveLength(0);
     expect(db.assigned).toEqual(["LEGACY", "LEGACY"]);
@@ -309,10 +383,87 @@ describe("Telnyx event effect owner", () => {
     ).resolves.toBe("CANONICAL");
   });
 
+  it("resolves opaque outbound state and rejects tamper or provider replay", async () => {
+    const call = {
+      effectOwner: "CANONICAL" as const,
+      id: "outbound-call",
+      providerCallSessionId: null,
+    };
+    const leg: PersistedLeg = {
+      call,
+      id: "outbound-leg",
+      kind: "AGENT",
+      providerCallControlId: null,
+      providerCallLegId: null,
+      providerCallSessionId: null,
+    };
+    const db = database({
+      legs: [leg],
+      number: null,
+      outboundMapping: {
+        callId: call.id,
+        legId: leg.id,
+        practiceId: "practice-1",
+        token: "trusted-token",
+      },
+    });
+    const trustedState = {
+      callId: "tampered-call-is-ignored",
+      canonicalOutboundToken: "trusted-token",
+      legId: "tampered-leg-is-ignored",
+      practiceId: "practice-1",
+    };
+    await expect(
+      resolveTelnyxEventOwner(
+        event({
+          callSessionId: "outbound-session",
+          clientState: trustedState,
+          direction: "outgoing",
+        }),
+        db.prisma,
+      ),
+    ).resolves.toBe("CANONICAL");
+    expect(db.legs[0]).toMatchObject({
+      id: "outbound-leg",
+      providerCallControlId: "control-1",
+      providerCallLegId: "provider-leg-1",
+      providerCallSessionId: "outbound-session",
+    });
+
+    await expect(
+      resolveTelnyxEventOwner(
+        event({
+          callSessionId: "replayed-session",
+          clientState: trustedState,
+          direction: "outgoing",
+          eventId: "replay",
+        }),
+        db.prisma,
+      ),
+    ).rejects.toThrow("TELNYX_EVENT_IDENTITY_MISMATCH");
+    await expect(
+      resolveTelnyxEventOwner(
+        event({
+          clientState: {
+            canonicalOutboundToken: "forged-token",
+            practiceId: "practice-1",
+          },
+          direction: "outgoing",
+          eventId: "forged",
+        }),
+        db.prisma,
+      ),
+    ).rejects.toThrow("TELNYX_EVENT_OUTBOUND_TOKEN_NOT_FOUND");
+  });
+
   it("admits an ACTIVE callback canonically before initiated projection", async () => {
     const db = database();
     await expect(
-      resolveTelnyxEventOwner(event({ eventType: "call.answered" }), db.prisma),
+      resolveTelnyxEventOwner(
+        event({ eventType: "call.answered" }),
+        db.prisma,
+        activation(true),
+      ),
     ).resolves.toBe("CANONICAL");
     expect(db.created).toHaveLength(1);
   });

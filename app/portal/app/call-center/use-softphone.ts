@@ -36,7 +36,9 @@ type DialMediaLeg = {
 };
 
 type SoftphoneMediaOptions = {
+  agentSessionId?: string | null;
   browserSessionId: string;
+  credentialMode?: "CANONICAL" | "LEGACY";
   enabled: boolean;
   onDebug?: (event: string, details?: Record<string, unknown>) => void;
   onObservation?: (observation: MediaObservation) => void;
@@ -105,7 +107,9 @@ function legacyCallSnapshot(call: Call): LegacySoftphoneCall {
 }
 
 function useSoftphoneMediaEngine({
+  agentSessionId,
   browserSessionId,
+  credentialMode = "LEGACY",
   enabled,
   onDebug,
   onObservation,
@@ -301,13 +305,31 @@ function useSoftphoneMediaEngine({
     async function connect() {
       try {
         debug("token-request-start");
-        const params = new URLSearchParams();
-        if (stationSeatId) params.set("seatId", stationSeatId);
-        if (browserSessionId) params.set("browserSessionId", browserSessionId);
-        const query = params.toString();
-        const response = await fetch(
-          `/api/portal/call-center/telnyx-token${query ? `?${query}` : ""}`,
-        );
+        let response: Response;
+        if (credentialMode === "CANONICAL") {
+          if (!agentSessionId || !stationSeatId || !browserSessionId) {
+            throw new Error("Canonical agent session is unavailable");
+          }
+          response = await fetch(
+            `/api/portal/call-center/agent-sessions/${encodeURIComponent(agentSessionId)}/token`,
+            {
+              body: JSON.stringify({
+                clientInstanceId: browserSessionId,
+                endpointId: stationSeatId,
+              }),
+              headers: { "Content-Type": "application/json" },
+              method: "POST",
+            },
+          );
+        } else {
+          const params = new URLSearchParams();
+          if (stationSeatId) params.set("seatId", stationSeatId);
+          if (browserSessionId) params.set("browserSessionId", browserSessionId);
+          const query = params.toString();
+          response = await fetch(
+            `/api/portal/call-center/telnyx-token${query ? `?${query}` : ""}`,
+          );
+        }
         const data = await response.json();
         debug("token-request-finished", { ok: response.ok, status: response.status });
         if (!response.ok) throw new Error(data.error || "Unable to connect Telnyx");
@@ -412,7 +434,15 @@ function useSoftphoneMediaEngine({
       clientRef.current?.disconnect();
       clientRef.current = null;
     };
-  }, [browserSessionId, debug, detachAudio, enabled, stationSeatId]);
+  }, [
+    agentSessionId,
+    browserSessionId,
+    credentialMode,
+    debug,
+    detachAudio,
+    enabled,
+    stationSeatId,
+  ]);
 
   const callFor = useCallback((mediaLegId: string) => {
     const call = callsRef.current.get(mediaLegId);

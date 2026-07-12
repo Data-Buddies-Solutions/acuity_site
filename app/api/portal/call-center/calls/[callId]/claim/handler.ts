@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ApiError, parseJsonBody, withApiHandler } from "@/lib/api/handler";
 import { claimCall, type ClaimCallInput } from "@/lib/call-center/application/claim-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
+import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { prismaClaimCallStore } from "@/lib/call-center/infrastructure/prisma-claim-call-store";
 
 const bodySchema = z
@@ -20,6 +21,7 @@ type RouteContext = { params: Promise<{ callId: string }> };
 type Dependencies = {
   claim?: typeof claimCall;
   getActor: () => Promise<QueueAccessActor>;
+  isCanonicalActive?: () => boolean;
   scheduleCommand?: (commandId: string) => void;
 };
 
@@ -34,11 +36,15 @@ function idempotencyKey(request: Request) {
 export function createClaimCallHandler({
   claim = claimCall,
   getActor,
+  isCanonicalActive = () => resolveCallCenterActivationConfig().enabled,
   scheduleCommand,
 }: Dependencies) {
   return withApiHandler(
     async (request: Request, routeContext: RouteContext) => {
       const actor = await getActor();
+      if (!isCanonicalActive()) {
+        throw new ApiError("Canonical call center is not active", 409);
+      }
       const parameters = paramsSchema.safeParse(await routeContext.params);
       if (!parameters.success) throw new ApiError("A valid call ID is required", 400);
       const { callId } = parameters.data;

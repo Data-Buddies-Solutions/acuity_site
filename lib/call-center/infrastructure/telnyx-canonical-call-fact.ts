@@ -24,6 +24,9 @@ export type CanonicalTelnyxCallFact = {
   providerCallLegId: string | null;
   providerCallSessionId: string | null;
   providerEventId: string;
+  recordingDurationSec: number;
+  recordingId: string | null;
+  recordingUrl: string | null;
   toPhone: string;
 };
 
@@ -53,6 +56,55 @@ function boundedCode(value: unknown) {
     .replace(/[^A-Za-z0-9_.:-]+/g, "_")
     .slice(0, 100);
   return normalized || null;
+}
+
+function finiteNumber(value: unknown) {
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) {
+    return null;
+  }
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function recordingDurationSec(payload: JsonObject) {
+  for (const value of [
+    payload.recording_duration_sec,
+    payload.recording_duration_secs,
+    payload.recording_duration_seconds,
+    payload.duration_sec,
+    payload.duration_secs,
+    payload.duration_seconds,
+    payload.duration,
+  ]) {
+    const seconds = finiteNumber(value);
+    if (seconds !== null) return Math.max(0, Math.round(seconds));
+  }
+  for (const value of [
+    payload.recording_duration_ms,
+    payload.recording_duration_millis,
+    payload.duration_ms,
+    payload.duration_millis,
+  ]) {
+    const milliseconds = finiteNumber(value);
+    if (milliseconds !== null) {
+      return Math.max(0, Math.round(milliseconds / 1_000));
+    }
+  }
+  return 0;
+}
+
+function recordingUrl(payload: JsonObject) {
+  const containers = [
+    payload.download_urls,
+    payload.public_recording_urls,
+    payload.recording_urls,
+  ];
+  for (const container of containers) {
+    if (!isRecord(container)) continue;
+    const url = text(container.mp3) || text(container.wav);
+    if (url) return url;
+  }
+  return text(payload.recording_url);
 }
 
 function decodeClientState(value: unknown) {
@@ -107,6 +159,14 @@ export function resolveCanonicalTelnyxCallObservations(
         callObservation: legKind === "CUSTOMER" ? "HANGUP" : null,
         legObservation: "ENDED",
       } as const;
+    case "call.playback.started":
+    case "call.playback.ended":
+    case "call.speak.started":
+    case "call.speak.ended":
+      return { callObservation: null, legObservation: "ANSWERED" } as const;
+    case "call.recording.error":
+      return { callObservation: null, legObservation: "ANSWERED" } as const;
+    case "call.recording.saved":
     case "calls.voicemail.completed":
       return { callObservation: "VOICEMAIL", legObservation: "ENDED" } as const;
     default:
@@ -158,13 +218,16 @@ export function parseCanonicalTelnyxCallFact(
     null;
   const agentLegHint = Boolean(
     endpointId ||
+    text(clientState?.canonicalOutboundToken) ||
     clientState?.internalSeatLeg === true ||
     text(clientState?.queueItemId) ||
     text(clientState?.ringAttemptId),
   );
   const legKind = agentLegHint
     ? "AGENT"
-    : eventType === "call.initiated" || eventType === "calls.voicemail.completed"
+    : eventType === "call.initiated" ||
+        eventType === "call.speak.ended" ||
+        eventType === "calls.voicemail.completed"
       ? "CUSTOMER"
       : null;
   const callDirection = direction(payload.direction);
@@ -175,9 +238,16 @@ export function parseCanonicalTelnyxCallFact(
   const providerCallControlId = text(payload.call_control_id) || null;
   const providerCallLegId = text(payload.call_leg_id) || null;
   const providerCallSessionId = text(payload.call_session_id) || null;
+  const providerCommandId =
+    text(payload.command_id) || text(clientState?.commandId) || null;
+  if (
+    (eventType === "call.speak.ended" || eventType === "call.recording.saved") &&
+    !providerCommandId
+  ) {
+    throw new CanonicalTelnyxFactError("CANONICAL_COMMAND_ID_MISSING");
+  }
   const sessionOnlyVoicemailFact =
-    eventType === "calls.voicemail.completed" &&
-    legKind === "CUSTOMER" &&
+    (eventType === "call.recording.saved" || eventType === "calls.voicemail.completed") &&
     providerCallSessionId;
   if (!providerCallControlId && !providerCallLegId && !sessionOnlyVoicemailFact) {
     throw new CanonicalTelnyxFactError("CANONICAL_LEG_IDENTITY_MISSING");
@@ -191,6 +261,21 @@ export function parseCanonicalTelnyxCallFact(
 
   const from = normalizePhone(text(payload.from));
   const to = normalizePhone(text(payload.to));
+  const isRecordingFact =
+    eventType === "call.recording.saved" || eventType === "calls.voicemail.completed";
+  const recordingId =
+    text(payload.recording_id) ||
+    (isRecord(payload.recording) ? text(payload.recording.id) : "") ||
+    (eventType === "call.recording.saved" ? providerCommandId : "") ||
+    (eventType === "calls.voicemail.completed" ? providerCallSessionId : "") ||
+    null;
+  const resolvedRecordingUrl = recordingUrl(payload) || null;
+  if (eventType === "call.recording.saved" && !recordingId) {
+    throw new CanonicalTelnyxFactError("CANONICAL_RECORDING_ID_MISSING");
+  }
+  if (eventType === "call.recording.saved" && !resolvedRecordingUrl) {
+    throw new CanonicalTelnyxFactError("CANONICAL_RECORDING_URL_MISSING");
+  }
 
   return {
     callerName: text(payload.caller_id_name) || null,
@@ -206,10 +291,13 @@ export function parseCanonicalTelnyxCallFact(
     legKind,
     occurredAt,
     providerCallControlId,
-    providerCommandId: text(payload.command_id) || null,
+    providerCommandId,
     providerCallLegId,
     providerCallSessionId,
     providerEventId,
+    recordingDurationSec: recordingDurationSec(payload),
+    recordingId,
+    recordingUrl: resolvedRecordingUrl,
     toPhone: to,
   };
 }

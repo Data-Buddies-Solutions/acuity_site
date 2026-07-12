@@ -60,6 +60,7 @@ function agentSession(overrides: Partial<AgentSessionView> = {}): AgentSessionVi
     audioReady: false,
     clientInstanceId: "client-1",
     connectionState: "FAILED",
+    currentCallId: null,
     endpointId: "endpoint-1",
     id: "session-1",
     leaseExpiresAt: "2026-07-11T12:01:00.000Z",
@@ -167,6 +168,18 @@ describe("call-center realtime reducer", () => {
 
     expect(selectIncomingCalls(state)).toEqual([incoming]);
     expect(selectActiveCall(state)).toEqual(active);
+  });
+
+  it("treats a ringing outbound call as this agent's active media", () => {
+    const outbound = call({
+      direction: "OUTBOUND",
+      id: "outbound",
+      status: "RINGING",
+    });
+    const state = createRealtimeState(snapshot([outbound]));
+
+    expect(selectIncomingCalls(state)).toEqual([]);
+    expect(selectActiveCall(state)).toEqual(outbound);
   });
 
   it("keeps durable operations until a projection confirms or fails them", () => {

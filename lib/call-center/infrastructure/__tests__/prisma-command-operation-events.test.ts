@@ -21,8 +21,26 @@ describe("canonical command operation events", () => {
           return { revision: BigInt(44) };
         },
         findMany: async () => [
-          { actorUserId: "user-1", revision: BigInt(42) },
-          { actorUserId: "user-1", revision: BigInt(43) },
+          {
+            actorUserId: "user-1",
+            data: {
+              agentSessionId: "session-1",
+              endpointId: "endpoint-1",
+              legId: "leg-1",
+            },
+            revision: BigInt(42),
+            type: "CALL_CLAIM_REQUESTED",
+          },
+          {
+            actorUserId: "user-1",
+            data: {
+              agentSessionId: "session-1",
+              endpointId: "endpoint-1",
+              legId: "leg-1",
+            },
+            revision: BigInt(43),
+            type: "CALL_CLAIM_REQUESTED",
+          },
         ],
       },
     } as unknown as Prisma.TransactionClient;
@@ -42,6 +60,9 @@ describe("canonical command operation events", () => {
         operationEventRevision: "42",
         providerCommandId: "command-1",
         status: "SENT",
+        targetAgentSessionId: "session-1",
+        targetEndpointId: "endpoint-1",
+        targetLegId: "leg-1",
       },
       idempotencyKey: "command-1:42:SENT:1",
       type: "CALL_OPERATION_STATUS_CHANGED",

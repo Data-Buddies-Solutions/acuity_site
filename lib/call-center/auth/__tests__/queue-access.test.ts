@@ -18,38 +18,45 @@ describe("call center queue access", () => {
   it("requires tenant, membership, and location access in one scope", () => {
     expect(queueAccessWhere(actor)).toEqual({
       enabled: true,
-      locations: {
-        some: {
-          location: { practiceId: "practice-1" },
-          locationId: { in: ["location-1"] },
+      OR: [
+        { locations: { none: {} } },
+        {
+          locations: {
+            some: {
+              location: { practiceId: "practice-1" },
+              locationId: { in: ["location-1"] },
+            },
+          },
         },
-      },
+      ],
       members: { some: { enabled: true, userId: "user-1" } },
       practiceId: "practice-1",
     });
   });
 
-  it("does not grant an unscoped queue to a selected-location member", async () => {
+  it("treats an unscoped queue as practice-wide for a selected-location member", async () => {
     let receivedWhere: unknown;
     const database = {
       callCenterQueue: {
         findFirst: async ({ where }: { where: unknown }) => {
           receivedWhere = where;
-          return null;
+          return {
+            id: "unscoped",
+            locations: [],
+            maxWaitSec: 30,
+            name: "Practice wide",
+            ringTimeoutSec: 20,
+            routingMode: "LEGACY",
+          };
         },
       },
     } as never;
 
-    await expect(resolveQueueAccess(actor, "unscoped", database)).rejects.toBeInstanceOf(
-      QueueAccessError,
-    );
+    await expect(resolveQueueAccess(actor, "unscoped", database)).resolves.toMatchObject({
+      id: "unscoped",
+    });
     expect(receivedWhere).toMatchObject({
-      locations: {
-        some: {
-          location: { practiceId: "practice-1" },
-          locationId: { in: ["location-1"] },
-        },
-      },
+      OR: expect.arrayContaining([{ locations: { none: {} } }]),
     });
   });
 

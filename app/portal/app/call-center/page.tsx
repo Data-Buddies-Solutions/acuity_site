@@ -3,12 +3,15 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getPortalCallCenterData, resolveTelnyxRuntimeSettings } from "@/lib/call-center";
 import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
+import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import { PracticePageHeader } from "../PracticePageHeader";
 
 import CallCenterWorkspace from "./CallCenterWorkspace";
+import { CanonicalActiveWorkspace } from "./CanonicalActiveWorkspace";
 import LocationPicker from "./LocationPicker";
+import { QueuePicker } from "./QueuePicker";
 import { enableCallCenterAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +30,12 @@ export default async function PortalCallCenterPage({
   }
 
   const params = searchParams ? await searchParams : {};
+  const canonicalActivation = resolveCallCenterActivationConfig().enabled;
   const selectedLocationId = Array.isArray(params.office)
     ? params.office[0]
     : params.office;
   const initialDialNumber = Array.isArray(params.call) ? params.call[0] : params.call;
+  const selectedQueueId = Array.isArray(params.queue) ? params.queue[0] : params.queue;
 
   const data = await getPortalCallCenterData({
     locationId: selectedLocationId,
@@ -51,6 +56,8 @@ export default async function PortalCallCenterPage({
       : [];
   const canonicalWorkspace = await readPortalCanonicalWorkspace(
     selectedCanonicalLocationIds,
+    canonicalActivation,
+    selectedQueueId,
   );
   const selectedOfficeId = selectedLocation?.id ?? selectedLocationId ?? null;
   const practiceWideOutboundCallerNumber =
@@ -92,7 +99,20 @@ export default async function PortalCallCenterPage({
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           {selectedLocation ? (
-            <LocationPicker currentId={selectedLocation.id} locations={data.locations} />
+            <LocationPicker
+              currentId={selectedLocation.id}
+              guardCurrentCall={
+                canonicalActivation || Boolean(canonicalWorkspace?.drainingCanonical)
+              }
+              locations={data.locations}
+            />
+          ) : null}
+          {canonicalWorkspace && canonicalWorkspace.availableQueues.length > 1 ? (
+            <QueuePicker
+              currentId={canonicalWorkspace.queueId}
+              office={selectedOfficeId}
+              queues={canonicalWorkspace.availableQueues}
+            />
           ) : null}
           {!enabled && data.hasAllLocationAccess ? (
             <form action={enableCallCenterAction}>
@@ -102,26 +122,35 @@ export default async function PortalCallCenterPage({
         </div>
       </PracticePageHeader>
 
-      <CallCenterWorkspace
-        configured={configured}
-        configurationMessage={configurationMessage}
-        enabled={enabled}
-        eventLocationId={selectedLocation?.locationId}
-        followUpHref={followUpHref}
-        historyHref={historyHref}
-        initialDialNumber={initialDialNumber}
-        inboundEnabled={data.inboundEnabled}
-        needsAction={data.needsAction}
-        office={selectedOfficeId}
-        outboundCallerNumber={outboundCallerNumber}
-        outboundCallerNumbers={data.outboundCallerNumbers}
-        queue={data.queue}
-        recentCalls={data.recentCalls}
-        seats={data.seats}
-        shadowQueueId={canonicalWorkspace?.queueId ?? null}
-        totals={data.totals}
-        voicemailTimeoutSec={voicemailTimeoutSec}
-      />
+      {canonicalActivation || canonicalWorkspace?.drainingCanonical ? (
+        <CanonicalActiveWorkspace
+          actionsEnabled={canonicalActivation}
+          enabled={enabled}
+          outboundNumbers={canonicalWorkspace?.outboundNumbers ?? []}
+          queueId={canonicalWorkspace?.queueId ?? null}
+        />
+      ) : (
+        <CallCenterWorkspace
+          configured={configured}
+          configurationMessage={configurationMessage}
+          enabled={enabled}
+          eventLocationId={selectedLocation?.locationId}
+          followUpHref={followUpHref}
+          historyHref={historyHref}
+          initialDialNumber={initialDialNumber}
+          inboundEnabled={data.inboundEnabled}
+          needsAction={data.needsAction}
+          office={selectedOfficeId}
+          outboundCallerNumber={outboundCallerNumber}
+          outboundCallerNumbers={data.outboundCallerNumbers}
+          queue={data.queue}
+          recentCalls={data.recentCalls}
+          seats={data.seats}
+          shadowQueueId={canonicalWorkspace?.queueId ?? null}
+          totals={data.totals}
+          voicemailTimeoutSec={voicemailTimeoutSec}
+        />
+      )}
     </div>
   );
 }

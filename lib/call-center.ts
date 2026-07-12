@@ -35,6 +35,11 @@ import {
   isSpecialAbitaCallCenterContext,
 } from "@/lib/call-center-profiles";
 import { isLegacyPresenceReadyForCalls } from "@/lib/call-center/legacy-presence";
+import {
+  isRingbackToneActiveAtSecond,
+  normalizeCallWaitSeconds,
+  ringbackWavBase64For,
+} from "@/lib/call-center/infrastructure/ringback-audio";
 import { createLogger } from "@/lib/logger";
 import { getAllowedSmsPracticeNumberIdsForContext } from "@/lib/sms/service";
 import {
@@ -155,12 +160,12 @@ export function ringAttemptCommandId(
 ) {
   return `${purpose}-${attemptId}`;
 }
-const DEFAULT_QUEUE_WAIT_TIMEOUT_SEC = 30;
-const MAX_QUEUE_WAIT_TIMEOUT_SEC = 120;
-const RINGBACK_TONE_DURATION_SEC = 2;
-const RINGBACK_CYCLE_SEC = 6;
-const ringbackWavCache = new Map<number, string>();
 const VOICEMAIL_BEEP_WAV_BASE64 = createVoicemailBeepWavBase64();
+
+export {
+  isRingbackToneActiveAtSecond,
+  ringbackWavBase64For,
+} from "@/lib/call-center/infrastructure/ringback-audio";
 
 export {
   allowsSharedCallCenterStation,
@@ -168,76 +173,6 @@ export {
   isAbitaSweetwaterOpticalCallCenterContext,
   isSpecialAbitaCallCenterContext,
 } from "@/lib/call-center-profiles";
-
-function normalizeVoicemailTimeoutSec(timeoutSec: number | null | undefined) {
-  if (!Number.isFinite(timeoutSec)) {
-    return DEFAULT_QUEUE_WAIT_TIMEOUT_SEC;
-  }
-
-  return Math.min(
-    MAX_QUEUE_WAIT_TIMEOUT_SEC,
-    Math.max(1, Math.round(timeoutSec || DEFAULT_QUEUE_WAIT_TIMEOUT_SEC)),
-  );
-}
-
-function ringbackWavBase64For(timeoutSec: number | null | undefined) {
-  const durationSec = normalizeVoicemailTimeoutSec(timeoutSec);
-  const cached = ringbackWavCache.get(durationSec);
-
-  if (cached) {
-    return cached;
-  }
-
-  const wav = createRingbackWavBase64(durationSec);
-  ringbackWavCache.set(durationSec, wav);
-
-  return wav;
-}
-
-export function isRingbackToneActiveAtSecond(elapsedSec: number) {
-  if (!Number.isFinite(elapsedSec) || elapsedSec < 0) {
-    return false;
-  }
-
-  return elapsedSec % RINGBACK_CYCLE_SEC < RINGBACK_TONE_DURATION_SEC;
-}
-
-function createRingbackWavBase64(durationSec = DEFAULT_QUEUE_WAIT_TIMEOUT_SEC) {
-  const sampleRate = 8000;
-  const sampleCount = sampleRate * durationSec;
-  const bytesPerSample = 2;
-  const dataSize = sampleCount * bytesPerSample;
-  const buffer = Buffer.alloc(44 + dataSize);
-
-  buffer.write("RIFF", 0);
-  buffer.writeUInt32LE(36 + dataSize, 4);
-  buffer.write("WAVE", 8);
-  buffer.write("fmt ", 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(1, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(sampleRate * bytesPerSample, 28);
-  buffer.writeUInt16LE(bytesPerSample, 32);
-  buffer.writeUInt16LE(16, 34);
-  buffer.write("data", 36);
-  buffer.writeUInt32LE(dataSize, 40);
-
-  for (let i = 0; i < sampleCount; i += 1) {
-    const t = i / sampleRate;
-    const inTone = isRingbackToneActiveAtSecond(t);
-    const sample = inTone
-      ? Math.round(
-          (9000 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t))) /
-            2,
-        )
-      : 0;
-
-    buffer.writeInt16LE(sample, 44 + i * bytesPerSample);
-  }
-
-  return buffer.toString("base64");
-}
 
 function createVoicemailBeepWavBase64() {
   const sampleRate = 8000;
@@ -810,6 +745,7 @@ export type PortalNeedsActionGroup = {
   latestVoicemailRecordingId: string | null;
   locationNames: string[];
   noteCount: number;
+  recordIds?: string[];
   callbackNeededCount: number;
   followUpRequiredCount: number;
   missedCount: number;
@@ -868,6 +804,8 @@ export type PortalRecentCallItem = {
   id: string;
   locationName: string | null;
   occurredAt: Date;
+  providerCallSessionId?: string | null;
+  recordSource?: "CANONICAL" | "LEGACY";
   startedAt: Date;
   status: CallCenterSessionStatus;
   toPhone: string | null;
@@ -893,6 +831,8 @@ export type PortalCallerTimelineItem = {
   note: string | null;
   occurredAt: Date;
   phone: string | null;
+  providerCallSessionId?: string | null;
+  recordSource?: "CANONICAL" | "LEGACY";
   recordId: string | null;
   recordingId: string | null;
   stationLabel: string | null;
@@ -1462,6 +1402,7 @@ type PortalRecentCallSession = {
       status: string;
     }>;
   }>;
+  telnyxCallSessionId: string | null;
   startedAt: Date;
   status: CallCenterSessionStatus;
   toPhone: string | null;
@@ -1514,6 +1455,7 @@ const portalRecentCallSessionSelect = {
   },
   startedAt: true,
   status: true,
+  telnyxCallSessionId: true,
   toPhone: true,
 } satisfies Prisma.CallCenterSessionSelect;
 
@@ -1566,6 +1508,8 @@ function portalRecentCallFromSession(
     id: session.id,
     locationName: session.location?.name ?? null,
     occurredAt: session.endedAt ?? session.answeredAt ?? session.startedAt,
+    providerCallSessionId: session.telnyxCallSessionId,
+    recordSource: "LEGACY",
     startedAt: session.startedAt,
     status: session.status,
     toPhone: session.toPhone,
@@ -1672,6 +1616,10 @@ function needsActionPhoneKey(phone: string | null | undefined) {
   return normalizePhone(phone) || phone?.trim() || "Unknown";
 }
 
+export function portalNeedsActionGroupId(phone: string | null | undefined) {
+  return `needs-action:${needsActionPhoneKey(phone)}`;
+}
+
 function connectedCallPatientPhone(call: NeedsActionConnectedCall) {
   if (call.direction === CallCenterSessionDirection.OUTBOUND) {
     return call.toPhone || call.fromPhone;
@@ -1724,7 +1672,7 @@ export function buildPortalNeedsActionGroups(
       eventCount: 0,
       followUpRequiredCount: 0,
       fromPhone: event.fromPhone,
-      id: `needs-action:${phoneKey}`,
+      id: portalNeedsActionGroupId(phoneKey),
       lastActivityAt: event.createdAt,
       latestKind: event.kind,
       latestVoicemailDurationSec: null,
@@ -1732,6 +1680,7 @@ export function buildPortalNeedsActionGroups(
       locationNames: [],
       missedCount: 0,
       noteCount: 0,
+      recordIds: [],
       voicemailCount: 0,
     };
 
@@ -1743,6 +1692,7 @@ export function buildPortalNeedsActionGroups(
     next.followUpRequiredCount +=
       event.disposition === CallCenterNoteDisposition.FOLLOW_UP_REQUIRED ? 1 : 0;
     next.voicemailCount += event.kind === "voicemail" ? 1 : 0;
+    if (!next.recordIds?.includes(event.recordId)) next.recordIds?.push(event.recordId);
 
     if (event.locationName && !next.locationNames.includes(event.locationName)) {
       next.locationNames.push(event.locationName);
@@ -1836,6 +1786,7 @@ function formatNeedsActionSummary(group: PortalNeedsActionGroup) {
 }
 
 export async function getPortalCallCenterData(options?: {
+  excludeCanonicalLinkedActivity?: boolean;
   locationId?: string;
   needsActionPage?: number;
   needsActionPageSize?: number;
@@ -1943,6 +1894,7 @@ export async function getPortalCallCenterData(options?: {
           sessionId: true,
         },
         where: {
+          ...(options?.excludeCanonicalLinkedActivity ? { callCenterCallId: null } : {}),
           practiceId: practice.id,
           resolvedAt: null,
           ...activityFilter,
@@ -2199,6 +2151,7 @@ export async function getPortalCallCenterData(options?: {
     locations,
     missedCalls,
     needsAction: pagedNeedsAction,
+    needsActionIds: needsAction.map(({ id }) => id),
     needsActionTotal,
     outboundCallerNumbers,
     phoneNumbers: visiblePhoneNumbers,
@@ -2461,6 +2414,7 @@ function isNeedsActionTimelineItem(item: PortalCallerTimelineItem) {
 export async function getPortalCallCenterCallerTimeline(
   phone: string,
   options?: {
+    excludeCanonicalLinkedActivity?: boolean;
     locationId?: string;
     page?: number;
     pageSize?: number;
@@ -2586,6 +2540,7 @@ export async function getPortalCallCenterCallerTimeline(
   } satisfies Prisma.CallCenterMissedCallWhereInput;
   const openVoicemailWhere = {
     AND: [activityFilter, fromPhoneFilter],
+    ...(options?.excludeCanonicalLinkedActivity ? { callCenterCallId: null } : {}),
     practiceId: practice.id,
     resolvedAt: null,
   } satisfies Prisma.CallCenterVoicemailWhereInput;
@@ -2618,6 +2573,7 @@ export async function getPortalCallCenterCallerTimeline(
   const voicemailWhere = applyCreatedAtRange(
     {
       AND: [activityFilter, fromPhoneFilter],
+      ...(options?.excludeCanonicalLinkedActivity ? { callCenterCallId: null } : {}),
       practiceId: practice.id,
     } satisfies Prisma.CallCenterVoicemailWhereInput,
     range,
@@ -2773,6 +2729,7 @@ export async function getPortalCallCenterCallerTimeline(
         },
         startedAt: true,
         status: true,
+        telnyxCallSessionId: true,
         toPhone: true,
       },
       take: sourceTake,
@@ -3108,6 +3065,8 @@ export async function getPortalCallCenterCallerTimeline(
       note: null,
       occurredAt,
       phone: direction === "outbound" ? session.toPhone : session.fromPhone,
+      providerCallSessionId: session.telnyxCallSessionId,
+      recordSource: "LEGACY",
       recordId: null,
       recordingId: null,
       stationLabel,
@@ -6595,8 +6554,7 @@ export function hasQueueWaitDeadlineElapsed({
   timeoutSec: number;
 }) {
   return (
-    now.getTime() >=
-    enteredAt.getTime() + normalizeVoicemailTimeoutSec(timeoutSec) * 1_000
+    now.getTime() >= enteredAt.getTime() + normalizeCallWaitSeconds(timeoutSec) * 1_000
   );
 }
 
@@ -7213,7 +7171,10 @@ export async function handleTelnyxWebhookEvent(body: unknown) {
         // before we start recording.
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        await startTelnyxRecording(callControlId, `voicemail-recording-${queueItemId}`);
+        await startTelnyxRecording({
+          callControlId,
+          commandId: `voicemail-recording-${queueItemId}`,
+        });
       }
       break;
     }

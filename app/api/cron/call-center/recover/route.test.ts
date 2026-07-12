@@ -28,6 +28,26 @@ const commandsDisabled = {
   skipped: 0,
   stale: 0,
 } as const;
+const activeLifecycleEmpty = {
+  abandoned: 0,
+  connected: 0,
+  failed: 0,
+  overflowed: 0,
+  selected: 0,
+  skipped: 0,
+  voicemail: 0,
+  waiting: 0,
+} as const;
+const outboundInitiationsEmpty = { callIds: [] as string[], recovered: 0 };
+const voicemailEmpty = {
+  callIds: [] as string[],
+  commandIds: [] as string[],
+  dispatched: 0,
+  failed: 0,
+  finalized: 0,
+  recordingStarted: 0,
+  selected: 0,
+};
 
 function request(token?: string) {
   return new Request(url, {
@@ -43,8 +63,11 @@ describe("call center webhook recovery cron", () => {
       recover: async () => {
         recoveryCalls += 1;
         return {
+          activeLifecycle: activeLifecycleEmpty,
           canonical: canonicalDisabled,
           commands: commandsDisabled,
+          outboundInitiations: outboundInitiationsEmpty,
+          voicemail: voicemailEmpty,
           enabled: false,
           failed: 0,
           recovered: 0,
@@ -67,8 +90,11 @@ describe("call center webhook recovery cron", () => {
       recover: async () => {
         recoveryCalls += 1;
         return {
+          activeLifecycle: activeLifecycleEmpty,
           canonical: canonicalDisabled,
           commands: commandsDisabled,
+          outboundInitiations: outboundInitiationsEmpty,
+          voicemail: voicemailEmpty,
           enabled: false,
           failed: 0,
           recovered: 0,
@@ -87,6 +113,16 @@ describe("call center webhook recovery cron", () => {
     const GET = createCallCenterRecoveryHandler({
       environment: { CRON_SECRET: "correct-secret" },
       recover: async () => ({
+        activeLifecycle: {
+          abandoned: 1,
+          connected: 0,
+          failed: 0,
+          overflowed: 1,
+          selected: 3,
+          skipped: 0,
+          voicemail: 1,
+          waiting: 0,
+        },
         canonical: {
           enabled: true,
           failed: 0,
@@ -110,6 +146,13 @@ describe("call center webhook recovery cron", () => {
           skipped: 0,
           stale: 0,
         },
+        outboundInitiations: { callIds: ["call-outbound"], recovered: 1 },
+        voicemail: {
+          ...voicemailEmpty,
+          callIds: ["call-voicemail"],
+          finalized: 1,
+          selected: 1,
+        },
         enabled: true,
         failed: 1,
         recovered: 2,
@@ -122,6 +165,16 @@ describe("call center webhook recovery cron", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
+      activeLifecycle: {
+        abandoned: 1,
+        connected: 0,
+        failed: 0,
+        overflowed: 1,
+        selected: 3,
+        skipped: 0,
+        voicemail: 1,
+        waiting: 0,
+      },
       canonical: {
         enabled: true,
         failed: 0,
@@ -148,6 +201,13 @@ describe("call center webhook recovery cron", () => {
       enabled: true,
       failed: 1,
       ok: true,
+      outboundInitiations: { callIds: ["call-outbound"], recovered: 1 },
+      voicemail: {
+        ...voicemailEmpty,
+        callIds: ["call-voicemail"],
+        finalized: 1,
+        selected: 1,
+      },
       recovered: 2,
       redacted: 3,
       selected: 3,

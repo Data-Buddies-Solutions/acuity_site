@@ -78,13 +78,81 @@ describe("canonical Telnyx call facts", () => {
     });
   });
 
+  it("treats an opaque outbound token as agent context without trusting IDs", () => {
+    const clientState = Buffer.from(
+      JSON.stringify({
+        canonicalOutboundToken: "opaque-token",
+        practiceId: "practice-1",
+        version: 1,
+      }),
+    ).toString("base64");
+
+    expect(
+      parseCanonicalTelnyxCallFact(
+        envelope("call.initiated", {
+          call_control_id: "control-outbound",
+          call_leg_id: "leg-outbound",
+          call_session_id: "session-outbound",
+          client_state: clientState,
+          direction: "outgoing",
+          from: "+15555550000",
+          to: "+15555550123",
+        }),
+        receivedAt,
+      ),
+    ).toMatchObject({
+      canonicalCallId: null,
+      canonicalLegId: null,
+      direction: "OUTBOUND",
+      endpointId: null,
+      legKind: "AGENT",
+    });
+  });
+
   it("ignores provider events that do not change canonical call facts", () => {
     expect(
       parseCanonicalTelnyxCallFact(
-        envelope("call.playback.started", { call_control_id: "control-1" }),
+        envelope("call.dtmf.received", { call_control_id: "control-1" }),
         receivedAt,
       ),
     ).toBeNull();
+  });
+
+  it("retains exact lifecycle callback correlation from command client state", () => {
+    for (const eventType of [
+      "call.answered",
+      "call.playback.started",
+      "call.playback.ended",
+      "call.speak.started",
+      "call.recording.error",
+      "call.hangup",
+    ]) {
+      const clientState = Buffer.from(
+        JSON.stringify({
+          callId: "call-1",
+          canonicalCommand: true,
+          commandId: `command-${eventType}`,
+          legId: "customer-leg-1",
+        }),
+      ).toString("base64");
+      expect(
+        parseCanonicalTelnyxCallFact(
+          envelope(eventType, {
+            call_control_id: "control-customer",
+            call_leg_id: "provider-leg-customer",
+            call_session_id: "session-1",
+            client_state: clientState,
+            direction: "incoming",
+          }),
+          receivedAt,
+        ),
+      ).toMatchObject({
+        canonicalCallId: "call-1",
+        canonicalLegId: "customer-leg-1",
+        eventType,
+        providerCommandId: `command-${eventType}`,
+      });
+    }
   });
 
   it("accepts a call-level voicemail fact with only the customer session identity", () => {
@@ -93,12 +161,64 @@ describe("canonical Telnyx call facts", () => {
         envelope("calls.voicemail.completed", {
           call_session_id: "session-1",
           direction: "incoming",
+          duration_secs: 12.4,
+          recording_id: "recording-1",
+          recording_urls: { mp3: "https://example.test/voicemail.mp3" },
         }),
         receivedAt,
       ),
     ).toMatchObject({
       legKind: "CUSTOMER",
       providerCallSessionId: "session-1",
+      recordingDurationSec: 12,
+      recordingId: "recording-1",
+      recordingUrl: "https://example.test/voicemail.mp3",
+    });
+  });
+
+  it("recognizes exact customer greeting completion and recording evidence", () => {
+    const clientState = (commandId: string) =>
+      Buffer.from(
+        JSON.stringify({
+          callId: "call-1",
+          canonicalCommand: true,
+          commandId,
+          legId: "customer-leg-1",
+        }),
+      ).toString("base64");
+
+    expect(
+      parseCanonicalTelnyxCallFact(
+        envelope("call.speak.ended", {
+          call_control_id: "control-customer",
+          call_session_id: "session-1",
+          client_state: clientState("greeting-command-1"),
+        }),
+        receivedAt,
+      ),
+    ).toMatchObject({
+      legKind: "CUSTOMER",
+      providerCommandId: "greeting-command-1",
+      recordingId: null,
+    });
+
+    expect(
+      parseCanonicalTelnyxCallFact(
+        envelope("call.recording.saved", {
+          call_session_id: "session-1",
+          client_state: clientState("record-command-1"),
+          duration_ms: 9_600,
+          recording_id: "recording-1",
+          public_recording_urls: { wav: "https://example.test/voicemail.wav" },
+        }),
+        receivedAt,
+      ),
+    ).toMatchObject({
+      legKind: null,
+      providerCommandId: "record-command-1",
+      recordingDurationSec: 10,
+      recordingId: "recording-1",
+      recordingUrl: "https://example.test/voicemail.wav",
     });
   });
 
@@ -166,8 +286,8 @@ describe("canonical Telnyx call facts", () => {
     ).toThrow("CANONICAL_AGENT_LINK_INCOMPLETE");
   });
 
-  it("does not treat a normal connected-call recording as voicemail", () => {
-    expect(
+  it("fails visibly when canonical recording evidence is incomplete", () => {
+    expect(() =>
       parseCanonicalTelnyxCallFact(
         envelope("call.recording.saved", {
           call_control_id: "control-1",
@@ -175,7 +295,30 @@ describe("canonical Telnyx call facts", () => {
         }),
         receivedAt,
       ),
-    ).toBeNull();
+    ).toThrow("CANONICAL_COMMAND_ID_MISSING");
+    expect(() =>
+      parseCanonicalTelnyxCallFact(
+        envelope("call.recording.saved", {
+          call_session_id: "session-1",
+          command_id: "record-command-1",
+          recording_id: "recording-1",
+        }),
+        receivedAt,
+      ),
+    ).toThrow("CANONICAL_RECORDING_URL_MISSING");
+  });
+
+  it("uses the durable command identity when recording_id is omitted", () => {
+    expect(
+      parseCanonicalTelnyxCallFact(
+        envelope("call.recording.saved", {
+          call_session_id: "session-1",
+          command_id: "record-command-1",
+          recording_urls: { mp3: "https://example.test/recording.mp3" },
+        }),
+        receivedAt,
+      ),
+    ).toMatchObject({ recordingId: "record-command-1" });
   });
 
   it("rejects supported events without a stable leg identity", () => {

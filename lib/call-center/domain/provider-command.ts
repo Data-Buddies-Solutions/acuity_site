@@ -4,16 +4,60 @@ export const PROVIDER_COMMAND_SENDING_LEASE_MS = 60_000;
 const RETRY_BASE_MS = 2_000;
 const RETRY_MAX_MS = 60_000;
 
-export type DialAgentDispatchData = {
-  arguments: {
-    agentSessionId: string;
-    endpointId: string;
-  };
+type ProviderCommandDispatchBase = {
   callId: string;
   commandId: string;
   idempotencyKey: string;
   legId: string;
   practiceId: string;
+};
+
+type ExistingLegProviderTarget = {
+  callControlId: string;
+};
+
+export type AnswerCustomerDispatchData = ProviderCommandDispatchBase & {
+  arguments: Record<string, never>;
+  provider: ExistingLegProviderTarget;
+  type: "ANSWER_CUSTOMER";
+};
+
+export type StartRingbackDispatchData = ProviderCommandDispatchBase & {
+  arguments: { timeoutSeconds: number };
+  provider: ExistingLegProviderTarget;
+  type: "START_RINGBACK";
+};
+
+export type StopPlaybackDispatchData = ProviderCommandDispatchBase & {
+  arguments: Record<string, never>;
+  provider: ExistingLegProviderTarget;
+  type: "STOP_PLAYBACK";
+};
+
+export type HangupLegDispatchData = ProviderCommandDispatchBase & {
+  arguments: Record<string, never>;
+  provider: ExistingLegProviderTarget;
+  type: "HANGUP_LEG";
+};
+
+export type PlayVoicemailGreetingDispatchData = ProviderCommandDispatchBase & {
+  arguments: { greeting: string };
+  provider: ExistingLegProviderTarget;
+  type: "PLAY_VOICEMAIL_GREETING";
+};
+
+export type StartRecordingDispatchData = ProviderCommandDispatchBase & {
+  arguments: Record<string, never>;
+  provider: ExistingLegProviderTarget;
+  type: "START_RECORDING";
+};
+
+export type DialAgentDispatchData = ProviderCommandDispatchBase & {
+  arguments: {
+    agentSessionId: string;
+    endpointId: string;
+    replacesLegId?: string;
+  };
   /** Resolved at claim time; these provider values are not command arguments. */
   provider: {
     connectionId: string;
@@ -25,7 +69,14 @@ export type DialAgentDispatchData = {
   type: "DIAL_AGENT";
 };
 
-export type ProviderCommandDispatchData = DialAgentDispatchData;
+export type ProviderCommandDispatchData =
+  | AnswerCustomerDispatchData
+  | StartRingbackDispatchData
+  | DialAgentDispatchData
+  | StopPlaybackDispatchData
+  | HangupLegDispatchData
+  | PlayVoicemailGreetingDispatchData
+  | StartRecordingDispatchData;
 
 export type ProviderCommandClaim = {
   /** One-based attempt number after the durable claim is acquired. */

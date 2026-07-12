@@ -104,9 +104,14 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     const session = await this.transaction.callCenterAgentSession.findFirst({
       select: sessionSelect,
       where: {
-        connectionState: { not: "CLOSED" },
         endpointId,
-        presence: { not: "OFFLINE" },
+        OR: [
+          { currentCallId: { not: null } },
+          {
+            connectionState: { not: "CLOSED" },
+            presence: { not: "OFFLINE" },
+          },
+        ],
       },
     });
     return session ? toAgentSessionRecord(session) : null;

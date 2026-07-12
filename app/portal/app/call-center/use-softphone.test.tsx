@@ -48,7 +48,7 @@ class FakeTelnyxClient {
 
 mock.module("@telnyx/webrtc", () => ({ TelnyxRTC: FakeTelnyxClient }));
 
-const { useLegacySoftphoneMedia } = await import("./use-softphone");
+const { useLegacySoftphoneMedia, useSoftphoneMedia } = await import("./use-softphone");
 const { default: SoftphonePanel } = await import("./SoftphonePanel");
 const originalFetch = globalThis.fetch;
 const mediaPrototype = Object.getPrototypeOf(document.createElement("audio")) as {
@@ -218,5 +218,49 @@ describe("useLegacySoftphoneMedia", () => {
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     await waitFor(() => expect(audio?.srcObject).toBeNull());
     expect(screen.queryByRole("button", { name: "End" })).toBeNull();
+  });
+});
+
+describe("useSoftphoneMedia canonical credentials", () => {
+  beforeEach(() => {
+    clients.length = 0;
+    mediaPrototype.play = mock(async () => {});
+  });
+
+  afterEach(() => {
+    cleanup();
+    globalThis.fetch = originalFetch;
+    mediaPrototype.play = originalPlay;
+  });
+
+  it("requests a token through the exact canonical agent session", async () => {
+    const requests: Array<{ body: unknown; method: string; url: string }> = [];
+    globalThis.fetch = mock(async (input, init) => {
+      requests.push({
+        body: JSON.parse(String(init?.body ?? "{}")),
+        method: init?.method ?? "GET",
+        url: String(input),
+      });
+      return Response.json({ token: "canonical-token" });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        credentialMode: "CANONICAL",
+        enabled: true,
+        stationSeatId: "endpoint-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+    expect(requests).toEqual([
+      {
+        body: { clientInstanceId: "browser-1", endpointId: "endpoint-1" },
+        method: "POST",
+        url: "/api/portal/call-center/agent-sessions/session-1/token",
+      },
+    ]);
   });
 });

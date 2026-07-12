@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getPortalCallCenterData } from "@/lib/call-center";
+import { readCombinedNeedsAction } from "@/lib/call-center/application/portal-combined-call-center-reads";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import LocationPicker from "../LocationPicker";
@@ -35,16 +36,48 @@ export default async function PortalCallCenterFollowUpPage({
     Array.isArray(params.page) ? params.page[0] : params.page,
   );
   const data = await getPortalCallCenterData({
+    excludeCanonicalLinkedActivity: true,
     locationId: selectedLocationId,
-    needsActionPage: page,
-    needsActionPageSize: FOLLOW_UP_PAGE_SIZE,
+    needsActionPage: 1,
+    needsActionPageSize: 100,
   });
 
   if (!data) {
     redirect("/portal");
   }
 
-  const totalThreads = data.needsActionTotal;
+  const selectedCanonicalLocationIds = data.selectedLocation?.locationIds?.length
+    ? data.selectedLocation.locationIds
+    : data.selectedLocation?.locationId
+      ? [data.selectedLocation.locationId]
+      : [];
+  const combinedNeedsAction = await readCombinedNeedsAction(
+    {
+      legacyGroups: data.needsAction,
+      legacyGroupIds: data.needsActionIds,
+      legacyTotal: data.needsActionTotal,
+      locationIds: selectedCanonicalLocationIds,
+      page,
+      pageSize: FOLLOW_UP_PAGE_SIZE,
+    },
+    {
+      readLegacy: async (legacyPage, pageSize) => {
+        const result = await getPortalCallCenterData({
+          excludeCanonicalLinkedActivity: true,
+          locationId: selectedLocationId,
+          needsActionPage: legacyPage,
+          needsActionPageSize: pageSize,
+        });
+        return {
+          items: result?.needsAction ?? [],
+          total: result?.needsActionTotal ?? 0,
+        };
+      },
+    },
+  );
+
+  const threads = combinedNeedsAction.groups;
+  const totalThreads = combinedNeedsAction.total;
   const totalPages = Math.max(1, Math.ceil(totalThreads / FOLLOW_UP_PAGE_SIZE));
   const selectedOfficeId = data.selectedLocation?.id ?? selectedLocationId;
 
@@ -81,7 +114,7 @@ export default async function PortalCallCenterFollowUpPage({
       <FollowUpCommandCenter
         office={selectedOfficeId}
         page={page}
-        threads={data.needsAction}
+        threads={threads}
         totalPages={totalPages}
         totalThreads={totalThreads}
       />

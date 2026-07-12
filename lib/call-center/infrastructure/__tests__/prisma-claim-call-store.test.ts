@@ -29,6 +29,7 @@ function fakeDatabase({
   callLocationId = "location-1" as string | null,
   callStatus = "QUEUED" as "COMPLETED" | "QUEUED" | "RINGING",
   endpointLocationId = "location-1" as string | null,
+  effectOwner = "CANONICAL" as "CANONICAL" | "LEGACY",
   existing = false,
   existingCommandStatus = "SENT" as
     "PENDING" | "SENDING" | "SENT" | "CONFIRMED" | "FAILED",
@@ -53,6 +54,7 @@ function fakeDatabase({
   };
   const call = {
     direction: "INBOUND" as const,
+    effectOwner,
     firstRingAt: null,
     id: "call-1",
     number: { practicePhoneNumber: { locationId: callLocationId } },
@@ -197,7 +199,9 @@ describe("Prisma canonical manual claim", () => {
     const receipt = await claimCall(fake.store, actor, input, now);
 
     expect(receipt).toMatchObject({
+      agentSessionId: "session-1",
       callId: "call-1",
+      endpointId: "endpoint-1",
       legId: "leg-1",
       operationType: "CLAIM",
       providerCommandId: "command-1",
@@ -222,14 +226,24 @@ describe("Prisma canonical manual claim", () => {
     ]);
   });
 
-  it("refuses a non-active queue without creating provider intent", async () => {
-    const fake = fakeDatabase({ routingMode: "SHADOW" });
+  it("refuses a non-canonical call without creating provider intent", async () => {
+    const fake = fakeDatabase({ effectOwner: "LEGACY" });
 
     await expect(claimCall(fake.store, actor, input, now)).rejects.toEqual(
-      new ClaimCallError("Canonical routing is not active for this queue", 409),
+      new ClaimCallError("Canonical routing does not own this call", 409),
     );
     expect(fake.operations).not.toContain("command.create");
     expect(fake.operations).not.toContain("receipt.create");
+  });
+
+  it("reuses a canonical leg after global activation regardless of queue mode", async () => {
+    const fake = fakeDatabase({ existing: true, routingMode: "LEGACY" });
+
+    await expect(claimCall(fake.store, actor, input, now)).resolves.toMatchObject({
+      legId: "leg-existing",
+      providerCommandId: "command-existing",
+    });
+    expect(fake.operations).not.toContain("command.create");
   });
 
   it("refuses a stale browser session", async () => {
@@ -267,6 +281,17 @@ describe("Prisma canonical manual claim", () => {
     expect(fake.operations).not.toContain("leg.create");
     expect(fake.operations).not.toContain("command.create");
     expect(fake.operations.at(-1)).toBe("receipt.create");
+  });
+
+  it("accepts a stale UI version after automatic routing reserved the same session", async () => {
+    const fake = fakeDatabase({ existing: true, sessionStateVersion: 5 });
+
+    await expect(
+      claimCall(fake.store, actor, { ...input, idempotencyKey: "operation-2" }, now),
+    ).resolves.toMatchObject({
+      legId: "leg-existing",
+      providerCommandId: "command-existing",
+    });
   });
 
   it("reports a scheduled retry as pending across HTTP and realtime", async () => {

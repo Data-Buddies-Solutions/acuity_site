@@ -100,8 +100,8 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     if (lockedQueue.members.length !== 1) {
       throw new ClaimCallError("Agent queue membership is required", 403);
     }
-    if (lockedQueue?.routingMode !== "ACTIVE") {
-      throw new ClaimCallError("Canonical routing is not active for this queue", 409);
+    if (call.effectOwner !== "CANONICAL") {
+      throw new ClaimCallError("Canonical routing does not own this call", 409);
     }
     if (call.direction !== "INBOUND") {
       throw new ClaimCallError("Only inbound calls can be claimed", 409);
@@ -185,15 +185,13 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
       throw new ClaimCallError("Existing claim is missing its provider command", 409);
     }
     if (existing && existingCommand) {
-      if (
-        session.stateVersion !== input.expectedSessionStateVersion ||
-        session.currentCallId !== call.id ||
-        session.presence !== "BUSY"
-      ) {
+      if (session.currentCallId !== call.id || session.presence !== "BUSY") {
         throw new ClaimCallError("Existing claim session is inconsistent", 409);
       }
       return {
+        agentSessionId: session.id,
         callId: call.id,
+        endpointId: session.endpointId,
         legId: existing.id,
         operationType: "CLAIM",
         providerCommandId: existingCommand.id,
@@ -249,9 +247,7 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
       where: { id: session.id },
     });
     const updatedCall = await this.transaction.callCenterCall.update({
-      data: {
-        stateVersion: { increment: 1 },
-      },
+      data: { stateVersion: { increment: 1 } },
       select: { stateVersion: true },
       where: { id: call.id },
     });
@@ -286,7 +282,9 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     });
 
     return {
+      agentSessionId: session.id,
       callId: call.id,
+      endpointId: session.endpointId,
       legId: leg.id,
       operationType: "CLAIM",
       providerCommandId: command.id,

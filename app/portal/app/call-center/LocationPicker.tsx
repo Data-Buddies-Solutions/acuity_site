@@ -6,19 +6,24 @@ import { useTransition } from "react";
 import { PortalSelect } from "@/app/portal/app/PortalFields";
 import type { PortalCallCenterLocation } from "@/lib/call-center";
 
+import { useCallCenterCurrentCallGuard } from "./call-center-current-call-guard";
+
 export default function LocationPicker({
   basePath = "/portal/app/call-center",
   currentId,
+  guardCurrentCall = false,
   locations,
   showLabel = true,
 }: {
   basePath?: string;
   currentId: string;
+  guardCurrentCall?: boolean;
   locations: ReadonlyArray<PortalCallCenterLocation>;
   showLabel?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const currentCallGuarded = useCallCenterCurrentCallGuard();
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -32,7 +37,7 @@ export default function LocationPicker({
         <PortalSelect
           aria-label="Location"
           className="sm:min-w-56"
-          disabled={pending}
+          disabled={pending || (guardCurrentCall && currentCallGuarded)}
           onChange={(event) => {
             const next = event.target.value;
             startTransition(() => {

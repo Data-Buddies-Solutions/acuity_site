@@ -1,4 +1,5 @@
 import { recordShadowRoutingDecision } from "@/lib/call-center/application/shadow-routing";
+import { dispatchProviderCommand } from "@/lib/call-center/application/provider-command-runtime";
 import {
   canonicalProjectionInbox,
   type CanonicalProjectionRecord,
@@ -13,6 +14,7 @@ import {
   parseCanonicalTelnyxCallFact,
 } from "@/lib/call-center/infrastructure/telnyx-canonical-call-fact";
 import { prismaShadowRoutingStore } from "@/lib/call-center/infrastructure/prisma-shadow-routing-store";
+import { resolveCanonicalCommandDispatchConfig } from "@/lib/call-center/infrastructure/command-dispatch-config";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("call-center-canonical-projector");
@@ -24,6 +26,8 @@ type ProjectionInbox = Pick<
 
 type Dependencies = {
   clock?: () => Date;
+  commandDispatchConfig?: typeof resolveCanonicalCommandDispatchConfig;
+  dispatchCommand?: typeof dispatchProviderCommand;
   inbox: ProjectionInbox;
   projector: CanonicalCallProjector;
   recordShadowDecision?: (
@@ -33,6 +37,33 @@ type Dependencies = {
 };
 
 const SHADOW_ERROR = "SHADOW_ROUTING_DECISION_FAILED";
+const COMMAND_DISPATCH_ERROR = "ACTIVE_ROUTING_COMMAND_DISPATCH_DEFERRED";
+
+async function dispatchCommittedCommands(
+  projection: Awaited<ReturnType<CanonicalCallProjector["projectAndComplete"]>>,
+  config: typeof resolveCanonicalCommandDispatchConfig,
+  dispatch: typeof dispatchProviderCommand,
+) {
+  if (projection.effectOwner !== "CANONICAL" || projection.commandIds.length === 0) {
+    return;
+  }
+
+  try {
+    if (!config().enabled) return;
+    for (const commandId of projection.commandIds) {
+      const result = await dispatch(commandId);
+      if (result.status === "DISPATCHED") continue;
+      logger.warn("active routing command dispatch deferred", {
+        commandId,
+        errorCode: COMMAND_DISPATCH_ERROR,
+      });
+    }
+  } catch {
+    logger.warn("active routing command dispatch deferred", {
+      errorCode: COMMAND_DISPATCH_ERROR,
+    });
+  }
+}
 
 function categoricalErrorCode(error: unknown) {
   if (
@@ -46,6 +77,8 @@ function categoricalErrorCode(error: unknown) {
 
 export function createCanonicalTelnyxEventProcessor({
   clock = () => new Date(),
+  commandDispatchConfig = resolveCanonicalCommandDispatchConfig,
+  dispatchCommand = dispatchProviderCommand,
   inbox,
   projector,
   recordShadowDecision,
@@ -67,7 +100,11 @@ export function createCanonicalTelnyxEventProcessor({
       }
 
       const projection = await projector.projectAndComplete(event, fact, clock());
-      if (recordShadowDecision && projection.routingMode === "SHADOW") {
+      if (
+        recordShadowDecision &&
+        projection.effectOwner === "LEGACY" &&
+        projection.routingMode === "SHADOW"
+      ) {
         try {
           await recordShadowDecision(
             { callId: projection.callId, practiceId: projection.practiceId },
@@ -77,6 +114,7 @@ export function createCanonicalTelnyxEventProcessor({
           logger.warn("shadow routing decision failed", { errorCode: SHADOW_ERROR });
         }
       }
+      await dispatchCommittedCommands(projection, commandDispatchConfig, dispatchCommand);
       return { outcome: "PROCESSED" as const, projection };
     } catch (error) {
       const errorCode = categoricalErrorCode(error);

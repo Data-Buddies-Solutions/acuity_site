@@ -1,5 +1,4 @@
 import { recoverCallCenter } from "@/lib/call-center/application/recover-call-center";
-import { InvalidCanonicalCommandDispatchConfigError } from "@/lib/call-center/infrastructure/command-dispatch-config";
 import { InvalidCanonicalProjectionConfigError } from "@/lib/call-center/infrastructure/canonical-projection-config";
 import { InvalidDurableWebhookIngressConfigError } from "@/lib/call-center/infrastructure/durable-ingress-config";
 import { createLogger } from "@/lib/logger";
@@ -36,8 +35,7 @@ export function createCallCenterRecoveryHandler({
         {
           status:
             error instanceof InvalidDurableWebhookIngressConfigError ||
-            error instanceof InvalidCanonicalProjectionConfigError ||
-            error instanceof InvalidCanonicalCommandDispatchConfigError
+            error instanceof InvalidCanonicalProjectionConfigError
               ? 503
               : 500,
         },

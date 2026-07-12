@@ -1,16 +1,15 @@
 # Call Center Rollout Runbook
 
-This runbook is the release order for the staged call-center migration. The
-safe default is to stop: no script or report is allowed to infer a route,
+This runbook is the release order for the call-center replacement. The safe
+default is off: no activation path is allowed to infer a route,
 credential, member, or historical state that cannot be proved from existing
 tenant-scoped data.
 
 ## Non-negotiable controls
 
-- Keep every new queue in `LEGACY` while configuration is reviewed. `SHADOW`
-  may compare decisions but must not issue provider commands. `ACTIVE` is not a
-  migration mode and remains rejected until the routing cutover is separately
-  approved.
+- Deploy the complete canonical cutover default-off. `SHADOW` may compare
+  decisions but must not issue provider commands; it is optional and is not an
+  activation prerequisite. One automated preflight owns activation readiness.
 - Treat `GET /api/admin/call-center/practices/{practiceId}/migration-report` as
   a read-only aid. It cannot apply a backfill and redacts raw phone numbers,
   voicemail greetings, emails, seat labels, provider credentials, and SIP
@@ -45,15 +44,14 @@ tenant-scoped data.
 - An identical `PUT` replay is a locked no-op and emits no duplicate audit
   event. Use the returned committed snapshot and `ETag`; do not reread to infer
   what the request committed.
-- Keep the legacy projections and queue-level rollback available through the
-  observation window. Do not destructively roll back database migrations.
+- Keep the legacy projections and one global rollback switch available through
+  the observation window. Do not destructively roll back database migrations.
 
 ## Release order
 
-PRs #83, #84, #86, and #87 are merged and deployed. The additive schema is
-clean, but legacy routing, projections, and route-refresh UI remain
-authoritative. The post-#87 duplicate Take burst keeps the coordination gate
-open.
+PRs #111-#113 are merged and deployed, and the immutable owner migration is
+applied. Legacy routing and the legacy frontend remain authoritative while the
+generic Phase 4B/5B implementation is completed for every configured number.
 
 1. Configure a strong `CRON_SECRET` and the approved integer
    `CALL_CENTER_WEBHOOK_RETENTION_DAYS` in the production runtime before
@@ -81,24 +79,30 @@ open.
    canonical attempt, while failed, stale, or unscheduled attempts remain
    claimable by the existing bounded recovery cron. Test both bridge/voicemail
    delivery orders and later agent callbacks without `client_state`.
-5. Move one reviewed queue to `SHADOW`. Compare routing, configuration, call
-   outcomes, tasks, and passive canonical output without sending canonical
-   provider commands.
+5. Optionally use `SHADOW` to diagnose routing, configuration, call outcomes,
+   tasks, and passive canonical output without sending provider commands. It is
+   not a mandatory release stage.
 6. Publish Phase 4A canonical command APIs and Phase 5A snapshot, ordered SSE,
-   reducer, and media adapter in shadow. Do not activate either owner alone.
+   reducer, and media adapter default-off. Do not activate either owner alone.
    Land the effect-free routing decision and operation-receipt primitives first.
-   Before moving a queue to `SHADOW`, verify the bounded recovery aggregate is
-   zero for active shadow calls missing their immutable decision receipt. A
-   recovered decision is labeled `RECOVERY`, and a shadow decision must never
-   create a `CallCenterCommand` row.
+   A recovered shadow decision is labeled `RECOVERY`, and a shadow decision
+   must never create a `CallCenterCommand` row.
    Before enabling `ACTIVE`, deploy the additive immutable-effect-owner
    migration through the manual **Production Migrations** workflow. Keep every
    queue `LEGACY` or `SHADOW` for that deployment. Verify that historical
    provider inbox rows are backfilled to `LEGACY`, new configured inbound calls
    persist a call-level owner, and session-only or out-of-order callbacks reuse
    that owner without invoking both projectors.
-7. Activate Phase 4B routing and Phase 5B frontend together for optical. Repeat
-   for South Florida and then other queues only after every gate below passes.
+7. Complete Phase 4B routing and Phase 5B frontend for every configured queue
+   and phone number. Before merging that application build, merge its additive
+   deadline/dependency migration by itself and run **Production Migrations**
+   with `confirm=DEPLOY`. Record the successful workflow receipt. The
+   always-running recovery cron reads those columns even while activation is
+   off, so application-ahead-of-database deployment is prohibited. Then deploy
+   the application default-off, run one automated preflight, and
+   activate routing and frontend ownership together through one global switch.
+   Run controlled live calls against every configured number immediately after
+   activation.
 8. Complete Phase 6A by removing legacy application reads and writes. Keep the
    tables read-only for a full release window and prove zero runtime access.
 9. Publish the separate Phase 6B SQL contract migration only after rollback no
@@ -109,10 +113,27 @@ Do not alter a legacy index or constraint without verified production schema
 evidence. Do not use `prisma db push`; production migrations run through the
 manual **Production Migrations** workflow with `confirm=DEPLOY`.
 
-## Production activation gates
+## Automated activation preflight
 
-Every gate below is a hard stop. Recheck them before first customer traffic and
-before expanding a queue or tenant.
+Activation is one operator action. It computes the checks below from current
+production state and fails closed if any required invariant is false. The
+aggregate recovery report remains available for diagnosis, but reading or
+approving a report is not a release step. `SHADOW` evidence is not required.
+
+Run the read-only admin endpoint with a canonical endpoint that is reserved for
+the controlled test:
+
+`GET /api/admin/call-center/activation-preflight?testEndpointId=<endpoint-id>`
+
+Proceed only when the uncached response has `ready: true`. Then set
+`CALL_CENTER_CANONICAL_ACTIVATION_ENABLED=true` and redeploy. Durable commands
+for an immutable `CANONICAL` owner continue draining after rollback; the global
+switch controls new admissions and frontend ownership, not in-flight cleanup.
+
+The preflight proves the runtime chain as well as database rows. Durable webhook
+ingress, approved bounded payload retention, and canonical projection must all
+be enabled. Every enabled queue's practice settings must also be enabled with a
+Telnyx connection ID.
 
 ### Browser readiness
 
@@ -131,20 +152,22 @@ before expanding a queue or tenant.
 
 ### Command and canonical correlation
 
-- Keep generic command production and canonical activation blocked; queues stay
-  `LEGACY` or decision-only `SHADOW`. Telnyx callbacks may omit `command_id`, so
-  command ID matching cannot be the only confirmation path.
-- Keep `CALL_CENTER_CANONICAL_COMMAND_DISPATCH_ENABLED=false` until canonical
-  operations create reviewed commands and the coordinated `ACTIVE` cutover is
-  approved. The persistence boundary must still reject non-`ACTIVE` queues.
+- Keep generic command production and canonical activation blocked until the
+  preflight succeeds. Telnyx callbacks may omit `command_id`, so command ID
+  matching cannot be the only confirmation path.
+- Keep `CALL_CENTER_CANONICAL_ACTIVATION_ENABLED=false` until the preflight is
+  ready. This one switch owns new canonical admissions, canonical frontend
+  ownership, and new user command admission. Durable commands and required
+  lifecycle work for calls already owned by `CANONICAL` continue draining after
+  rollback.
 - Before activation, persist the command-to-leg relationship and provider call
   identifiers, then prove callbacks correlate to exactly one stored leg by
   provider ID even when `command_id` is absent, duplicated, or delivered out of
   order.
-- After waiting at least the configured command confirmation grace, the recovery
-  aggregate `sentAwaitingConfirmation` must be zero. Any older `SENT` command
-  blocks command production and canonical activation until reconciled.
-- Provider-event and command dead-letter aggregates must be zero: no exhausted
+- The preflight computes command and event health directly. After the configured
+  confirmation grace, `sentAwaitingConfirmation` must be zero. Any older `SENT`
+  command blocks activation until reconciled.
+- Provider-event and command dead-letter counts must be zero: no exhausted
   webhook event, no exhausted command, and no `SENDING_OUTCOME_AMBIGUOUS`
   command may remain unresolved. Any event or command that maps to zero or more
   than one canonical aggregate also blocks activation.
@@ -171,8 +194,8 @@ before expanding a queue or tenant.
   Provider contract tests must prove call, leg, endpoint, and provider-ID
   binding before activation.
 - Canonical routing and canonical frontend ownership activate and roll back
-  together for each queue. Legacy and canonical paths must never both produce
-  commands for one call.
+  together for all configured queues and phone numbers. Legacy and canonical
+  paths must never both produce commands for one call.
 
 ### Raw webhook governance
 
@@ -196,9 +219,9 @@ before expanding a queue or tenant.
 
 ## Synthetic call gates
 
-Use dedicated test identities and a dedicated test number so synthetic calls
-cannot enter patient reporting or follow-up queues. Before each expansion,
-prove both paths:
+Use test identities and controlled calls to every configured phone number so
+synthetic calls cannot enter patient reporting or follow-up queues. Immediately
+after global activation, prove both paths:
 
 1. Ready endpoint: inbound event is durably recorded, the eligible test
    endpoints ring, answer and bridge complete once, losing test legs cancel,
@@ -217,25 +240,27 @@ prove both paths:
 6. Transfer and correlation: transfer Take follows the same command contract,
    and provider callbacks bind to one call leg even when `command_id` is absent.
 
-Do not activate a customer queue beyond `SHADOW` until the synthetic gates pass
-on a dedicated test queue, the durable backlog is empty under normal load,
-bounded stale `SENT`, dead-letter, and ambiguous aggregate counts are all zero,
-and every shadow mismatch has an explicit owner and resolution.
+Before global activation, the automated preflight must prove configuration
+coverage, migration state, callback ownership, and zero stale `SENT`,
+dead-letter, or ambiguous command/event counts. The live synthetic gates run
+immediately after activation with global rollback available.
 
 ## Rollback
 
-1. Set both routing and frontend ownership for the affected queue back to
-   `LEGACY`; this is the first and preferred rollback.
-2. Stop new generic provider commands, but keep durable webhook capture and
-   recovery running so evidence is not lost.
+1. Set `CALL_CENTER_CANONICAL_ACTIVATION_ENABLED=false` and redeploy. This sends
+   new admissions to `LEGACY` and rejects new canonical user operations while
+   preserving the immutable owner on calls already admitted.
+2. Keep the canonical workspace and media session mounted for already-owned
+   calls until they drain. Keep durable webhook capture, lifecycle work, and
+   committed command recovery running so those calls can finish safely.
 3. Keep canonical and legacy records readable. Reconcile calls that began before
    the mode change; do not delete or rewrite event history.
 4. If durable ingress itself is unhealthy, route traffic back to the last known
    application release only after confirming that release is compatible with
    the already-deployed schema.
-5. Record the exact queue, time window, synthetic-call IDs, backlog counts, and
-   rollback decision. Never place caller details or provider credentials in the
-   incident log.
+5. Record the time window, affected numbers, synthetic-call IDs, health counts,
+   and rollback decision. Never place caller details or provider credentials in
+   the incident log.
 
 After Phase 6A begins, do not proceed to the Phase 6B contract migration until
 the canonical rollback path is rehearsed and no rollback depends on a legacy
@@ -250,20 +275,19 @@ write.
 - one-browser-per-credential control and low-concurrency limit, or proof of the
   atomic session lease under concurrent check-in and reconnect;
 - approved raw-webhook retention/access policy and bounded purge-job receipt;
-- zero unexplained migration-report ambiguities for the queue being tested;
+- zero unexplained configuration ambiguities for enabled queues and numbers;
 - persisted leg/provider-ID callback-correlation proof without `command_id`;
 - one-operation/one-effect proof across duplicate clicks, retries, remount, and
   concurrent tabs;
 - canonical `Connecting` convergence without route refresh or caller-phone
   correlation;
 - zero bounded stale `SENT`, exhausted, dead-letter, and ambiguous aggregates;
-- shadow comparison receipt;
 - answer/bridge and voicemail synthetic-call receipts;
 - empty or bounded-recovering durable backlog;
 - zero compatibility-bridge mismatches through the observation window;
 - Phase 6A receipt proving zero legacy runtime reads and writes for a full
   release window before the Phase 6B SQL contract migration;
-- queue-level rollback rehearsal; and
+- global rollback rehearsal; and
 - focused tests, Prisma validation, lint, typecheck, and production build.
 
 The migration is not complete while profile-specific routing, dual writes,

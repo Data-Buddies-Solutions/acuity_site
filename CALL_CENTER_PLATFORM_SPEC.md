@@ -2,7 +2,7 @@
 
 Status: Active phased migration
 
-Last reviewed: 2026-07-11
+Last reviewed: 2026-07-12
 
 Scope: `acuity_site` call-center schema, backend, provider integration, APIs,
 realtime delivery, and portal frontend.
@@ -36,36 +36,25 @@ This is an incremental replacement, not a flag-day rewrite.
 
 The detailed rollout ledger is
 [`CALL_CENTER_ROLLOUT_STATUS.md`](./CALL_CENTER_ROLLOUT_STATUS.md). As of July
-11, 2026:
+12, 2026:
 
-- PR #83 repaired the partially applied production migration and left the
-  production schema current.
-- PR #84 deployed shared automatic ringing and explicit browser readiness.
-- PR #85 attempted to keep the browser station leg out of the patient queue;
-  PR #86 superseded its incomplete SIP-name heuristic with trusted-ingress
-  classification.
-- The first observed production sequence after PR #86 answered and bridged the
-  intended station leg without the earlier duplicate queue-entry and 422
-  sequence. This is positive evidence, not the completed synthetic-call gate.
-- PR #87 made Live Queue the single pre-answer surface for normal calls and
-  transfers. Softphone remains the WebRTC/media owner and renders connected-call
-  controls only after answer.
-- Post-#87 production evidence showed one successful Take followed by concurrent
-  duplicate requests that returned uniqueness failures or stale not-found
-  responses. Successfully processed calls still bridged once and ended normally,
-  so command and UI coordination remains open.
-- PR #88 merged the coordinated backend/frontend cutover, compatibility, and
-  Phase 7 documentation. It changed no runtime owner.
-- PR #89 made legacy Take replay-safe by reusing the owned live ring attempt and
-  returning typed conflicts for a different winner or terminal call. Its
-  production normal-call and transfer gates remain open.
-- The additive Phase 1-3 tables exist. Draft PR #90 implements default-off
-  durable inbox processing, bounded recovery, and retention using the existing
-  table. Generic routing and canonical calls remain inactive, and legacy
-  routing and projections remain authoritative.
-- Draft PR #91 implements Phase 2A as a protected, redacted, report-only
-  discovery path. It proposes no writes and preserves legacy seat IDs as the
-  future endpoint correlation key.
+- Phases 0-3 are deployed: trusted ingress, durable provider events, generic
+  configuration, endpoint leases, and passive canonical calls are in place.
+- PR #111 integrated the Phase 4A command foundation and Phase 5A realtime
+  frontend foundation into `main` with provider effects disabled.
+- PR #112 added the immutable call-owner schema, and production migration run
+  `29203472713` applied it successfully.
+- PR #113 made one owner durable for every Telnyx session before either legacy
+  or canonical effects may run. It is merged, deployed, and green.
+- PR #114 added active-call deadlines, durable command dependencies, and the
+  recovery scan index. Production Migrations run `29205313102` applied it
+  successfully before the application cutover.
+- Legacy remains the live owner while Phase 4B/5B is completed for every
+  configured queue and phone number.
+- The remaining cutover is deployed default-off, activated only after one
+  automated preflight, and controlled by one global activation/rollback switch.
+  `SHADOW` and the aggregate recovery report remain optional diagnostics, not
+  mandatory rollout stages.
 
 The current Abita handoff still uses the public-number path:
 
@@ -1230,7 +1219,8 @@ tests verify parsing without leaking provider payload shapes into domain tests.
 
 ### Synthetic production test
 
-Run a controlled synthetic inbound call on a dedicated test number. Verify:
+After global activation, run controlled internal inbound calls to every
+configured phone number. Verify:
 
 - event ingestion;
 - first ring;
@@ -1240,7 +1230,8 @@ Run a controlled synthetic inbound call on a dedicated test number. Verify:
 - recording availability; and
 - final canonical outcome.
 
-Synthetic calls must never enter patient reporting or follow-up queues.
+Use test identities so synthetic calls never enter patient reporting or
+follow-up queues.
 
 ## Performance and Reliability Targets
 
@@ -1386,10 +1377,10 @@ claimable, so asynchronous projection cannot create a second effect owner.
 
 ### Phase 4A: Build canonical routing and commands
 
-1. Run the generic engine in decision-only shadow mode.
+1. Keep decision-only `SHADOW` available as an optional diagnostic mode.
 2. Add idempotent claim, transfer, outbound, and routing commands.
 3. Keep canonical provider-command production disabled until the Phase 5A
-   frontend passes its shadow gates.
+   frontend is complete and the automated activation preflight passes.
 
 The first Phase 4A foundation is deliberately effect-free. A pure decision
 function evaluates enabled membership, endpoint scope and credentials, the
@@ -1415,23 +1406,25 @@ and recovered receipts are labeled separately because recovery-time readiness
 is useful evidence but is not equivalent to the original routing-time snapshot.
 Queue-mode changes and terminal-call races skip without writing.
 
-The first provider-command lane is also default-off. It claims only `DIAL_AGENT`
-rows for an `ACTIVE` queue, commits `SENDING` before network I/O, sends the
-database command ID as Telnyx `command_id`, and retries the same row with bounded
-categorical failures. Provider addresses and credentials are resolved at claim
-time and never persisted in command arguments. Canonical call, leg, and endpoint
-IDs travel in `client_state`; the verified webhook confirms the exact command
-and a later sender completion cannot regress `CONFIRMED` to `SENT`. Missing
-`command_id` falls back only to one exact command on the resolved canonical leg;
-ambiguity fails visibly. Dispatch remains disabled through
-`CALL_CENTER_CANONICAL_COMMAND_DISPATCH_ENABLED=false`, and the store refuses
-provider effects for `LEGACY` and `SHADOW` queues regardless of that flag.
+The provider-command lane is default-off. It claims only commands whose call has
+the immutable `CANONICAL` effect owner, commits `SENDING` before network I/O,
+sends the database command ID as Telnyx `command_id`, and retries the same row
+with bounded categorical failures. Provider addresses and credentials are
+resolved at claim time and never persisted in command arguments. Canonical call,
+leg, and endpoint IDs travel in `client_state`; the verified webhook confirms
+the exact command and a later sender completion cannot regress `CONFIRMED` to
+`SENT`. Missing `command_id` falls back only to one exact command on the resolved
+canonical leg; ambiguity fails visibly. One default-off switch,
+`CALL_CENTER_CANONICAL_ACTIVATION_ENABLED`, owns new canonical admissions and
+frontend ownership for every configured queue and phone number. The command
+executor always drains rows already authorized by an immutable `CANONICAL`
+owner so rollback cannot strand in-flight calls.
 
 The first canonical user-operation vertical is manual claim. Authenticated
 `POST /api/portal/call-center/calls/:id/claim` accepts only the canonical browser
 identity, endpoint, acknowledged session version, and `Idempotency-Key`. In one
 transaction it locks the operation key, call, and agent session; revalidates
-queue access and `AGENT` membership; requires an eligible `ACTIVE` queue and an
+queue access and `AGENT` membership; requires an eligible canonical-owned call and an
 unwon inbound queued/ringing call; reuses any existing live same-session leg;
 or reserves the session, creates one agent leg and one `DIAL_AGENT` command, and
 appends the operation receipt last. The command stores only canonical IDs and a
@@ -1457,18 +1450,25 @@ produces one durable command under retry and concurrency.
 1. Add snapshot and revisioned SSE APIs.
 2. Introduce the reducer-based shell and readiness flow.
 3. Run old and new UI against the same canonical projections during testing.
-4. Keep the new UI shadowed until command, reconnect, and media-correlation
-   tests pass.
+4. Keep the new UI inactive until command, reconnect, and media-correlation
+   tests pass. `SHADOW` may be used for diagnosis but is not a release gate.
 
 ### Phases 4B and 5B: Cut over routing and frontend together
 
-1. Activate canonical routing and canonical frontend ownership together for the
-   optical queue.
-2. Verify synthetic calls and real aggregate outcomes.
-3. Expand to South Florida and then remaining queues.
-4. Keep one-step queue-level rollback of both owners until the observation
-   window closes.
-5. Remove route-refresh live behavior after all queues converge.
+1. Complete canonical routing and frontend ownership for every enabled queue
+   and configured phone number, then deploy the whole cutover default-off.
+2. Run one automated preflight that verifies the production migration,
+   configuration coverage, command/event health, callback correlation, and at
+   least one ready test endpoint.
+3. Activate canonical routing and frontend ownership together for all
+   configured queues and phone numbers through one global switch.
+4. Run controlled live calls against every number and verify synthetic and real
+   aggregate outcomes.
+5. Keep one global rollback switch that sends new admissions to `LEGACY` and
+   rejects new canonical user operations. Calls already admitted retain their
+   durable owner, workspace/media ownership, and required lifecycle command
+   drain until terminal state.
+6. Remove route-refresh live behavior after the global observation window.
 
 Gate: first-ring latency, answer rate, voicemail rate, provider failures,
 realtime convergence, duplicate-command rate, and state invariants remain
@@ -1507,13 +1507,16 @@ Deletion is part of completion, not optional cleanup.
 
 ## Rollback
 
-- Feature flag routing per queue, not per deployment.
+- Use one global admission/frontend switch for the coordinated cutover; the
+  immutable call owner remains the per-call rollback boundary.
 - Keep legacy projections readable until canonical history and follow-up are
   verified.
 - Do not roll back schema migrations destructively; disable canonical routing
   and continue durable event capture.
-- A routing rollback stops new generic provider commands but does not discard
-  inbox events, canonical calls, or audit history.
+- A routing rollback rejects new canonical user operations but continues
+  required lifecycle work and committed commands for calls already owned by
+  `CANONICAL`. It does not discard inbox events, canonical calls, or audit
+  history.
 - Reconciliation must be able to close calls created before a flag change.
 
 ## First-Principles Review
@@ -1861,6 +1864,6 @@ Phase 7 is complete only when:
 - no-answer, voicemail, failover, and reporting match the canonical queue
   behavior;
 - direct-SIP and public-number paths produce the same canonical call outcome;
-- per-queue rollback is rehearsed; and
+- global rollback is rehearsed; and
 - the public-number hop is removed only for trusted handoffs whose rollout gate
   is closed.

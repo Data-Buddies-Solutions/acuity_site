@@ -17,9 +17,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/app/components/ui/card";
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import {
-  getPortalCallCenterCallerTimeline,
+  getPortalCallCenterData,
   type PortalCallerTimelineItem,
 } from "@/lib/call-center";
+import { readCombinedCallerTimeline } from "@/lib/call-center/application/portal-combined-call-center-reads";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
 
@@ -53,12 +54,25 @@ export default async function PortalCallCenterCallerPage({
   );
   const page = parseHistoryPage(Array.isArray(query.page) ? query.page[0] : query.page);
   const office = firstQueryValue(query.office);
-  const timeline = await getPortalCallCenterCallerTimeline(phone, {
-    locationId: office,
-    page,
-    pageSize: CALLER_TIMELINE_PAGE_SIZE,
-    range: selectedRange,
-  });
+  const resolvedLocationData = await getPortalCallCenterData({ locationId: office });
+  const locationData =
+    office && resolvedLocationData?.selectedLocation?.id !== office
+      ? null
+      : resolvedLocationData;
+  const selectedCanonicalLocationIds = locationData?.selectedLocation?.locationIds?.length
+    ? locationData.selectedLocation.locationIds
+    : locationData?.selectedLocation?.locationId
+      ? [locationData.selectedLocation.locationId]
+      : [];
+  const timeline = locationData
+    ? await readCombinedCallerTimeline(phone, {
+        locationId: office,
+        locationIds: selectedCanonicalLocationIds,
+        page,
+        pageSize: CALLER_TIMELINE_PAGE_SIZE,
+        range: selectedRange,
+      })
+    : null;
 
   if (!timeline) {
     redirect("/portal");

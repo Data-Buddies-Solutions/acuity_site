@@ -57,6 +57,8 @@ describe("canonical Telnyx event processor", () => {
           return {
             callId: "call-1",
             callStatus: "QUEUED",
+            commandIds: [],
+            effectOwner: "LEGACY",
             legId: "leg-1",
             legStatus: "RINGING",
             practiceId: "practice-1",
@@ -92,6 +94,8 @@ describe("canonical Telnyx event processor", () => {
         projectAndComplete: async () => ({
           callId: "call-1",
           callStatus: "QUEUED",
+          commandIds: [],
+          effectOwner: "LEGACY",
           legId: "leg-1",
           legStatus: "RINGING",
           practiceId: "practice-1",
@@ -107,8 +111,39 @@ describe("canonical Telnyx event processor", () => {
     expect(failed).toBe(false);
   });
 
+  it("records SHADOW diagnostics only for LEGACY-owned calls", async () => {
+    const event = { ...record(callEnvelope()), effectOwner: "CANONICAL" as const };
+    let shadowCalls = 0;
+    const process = createCanonicalTelnyxEventProcessor({
+      inbox: {
+        claim: async () => event,
+        completeIgnored: async () => true,
+        fail: async () => true,
+      },
+      projector: {
+        projectAndComplete: async () => ({
+          callId: "call-1",
+          callStatus: "QUEUED",
+          commandIds: [],
+          effectOwner: "CANONICAL",
+          legId: "leg-1",
+          legStatus: "RINGING",
+          practiceId: "practice-1",
+          routingMode: "SHADOW",
+        }),
+      },
+      recordShadowDecision: async () => {
+        shadowCalls += 1;
+        throw new Error("canonical owner must not record shadow decisions");
+      },
+    });
+
+    await expect(process(event.id)).resolves.toMatchObject({ outcome: "PROCESSED" });
+    expect(shadowCalls).toBe(0);
+  });
+
   it("marks unsupported facts ignored without touching legacy processing", async () => {
-    const event = record(callEnvelope("call.playback.started"));
+    const event = record(callEnvelope("call.dtmf.received"));
     let ignoredInput: unknown;
     const process = createCanonicalTelnyxEventProcessor({
       inbox: {
@@ -128,6 +163,107 @@ describe("canonical Telnyx event processor", () => {
 
     await expect(process(event.id)).resolves.toEqual({ outcome: "IGNORED" });
     expect(ignoredInput).toMatchObject({ attemptCount: 1, eventId: "inbox-1" });
+  });
+
+  it("dispatches committed canonical commands in dependency order after projection", async () => {
+    const event = { ...record(callEnvelope()), effectOwner: "CANONICAL" as const };
+    const dispatched: string[] = [];
+    const process = createCanonicalTelnyxEventProcessor({
+      commandDispatchConfig: () => ({ enabled: true }),
+      dispatchCommand: async (commandId) => {
+        dispatched.push(commandId);
+        return { commandId, markSent: "MARKED", status: "DISPATCHED" };
+      },
+      inbox: {
+        claim: async () => event,
+        completeIgnored: async () => true,
+        fail: async () => true,
+      },
+      projector: {
+        projectAndComplete: async () => ({
+          callId: "call-1",
+          callStatus: "QUEUED",
+          commandIds: ["answer-1", "ringback-1", "dial-1", "dial-2"],
+          effectOwner: "CANONICAL",
+          legId: "customer-leg-1",
+          legStatus: "RINGING",
+          practiceId: "practice-1",
+          routingMode: "LEGACY",
+        }),
+      },
+    });
+
+    await expect(process(event.id)).resolves.toMatchObject({ outcome: "PROCESSED" });
+    expect(dispatched).toEqual(["answer-1", "ringback-1", "dial-1", "dial-2"]);
+  });
+
+  it("leaves committed commands for recovery while dispatch is disabled", async () => {
+    const event = { ...record(callEnvelope()), effectOwner: "CANONICAL" as const };
+    const dispatched: string[] = [];
+    const process = createCanonicalTelnyxEventProcessor({
+      commandDispatchConfig: () => ({ enabled: false }),
+      dispatchCommand: async (commandId) => {
+        dispatched.push(commandId);
+        return { commandId, markSent: "MARKED", status: "DISPATCHED" };
+      },
+      inbox: {
+        claim: async () => event,
+        completeIgnored: async () => true,
+        fail: async () => true,
+      },
+      projector: {
+        projectAndComplete: async () => ({
+          callId: "call-1",
+          callStatus: "QUEUED",
+          commandIds: ["answer-1", "ringback-1", "dial-1"],
+          effectOwner: "CANONICAL",
+          legId: "customer-leg-1",
+          legStatus: "RINGING",
+          practiceId: "practice-1",
+          routingMode: "ACTIVE",
+        }),
+      },
+    });
+
+    await expect(process(event.id)).resolves.toMatchObject({ outcome: "PROCESSED" });
+    expect(dispatched).toEqual([]);
+  });
+
+  it("contains post-commit dispatch failure so durable recovery can retry", async () => {
+    const event = { ...record(callEnvelope()), effectOwner: "CANONICAL" as const };
+    const dispatched: string[] = [];
+    let inboxFailed = false;
+    const process = createCanonicalTelnyxEventProcessor({
+      commandDispatchConfig: () => ({ enabled: true }),
+      dispatchCommand: async (commandId) => {
+        dispatched.push(commandId);
+        throw new Error("provider unavailable");
+      },
+      inbox: {
+        claim: async () => event,
+        completeIgnored: async () => true,
+        fail: async () => {
+          inboxFailed = true;
+          return true;
+        },
+      },
+      projector: {
+        projectAndComplete: async () => ({
+          callId: "call-1",
+          callStatus: "QUEUED",
+          commandIds: ["answer-1", "ringback-1", "dial-1"],
+          effectOwner: "CANONICAL",
+          legId: "customer-leg-1",
+          legStatus: "RINGING",
+          practiceId: "practice-1",
+          routingMode: "SHADOW",
+        }),
+      },
+    });
+
+    await expect(process(event.id)).resolves.toMatchObject({ outcome: "PROCESSED" });
+    expect(dispatched).toEqual(["answer-1"]);
+    expect(inboxFailed).toBe(false);
   });
 
   it("rolls back staged canonical facts when checkpoint completion fails", async () => {

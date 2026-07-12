@@ -1,6 +1,9 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
 import { CALL_CLAIM_REQUESTED_EVENT } from "@/lib/call-center/application/claim-call";
+import { CALL_OUTBOUND_REQUESTED_EVENT } from "@/lib/call-center/application/start-outbound-call";
+import { CALL_TRANSFER_REQUESTED_EVENT } from "@/lib/call-center/application/transfer-call";
+import { CALL_DISPOSITION_REQUESTED_EVENT } from "@/lib/call-center/application/disposition-call";
 import {
   listAccessibleQueues,
   queueAccessKey,
@@ -65,6 +68,7 @@ const sessionSelect = {
   audioReady: true,
   browserSessionId: true,
   connectionState: true,
+  currentCallId: true,
   endpointId: true,
   id: true,
   leaseExpiresAt: true,
@@ -75,6 +79,8 @@ const sessionSelect = {
 
 const taskSelect = {
   callId: true,
+  callerPhone: true,
+  createdAt: true,
   id: true,
   kind: true,
   status: true,
@@ -125,11 +131,13 @@ function record(value: Prisma.JsonValue): Record<string, Prisma.JsonValue> | nul
     : null;
 }
 
-function operationType(eventType: string): OperationView["type"] | null {
-  return eventType === CALL_CLAIM_REQUESTED_EVENT ||
-    eventType === CALL_OPERATION_STATUS_CHANGED_EVENT
-    ? "CLAIM"
-    : null;
+function operationType(event: SelectedEvent): OperationView["type"] | null {
+  if (event.type === CALL_DISPOSITION_REQUESTED_EVENT) return "DISPOSITION";
+  if (event.type === CALL_CLAIM_REQUESTED_EVENT) return "CLAIM";
+  if (event.type === CALL_OUTBOUND_REQUESTED_EVENT) return "OUTBOUND";
+  if (event.type === CALL_TRANSFER_REQUESTED_EVENT) return "TRANSFER";
+  if (event.type !== CALL_OPERATION_STATUS_CHANGED_EVENT) return null;
+  return record(event.data)?.operationType === "TRANSFER" ? "TRANSFER" : "CLAIM";
 }
 
 function operationCommandId(event: SelectedEvent) {
@@ -138,7 +146,12 @@ function operationCommandId(event: SelectedEvent) {
 }
 
 function operationRevision(event: SelectedEvent) {
-  if (event.type === CALL_CLAIM_REQUESTED_EVENT) {
+  if (
+    event.type === CALL_CLAIM_REQUESTED_EVENT ||
+    event.type === CALL_DISPOSITION_REQUESTED_EVENT ||
+    event.type === CALL_OUTBOUND_REQUESTED_EVENT ||
+    event.type === CALL_TRANSFER_REQUESTED_EVENT
+  ) {
     return revisionString(event.revision);
   }
   const data = record(event.data);
@@ -160,10 +173,34 @@ export function serializeOperation(
   event: SelectedEvent,
   commands: ReadonlyMap<string, SelectedCommand>,
 ): OperationView | null {
-  const type = operationType(event.type);
+  const type = operationType(event);
   const providerCommandId = operationCommandId(event);
   const operationEventRevision = operationRevision(event);
   const command = providerCommandId ? commands.get(providerCommandId) : null;
+  if ((type === "DISPOSITION" || type === "OUTBOUND") && operationEventRevision) {
+    const data = record(event.data);
+    const outbound =
+      type === "OUTBOUND" &&
+      typeof data?.agentSessionId === "string" &&
+      typeof data.legId === "string"
+        ? {
+            targetAgentSessionId: data.agentSessionId,
+            targetEndpointId:
+              typeof data.endpointId === "string" ? data.endpointId : undefined,
+            targetLegId: data.legId,
+          }
+        : null;
+    if (type === "OUTBOUND" && (!outbound || !outbound.targetEndpointId)) return null;
+    return {
+      callId: event.aggregateId,
+      errorCode: null,
+      operationEventRevision,
+      providerCommandId: null,
+      status: "CONFIRMED",
+      type,
+      ...outbound,
+    };
+  }
   if (
     !type ||
     !providerCommandId ||
@@ -176,6 +213,36 @@ export function serializeOperation(
     return null;
   }
 
+  const data = record(event.data);
+  const claimAgentSessionId = data?.agentSessionId ?? data?.targetAgentSessionId;
+  const claimEndpointId = data?.endpointId ?? data?.targetEndpointId;
+  const claimLegId = data?.legId ?? data?.targetLegId;
+  const claim =
+    type === "CLAIM" &&
+    typeof claimAgentSessionId === "string" &&
+    typeof claimEndpointId === "string" &&
+    typeof claimLegId === "string"
+      ? {
+          targetAgentSessionId: claimAgentSessionId,
+          targetEndpointId: claimEndpointId,
+          targetLegId: claimLegId,
+        }
+      : null;
+  const transfer =
+    type === "TRANSFER" &&
+    typeof data?.sourceLegId === "string" &&
+    typeof data.targetAgentSessionId === "string" &&
+    typeof data.targetEndpointId === "string" &&
+    typeof data.targetLegId === "string"
+      ? {
+          sourceLegId: data.sourceLegId,
+          targetAgentSessionId: data.targetAgentSessionId,
+          targetEndpointId: data.targetEndpointId,
+          targetLegId: data.targetLegId,
+        }
+      : null;
+  if (type === "CLAIM" && !claim) return null;
+  if (type === "TRANSFER" && !transfer) return null;
   return {
     callId: event.aggregateId,
     errorCode: command.errorCode,
@@ -183,6 +250,8 @@ export function serializeOperation(
     providerCommandId,
     status: operationStatus(command),
     type,
+    ...claim,
+    ...transfer,
   };
 }
 
@@ -214,7 +283,7 @@ export function buildCanonicalBatchItems({
       schemaVersion: CALL_CENTER_SCHEMA_VERSION,
     } as const;
 
-    const requestedOperation = operationType(event.type);
+    const requestedOperation = operationType(event);
     if (requestedOperation) {
       const operation = serializeOperation(event, commandById);
       return {
@@ -320,7 +389,7 @@ export function serializeAgentSession(session: SelectedSession): AgentSessionVie
 }
 
 export function serializeTask(task: SelectedTask): TaskView {
-  return task;
+  return { ...task, createdAt: task.createdAt.toISOString() };
 }
 
 function accessibleQueueLocationIds(actor: QueueAccessActor, queueLocationIds: string[]) {
@@ -350,7 +419,17 @@ export function queueCallWhere(
         }
       : actor.hasAllLocationAccess
         ? {}
-        : { id: { in: [] } }),
+        : actor.allowedLocationIds.length
+          ? {
+              number: {
+                practiceId: actor.practiceId,
+                practicePhoneNumber: {
+                  location: { practiceId: actor.practiceId },
+                  locationId: { in: actor.allowedLocationIds },
+                },
+              },
+            }
+          : { id: { in: [] } }),
   };
 }
 
@@ -366,7 +445,9 @@ function endpointWhere(
       ? { locationId: { in: locationIds } }
       : actor.hasAllLocationAccess
         ? {}
-        : { id: { in: [] } }),
+        : actor.allowedLocationIds.length
+          ? { locationId: { in: actor.allowedLocationIds } }
+          : { id: { in: [] } }),
   };
 }
 
@@ -400,6 +481,7 @@ async function readOperationalCounts(
     transaction.callCenterCall.count({
       where: {
         ...callWhere,
+        direction: "INBOUND",
         status: { in: ["RECEIVED", "QUEUED", "RINGING"] },
       },
     }),
@@ -467,7 +549,14 @@ export async function readCallCenterSnapshot(
               aggregateId: { in: callIds },
               aggregateType: "CALL",
               practiceId: actor.practiceId,
-              type: { in: [CALL_CLAIM_REQUESTED_EVENT] },
+              type: {
+                in: [
+                  CALL_CLAIM_REQUESTED_EVENT,
+                  CALL_DISPOSITION_REQUESTED_EVENT,
+                  CALL_OUTBOUND_REQUESTED_EVENT,
+                  CALL_TRANSFER_REQUESTED_EVENT,
+                ],
+              },
             },
           })
         : [];

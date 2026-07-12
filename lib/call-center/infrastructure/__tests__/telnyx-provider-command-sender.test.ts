@@ -5,6 +5,7 @@ import { TelnyxError } from "@/lib/telnyx";
 
 import {
   canonicalCommandClientState,
+  createTelnyxProviderCommandSender,
   telnyxProviderSendErrorClassifier,
 } from "../telnyx-provider-command-sender";
 
@@ -33,6 +34,8 @@ describe("Telnyx provider command sender", () => {
       ),
     ).toEqual({
       callId: "call-1",
+      canonicalCommand: true,
+      commandId: "command-1",
       endpointId: "endpoint-1",
       internalSeatLeg: true,
       legId: "leg-1",
@@ -55,5 +58,178 @@ describe("Telnyx provider command sender", () => {
         new TelnyxError("secret response", 503, "secret detail"),
       ),
     ).toEqual({ category: "RETRYABLE", code: "SENDING_OUTCOME_AMBIGUOUS" });
+  });
+
+  it("keeps the source bridged while dialing a transfer target", async () => {
+    const dials: Record<string, unknown>[] = [];
+    const sender = createTelnyxProviderCommandSender({
+      answer: async () => new Response(null, { status: 204 }),
+      dial: async (input) => {
+        dials.push(input as unknown as Record<string, unknown>);
+        return {};
+      },
+      hangup: async () => new Response(null, { status: 204 }),
+      playbackStart: async () => new Response(null, { status: 204 }),
+      playbackStop: async () => new Response(null, { status: 204 }),
+      recordStart: async () => new Response(null, { status: 204 }),
+      ringbackContent: () => "ringback",
+      speak: async () => new Response(null, { status: 204 }),
+    });
+    const transfer = {
+      ...command,
+      arguments: { ...command.arguments, replacesLegId: "source-leg" },
+    } satisfies ProviderCommandDispatchData;
+
+    await sender.send(transfer);
+
+    const dialed = dials[0];
+    expect(dialed).toMatchObject({
+      bridgeOnAnswer: true,
+      linkTo: "customer-control-1",
+      preventDoubleBridge: false,
+    });
+    expect(
+      JSON.parse(Buffer.from(String(dialed?.clientState), "base64").toString("utf8")),
+    ).toEqual({
+      callId: "call-1",
+      canonicalCommand: true,
+      commandId: "command-1",
+      endpointId: "endpoint-1",
+      internalSeatLeg: true,
+      legId: "leg-1",
+    });
+  });
+
+  it("maps every initial lifecycle command to one idempotent Telnyx action", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const response = () => new Response(null, { status: 204 });
+    const sender = createTelnyxProviderCommandSender({
+      answer: async (...args) => {
+        calls.push(["answer", args]);
+        return response();
+      },
+      dial: async (args) => {
+        calls.push(["dial", args]);
+        return {};
+      },
+      hangup: async (...args) => {
+        calls.push(["hangup", args]);
+        return response();
+      },
+      playbackStart: async (args) => {
+        calls.push(["playbackStart", args]);
+        return response();
+      },
+      playbackStop: async (...args) => {
+        calls.push(["playbackStop", args]);
+        return response();
+      },
+      recordStart: async (...args) => {
+        calls.push(["recordStart", args]);
+        return response();
+      },
+      ringbackContent: (timeoutSeconds) => `ringback:${timeoutSeconds}`,
+      speak: async (args) => {
+        calls.push(["speak", args]);
+        return response();
+      },
+    });
+    const target = {
+      callId: "call-1",
+      commandId: "command-1",
+      idempotencyKey: "effect-1",
+      legId: "customer-leg-1",
+      practiceId: "practice-1",
+      provider: { callControlId: "customer-control-1" },
+    };
+
+    await sender.send({ ...target, arguments: {}, type: "ANSWER_CUSTOMER" });
+    await sender.send({
+      ...target,
+      arguments: { timeoutSeconds: 30 },
+      type: "START_RINGBACK",
+    });
+    await sender.send({ ...target, arguments: {}, type: "STOP_PLAYBACK" });
+    await sender.send({ ...target, arguments: {}, type: "HANGUP_LEG" });
+    await sender.send({
+      ...target,
+      arguments: { greeting: "Please leave a message." },
+      type: "PLAY_VOICEMAIL_GREETING",
+    });
+    await sender.send({ ...target, arguments: {}, type: "START_RECORDING" });
+    await sender.send(command);
+
+    expect(calls).toEqual([
+      ["answer", ["customer-control-1", "command-1", undefined, expect.any(String)]],
+      [
+        "playbackStart",
+        {
+          callControlId: "customer-control-1",
+          clientState: expect.any(String),
+          commandId: "command-1",
+          loop: 1,
+          playbackContent: "ringback:30",
+        },
+      ],
+      [
+        "playbackStop",
+        ["customer-control-1", "command-1", undefined, expect.any(String)],
+      ],
+      ["hangup", ["customer-control-1", "command-1", undefined, expect.any(String)]],
+      [
+        "speak",
+        {
+          callControlId: "customer-control-1",
+          clientState: expect.any(String),
+          commandId: "command-1",
+          payload: "Please leave a message.",
+        },
+      ],
+      [
+        "recordStart",
+        [
+          {
+            callControlId: "customer-control-1",
+            clientState: expect.any(String),
+            commandId: "command-1",
+          },
+        ],
+      ],
+      [
+        "dial",
+        expect.objectContaining({
+          commandId: "command-1",
+          connectionId: "connection-1",
+          linkTo: "customer-control-1",
+          to: "sip:agent-1@example.test",
+        }),
+      ],
+    ]);
+  });
+
+  it("turns unsuccessful helper responses into classified errors", async () => {
+    const sender = createTelnyxProviderCommandSender({
+      answer: async () => new Response(null, { status: 422 }),
+      dial: async () => ({}),
+      hangup: async () => new Response(null, { status: 204 }),
+      playbackStart: async () => new Response(null, { status: 204 }),
+      playbackStop: async () => new Response(null, { status: 204 }),
+      recordStart: async () => new Response(null, { status: 204 }),
+      ringbackContent: () => "ringback",
+      speak: async () => new Response(null, { status: 204 }),
+    });
+
+    await expect(
+      sender.send({
+        arguments: {},
+        callId: "call-1",
+        commandId: "command-1",
+        idempotencyKey: "answer-1",
+        legId: "customer-leg-1",
+        practiceId: "practice-1",
+        provider: { callControlId: "customer-control-1" },
+        type: "ANSWER_CUSTOMER",
+      }),
+    ).rejects.toMatchObject({ name: "TelnyxError", status: 422 });
   });
 });
