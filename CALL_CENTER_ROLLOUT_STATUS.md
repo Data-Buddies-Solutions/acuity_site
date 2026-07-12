@@ -100,13 +100,14 @@ credential-free canonical endpoint lease, and runs one snapshot/SSE reducer.
 Its output is aggregate diagnostics only; it adds no ringtone, media, call
 action, or provider command. This is the observation shell, not the cutover.
 
-The current stacked manual-claim branch adds the first canonical user action:
-one authenticated, idempotent Take produces one reserved agent session, agent
-leg, durable `DIAL_AGENT` command, operation receipt, and snapshot/SSE status.
-It revalidates ownership before dispatch and releases reservations on terminal
-or losing-leg outcomes. Local validation passes 472 tests and the production
-build. It has no migration or environment-variable change. `ACTIVE` remains
-rejected and dispatch remains disabled, so this branch cannot affect calls.
+PR [#109](https://github.com/Data-Buddies-Solutions/acuity_site/pull/109) adds
+the first canonical user action: one authenticated, idempotent Take produces
+one reserved agent session, agent leg, durable `DIAL_AGENT` command, operation
+receipt, and snapshot/SSE status. It revalidates ownership before dispatch and
+releases reservations on terminal or losing-leg outcomes. Local validation
+passes 472 tests and the production build; CI is pending. It has no migration
+or environment-variable change. `ACTIVE` remains rejected and dispatch remains
+disabled, so this PR cannot affect calls.
 
 Legacy routing and projections remain authoritative. Phase 3B has an independent
 passive projector recovery lane; canonical writes and checkpoint completion are
@@ -157,18 +158,18 @@ endpoints, and seven memberships.
 
 ## Release sequence
 
-| Release                  | Contents                                                     | Current state                               | Exit gate                                                           |
-| ------------------------ | ------------------------------------------------------------ | ------------------------------------------- | ------------------------------------------------------------------- |
-| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                               | Closed by migration recovery                                        |
-| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean             | Complete                                                            |
-| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed                  | Included in current observation gate                                |
-| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed                  | Cross-profile synthetic call gate                                   |
-| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed                  | Coordination gate failed on duplicate Take burst                    |
-| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                               | Normal, transfer, remount, and reconnect gates                      |
-| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed                | Empty aggregate report; live receipt pending                        |
-| Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102                | Enabled passively; observation gate remains                         |
-| Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | #103-#108 ready; manual claim locally green | Build active operations/media/actions, then activate 4B/5B together |
-| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred                 | Phases 0-6 complete and provider contract tests proven              |
+| Release                  | Contents                                                     | Current state                           | Exit gate                                                           |
+| ------------------------ | ------------------------------------------------------------ | --------------------------------------- | ------------------------------------------------------------------- |
+| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                           | Closed by migration recovery                                        |
+| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean         | Complete                                                            |
+| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed              | Included in current observation gate                                |
+| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed              | Cross-profile synthetic call gate                                   |
+| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed              | Coordination gate failed on duplicate Take burst                    |
+| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                           | Normal, transfer, remount, and reconnect gates                      |
+| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed            | Empty aggregate report; live receipt pending                        |
+| Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102            | Enabled passively; observation gate remains                         |
+| Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | #103-#108 ready; #109 local gates green | Build active operations/media/actions, then activate 4B/5B together |
+| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred             | Phases 0-6 complete and provider contract tests proven              |
 
 ## Validation receipt
 
@@ -204,7 +205,7 @@ endpoints, and seven memberships.
   production build. It has no migration and leaves the legacy event
   stream and frontend ownership unchanged.
 - PRs #103-#108 have green Prisma, format, lint, typecheck, test, build, and
-  Vercel checks. The stacked manual-claim branch passes 472 tests, focused and
+  Vercel checks. PR #109 passes 472 tests locally, focused and
   full typecheck/lint/format validation, Prisma validation, and the optimized
   production build. It has no migration or environment-variable change.
 
