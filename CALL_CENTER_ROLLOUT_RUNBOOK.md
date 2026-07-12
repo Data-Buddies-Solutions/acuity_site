@@ -91,6 +91,12 @@ open.
    zero for active shadow calls missing their immutable decision receipt. A
    recovered decision is labeled `RECOVERY`, and a shadow decision must never
    create a `CallCenterCommand` row.
+   Before enabling `ACTIVE`, deploy the additive immutable-effect-owner
+   migration through the manual **Production Migrations** workflow. Keep every
+   queue `LEGACY` or `SHADOW` for that deployment. Verify that historical
+   provider inbox rows are backfilled to `LEGACY`, new configured inbound calls
+   persist a call-level owner, and session-only or out-of-order callbacks reuse
+   that owner without invoking both projectors.
 7. Activate Phase 4B routing and Phase 5B frontend together for optical. Repeat
    for South Florida and then other queues only after every gate below passes.
 8. Complete Phase 6A by removing legacy application reads and writes. Keep the

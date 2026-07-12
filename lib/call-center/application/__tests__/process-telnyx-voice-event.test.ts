@@ -6,6 +6,7 @@ import {
   type ProviderWebhookRecord,
 } from "../../infrastructure/provider-webhook-inbox";
 import type { TelnyxVoiceWebhookEnvelope } from "../../infrastructure/telnyx-voice-envelope";
+import { TelnyxEventOwnerError } from "../../infrastructure/telnyx-event-owner";
 import {
   createTelnyxVoiceEventProcessor,
   ProviderWebhookProcessingPendingError,
@@ -31,6 +32,7 @@ function claimedEvent(
 ): ProviderWebhookRecord {
   return {
     attemptCount: status === "PROCESSING" ? 1 : 0,
+    effectOwner: null,
     errorCode: null,
     eventType: envelope.eventType,
     id: "inbox-1",
@@ -38,6 +40,7 @@ function claimedEvent(
     payload: envelope.body,
     processedAt: null,
     processingStatus: status,
+    providerCallSessionId: null,
     providerEventId: envelope.providerEventId,
     updatedAt: now,
   };
@@ -45,14 +48,18 @@ function claimedEvent(
 
 function setup({
   existingStatus = "RECEIVED",
-}: { existingStatus?: ProviderWebhookRecord["processingStatus"] } = {}) {
+  storedPayload = envelope.body,
+}: {
+  existingStatus?: ProviderWebhookRecord["processingStatus"];
+  storedPayload?: unknown;
+} = {}) {
   const completed: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
   const store: ProviderWebhookInboxStore = {
-    claim: async () =>
-      existingStatus === "RECEIVED" || existingStatus === "FAILED"
-        ? claimedEvent("PROCESSING")
-        : null,
+    claim: async () => {
+      if (existingStatus !== "RECEIVED" && existingStatus !== "FAILED") return null;
+      return { ...claimedEvent("PROCESSING"), payload: storedPayload };
+    },
     complete: async (input) => {
       completed.push(input);
       return true;
@@ -61,7 +68,7 @@ function setup({
       failed.push(input);
       return true;
     },
-    receive: async () => claimedEvent(existingStatus),
+    receive: async () => ({ ...claimedEvent(existingStatus), payload: storedPayload }),
   };
   const inbox = createProviderWebhookInbox(store, { clock: () => now });
   inbox.retryAt = () => retryAt;
@@ -91,11 +98,51 @@ describe("Telnyx voice event processor", () => {
     expect(completed).toEqual([
       {
         attemptCount: 1,
+        effectOwner: "LEGACY",
         eventId: "inbox-1",
         now,
         status: "PROCESSED",
       },
     ]);
+  });
+
+  it("resolves ownership from the claimed durable payload", async () => {
+    const storedPayload = {
+      data: {
+        event_type: "call.initiated",
+        id: "event-1",
+        payload: { call_session_id: "stored-session" },
+      },
+    };
+    const { inbox } = setup({ storedPayload });
+    let ownerPayload: unknown;
+    let projectedPayload: unknown;
+    const process = createTelnyxVoiceEventProcessor({
+      inbox,
+      projectLegacyEvent: async (payload) => {
+        projectedPayload = payload;
+        return { ok: true };
+      },
+      resolveOwner: async (event) => {
+        ownerPayload = event.payload;
+        return "LEGACY";
+      },
+    });
+
+    const conflictingEnvelope = {
+      ...envelope,
+      body: {
+        data: {
+          event_type: "call.initiated",
+          id: "event-1",
+          payload: { call_session_id: "conflicting-session" },
+        },
+      },
+    } satisfies TelnyxVoiceWebhookEnvelope;
+    await process(conflictingEnvelope);
+
+    expect(ownerPayload).toEqual(storedPayload);
+    expect(projectedPayload).toEqual(storedPayload);
   });
 
   it("records an intentionally ignored projection", async () => {
@@ -111,6 +158,28 @@ describe("Telnyx voice event processor", () => {
       ignored: true,
       processingStatus: "IGNORED",
     });
+    expect(completed[0]?.status).toBe("IGNORED");
+  });
+
+  it("marks ACTIVE ingress ignored without invoking legacy effects", async () => {
+    const { completed, inbox } = setup();
+    let legacyCalls = 0;
+    const process = createTelnyxVoiceEventProcessor({
+      clock: () => now,
+      inbox,
+      projectLegacyEvent: async () => {
+        legacyCalls += 1;
+        return { ok: true };
+      },
+      resolveOwner: async () => "CANONICAL",
+    });
+
+    await expect(process(envelope)).resolves.toMatchObject({
+      ignored: true,
+      processingStatus: "IGNORED",
+      reason: "canonical_owner",
+    });
+    expect(legacyCalls).toBe(0);
     expect(completed[0]?.status).toBe("IGNORED");
   });
 
@@ -213,5 +282,54 @@ describe("Telnyx voice event processor", () => {
         nextAttemptAt: retryAt,
       },
     ]);
+  });
+
+  it("records owner-resolution failure without invoking either projector", async () => {
+    const { failed, inbox } = setup();
+    let projectionCount = 0;
+    const ownerError = new Error("owner unavailable");
+    const process = createTelnyxVoiceEventProcessor({
+      inbox,
+      projectLegacyEvent: async () => {
+        projectionCount += 1;
+        return { ok: true };
+      },
+      resolveOwner: async () => {
+        throw ownerError;
+      },
+    });
+
+    await expect(process(envelope)).rejects.toBe(ownerError);
+    expect(projectionCount).toBe(0);
+    expect(failed[0]?.errorCode).toBe("event_owner_resolution_failed");
+  });
+
+  it("preserves a categorical owner-resolution failure", async () => {
+    const { failed, inbox } = setup();
+    const ownerError = new TelnyxEventOwnerError("TELNYX_EVENT_IDENTITY_MISMATCH");
+    const process = createTelnyxVoiceEventProcessor({
+      inbox,
+      projectLegacyEvent: async () => ({ ok: true }),
+      resolveOwner: async () => {
+        throw ownerError;
+      },
+    });
+
+    await expect(process(envelope)).rejects.toBe(ownerError);
+    expect(failed[0]?.errorCode).toBe("TELNYX_EVENT_IDENTITY_MISMATCH");
+  });
+
+  it("separates inbox completion failure from projection failure", async () => {
+    const { failed, inbox } = setup();
+    inbox.complete = async () => false;
+    const process = createTelnyxVoiceEventProcessor({
+      inbox,
+      projectLegacyEvent: async () => ({ ok: true }),
+    });
+
+    await expect(process(envelope)).rejects.toThrow(
+      "Provider webhook processing claim was lost",
+    );
+    expect(failed[0]?.errorCode).toBe("provider_webhook_completion_failed");
   });
 });

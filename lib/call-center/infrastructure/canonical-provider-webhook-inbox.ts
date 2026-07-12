@@ -8,6 +8,7 @@ export type CanonicalProjectionRecord = {
   canonicalProjectionErrorCode: string | null;
   canonicalProjectionNextAttemptAt: Date | null;
   canonicalProjectionStatus: CanonicalProjectionStatus;
+  effectOwner: "CANONICAL" | "LEGACY";
   eventType: string;
   id: string;
   payload: unknown;
@@ -47,6 +48,12 @@ const PROCESSING_LEASE_MS = 5 * 60_000;
 const RETRY_BASE_MS = 5_000;
 const RETRY_MAX_MS = 5 * 60_000;
 const MAX_BATCH_SIZE = 25;
+
+export const canonicalProjectionMainLaneWhere = {
+  processingStatus: {
+    in: ["PROCESSED", "IGNORED"] as Array<"PROCESSED" | "IGNORED">,
+  },
+} as const;
 
 export function canonicalProjectionRetryAt(attemptCount: number, now: Date) {
   if (attemptCount >= MAX_ATTEMPTS) return null;
@@ -101,6 +108,7 @@ const selectedFields = {
   canonicalProjectionErrorCode: true,
   canonicalProjectionNextAttemptAt: true,
   canonicalProjectionStatus: true,
+  effectOwner: true,
   eventType: true,
   id: true,
   payload: true,
@@ -108,6 +116,16 @@ const selectedFields = {
   receivedAt: true,
   updatedAt: true,
 } as const;
+
+function requireEffectOwner<T extends { effectOwner: "CANONICAL" | "LEGACY" | null }>(
+  event: T,
+): Omit<T, "effectOwner"> & { effectOwner: "CANONICAL" | "LEGACY" } {
+  if (!event.effectOwner) {
+    throw new Error("Canonical projection claimed an event without an effect owner");
+  }
+
+  return { ...event, effectOwner: event.effectOwner };
+}
 
 export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore = {
   async claim({ eventId, maxAttempts, now, staleBefore }) {
@@ -121,7 +139,9 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
       },
       where: {
         canonicalProjectionAttemptCount: { lt: maxAttempts },
+        effectOwner: { not: null },
         id: eventId,
+        ...canonicalProjectionMainLaneWhere,
         provider: "TELNYX",
         OR: [
           { canonicalProjectionStatus: "RECEIVED" },
@@ -140,12 +160,13 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
       },
     });
 
-    return claimed.count === 1
-      ? prisma.providerWebhookEvent.findUnique({
-          select: selectedFields,
-          where: { id: eventId },
-        })
-      : null;
+    if (claimed.count !== 1) return null;
+
+    const event = await prisma.providerWebhookEvent.findUnique({
+      select: selectedFields,
+      where: { id: eventId },
+    });
+    return event ? requireEffectOwner(event) : null;
   },
   async completeIgnored({ attemptCount, eventId, now }) {
     const completed = await prisma.providerWebhookEvent.updateMany({
@@ -179,13 +200,15 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
     });
     return failed.count === 1;
   },
-  listRecoverable({ limit, maxAttempts, now, staleBefore }) {
-    return prisma.providerWebhookEvent.findMany({
+  async listRecoverable({ limit, maxAttempts, now, staleBefore }) {
+    const events = await prisma.providerWebhookEvent.findMany({
       orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
       select: selectedFields,
       take: limit,
       where: {
         canonicalProjectionAttemptCount: { lt: maxAttempts },
+        effectOwner: { not: null },
+        ...canonicalProjectionMainLaneWhere,
         provider: "TELNYX",
         OR: [
           { canonicalProjectionStatus: "RECEIVED" },
@@ -203,6 +226,7 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
         ],
       },
     });
+    return events.map(requireEffectOwner);
   },
 };
 

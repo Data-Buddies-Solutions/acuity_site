@@ -235,6 +235,11 @@ enum CallCenterRoutingMode {
   ACTIVE
 }
 
+enum CallCenterEffectOwner {
+  LEGACY
+  CANONICAL
+}
+
 enum CallCenterAgentPresence {
   AVAILABLE
   PAUSED
@@ -1145,6 +1150,7 @@ model CallCenterCall {
   queueId               String?
   numberId              String
   direction             CallCenterCallDirection
+  effectOwner           CallCenterEffectOwner    @default(LEGACY)
   status                CallCenterCallStatus     @default(RECEIVED)
   fromPhone             String
   toPhone               String
@@ -1242,6 +1248,8 @@ model ProviderWebhookEvent {
   provider                         CallCenterProvider
   providerEventId                  String
   eventType                        String
+  effectOwner                      CallCenterEffectOwner?          @default(LEGACY)
+  providerCallSessionId            String?
   occurredAt                       DateTime?
   receivedAt                       DateTime                        @default(now())
   processingStatus                 ProviderWebhookProcessingStatus @default(RECEIVED)
@@ -1262,6 +1270,7 @@ model ProviderWebhookEvent {
   @@index([processingStatus, nextAttemptAt, receivedAt])
   @@index([canonicalProjectionStatus, canonicalProjectionNextAttemptAt, receivedAt], map: "provider_webhook_event_canonical_projection_recovery_idx")
   @@index([provider, eventType, receivedAt])
+  @@index([provider, providerCallSessionId, effectOwner], map: "provider_webhook_event_session_owner_idx")
   @@map("provider_webhook_event")
 }
 
