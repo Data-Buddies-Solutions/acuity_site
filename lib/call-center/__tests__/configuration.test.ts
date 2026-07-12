@@ -88,6 +88,18 @@ function issueCodes(operation: () => unknown) {
 }
 
 describe("call-center configuration validation", () => {
+  it("hashes semantic configuration independently of object key insertion order", () => {
+    const configuration = validInput();
+    const reordered = JSON.parse(JSON.stringify(configuration), (key, value) => {
+      if (!value || Array.isArray(value) || typeof value !== "object") return value;
+      return Object.fromEntries(Object.entries(value).reverse());
+    }) as CallCenterConfigurationInput;
+
+    expect(callCenterConfigurationVersion(reordered)).toBe(
+      callCenterConfigurationVersion(configuration),
+    );
+  });
+
   it("normalizes one complete, valid configuration snapshot", () => {
     const result = validateCallCenterConfiguration(validInput(), validContext());
 

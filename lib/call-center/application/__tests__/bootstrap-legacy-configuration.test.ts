@@ -240,4 +240,38 @@ describe("legacy configuration bootstrap transaction", () => {
     });
     expect(saves).toEqual([]);
   });
+
+  it("matches an exact replay after the database reconstructs object keys", async () => {
+    const snapshot = sourceSnapshot();
+    const candidate = buildLegacyCallCenterBootstrap(snapshot);
+    snapshot.existingGenericConfiguration = {
+      endpointCount: candidate.configuration.endpoints.length,
+      numberCount: candidate.configuration.numbers.length,
+      queueCount: candidate.configuration.queues.length,
+    };
+    const persisted = JSON.parse(
+      JSON.stringify(candidate.configuration),
+      (_key, value) => {
+        if (!value || Array.isArray(value) || typeof value !== "object") return value;
+        return Object.fromEntries(Object.entries(value).reverse());
+      },
+    ) as ValidatedCallCenterConfiguration;
+    const current = {
+      configuration: persisted,
+      version: callCenterConfigurationVersion(persisted),
+    };
+    const saves: Array<{ audit: typeof audit; expectedVersion: string }> = [];
+
+    const result = await bootstrapLegacyCallCenterConfiguration(
+      repositoryFor({ current, saves, snapshot }),
+      {
+        audit,
+        expectedReportVersion: candidate.reportVersion,
+        practiceId: snapshot.practiceId,
+      },
+    );
+
+    expect(result).toMatchObject({ changed: false, version: current.version });
+    expect(saves).toEqual([]);
+  });
 });

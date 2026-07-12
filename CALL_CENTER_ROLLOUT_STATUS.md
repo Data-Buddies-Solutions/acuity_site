@@ -103,26 +103,28 @@ connection and provider/media-leg IDs; the temporary caller-phone fallback stays
 only in the legacy panel until the coordinated frontend cutover.
 
 The first intentional no-op replay, run `29184046620`, exposed that raw legacy
-text was hashed before the protected save normalized it. The persisted snapshot
-is complete and remains `LEGACY`, but replay correctly stopped at
-`BOOTSTRAP_CONFIGURATION_ALREADY_EXISTS` rather than overwriting it. The
-follow-up normalizes required greeting and endpoint identity text while building
-the candidate, so a byte-equivalent persisted snapshot can return the promised
-no-op receipt. Passive projection stays disabled until that replay passes.
+text was hashed before the protected save normalized it. PR #101 aligned that
+normalization, but run `29184305911` still stopped safely. Protected diagnostic
+run `29184443612` then proved the candidate and persisted configuration have no
+value differences while their hashes differ. The remaining cause is object-key
+insertion order from the database read model. The follow-up recursively orders
+JSON object keys before hashing, making configuration identity semantic rather
+than construction-order-dependent. Passive projection stays disabled until the
+no-op replay returns `changed: false`.
 
 ## Phase status
 
-| Phase | Scope                                                                    | Code status                             | Production status                     |
-| ----- | ------------------------------------------------------------------------ | --------------------------------------- | ------------------------------------- |
-| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89        | #89 synthetic gate pending            |
-| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | PR #90 merged and deployed              | Cron 200; activation proof pending    |
-| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100 merged          | Bootstrap applied; replay fix pending |
-| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged | Projector disabled by default         |
-| 4A    | Canonical routing and durable command foundations                        | Not started                             | Blocked by Phases 1-3                 |
-| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94/#99 merged; media adapter extracted | Legacy UI remains authoritative       |
-| 4B/5B | Per-queue routing and frontend cutover                                   | Not started                             | Must activate together                |
-| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                             | Blocked until observation closes      |
-| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred     | Public-number handoff remains         |
+| Phase | Scope                                                                    | Code status                             | Production status                      |
+| ----- | ------------------------------------------------------------------------ | --------------------------------------- | -------------------------------------- |
+| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89        | #89 synthetic gate pending             |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | PR #90 merged and deployed              | Cron 200; activation proof pending     |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100, #101 merged    | Bootstrap applied; stable hash pending |
+| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged | Projector disabled by default          |
+| 4A    | Canonical routing and durable command foundations                        | Not started                             | Blocked by Phases 1-3                  |
+| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94/#99 merged; media adapter extracted | Legacy UI remains authoritative        |
+| 4B/5B | Per-queue routing and frontend cutover                                   | Not started                             | Must activate together                 |
+| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                             | Blocked until observation closes       |
+| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred     | Public-number handoff remains          |
 
 ## Release sequence
 
