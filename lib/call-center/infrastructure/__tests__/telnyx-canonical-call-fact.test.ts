@@ -35,9 +35,12 @@ describe("canonical Telnyx call facts", () => {
         receivedAt,
       ),
     ).toMatchObject({
+      canonicalCallId: null,
+      canonicalLegId: null,
       direction: "INBOUND",
       fromPhone: "+17865550100",
       legKind: "CUSTOMER",
+      providerCommandId: null,
       toPhone: "+17864657479",
     });
   });
@@ -45,6 +48,9 @@ describe("canonical Telnyx call facts", () => {
   it("classifies a linked station leg from trusted client state", () => {
     const clientState = Buffer.from(
       JSON.stringify({
+        callId: "call-1",
+        endpointId: "endpoint-1",
+        legId: "leg-1",
         queueItemId: "queue-item-1",
         ringAttemptId: "attempt-1",
         seatId: "seat-1",
@@ -57,14 +63,18 @@ describe("canonical Telnyx call facts", () => {
           call_control_id: "control-agent",
           call_session_id: "session-agent",
           client_state: clientState,
+          command_id: "command-1",
           direction: "outgoing",
         }),
         receivedAt,
       ),
     ).toMatchObject({
+      canonicalCallId: "call-1",
+      canonicalLegId: "leg-1",
       clientQueueItemId: "queue-item-1",
-      endpointId: "seat-1",
+      endpointId: "endpoint-1",
       legKind: "AGENT",
+      providerCommandId: "command-1",
     });
   });
 
@@ -116,6 +126,44 @@ describe("canonical Telnyx call facts", () => {
     expect(() => resolveCanonicalTelnyxLegKind(null, fact!.legKind)).toThrow(
       "CANONICAL_LEG_CONTEXT_MISSING",
     );
+  });
+
+  it("uses canonical IDs for exact lookup without inferring the stored leg kind", () => {
+    const clientState = Buffer.from(
+      JSON.stringify({ callId: "call-1", legId: "leg-1" }),
+    ).toString("base64");
+
+    expect(
+      parseCanonicalTelnyxCallFact(
+        envelope("call.bridged", {
+          call_control_id: "control-agent",
+          client_state: clientState,
+          direction: "outgoing",
+        }),
+        receivedAt,
+      ),
+    ).toMatchObject({
+      canonicalCallId: "call-1",
+      canonicalLegId: "leg-1",
+      legKind: null,
+    });
+  });
+
+  it("rejects a partial canonical call-leg identity", () => {
+    const clientState = Buffer.from(JSON.stringify({ callId: "call-1" })).toString(
+      "base64",
+    );
+
+    expect(() =>
+      parseCanonicalTelnyxCallFact(
+        envelope("call.initiated", {
+          call_control_id: "control-agent",
+          client_state: clientState,
+          direction: "outgoing",
+        }),
+        receivedAt,
+      ),
+    ).toThrow("CANONICAL_AGENT_LINK_INCOMPLETE");
   });
 
   it("does not treat a normal connected-call recording as voicemail", () => {

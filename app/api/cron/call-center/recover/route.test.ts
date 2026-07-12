@@ -20,6 +20,14 @@ const canonicalDisabled = {
     skipped: 0,
   },
 } as const;
+const commandsDisabled = {
+  dispatched: 0,
+  enabled: false,
+  failed: 0,
+  selected: 0,
+  skipped: 0,
+  stale: 0,
+} as const;
 
 function request(token?: string) {
   return new Request(url, {
@@ -36,6 +44,7 @@ describe("call center webhook recovery cron", () => {
         recoveryCalls += 1;
         return {
           canonical: canonicalDisabled,
+          commands: commandsDisabled,
           enabled: false,
           failed: 0,
           recovered: 0,
@@ -59,6 +68,7 @@ describe("call center webhook recovery cron", () => {
         recoveryCalls += 1;
         return {
           canonical: canonicalDisabled,
+          commands: commandsDisabled,
           enabled: false,
           failed: 0,
           recovered: 0,
@@ -92,6 +102,14 @@ describe("call center webhook recovery cron", () => {
             skipped: 0,
           },
         },
+        commands: {
+          dispatched: 1,
+          enabled: true,
+          failed: 0,
+          selected: 1,
+          skipped: 0,
+          stale: 0,
+        },
         enabled: true,
         failed: 1,
         recovered: 2,
@@ -118,6 +136,14 @@ describe("call center webhook recovery cron", () => {
           selected: 1,
           skipped: 0,
         },
+      },
+      commands: {
+        dispatched: 1,
+        enabled: true,
+        failed: 0,
+        selected: 1,
+        skipped: 0,
+        stale: 0,
       },
       enabled: true,
       failed: 1,

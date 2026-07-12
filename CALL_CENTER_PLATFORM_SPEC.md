@@ -1385,6 +1385,18 @@ and recovered receipts are labeled separately because recovery-time readiness
 is useful evidence but is not equivalent to the original routing-time snapshot.
 Queue-mode changes and terminal-call races skip without writing.
 
+The first provider-command lane is also default-off. It claims only `DIAL_AGENT`
+rows for an `ACTIVE` queue, commits `SENDING` before network I/O, sends the
+database command ID as Telnyx `command_id`, and retries the same row with bounded
+categorical failures. Provider addresses and credentials are resolved at claim
+time and never persisted in command arguments. Canonical call, leg, and endpoint
+IDs travel in `client_state`; the verified webhook confirms the exact command
+and a later sender completion cannot regress `CONFIRMED` to `SENT`. Missing
+`command_id` falls back only to one exact command on the resolved canonical leg;
+ambiguity fails visibly. Dispatch remains disabled through
+`CALL_CENTER_CANONICAL_COMMAND_DISPATCH_ENABLED=false`, and the store refuses
+provider effects for `LEGACY` and `SHADOW` queues regardless of that flag.
+
 Gate: each user operation produces one receipt and each intended provider effect
 produces one durable command under retry and concurrency.
 

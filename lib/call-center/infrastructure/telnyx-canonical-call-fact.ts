@@ -8,6 +8,8 @@ type JsonObject = Record<string, unknown>;
 
 export type CanonicalTelnyxCallFact = {
   callerName: string | null;
+  canonicalCallId: string | null;
+  canonicalLegId: string | null;
   clientQueueItemId: string | null;
   clientRingAttemptId: string | null;
   direction: "INBOUND" | "OUTBOUND" | null;
@@ -18,6 +20,7 @@ export type CanonicalTelnyxCallFact = {
   legKind: "AGENT" | "CUSTOMER" | null;
   occurredAt: Date;
   providerCallControlId: string | null;
+  providerCommandId: string | null;
   providerCallLegId: string | null;
   providerCallSessionId: string | null;
   providerEventId: string;
@@ -142,7 +145,13 @@ export function parseCanonicalTelnyxCallFact(
   }
 
   const clientState = decodeClientState(payload.client_state);
+  const canonicalCallId = text(clientState?.callId) || null;
+  const canonicalLegId = text(clientState?.legId) || null;
+  if (Boolean(canonicalCallId) !== Boolean(canonicalLegId)) {
+    throw new CanonicalTelnyxFactError("CANONICAL_AGENT_LINK_INCOMPLETE");
+  }
   const endpointId =
+    text(clientState?.endpointId) ||
     text(clientState?.seatId) ||
     text(clientState?.targetSeatId) ||
     text(clientState?.stationSeatId) ||
@@ -185,6 +194,8 @@ export function parseCanonicalTelnyxCallFact(
 
   return {
     callerName: text(payload.caller_id_name) || null,
+    canonicalCallId,
+    canonicalLegId,
     clientQueueItemId: text(clientState?.queueItemId) || null,
     clientRingAttemptId: text(clientState?.ringAttemptId) || null,
     direction: callDirection,
@@ -195,6 +206,7 @@ export function parseCanonicalTelnyxCallFact(
     legKind,
     occurredAt,
     providerCallControlId,
+    providerCommandId: text(payload.command_id) || null,
     providerCallLegId,
     providerCallSessionId,
     providerEventId,
