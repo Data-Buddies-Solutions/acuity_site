@@ -27,6 +27,7 @@ import type {
 import { isLegacyPresenceReadyForCalls } from "@/lib/call-center/legacy-presence";
 
 import ActivityRail from "./ActivityRail";
+import CanonicalShadowBridge from "./CanonicalShadowBridge";
 import SoftphonePanel, { type SoftphoneHandle } from "./SoftphonePanel";
 import {
   desiredPresenceStatus,
@@ -72,6 +73,7 @@ export default function CallCenterWorkspace({
   queue,
   recentCalls,
   seats,
+  shadowQueueId,
   totals,
   voicemailTimeoutSec,
 }: {
@@ -90,6 +92,7 @@ export default function CallCenterWorkspace({
   queue: PortalCallQueueItem[];
   recentCalls: PortalRecentCallItem[];
   seats: PortalCallCenterSeat[];
+  shadowQueueId?: string | null;
   totals: PortalCallCenterTotals;
   voicemailTimeoutSec: number;
 }) {
@@ -208,6 +211,7 @@ export default function CallCenterWorkspace({
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Sync a server-selected default into this legacy control.
     setSelectedOutboundCallerNumber(outboundCallerNumber);
   }, [outboundCallerNumber]);
 
@@ -216,10 +220,12 @@ export default function CallCenterWorkspace({
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Navigation input intentionally seeds the imperative dialer.
     setSeed({ token: Date.now(), value: initialDialNumber });
   }, [initialDialNumber]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Restore the persisted legacy station selection after hydration.
     setSelectedSeatId((current) => {
       if (current && seats.some((seat) => seat.id === current)) {
         return current;
@@ -242,6 +248,7 @@ export default function CallCenterWorkspace({
     const seatId = selectedSeat?.id;
 
     if (!seatId || desiredStatus === "OFFLINE") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Clear legacy presence when its external station owner disappears.
       setPresenceSync({
         acknowledgedStatus: null,
         phase: "idle",
@@ -608,6 +615,18 @@ export default function CallCenterWorkspace({
 
   return (
     <div className="space-y-4">
+      {shadowQueueId ? (
+        <CanonicalShadowBridge
+          audioReady={currentSoftphoneReadiness.soundReady}
+          connectionState={
+            currentSoftphoneReadiness.providerReady ? "READY" : "CONNECTING"
+          }
+          endpointId={selectedSeat?.id ?? null}
+          microphoneReady={currentSoftphoneReadiness.microphoneReady}
+          presence={effectivePresenceStatus}
+          queueId={shadowQueueId}
+        />
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           {inboundEnabled ? (

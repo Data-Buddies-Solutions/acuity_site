@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { getPortalCallCenterData, resolveTelnyxRuntimeSettings } from "@/lib/call-center";
+import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import { PracticePageHeader } from "../PracticePageHeader";
@@ -43,6 +44,14 @@ export default async function PortalCallCenterPage({
   const enabled = settings?.enabled === true;
   const runtimeSettings = settings ? resolveTelnyxRuntimeSettings(settings) : null;
   const selectedLocation = data.selectedLocation;
+  const selectedCanonicalLocationIds = selectedLocation?.locationIds?.length
+    ? selectedLocation.locationIds
+    : selectedLocation?.locationId
+      ? [selectedLocation.locationId]
+      : [];
+  const canonicalWorkspace = await readPortalCanonicalWorkspace(
+    selectedCanonicalLocationIds,
+  );
   const selectedOfficeId = selectedLocation?.id ?? selectedLocationId ?? null;
   const practiceWideOutboundCallerNumber =
     selectedLocation?.outboundNumber ||
@@ -109,6 +118,7 @@ export default async function PortalCallCenterPage({
         queue={data.queue}
         recentCalls={data.recentCalls}
         seats={data.seats}
+        shadowQueueId={canonicalWorkspace?.queueId ?? null}
         totals={data.totals}
         voicemailTimeoutSec={voicemailTimeoutSec}
       />
