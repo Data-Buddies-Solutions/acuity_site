@@ -205,4 +205,39 @@ describe("legacy configuration bootstrap transaction", () => {
     });
     expect(saves).toEqual([]);
   });
+
+  it("matches an exact replay after persistence normalizes source text", async () => {
+    const snapshot = sourceSnapshot();
+    snapshot.settings!.voicemailGreeting = "  Reviewed greeting  ";
+    snapshot.seats[0]!.providerCredentialId = "  seat-credential-secret  ";
+    snapshot.seats[0]!.sipUsername = "  seat-sip-secret  ";
+    const candidate = buildLegacyCallCenterBootstrap(snapshot);
+    snapshot.existingGenericConfiguration = {
+      endpointCount: candidate.configuration.endpoints.length,
+      numberCount: candidate.configuration.numbers.length,
+      queueCount: candidate.configuration.queues.length,
+    };
+    const current = {
+      configuration: candidate.configuration,
+      version: callCenterConfigurationVersion(candidate.configuration),
+    };
+    const saves: Array<{ audit: typeof audit; expectedVersion: string }> = [];
+
+    const result = await bootstrapLegacyCallCenterConfiguration(
+      repositoryFor({ current, saves, snapshot }),
+      {
+        audit,
+        expectedReportVersion: candidate.reportVersion,
+        practiceId: snapshot.practiceId,
+      },
+    );
+
+    expect(result).toMatchObject({ changed: false, version: current.version });
+    expect(result.configuration.queues[0]!.voicemailGreeting).toBe("Reviewed greeting");
+    expect(result.configuration.endpoints[0]).toMatchObject({
+      providerCredentialId: "seat-credential-secret",
+      sipUsername: "seat-sip-secret",
+    });
+    expect(saves).toEqual([]);
+  });
 });
