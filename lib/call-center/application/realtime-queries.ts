@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
+import { CALL_CLAIM_REQUESTED_EVENT } from "@/lib/call-center/application/claim-call";
 import {
   listAccessibleQueues,
   queueAccessKey,
@@ -9,12 +10,14 @@ import {
   resolveQueueAccess,
 } from "@/lib/call-center/auth/queue-access";
 import { serializeAgentConnectionState } from "@/lib/call-center/domain/agent-session-wire";
+import { CALL_OPERATION_STATUS_CHANGED_EVENT } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import {
   CALL_CENTER_SCHEMA_VERSION,
   type AgentSessionView,
   type CallCenterSnapshot,
   type CallView,
   type OperationalCounts,
+  type OperationView,
   type ProjectionEvent,
   type TaskView,
 } from "@/lib/call-center/realtime-contract";
@@ -80,9 +83,19 @@ const eventSelect = {
   aggregateId: true,
   aggregateType: true,
   data: true,
+  practiceId: true,
   revision: true,
   type: true,
 } satisfies Prisma.CallCenterEventSelect;
+const commandSelect = {
+  callId: true,
+  errorCode: true,
+  id: true,
+  nextAttemptAt: true,
+  practiceId: true,
+  status: true,
+  type: true,
+} satisfies Prisma.CallCenterCommandSelect;
 
 type SelectedCall = Prisma.CallCenterCallGetPayload<{ select: typeof callSelect }>;
 type SelectedSession = Prisma.CallCenterAgentSessionGetPayload<{
@@ -90,6 +103,9 @@ type SelectedSession = Prisma.CallCenterAgentSessionGetPayload<{
 }>;
 type SelectedTask = Prisma.CallCenterTaskGetPayload<{ select: typeof taskSelect }>;
 type SelectedEvent = Prisma.CallCenterEventGetPayload<{ select: typeof eventSelect }>;
+type SelectedCommand = Prisma.CallCenterCommandGetPayload<{
+  select: typeof commandSelect;
+}>;
 
 export type CanonicalEventBatchItem = {
   projection: ProjectionEvent | null;
@@ -103,20 +119,90 @@ export type CanonicalEventBatch = {
   scannedThrough: bigint | null;
 };
 
+function record(value: Prisma.JsonValue): Record<string, Prisma.JsonValue> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, Prisma.JsonValue>)
+    : null;
+}
+
+function operationType(eventType: string): OperationView["type"] | null {
+  return eventType === CALL_CLAIM_REQUESTED_EVENT ||
+    eventType === CALL_OPERATION_STATUS_CHANGED_EVENT
+    ? "CLAIM"
+    : null;
+}
+
+function operationCommandId(event: SelectedEvent) {
+  const data = record(event.data);
+  return typeof data?.providerCommandId === "string" ? data.providerCommandId : null;
+}
+
+function operationRevision(event: SelectedEvent) {
+  if (event.type === CALL_CLAIM_REQUESTED_EVENT) {
+    return revisionString(event.revision);
+  }
+  const data = record(event.data);
+  return typeof data?.operationEventRevision === "string"
+    ? data.operationEventRevision
+    : null;
+}
+
+function operationStatus(command: SelectedCommand): OperationView["status"] {
+  if (command.status === "CONFIRMED") return "CONFIRMED";
+  if (command.status === "FAILED") {
+    return command.nextAttemptAt ? "PENDING" : "FAILED";
+  }
+  if (command.status === "SENT") return "SENT";
+  return "PENDING";
+}
+
+export function serializeOperation(
+  event: SelectedEvent,
+  commands: ReadonlyMap<string, SelectedCommand>,
+): OperationView | null {
+  const type = operationType(event.type);
+  const providerCommandId = operationCommandId(event);
+  const operationEventRevision = operationRevision(event);
+  const command = providerCommandId ? commands.get(providerCommandId) : null;
+  if (
+    !type ||
+    !providerCommandId ||
+    !operationEventRevision ||
+    !command ||
+    command.practiceId !== event.practiceId ||
+    command.callId !== event.aggregateId ||
+    command.type !== "DIAL_AGENT"
+  ) {
+    return null;
+  }
+
+  return {
+    callId: event.aggregateId,
+    errorCode: command.errorCode,
+    operationEventRevision,
+    providerCommandId,
+    status: operationStatus(command),
+    type,
+  };
+}
+
 export function buildCanonicalBatchItems({
   calls,
+  commands = [],
   counts,
   events,
   sessions,
   tasks,
 }: {
   calls: SelectedCall[];
+  commands?: SelectedCommand[];
   counts: OperationalCounts;
   events: SelectedEvent[];
   sessions: SelectedSession[];
   tasks: SelectedTask[];
 }): CanonicalEventBatchItem[] {
   const callById = new Map(calls.map((call) => [call.id, call]));
+  const commandById = new Map(commands.map((command) => [command.id, command]));
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
   const taskById = new Map(tasks.map((task) => [task.id, task]));
 
@@ -127,6 +213,24 @@ export function buildCanonicalBatchItems({
       revision: revisionString(event.revision),
       schemaVersion: CALL_CENTER_SCHEMA_VERSION,
     } as const;
+
+    const requestedOperation = operationType(event.type);
+    if (requestedOperation) {
+      const operation = serializeOperation(event, commandById);
+      return {
+        projection:
+          operation && callById.has(event.aggregateId)
+            ? {
+                ...base,
+                aggregateType: "COMMAND",
+                delta: { kind: "OPERATION_UPSERT", operation },
+                stateVersion: 0,
+              }
+            : null,
+        reset: false,
+        revision: event.revision,
+      };
+    }
 
     if (event.aggregateType === "CALL") {
       const call = callById.get(event.aggregateId);
@@ -353,6 +457,35 @@ export async function readCallCenterSnapshot(
           }),
           readOperationalCounts(transaction, callWhere, actor.practiceId),
         ]);
+      const callIds = [...activeCalls, ...recentCalls].map(({ id }) => id);
+      const operationEvents = callIds.length
+        ? await transaction.callCenterEvent.findMany({
+            orderBy: { revision: "desc" },
+            select: eventSelect,
+            take: 100,
+            where: {
+              aggregateId: { in: callIds },
+              aggregateType: "CALL",
+              practiceId: actor.practiceId,
+              type: { in: [CALL_CLAIM_REQUESTED_EVENT] },
+            },
+          })
+        : [];
+      const operationCommandIds = operationEvents
+        .map(operationCommandId)
+        .filter((id): id is string => Boolean(id));
+      const operationCommands = operationCommandIds.length
+        ? await transaction.callCenterCommand.findMany({
+            select: commandSelect,
+            where: {
+              id: { in: operationCommandIds },
+              practiceId: actor.practiceId,
+            },
+          })
+        : [];
+      const commandById = new Map(
+        operationCommands.map((command) => [command.id, command]),
+      );
 
       return {
         agentSession: agentSession ? serializeAgentSession(agentSession) : null,
@@ -360,7 +493,9 @@ export async function readCallCenterSnapshot(
         calls: [...activeCalls, ...recentCalls].map(serializeCall),
         counts,
         endpoints,
-        operations: null,
+        operations: operationEvents
+          .map((event) => serializeOperation(event, commandById))
+          .filter((operation): operation is OperationView => Boolean(operation)),
         queue: {
           id: queue.id,
           maxWaitSec: queue.maxWaitSec,
@@ -421,10 +556,17 @@ export async function readCanonicalEventBatch(
       const taskIds = events
         .filter(({ aggregateType }) => aggregateType === "TASK")
         .map(({ aggregateId }) => aggregateId);
-      const [calls, sessions, tasks, counts] = await Promise.all([
+      const commandIds = events
+        .map(operationCommandId)
+        .filter((id): id is string => Boolean(id));
+      const [calls, commands, sessions, tasks, counts] = await Promise.all([
         transaction.callCenterCall.findMany({
           select: callSelect,
           where: { ...callWhere, id: { in: callIds } },
+        }),
+        transaction.callCenterCommand.findMany({
+          select: commandSelect,
+          where: { id: { in: commandIds }, practiceId: actor.practiceId },
         }),
         transaction.callCenterAgentSession.findMany({
           select: sessionSelect,
@@ -446,7 +588,14 @@ export async function readCanonicalEventBatch(
         }),
         readOperationalCounts(transaction, callWhere, actor.practiceId),
       ]);
-      const items = buildCanonicalBatchItems({ calls, counts, events, sessions, tasks });
+      const items = buildCanonicalBatchItems({
+        calls,
+        commands,
+        counts,
+        events,
+        sessions,
+        tasks,
+      });
 
       return {
         accessKey: queueAccessKey(actor),

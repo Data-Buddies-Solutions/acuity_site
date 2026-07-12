@@ -4,6 +4,7 @@ import type { CanonicalTelnyxCallFact } from "../telnyx-canonical-call-fact";
 import {
   assertCanonicalProviderLegIdentity,
   confirmProviderCommand,
+  retainedAgentSessionIds,
   earliestObservedAt,
   enrichCanonicalCallIdentity,
   resolveCanonicalAgentLink,
@@ -12,6 +13,47 @@ import {
 
 const later = new Date("2026-07-11T10:00:05.000Z");
 const earlier = new Date("2026-07-11T10:00:00.000Z");
+
+describe("canonical agent reservation retention", () => {
+  const legs = [
+    { agentSessionId: "session-1", id: "leg-1", status: "BRIDGED" },
+    { agentSessionId: "session-2", id: "leg-2", status: "RINGING" },
+    { agentSessionId: "session-3", id: "leg-3", status: "FAILED" },
+  ];
+
+  it("keeps only the winner after a bridge", () => {
+    expect([
+      ...retainedAgentSessionIds({
+        callStatus: "CONNECTED",
+        legs,
+        winningLegId: "leg-1",
+      }),
+    ]).toEqual(["session-1"]);
+  });
+
+  it("releases an ended winner before the customer leg ends", () => {
+    expect([
+      ...retainedAgentSessionIds({
+        callStatus: "CONNECTED",
+        legs: legs.map((leg) => (leg.id === "leg-1" ? { ...leg, status: "ENDED" } : leg)),
+        winningLegId: "leg-1",
+      }),
+    ]).toEqual([]);
+  });
+
+  it("keeps live rings before a winner and releases everyone at terminal", () => {
+    expect([
+      ...retainedAgentSessionIds({ callStatus: "RINGING", legs, winningLegId: null }),
+    ]).toEqual(["session-1", "session-2"]);
+    expect([
+      ...retainedAgentSessionIds({
+        callStatus: "COMPLETED",
+        legs,
+        winningLegId: "leg-1",
+      }),
+    ]).toEqual([]);
+  });
+});
 
 function fact(overrides: Partial<CanonicalTelnyxCallFact> = {}): CanonicalTelnyxCallFact {
   return {
@@ -210,6 +252,10 @@ describe("canonical provider command correlation", () => {
           update = input;
           return { count: 1 };
         },
+      },
+      callCenterEvent: {
+        create: async () => ({ revision: BigInt(2) }),
+        findMany: async () => [],
       },
     };
 

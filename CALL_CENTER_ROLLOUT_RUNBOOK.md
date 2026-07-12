@@ -155,8 +155,9 @@ before expanding a queue or tenant.
 - One accepted operation creates at most one intended provider command. The
   operation receipt and provider-effect idempotency key are separate facts.
 - `Take` and transfer remain `Connecting` until a canonical event or snapshot
-  reports `ACTIVE` or `FAILED`. Request completion and browser media state do
-  not clear the pending state.
+  reports the intended leg `BRIDGED` and call `CONNECTED`, or the durable
+  operation `FAILED`. Request completion and browser media state do not clear
+  the pending state.
 - Snapshot and its global event high-water cursor come from one consistent read.
   Tenant-filtered revision gaps are normal; reconnect resumes with
   `Last-Event-ID` and resets only outside retention or on an unsafe delta.

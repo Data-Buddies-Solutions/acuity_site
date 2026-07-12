@@ -18,6 +18,7 @@ describe("Prisma durable operation receipts", () => {
         create: async ({ data }: { data: Record<string, unknown> }) => {
           operations.push("receipt.create");
           return {
+            actorUserId: data.actorUserId,
             aggregateId: data.aggregateId,
             aggregateType: data.aggregateType,
             data: data.data,

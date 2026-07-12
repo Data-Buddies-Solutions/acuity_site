@@ -11,6 +11,7 @@ export type OperationReceiptPrismaTransaction = Prisma.TransactionClient;
 const receiptSelect = {
   aggregateId: true,
   aggregateType: true,
+  actorUserId: true,
   data: true,
   occurredAt: true,
   revision: true,
@@ -19,6 +20,7 @@ const receiptSelect = {
 function toReceiptEvent(event: {
   aggregateId: string;
   aggregateType: OperationReceiptEvent["aggregateType"];
+  actorUserId: string | null;
   data: Prisma.JsonValue;
   occurredAt: Date;
   revision: bigint;

@@ -1036,8 +1036,9 @@ internal call, leg, endpoint, and provider identifiers; caller-phone matching is
 not an allowed correlation path.
 
 An accepted `Take` or transfer remains visibly `Connecting` until a canonical
-event or replacement snapshot reports `ACTIVE` or `FAILED`. Request completion,
-component remount, and browser media notification do not clear that state.
+event or replacement snapshot reports the intended leg `BRIDGED` and the call
+`CONNECTED`, or the durable operation `FAILED`. Request completion, component
+remount, and browser media notification do not clear that state.
 
 ### Readiness UX
 
@@ -1321,7 +1322,8 @@ and the reviewed snapshot remains `LEGACY` until decision-only shadow exists.
 1. Add atomic browser-session leases for canonical endpoints.
 2. Make same-browser check-in idempotent, reject a different live browser, and
    reclaim only expired leases.
-3. Mint provider JWTs only after the lease transaction commits.
+3. Keep lease acquisition credential-free. Phase 5B issues provider credentials
+   through a separate session-bound endpoint after the lease commits.
 
 Gate: concurrent check-in, expiry, reconnect, and loser demotion are
 deterministic without changing the legacy routing owner.
@@ -1405,6 +1407,25 @@ and a later sender completion cannot regress `CONFIRMED` to `SENT`. Missing
 ambiguity fails visibly. Dispatch remains disabled through
 `CALL_CENTER_CANONICAL_COMMAND_DISPATCH_ENABLED=false`, and the store refuses
 provider effects for `LEGACY` and `SHADOW` queues regardless of that flag.
+
+The first canonical user-operation vertical is manual claim. Authenticated
+`POST /api/portal/call-center/calls/:id/claim` accepts only the canonical browser
+identity, endpoint, acknowledged session version, and `Idempotency-Key`. In one
+transaction it locks the operation key, call, and agent session; revalidates
+queue access and `AGENT` membership; requires an eligible `ACTIVE` queue and an
+unwon inbound queued/ringing call; reuses any existing live same-session leg;
+or reserves the session, creates one agent leg and one `DIAL_AGENT` command, and
+appends the operation receipt last. The command stores only canonical IDs and a
+bounded purpose. It never stores credentials, SIP addresses, or provider call
+controls. Before dispatch, the persistence boundary locks the call, queue, and
+command; revalidates `ACTIVE` ownership, current AGENT membership, location
+scope, endpoint readiness, and the session reservation; and terminally rejects
+invalid intent without provider I/O. Terminal rejection, a losing leg, or an
+ended winner releases only the reservation-owned `BUSY` state and preserves an
+agent's explicit pause. Snapshot and SSE expose every accepted receipt and its
+current command state. This route performs no provider I/O. Until the
+coordinated cutover is installed, protected configuration still rejects
+`ACTIVE` and command dispatch remains disabled.
 
 Gate: each user operation produces one receipt and each intended provider effect
 produces one durable command under retry and concurrency.
