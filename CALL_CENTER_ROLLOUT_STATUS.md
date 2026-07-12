@@ -194,17 +194,17 @@ endpoints, and seven memberships.
 
 ## Phase status
 
-| Phase | Scope                                                                    | Code status                             | Production status                     |
-| ----- | ------------------------------------------------------------------------ | --------------------------------------- | ------------------------------------- |
-| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89        | #89 synthetic gate pending            |
-| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | #90/#104; lock/dead-letter follow-up pending | Rolled back off pending fix       |
-| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100-#102 merged     | Bootstrap applied and replay verified |
-| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92/#97; out-of-scope repair pending    | Projection rolled back off            |
-| 4A    | Canonical routing, commands, and immutable effect ownership              | #103/#111-#113 merged                   | No commands; all queues stay LEGACY   |
-| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #111 merged                             | Legacy UI remains authoritative       |
-| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; activation fix pending     | Deployed off; preflight blocked       |
-| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                             | Blocked until observation closes      |
-| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred     | Public-number handoff remains         |
+| Phase | Scope                                                                    | Code status                                  | Production status                     |
+| ----- | ------------------------------------------------------------------------ | -------------------------------------------- | ------------------------------------- |
+| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89             | #89 synthetic gate pending            |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | #90/#104; lock/dead-letter follow-up pending | Rolled back off pending fix           |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100-#102 merged          | Bootstrap applied and replay verified |
+| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92/#97; out-of-scope repair pending         | Projection rolled back off            |
+| 4A    | Canonical routing, commands, and immutable effect ownership              | #103/#111-#113 merged                        | No commands; all queues stay LEGACY   |
+| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #111 merged                                  | Legacy UI remains authoritative       |
+| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; activation fix pending          | Deployed off; preflight blocked       |
+| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                                  | Blocked until observation closes      |
+| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred          | Public-number handoff remains         |
 
 ## Release sequence
 
