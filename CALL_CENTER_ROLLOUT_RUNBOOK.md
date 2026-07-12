@@ -87,8 +87,9 @@ open.
 6. Publish Phase 4A canonical command APIs and Phase 5A snapshot, ordered SSE,
    reducer, and media adapter in shadow. Do not activate either owner alone.
    Land the effect-free routing decision and operation-receipt primitives first.
-   Before moving a queue to `SHADOW`, add bounded recovery for active shadow
-   calls missing their immutable decision receipt. A shadow decision must never
+   Before moving a queue to `SHADOW`, verify the bounded recovery aggregate is
+   zero for active shadow calls missing their immutable decision receipt. A
+   recovered decision is labeled `RECOVERY`, and a shadow decision must never
    create a `CallCenterCommand` row.
 7. Activate Phase 4B routing and Phase 5B frontend together for optical. Repeat
    for South Florida and then other queues only after every gate below passes.

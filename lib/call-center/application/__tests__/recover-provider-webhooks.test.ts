@@ -10,6 +10,14 @@ const canonicalDisabled = {
   ignored: 0,
   projected: 0,
   selected: 0,
+  shadowRouting: {
+    failed: 0,
+    remaining: 0,
+    recorded: 0,
+    replayed: 0,
+    selected: 0,
+    skipped: 0,
+  },
 } as const;
 
 function record(id: string): ProviderWebhookRecord {

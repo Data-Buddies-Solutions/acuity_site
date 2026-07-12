@@ -2,23 +2,47 @@ import { Prisma } from "@/generated/prisma/client";
 import type {
   ShadowRoutingContext,
   ShadowRoutingDecisionEvent,
+  ShadowRoutingSource,
   ShadowRoutingStore,
   ShadowRoutingTransaction,
 } from "@/lib/call-center/application/shadow-routing";
+import type {
+  ShadowRoutingRecoveryCandidate,
+  ShadowRoutingRecoveryStore,
+} from "@/lib/call-center/application/recover-shadow-routing";
 import type { RoutingDecision } from "@/lib/call-center/domain/routing-decision";
-import type { ShadowRoutingSource } from "@/lib/call-center/application/shadow-routing";
 import { prisma } from "@/lib/prisma";
 
 export type ShadowRoutingPrismaTransaction = Prisma.TransactionClient;
 export type ShadowRoutingTransactionRunner = <T>(
   operation: (transaction: ShadowRoutingPrismaTransaction) => Promise<T>,
 ) => Promise<T>;
+export type ShadowRoutingPrismaClient = Pick<typeof prisma, "$queryRaw">;
 
 const decisionEventSelect = {
   data: true,
   occurredAt: true,
   revision: true,
 } satisfies Prisma.CallCenterEventSelect;
+
+const missingDecisionWhere = Prisma.sql`
+  WHERE call."direction" = CAST('INBOUND' AS "CallCenterCallDirection")
+    AND call."status" IN (
+      CAST('RECEIVED' AS "CallCenterCallStatus"),
+      CAST('QUEUED' AS "CallCenterCallStatus"),
+      CAST('RINGING' AS "CallCenterCallStatus"),
+      CAST('CONNECTED' AS "CallCenterCallStatus"),
+      CAST('WRAP_UP' AS "CallCenterCallStatus")
+    )
+    AND queue."routingMode" = CAST('SHADOW' AS "CallCenterRoutingMode")
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "call_center_event" AS event
+      WHERE event."practiceId" = call."practiceId"
+        AND event."type" = 'CALL_ROUTING_SHADOW_DECIDED'
+        AND event."idempotencyKey" = call."id"
+    )
+`;
 
 function toDecisionEvent(event: {
   data: Prisma.JsonValue;
@@ -159,11 +183,43 @@ class PrismaShadowRoutingTransaction implements ShadowRoutingTransaction {
   }
 }
 
-export class PrismaShadowRoutingStore implements ShadowRoutingStore {
+export class PrismaShadowRoutingStore
+  implements ShadowRoutingStore, ShadowRoutingRecoveryStore
+{
   constructor(
     private readonly runTransaction: ShadowRoutingTransactionRunner = (operation) =>
       prisma.$transaction(operation),
+    private readonly client: ShadowRoutingPrismaClient = prisma,
   ) {}
+
+  async countMissingDecisions() {
+    const [result] = await this.client.$queryRaw<Array<{ count: bigint }>>(
+      Prisma.sql`
+        SELECT COUNT(*) AS "count"
+        FROM "call_center_call" AS call
+        INNER JOIN "call_center_queue" AS queue
+          ON queue."id" = call."queueId"
+          AND queue."practiceId" = call."practiceId"
+        ${missingDecisionWhere}
+      `,
+    );
+    return Number(result?.count ?? 0);
+  }
+
+  listMissingDecisions(limit: number) {
+    return this.client.$queryRaw<ShadowRoutingRecoveryCandidate[]>(
+      Prisma.sql`
+        SELECT call."id" AS "callId", call."practiceId"
+        FROM "call_center_call" AS call
+        INNER JOIN "call_center_queue" AS queue
+          ON queue."id" = call."queueId"
+          AND queue."practiceId" = call."practiceId"
+        ${missingDecisionWhere}
+        ORDER BY call."receivedAt" ASC, call."id" ASC
+        LIMIT ${limit}
+      `,
+    );
+  }
 
   withCallLock<T>(
     practiceId: string,
