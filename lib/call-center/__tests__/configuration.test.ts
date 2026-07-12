@@ -61,6 +61,7 @@ function validContext(): CallCenterConfigurationValidationContext {
     configurationVersion: "version-1",
     ownedLocationIds: new Set(["location-1"]),
     ownedPracticePhoneNumberIds: new Set(["phone-1"]),
+    practicePhoneNumberLocationIds: new Map([["phone-1", "location-1"]]),
     practiceMemberUserIds: new Set(["user-1"]),
     queueOwnerPracticeIds: new Map([["queue-1", "practice-1"]]),
     numberOwnerPracticeIds: new Map([["number-1", "practice-1"]]),
@@ -124,6 +125,15 @@ describe("call-center configuration validation", () => {
     expect(
       issueCodes(() => validateCallCenterConfiguration(input, validContext())),
     ).toContain("INVALID_INBOUND_ROUTE");
+  });
+
+  it("rejects an enabled inbound number outside its queue locations", () => {
+    const context = validContext();
+    context.practicePhoneNumberLocationIds = new Map([["phone-1", "location-2"]]);
+
+    expect(
+      issueCodes(() => validateCallCenterConfiguration(validInput(), context)),
+    ).toContain("INBOUND_NUMBER_LOCATION_MISMATCH");
   });
 
   it("rejects unsafe endpoint and default outbound configuration", () => {
@@ -452,6 +462,10 @@ describe("transactional configuration boundary", () => {
               ...validContext(),
               currentConfiguration: current,
               ownedPracticePhoneNumberIds: new Set(["phone-1", "phone-2"]),
+              practicePhoneNumberLocationIds: new Map([
+                ["phone-1", "location-1"],
+                ["phone-2", null],
+              ]),
               practiceMemberUserIds: new Set(["user-1", "user-2"]),
               queueOwnerPracticeIds: new Map([
                 ["queue-1", "practice-1"],

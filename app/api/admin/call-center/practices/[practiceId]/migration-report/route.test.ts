@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
+import {
+  buildLegacyCallCenterBackfillReport,
+  legacyCallCenterBackfillSnapshotVersion,
+  type LegacyCallCenterBackfillSnapshot,
+} from "@/lib/call-center/application/legacy-backfill-plan";
+
 import { createMigrationReportHandler } from "./handler";
 
 const request = new Request("https://example.test/api/admin/call-center/report");
@@ -7,13 +13,30 @@ const context = (practiceId = "practice-1") => ({
   params: Promise.resolve({ practiceId }),
 });
 
-function report() {
+function snapshot(): LegacyCallCenterBackfillSnapshot {
   return {
-    kind: "LEGACY_CALL_CENTER_BACKFILL_REPORT" as const,
-    mode: "REPORT_ONLY" as const,
     practiceId: "practice-1",
-    writeSupported: false as const,
+    locationIds: [],
+    existingGenericConfiguration: {
+      endpointCount: 0,
+      numberCount: 0,
+      queueCount: 0,
+    },
+    settings: null,
+    phoneNumbers: [],
+    seats: [],
+    profileAssignments: [],
+    runtimeFallbacks: {
+      connection: false,
+      credential: false,
+      inboundNumber: false,
+      outboundNumber: false,
+    },
   };
+}
+
+function report() {
+  return buildLegacyCallCenterBackfillReport(snapshot());
 }
 
 describe("call-center migration report route", () => {
@@ -22,7 +45,7 @@ describe("call-center migration report route", () => {
     const GET = createMigrationReportHandler({
       getSession: async () => ({ user: { email: "staff@example.com" } }),
       isAdmin: () => false,
-      readReport: async () => {
+      readSnapshot: async () => {
         reads += 1;
         return null;
       },
@@ -36,7 +59,7 @@ describe("call-center migration report route", () => {
     const GET = createMigrationReportHandler({
       getSession: async () => ({ user: { email: "admin@example.com" } }),
       isAdmin: () => true,
-      readReport: async () => null,
+      readSnapshot: async () => null,
     });
 
     expect((await GET(request, context())).status).toBe(404);
@@ -47,16 +70,21 @@ describe("call-center migration report route", () => {
       clock: () => new Date("2026-07-11T18:00:00.000Z"),
       getSession: async () => ({ user: { email: "admin@example.com" } }),
       isAdmin: () => true,
-      readReport: async () => report(),
+      readSnapshot: async () => snapshot(),
     });
 
     const response = await GET(request, context());
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("etag")).toBeNull();
+    expect(response.headers.get("x-call-center-report-version")).toBe(
+      legacyCallCenterBackfillSnapshotVersion(snapshot()),
+    );
     expect(await response.json()).toEqual({
       generatedAt: "2026-07-11T18:00:00.000Z",
       report: report(),
+      reportVersion: legacyCallCenterBackfillSnapshotVersion(snapshot()),
     });
   });
 
@@ -64,7 +92,7 @@ describe("call-center migration report route", () => {
     const GET = createMigrationReportHandler({
       getSession: async () => ({ user: { email: "admin@example.com" } }),
       isAdmin: () => true,
-      readReport: async () => {
+      readSnapshot: async () => {
         throw new Error("sensitive database detail");
       },
     });

@@ -68,7 +68,15 @@ canonical endpoint leasing with stale-readiness rejection and canonical
 client-instance identity. None of these PRs changes the live routing or
 frontend owner.
 
-PR [#99](https://github.com/Data-Buddies-Solutions/acuity_site/pull/99) merged a transactionally consistent,
+After the seat-usage evidence was deployed, the Abita report reached zero
+ambiguities: three queues, two numbers, nine endpoints, and five observed
+current members on the previously unmapped queue. A guarded,
+report-version-pinned bootstrap workflow is the remaining one-time write
+boundary; it can create only `LEGACY` configuration and leaves live routing
+unchanged.
+
+PR [#99](https://github.com/Data-Buddies-Solutions/acuity_site/pull/99) merged a
+transactionally consistent,
 queue-authorized canonical snapshot and an explicit
 `contract=canonical&queueId=...` event stream. The existing refresh stream
 remains the default. The canonical stream uses decimal revision strings,
@@ -93,19 +101,25 @@ and call controls behind `useSoftphoneMedia`. Its canonical observations bind by
 connection and provider/media-leg IDs; the temporary caller-phone fallback stays
 only in the legacy panel until the coordinated frontend cutover.
 
+Draft PR [#100](https://github.com/Data-Buddies-Solutions/acuity_site/pull/100)
+adds the one-time guarded `LEGACY` bootstrap. It binds the full hidden source to
+the reviewed report version, writes atomically, treats an exact committed replay
+as a no-op, blocks conflicting generic configuration, and records the original
+and triggering workflow actors plus run ID and attempt without logging secrets.
+
 ## Phase status
 
-| Phase | Scope                                                                    | Code status                             | Production status                  |
-| ----- | ------------------------------------------------------------------------ | --------------------------------------- | ---------------------------------- |
-| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89        | #89 synthetic gate pending         |
-| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | PR #90 merged and deployed              | Cron 200; activation proof pending |
-| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, and #95 merged            | Legacy configuration remains owner |
-| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged | Projector disabled by default      |
-| 4A    | Canonical routing and durable command foundations                        | Not started                             | Blocked by Phases 1-3              |
-| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94/#99 merged; media adapter extracted | Legacy UI remains authoritative    |
-| 4B/5B | Per-queue routing and frontend cutover                                   | Not started                             | Must activate together             |
-| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                             | Blocked until observation closes   |
-| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred     | Public-number handoff remains      |
+| Phase | Scope                                                                    | Code status                                    | Production status                  |
+| ----- | ------------------------------------------------------------------------ | ---------------------------------------------- | ---------------------------------- |
+| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89               | #89 synthetic gate pending         |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | PR #90 merged and deployed                     | Cron 200; activation proof pending |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95 merged; #100 bootstrap draft | Legacy configuration remains owner |
+| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92 checkpoint and #97 projector merged        | Projector disabled by default      |
+| 4A    | Canonical routing and durable command foundations                        | Not started                                    | Blocked by Phases 1-3              |
+| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #94/#99 merged; media adapter extracted        | Legacy UI remains authoritative    |
+| 4B/5B | Per-queue routing and frontend cutover                                   | Not started                                    | Must activate together             |
+| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                                    | Blocked until observation closes   |
+| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred            | Public-number handoff remains      |
 
 ## Release sequence
 

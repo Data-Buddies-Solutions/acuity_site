@@ -1,12 +1,15 @@
 import { expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { buildLegacyCallCenterBackfillReport } from "@/lib/call-center/application/legacy-backfill-plan";
+import {
+  buildLegacyCallCenterBackfillReport,
+  legacyCallCenterBackfillSnapshotVersion,
+} from "@/lib/call-center/application/legacy-backfill-plan";
 
 import { CallCenterMigrationReportView } from "./CallCenterMigrationReport";
 
 it("shows blocked discovery without an apply control", () => {
-  const report = buildLegacyCallCenterBackfillReport({
+  const snapshot = {
     practiceId: "practice-1",
     locationIds: [],
     existingGenericConfiguration: {
@@ -24,12 +27,17 @@ it("shows blocked discovery without an apply control", () => {
       inboundNumber: false,
       outboundNumber: false,
     },
-  });
+  };
+  const report = buildLegacyCallCenterBackfillReport(snapshot);
 
-  const html = renderToStaticMarkup(<CallCenterMigrationReportView report={report} />);
+  const reportVersion = legacyCallCenterBackfillSnapshotVersion(snapshot);
+  const html = renderToStaticMarkup(
+    <CallCenterMigrationReportView report={report} reportVersion={reportVersion} />,
+  );
 
   expect(html).toContain("Migration apply is blocked");
   expect(html).toContain("LEGACY_SETTINGS_MISSING");
+  expect(html).toContain(reportVersion);
   expect(html).not.toContain("<button");
   expect(html).not.toContain("Apply configuration");
 });

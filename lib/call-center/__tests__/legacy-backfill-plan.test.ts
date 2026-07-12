@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
+import { validateCallCenterConfiguration } from "@/lib/call-center/application/configuration";
 import {
+  buildLegacyCallCenterBootstrap,
   buildLegacyCallCenterBackfillReport,
+  legacyCallCenterBackfillSnapshotVersion,
+  LegacyCallCenterBootstrapError,
   type LegacyCallCenterBackfillSnapshot,
 } from "@/lib/call-center/application/legacy-backfill-plan";
 import {
@@ -327,5 +331,76 @@ describe("legacy call-center backfill report", () => {
       "QUEUE_MEMBER_MISSING",
     );
     expect(report.overallReadiness).toBe("READY_FOR_MANUAL_REVIEW");
+  });
+
+  it("builds one reviewed LEGACY snapshot while keeping secrets out of the report", () => {
+    const snapshot = completeSnapshot();
+    const bootstrap = buildLegacyCallCenterBootstrap(snapshot);
+
+    expect(bootstrap.configuration.queues).toHaveLength(1);
+    expect(bootstrap.configuration.queues[0]).toMatchObject({
+      routingMode: "LEGACY",
+      members: [{ enabled: true, role: "AGENT", userId: "user-1" }],
+    });
+    expect(bootstrap.configuration.endpoints[0]).toMatchObject({
+      id: "seat-1",
+      providerCredentialId: "provider-secret-1",
+      sipUsername: "sip-secret-1",
+    });
+    expect(JSON.stringify(bootstrap.report)).not.toContain("provider-secret-1");
+    expect(bootstrap.reportVersion).toBe(
+      legacyCallCenterBackfillSnapshotVersion(snapshot),
+    );
+    snapshot.runtimeFallbacks.connection = true;
+    expect(legacyCallCenterBackfillSnapshotVersion(snapshot)).toBe(
+      bootstrap.reportVersion,
+    );
+    expect(
+      validateCallCenterConfiguration(bootstrap.configuration, {
+        practiceExists: true,
+        configurationVersion: "",
+        ownedLocationIds: new Set(snapshot.locationIds),
+        ownedPracticePhoneNumberIds: new Set(snapshot.phoneNumbers.map(({ id }) => id)),
+        practicePhoneNumberLocationIds: new Map(
+          snapshot.phoneNumbers.map(({ id, locationId }) => [id, locationId]),
+        ),
+        practiceMemberUserIds: new Set(["user-1"]),
+        queueOwnerPracticeIds: new Map(),
+        numberOwnerPracticeIds: new Map(),
+        endpointOwnerPracticeIds: new Map(),
+        providerCredentialEndpointIds: new Map(),
+        providerNumberOwnerNumberIds: new Map(),
+        sipUsernameEndpointIds: new Map(),
+        enabledQueueIds: new Set(),
+        enabledNumberIds: new Set(),
+        enabledEndpointIds: new Set(),
+        enabledMembershipKeys: new Set(),
+        currentConfiguration: null,
+      }),
+    ).toEqual(bootstrap.configuration);
+  });
+
+  it("binds the reviewed version to hidden configuration values", () => {
+    const original = completeSnapshot();
+    const changed = completeSnapshot();
+    changed.settings!.voicemailGreeting = "Different reviewed greeting";
+    changed.seats[0]!.providerCredentialId = "different-credential";
+    changed.seats[0]!.sipUsername = "different-sip-user";
+
+    expect(legacyCallCenterBackfillSnapshotVersion(changed)).not.toBe(
+      legacyCallCenterBackfillSnapshotVersion(original),
+    );
+    expect(buildLegacyCallCenterBootstrap(changed).configuration).not.toEqual(
+      buildLegacyCallCenterBootstrap(original).configuration,
+    );
+  });
+
+  it("refuses bootstrap when the reviewed report is blocked", () => {
+    const snapshot = completeSnapshot();
+    snapshot.profileAssignments = [];
+
+    expect(() => buildLegacyCallCenterBootstrap(snapshot)).toThrow(
+      new LegacyCallCenterBootstrapError("BOOTSTRAP_REPORT_BLOCKED"),
+    );
   });
 });

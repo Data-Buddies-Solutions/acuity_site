@@ -127,7 +127,7 @@ export async function loadConfigurationValidationContext(
         where: { id: { in: effectiveReferences.locationIds }, practiceId },
       }),
       transaction.practicePhoneNumber.findMany({
-        select: { id: true },
+        select: { id: true, locationId: true },
         where: {
           id: { in: effectiveReferences.practicePhoneNumberIds },
           practiceId,
@@ -160,6 +160,9 @@ export async function loadConfigurationValidationContext(
     configurationVersion: currentConfiguration?.version ?? "",
     ownedLocationIds: new Set(locations.map(({ id }) => id)),
     ownedPracticePhoneNumberIds: new Set(phoneNumbers.map(({ id }) => id)),
+    practicePhoneNumberLocationIds: new Map(
+      phoneNumbers.map(({ id, locationId }) => [id, locationId]),
+    ),
     practiceMemberUserIds: new Set(memberships.map(({ userId }) => userId)),
     queueOwnerPracticeIds: ownerMap(queues),
     numberOwnerPracticeIds: ownerMap(numbers),
@@ -333,6 +336,8 @@ export async function persistConfigurationSnapshot(
           queues: configuration.queues.length,
         },
         fromVersion: audit.previousVersion,
+        actorSource: audit.source ?? "ADMIN_API",
+        automation: audit.automation ?? null,
         routingModes,
         toVersion: nextVersion,
       },
@@ -351,14 +356,20 @@ export class PrismaCallCenterConfigurationRepository implements CallCenterConfig
     operation: (transaction: CallCenterConfigurationTransaction) => Promise<T>,
   ) {
     return this.runTransaction((transaction) =>
-      operation({
-        loadValidationContextForUpdate: (practiceId, references) =>
-          loadConfigurationValidationContext(transaction, practiceId, references),
-        persistValidatedSnapshot: (configuration, audit) =>
-          persistConfigurationSnapshot(transaction, configuration, audit),
-      }),
+      operation(createPrismaConfigurationTransaction(transaction)),
     );
   }
+}
+
+export function createPrismaConfigurationTransaction(
+  transaction: ConfigurationPrismaTransaction,
+): CallCenterConfigurationTransaction {
+  return {
+    loadValidationContextForUpdate: (practiceId, references) =>
+      loadConfigurationValidationContext(transaction, practiceId, references),
+    persistValidatedSnapshot: (configuration, audit) =>
+      persistConfigurationSnapshot(transaction, configuration, audit),
+  };
 }
 
 export async function readCallCenterConfiguration(

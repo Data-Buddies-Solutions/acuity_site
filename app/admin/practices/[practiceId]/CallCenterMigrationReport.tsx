@@ -1,7 +1,11 @@
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
-import type { LegacyCallCenterBackfillReport } from "@/lib/call-center/application/legacy-backfill-plan";
-import { readLegacyCallCenterBackfillReport } from "@/lib/call-center/infrastructure/legacy-backfill-report";
+import {
+  buildLegacyCallCenterBackfillReport,
+  legacyCallCenterBackfillSnapshotVersion,
+  type LegacyCallCenterBackfillReport,
+} from "@/lib/call-center/application/legacy-backfill-plan";
+import { readLegacyCallCenterBackfillSnapshot } from "@/lib/call-center/infrastructure/legacy-backfill-report";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("admin-call-center-migration-view");
@@ -16,9 +20,9 @@ function Metric({ label, value }: { label: string; value: number }) {
 }
 
 export async function CallCenterMigrationReport({ practiceId }: { practiceId: string }) {
-  let report;
+  let snapshot;
   try {
-    report = await readLegacyCallCenterBackfillReport(practiceId);
+    snapshot = await readLegacyCallCenterBackfillSnapshot(practiceId);
   } catch {
     logger.error("migration view failed", {
       errorCode: "call_center_migration_view_failed",
@@ -34,13 +38,20 @@ export async function CallCenterMigrationReport({ practiceId }: { practiceId: st
     );
   }
 
-  return report ? <CallCenterMigrationReportView report={report} /> : null;
+  return snapshot ? (
+    <CallCenterMigrationReportView
+      report={buildLegacyCallCenterBackfillReport(snapshot)}
+      reportVersion={legacyCallCenterBackfillSnapshotVersion(snapshot)}
+    />
+  ) : null;
 }
 
 export function CallCenterMigrationReportView({
   report,
+  reportVersion,
 }: {
   report: LegacyCallCenterBackfillReport;
+  reportVersion: string;
 }) {
   const ready = report.overallReadiness === "READY_FOR_MANUAL_REVIEW";
 
@@ -64,6 +75,9 @@ export function CallCenterMigrationReportView({
               {ready
                 ? "Discovery is ready for manual review. This page is read-only and does not apply configuration."
                 : "Migration apply is blocked. Resolve every ambiguity before copying configuration into the protected API."}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Report version: <code className="break-all">{reportVersion}</code>
             </p>
           </div>
         </div>

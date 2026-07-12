@@ -53,6 +53,10 @@ export type SavedCallCenterConfiguration = {
   version: string;
 };
 
+function compareCodeUnits(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export function callCenterConfigurationVersion(
   configuration: ValidatedCallCenterConfiguration,
 ) {
@@ -63,23 +67,30 @@ export function callCenterConfigurationVersion(
         ...queue,
         locationIds: [...queue.locationIds].sort(),
         members: [...queue.members].sort((left, right) =>
-          left.userId.localeCompare(right.userId),
+          compareCodeUnits(left.userId, right.userId),
         ),
       }))
-      .sort((left, right) => left.id.localeCompare(right.id)),
+      .sort((left, right) => compareCodeUnits(left.id, right.id)),
     numbers: [...configuration.numbers].sort((left, right) =>
-      left.id.localeCompare(right.id),
+      compareCodeUnits(left.id, right.id),
     ),
     endpoints: [...configuration.endpoints].sort((left, right) =>
-      left.id.localeCompare(right.id),
+      compareCodeUnits(left.id, right.id),
     ),
   };
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
 export type CallCenterConfigurationAudit = {
-  actorUserId: string;
+  actorUserId: string | null;
+  automation?: {
+    actor: string;
+    triggeringActor: string;
+    runId: string;
+    runAttempt: number;
+  };
   previousVersion: string;
+  source?: "ADMIN_API" | "LEGACY_BOOTSTRAP";
 };
 
 export type CallCenterConfigurationReferences = {
@@ -99,6 +110,7 @@ export type CallCenterConfigurationValidationContext = {
   configurationVersion: string;
   ownedLocationIds: ReadonlySet<string>;
   ownedPracticePhoneNumberIds: ReadonlySet<string>;
+  practicePhoneNumberLocationIds: ReadonlyMap<string, string | null>;
   practiceMemberUserIds: ReadonlySet<string>;
   queueOwnerPracticeIds: ReadonlyMap<string, string>;
   numberOwnerPracticeIds: ReadonlyMap<string, string>;
@@ -123,6 +135,7 @@ export type CallCenterConfigurationIssueCode =
   | "UNKNOWN_QUEUE"
   | "MEMBERSHIP_REQUIRED"
   | "INVALID_QUEUE_POLICY"
+  | "INBOUND_NUMBER_LOCATION_MISMATCH"
   | "OVERFLOW_QUEUE_CYCLE"
   | "DISABLED_OVERFLOW_QUEUE"
   | "INVALID_INBOUND_ROUTE"
@@ -659,6 +672,23 @@ export function validateCallCenterConfiguration(
         message: "Inbound calling requires an enabled number and queue",
       });
     }
+    if (
+      number.enabled &&
+      number.inboundEnabled &&
+      inboundQueue &&
+      context.ownedPracticePhoneNumberIds.has(number.practicePhoneNumberId)
+    ) {
+      const phoneLocationId = context.practicePhoneNumberLocationIds.get(
+        number.practicePhoneNumberId,
+      );
+      if (!phoneLocationId || !inboundQueue.locationIds.includes(phoneLocationId)) {
+        issues.push({
+          code: "INBOUND_NUMBER_LOCATION_MISMATCH",
+          path: `${path}.inboundQueueId`,
+          message: "Inbound phone number location must belong to its queue",
+        });
+      }
+    }
     if (number.outboundEnabled && !number.enabled) {
       issues.push({
         code: "INVALID_OUTBOUND_NUMBER",
@@ -792,34 +822,50 @@ export async function saveCallCenterConfiguration(
   expectedVersion: string,
   actorUserId: string,
 ) {
-  const references = collectCallCenterConfigurationReferences(input);
-  return repository.transaction(async (transaction) => {
-    const practiceId = clean(input.practiceId);
-    const context = await transaction.loadValidationContextForUpdate(
-      practiceId,
-      references,
-    );
-    if (context.practiceExists && context.configurationVersion !== expectedVersion) {
-      throw new CallCenterConfigurationError([
-        {
-          code: "STALE_CONFIGURATION",
-          path: "",
-          message: "Configuration changed after it was loaded",
-        },
-      ]);
-    }
-    const configuration = validateCallCenterConfiguration(
-      preserveOmittedDisabledEntities(input, context.currentConfiguration),
-      context,
-    );
-    const version = callCenterConfigurationVersion(configuration);
-    if (version === context.configurationVersion) {
-      return { changed: false, configuration, version };
-    }
-    await transaction.persistValidatedSnapshot(configuration, {
+  return repository.transaction((transaction) =>
+    saveCallCenterConfigurationInTransaction(
+      transaction,
+      input,
+      expectedVersion,
       actorUserId,
-      previousVersion: context.configurationVersion,
-    });
-    return { changed: true, configuration, version };
+    ),
+  );
+}
+
+export async function saveCallCenterConfigurationInTransaction(
+  transaction: CallCenterConfigurationTransaction,
+  input: CallCenterConfigurationInput,
+  expectedVersion: string,
+  actorUserId: string | null,
+  auditMetadata: Pick<CallCenterConfigurationAudit, "automation" | "source"> = {},
+) {
+  const references = collectCallCenterConfigurationReferences(input);
+  const practiceId = clean(input.practiceId);
+  const context = await transaction.loadValidationContextForUpdate(
+    practiceId,
+    references,
+  );
+  if (context.practiceExists && context.configurationVersion !== expectedVersion) {
+    throw new CallCenterConfigurationError([
+      {
+        code: "STALE_CONFIGURATION",
+        path: "",
+        message: "Configuration changed after it was loaded",
+      },
+    ]);
+  }
+  const configuration = validateCallCenterConfiguration(
+    preserveOmittedDisabledEntities(input, context.currentConfiguration),
+    context,
+  );
+  const version = callCenterConfigurationVersion(configuration);
+  if (version === context.configurationVersion) {
+    return { changed: false, configuration, version };
+  }
+  await transaction.persistValidatedSnapshot(configuration, {
+    actorUserId,
+    ...auditMetadata,
+    previousVersion: context.configurationVersion,
   });
+  return { changed: true, configuration, version };
 }

@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 
+import type { CallCenterConfigurationInput } from "@/lib/call-center/application/configuration";
+
+function compareCodeUnits(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 import { phoneNationalDigits } from "@/lib/phone";
 
 const LEGACY_AGENT_RING_TIMEOUT_SEC = 20;
@@ -146,6 +151,13 @@ export type LegacyCallCenterBackfillReport = {
   };
 };
 
+export class LegacyCallCenterBootstrapError extends Error {
+  constructor(readonly code: "BOOTSTRAP_REPORT_BLOCKED" | "BOOTSTRAP_SOURCE_MISSING") {
+    super(code);
+    this.name = "LegacyCallCenterBootstrapError";
+  }
+}
+
 type QueueSource = {
   kind: "EXPLICIT_QUEUE_KEY" | "LOCATION_SCOPE";
   value: string;
@@ -267,7 +279,7 @@ export function buildLegacyCallCenterBackfillReport(
 
   const queueBySource = new Map<string, MutableQueue>();
   const queueIdBySeatId = new Map<string, string>();
-  for (const seat of [...snapshot.seats].sort((a, b) => a.id.localeCompare(b.id))) {
+  for (const seat of [...snapshot.seats].sort((a, b) => compareCodeUnits(a.id, b.id))) {
     const source = queueSourceForSeat(seat);
     const sourceLocationIsValid =
       source?.kind !== "LOCATION_SCOPE" || practiceLocationIds.has(source.value);
@@ -328,7 +340,7 @@ export function buildLegacyCallCenterBackfillReport(
     [...queueBySource.values()].map((queue) => [queue.proposedId, queue]),
   );
   const endpoints = [...snapshot.seats]
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((seat) => {
       const providerCredential = cleanOptional(seat.providerCredentialId);
       const sipUsername = cleanOptional(seat.sipUsername);
@@ -370,7 +382,7 @@ export function buildLegacyCallCenterBackfillReport(
     endpoints.map((endpoint) => [endpoint.proposedId, endpoint]),
   );
   const mutableQueues = [...queueBySource.values()].sort((a, b) =>
-    a.proposedId.localeCompare(b.proposedId),
+    compareCodeUnits(a.proposedId, b.proposedId),
   );
   for (const queue of mutableQueues) {
     if (!queue.locationIds.size) {
@@ -459,7 +471,7 @@ export function buildLegacyCallCenterBackfillReport(
   }
 
   const numbers = [...numberByPhoneId.values()].sort((a, b) =>
-    a.proposedId.localeCompare(b.proposedId),
+    compareCodeUnits(a.proposedId, b.proposedId),
   );
   const inboundQueueIds = new Set(
     numbers.flatMap(({ inboundEnabled, inboundQueueId }) =>
@@ -515,7 +527,7 @@ export function buildLegacyCallCenterBackfillReport(
       count: references.size,
       affectedRefs: sorted(references),
     }))
-    .sort((a, b) => a.code.localeCompare(b.code));
+    .sort((a, b) => compareCodeUnits(a.code, b.code));
 
   return {
     kind: "LEGACY_CALL_CENTER_BACKFILL_REPORT",
@@ -554,5 +566,117 @@ export function buildLegacyCallCenterBackfillReport(
         ({ shadowReadiness }) => shadowReadiness === "READY_FOR_REVIEW",
       ).length,
     },
+  };
+}
+
+export function legacyCallCenterBackfillSnapshotVersion(
+  snapshot: LegacyCallCenterBackfillSnapshot,
+) {
+  const stableSnapshot = {
+    practiceId: snapshot.practiceId,
+    locationIds: [...snapshot.locationIds].sort(),
+    existingGenericConfiguration: snapshot.existingGenericConfiguration,
+    settings: snapshot.settings,
+    phoneNumbers: [...snapshot.phoneNumbers].sort((left, right) =>
+      compareCodeUnits(left.id, right.id),
+    ),
+    seats: snapshot.seats
+      .map((seat) => ({
+        ...seat,
+        observedUserIds: [...seat.observedUserIds].sort(),
+      }))
+      .sort((left, right) => compareCodeUnits(left.id, right.id)),
+    profileAssignments: snapshot.profileAssignments
+      .map((assignment) => ({
+        ...assignment,
+        locationIds: [...assignment.locationIds].sort(),
+      }))
+      .sort(
+        (left, right) =>
+          compareCodeUnits(left.queueKey, right.queueKey) ||
+          compareCodeUnits(left.userId, right.userId) ||
+          compareCodeUnits(
+            left.locationIds.join("\u0000"),
+            right.locationIds.join("\u0000"),
+          ),
+      ),
+  };
+  return createHash("sha256").update(JSON.stringify(stableSnapshot)).digest("hex");
+}
+
+function requiredBootstrapNumber(value: number | null) {
+  if (value === null) {
+    throw new LegacyCallCenterBootstrapError("BOOTSTRAP_SOURCE_MISSING");
+  }
+  return value;
+}
+
+export function buildLegacyCallCenterBootstrap(
+  snapshot: LegacyCallCenterBackfillSnapshot,
+): {
+  configuration: CallCenterConfigurationInput;
+  report: LegacyCallCenterBackfillReport;
+  reportVersion: string;
+} {
+  const report = buildLegacyCallCenterBackfillReport(snapshot);
+  if (report.overallReadiness !== "READY_FOR_MANUAL_REVIEW") {
+    throw new LegacyCallCenterBootstrapError("BOOTSTRAP_REPORT_BLOCKED");
+  }
+  const settings = snapshot.settings;
+  if (!settings) {
+    throw new LegacyCallCenterBootstrapError("BOOTSTRAP_SOURCE_MISSING");
+  }
+
+  const sourceSeats = new Map(snapshot.seats.map((seat) => [seat.id, seat]));
+  const configuration: CallCenterConfigurationInput = {
+    practiceId: snapshot.practiceId,
+    defaultOutboundNumberId: report.defaultOutboundNumberId,
+    queues: report.queues.map((queue) => ({
+      id: queue.proposedId,
+      name: queue.proposedName,
+      enabled: queue.enabled,
+      routingMode: "LEGACY",
+      ringTimeoutSec: requiredBootstrapNumber(queue.ringTimeoutSec),
+      maxWaitSec: requiredBootstrapNumber(queue.maxWaitSec),
+      wrapUpSec: queue.wrapUpSec,
+      voicemailEnabled: queue.voicemailEnabled,
+      voicemailGreeting: settings.voicemailGreeting,
+      overflowQueueId: null,
+      locationIds: queue.locationIds,
+      members: queue.memberUserIds.map((userId) => ({
+        userId,
+        role: "AGENT",
+        enabled: true,
+      })),
+    })),
+    numbers: report.numbers.map((number) => ({
+      id: number.proposedId,
+      practicePhoneNumberId: number.practicePhoneNumberId,
+      providerNumberId: null,
+      inboundQueueId: number.inboundQueueId,
+      inboundEnabled: number.inboundEnabled,
+      outboundEnabled: number.outboundEnabled,
+      enabled: number.enabled,
+    })),
+    endpoints: report.endpoints.map((endpoint) => {
+      const source = sourceSeats.get(endpoint.sourceSeatId);
+      if (!source) {
+        throw new LegacyCallCenterBootstrapError("BOOTSTRAP_SOURCE_MISSING");
+      }
+      return {
+        id: endpoint.proposedId,
+        locationId: endpoint.locationId,
+        label: endpoint.proposedLabel,
+        providerCredentialId: source.providerCredentialId,
+        sipUsername: source.sipUsername,
+        enabled: endpoint.enabled,
+      };
+    }),
+  };
+
+  return {
+    configuration,
+    report,
+    reportVersion: legacyCallCenterBackfillSnapshotVersion(snapshot),
   };
 }
