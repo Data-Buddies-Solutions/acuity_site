@@ -51,10 +51,7 @@ export type ShadowRoutingReceipt = RoutingDecision & {
 export type ShadowRoutingSkipped = {
   callId: string;
   reason:
-    | "CALL_TERMINAL"
-    | "OUTBOUND_CALL"
-    | "QUEUE_NOT_ASSIGNED"
-    | "ROUTING_MODE_NOT_SHADOW";
+    "CALL_TERMINAL" | "OUTBOUND_CALL" | "QUEUE_NOT_ASSIGNED" | "ROUTING_MODE_NOT_SHADOW";
   status: "SKIPPED";
 };
 
