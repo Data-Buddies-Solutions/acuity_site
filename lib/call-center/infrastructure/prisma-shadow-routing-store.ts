@@ -6,6 +6,7 @@ import type {
   ShadowRoutingTransaction,
 } from "@/lib/call-center/application/shadow-routing";
 import type { RoutingDecision } from "@/lib/call-center/domain/routing-decision";
+import type { ShadowRoutingSource } from "@/lib/call-center/application/shadow-routing";
 import { prisma } from "@/lib/prisma";
 
 export type ShadowRoutingPrismaTransaction = Prisma.TransactionClient;
@@ -32,7 +33,7 @@ class PrismaShadowRoutingTransaction implements ShadowRoutingTransaction {
 
   async appendDecision(
     context: ShadowRoutingContext,
-    decision: RoutingDecision,
+    decision: RoutingDecision & { source: ShadowRoutingSource },
     now: Date,
   ) {
     const event = await this.transaction.callCenterEvent.create({
@@ -70,6 +71,7 @@ class PrismaShadowRoutingTransaction implements ShadowRoutingTransaction {
         direction: true,
         id: true,
         practiceId: true,
+        status: true,
         queue: {
           select: {
             enabled: true,
@@ -152,6 +154,7 @@ class PrismaShadowRoutingTransaction implements ShadowRoutingTransaction {
         })),
         routingMode: call.queue.routingMode,
       },
+      status: call.status,
     } satisfies ShadowRoutingContext;
   }
 }

@@ -46,6 +46,7 @@ function context(
       ],
       routingMode,
     },
+    status: "RECEIVED",
   };
 }
 
@@ -169,5 +170,36 @@ describe("shadow routing receipt", () => {
         now,
       ),
     ).resolves.toEqual({ ...first, replayed: true });
+  });
+
+  it("does not create a late decision after the call becomes terminal", async () => {
+    const routingContext = context();
+    routingContext.status = "COMPLETED";
+    const store = new MemoryShadowStore(routingContext);
+
+    await expect(
+      recordShadowRoutingDecision(
+        store,
+        { callId: "call-1", practiceId: "practice-1", source: "RECOVERY" },
+        now,
+      ),
+    ).resolves.toEqual({
+      callId: "call-1",
+      reason: "CALL_TERMINAL",
+      status: "SKIPPED",
+    });
+    expect(store.appendCount).toBe(0);
+  });
+
+  it("labels recovery evidence separately from inline evidence", async () => {
+    const store = new MemoryShadowStore(context());
+
+    await expect(
+      recordShadowRoutingDecision(
+        store,
+        { callId: "call-1", practiceId: "practice-1", source: "RECOVERY" },
+        now,
+      ),
+    ).resolves.toMatchObject({ source: "RECOVERY" });
   });
 });

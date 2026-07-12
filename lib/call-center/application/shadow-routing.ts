@@ -6,11 +6,32 @@ import {
 
 export const SHADOW_ROUTING_DECISION_EVENT = "CALL_ROUTING_SHADOW_DECIDED";
 
+export type ShadowRoutingSource = "INLINE" | "RECOVERY";
+type ShadowCallStatus =
+  | "RECEIVED"
+  | "QUEUED"
+  | "RINGING"
+  | "CONNECTED"
+  | "WRAP_UP"
+  | "COMPLETED"
+  | "VOICEMAIL"
+  | "ABANDONED"
+  | "FAILED";
+
+const activeCallStatuses = new Set<ShadowCallStatus>([
+  "RECEIVED",
+  "QUEUED",
+  "RINGING",
+  "CONNECTED",
+  "WRAP_UP",
+]);
+
 export type ShadowRoutingContext = {
   callId: string;
   direction: "INBOUND" | "OUTBOUND";
   practiceId: string;
   queue: (RoutingQueueSnapshot & { routingMode: "LEGACY" | "SHADOW" | "ACTIVE" }) | null;
+  status: ShadowCallStatus;
 };
 
 export type ShadowRoutingDecisionEvent = {
@@ -24,18 +45,23 @@ export type ShadowRoutingReceipt = RoutingDecision & {
   occurredAt: string;
   replayed: boolean;
   revision: string;
+  source: ShadowRoutingSource;
 };
 
 export type ShadowRoutingSkipped = {
   callId: string;
-  reason: "OUTBOUND_CALL" | "QUEUE_NOT_ASSIGNED" | "ROUTING_MODE_NOT_SHADOW";
+  reason:
+    | "CALL_TERMINAL"
+    | "OUTBOUND_CALL"
+    | "QUEUE_NOT_ASSIGNED"
+    | "ROUTING_MODE_NOT_SHADOW";
   status: "SKIPPED";
 };
 
 export interface ShadowRoutingTransaction {
   appendDecision(
     context: ShadowRoutingContext,
-    decision: RoutingDecision,
+    decision: RoutingDecision & { source: ShadowRoutingSource },
     now: Date,
   ): Promise<ShadowRoutingDecisionEvent>;
   findDecision(
@@ -68,11 +94,14 @@ function receiptFromEvent(
   event: ShadowRoutingDecisionEvent,
   replayed: boolean,
 ): ShadowRoutingReceipt {
-  const decision = event.data as Partial<RoutingDecision>;
+  const decision = event.data as Partial<
+    RoutingDecision & { source: ShadowRoutingSource }
+  >;
   if (
     decision.queueId === undefined ||
     !Array.isArray(decision.eligible) ||
-    !decision.exclusions
+    !decision.exclusions ||
+    (decision.source !== "INLINE" && decision.source !== "RECOVERY")
   ) {
     throw new ShadowRoutingError("Stored shadow routing receipt is invalid", 500);
   }
@@ -84,6 +113,7 @@ function receiptFromEvent(
     queueId: decision.queueId,
     replayed,
     revision: event.revision.toString(),
+    source: decision.source,
   };
 }
 
@@ -94,7 +124,7 @@ function receiptFromEvent(
  */
 export function recordShadowRoutingDecision(
   store: ShadowRoutingStore,
-  input: { callId: string; practiceId: string },
+  input: { callId: string; practiceId: string; source?: ShadowRoutingSource },
   now = new Date(),
 ): Promise<ShadowRoutingReceipt | ShadowRoutingSkipped> {
   return store.withCallLock(input.practiceId, input.callId, async (transaction) => {
@@ -104,6 +134,9 @@ export function recordShadowRoutingDecision(
     if (existing) return receiptFromEvent(context.callId, existing, true);
     if (context.direction !== "INBOUND") {
       return { callId: context.callId, reason: "OUTBOUND_CALL", status: "SKIPPED" };
+    }
+    if (!activeCallStatuses.has(context.status)) {
+      return { callId: context.callId, reason: "CALL_TERMINAL", status: "SKIPPED" };
     }
     if (!context.queue) {
       return {
@@ -120,7 +153,10 @@ export function recordShadowRoutingDecision(
       };
     }
 
-    const decision = decideInboundRouting(context.queue, now);
+    const decision = {
+      ...decideInboundRouting(context.queue, now),
+      source: input.source ?? "INLINE",
+    };
     const event = await transaction.appendDecision(context, decision, now);
     return receiptFromEvent(context.callId, event, false);
   });

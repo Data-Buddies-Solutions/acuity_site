@@ -57,6 +57,7 @@ describe("Prisma shadow routing store", () => {
               members: [{ enabled: true, userId: "user-1" }],
               routingMode: "SHADOW",
             },
+            status: "RECEIVED",
           };
         },
       },
