@@ -138,8 +138,22 @@ customer-visible behavior that differs by account.
 - `CallCenterEvent` owns the immutable audit and realtime revision.
 - `ProviderWebhookEvent` owns webhook receipt and processing state.
 - `CallCenterCommand` owns provider side-effect intent and retry state.
+- `Call.effectOwner` owns the immutable choice between legacy and canonical
+  provider effects for that call.
 
 No other table or JSON field may independently represent those facts.
+
+Queue mode chooses `Call.effectOwner` only when a configured inbound call is
+admitted. The webhook transaction records the call and customer leg before any
+projector runs. Every later callback resolves the stored owner by exact leg or
+provider session; changing queue mode never transfers an in-flight call between
+owners. Missing or contradictory trusted identity fails closed.
+
+For calls outside canonical configuration, the first durable Telnyx event owns
+the same decision by provider session. That event is assigned before legacy
+effects run, so a later configuration change cannot move the in-flight session
+to canonical ownership. Canonical projection cannot claim an event until its
+main effect lane is terminal.
 
 ### Provider effects are asynchronous facts
 
@@ -1364,6 +1378,11 @@ this interval. Only when a queue activates canonical routing in Phase 4B may one
 compatibility bridge write the minimum legacy read projection needed for
 rollback. It runs from the durable processor, never issues provider commands or
 applies profile routing, and every write and mismatch is measured.
+
+Before Phase 4B, ingress persists that ownership decision on the call. `LEGACY`
+and `SHADOW` admissions store `LEGACY`; `ACTIVE` admissions store `CANONICAL`.
+The provider inbox records the same owner before canonical projection becomes
+claimable, so asynchronous projection cannot create a second effect owner.
 
 ### Phase 4A: Build canonical routing and commands
 

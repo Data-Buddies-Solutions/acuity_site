@@ -34,6 +34,26 @@ export type CanonicalProjectionResult = {
   routingMode: "LEGACY" | "SHADOW" | "ACTIVE" | null;
 };
 
+type CallCenterEffectOwner = "CANONICAL" | "LEGACY";
+
+export function requireCanonicalProjectionEffectOwner(event: {
+  effectOwner: CallCenterEffectOwner | null;
+}) {
+  if (!event.effectOwner) {
+    throw new CanonicalProjectionError("CANONICAL_EFFECT_OWNER_MISSING");
+  }
+  return event.effectOwner;
+}
+
+export function assertCanonicalCallEffectOwner(
+  call: { effectOwner: CallCenterEffectOwner },
+  eventOwner: CallCenterEffectOwner,
+) {
+  if (call.effectOwner !== eventOwner) {
+    throw new CanonicalProjectionError("CANONICAL_EFFECT_OWNER_MISMATCH");
+  }
+}
+
 export type CanonicalCallProjector = {
   projectAndComplete(
     event: CanonicalProjectionRecord,
@@ -452,6 +472,7 @@ export function enrichCanonicalCallIdentity(
 async function resolveCustomerCall(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
+  effectOwner: CallCenterEffectOwner,
 ) {
   if (!fact.providerCallSessionId) {
     throw new CanonicalProjectionError("CANONICAL_CALL_SESSION_MISSING");
@@ -504,6 +525,7 @@ async function resolveCustomerCall(
     data: {
       callerName: fact.callerName,
       direction: fact.direction,
+      effectOwner,
       fromPhone: fact.direction === "INBOUND" ? callerPhone : practicePhone,
       numberId: number.id,
       practiceId: number.practiceId,
@@ -539,6 +561,7 @@ function callObservation(
 export const prismaCanonicalCallProjector: CanonicalCallProjector = {
   async projectAndComplete(event, fact, projectedAt) {
     return prisma.$transaction(async (tx) => {
+      const effectOwner = requireCanonicalProjectionEffectOwner(event);
       let leg = await existingLeg(tx, fact);
       const legKind = resolveCanonicalTelnyxLegKind(leg?.kind ?? null, fact.legKind);
       const observations = resolveCanonicalTelnyxCallObservations(
@@ -558,10 +581,14 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         ? { call: leg.call, endpointId: leg.endpointId }
         : resolvedFact.legKind === "AGENT"
           ? await resolveAgentContext(tx, resolvedFact)
-          : { call: await resolveCustomerCall(tx, resolvedFact), endpointId: null };
+          : {
+              call: await resolveCustomerCall(tx, resolvedFact, effectOwner),
+              endpointId: null,
+            };
       const locked = await lockCall(tx, resolved.call.id);
       let call = locked.call;
 
+      assertCanonicalCallEffectOwner(call, effectOwner);
       if (call.practiceId !== resolved.call.practiceId) {
         throw new CanonicalProjectionError("CANONICAL_CALL_OWNER_MISMATCH");
       }

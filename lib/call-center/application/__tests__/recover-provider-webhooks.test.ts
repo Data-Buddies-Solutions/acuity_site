@@ -23,6 +23,7 @@ const canonicalDisabled = {
 function record(id: string): ProviderWebhookRecord {
   return {
     attemptCount: 0,
+    effectOwner: null,
     errorCode: null,
     eventType: "call.initiated",
     id,
@@ -36,6 +37,7 @@ function record(id: string): ProviderWebhookRecord {
     },
     processedAt: null,
     processingStatus: "RECEIVED",
+    providerCallSessionId: null,
     providerEventId: id,
     updatedAt: now,
   };

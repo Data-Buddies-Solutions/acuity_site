@@ -10,6 +10,7 @@ function event(id: string): CanonicalProjectionRecord {
     canonicalProjectionErrorCode: null,
     canonicalProjectionNextAttemptAt: null,
     canonicalProjectionStatus: "RECEIVED",
+    effectOwner: "LEGACY",
     eventType: "call.initiated",
     id,
     payload: {},

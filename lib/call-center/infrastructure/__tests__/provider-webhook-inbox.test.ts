@@ -15,6 +15,7 @@ const now = new Date("2026-07-11T12:00:00.000Z");
 function event(overrides: Partial<ProviderWebhookRecord> = {}): ProviderWebhookRecord {
   return {
     attemptCount: 0,
+    effectOwner: null,
     errorCode: null,
     eventType: "call.initiated",
     id: "inbox-1",
@@ -22,6 +23,7 @@ function event(overrides: Partial<ProviderWebhookRecord> = {}): ProviderWebhookR
     payload: { data: { id: "event-1" } },
     processedAt: null,
     processingStatus: "RECEIVED",
+    providerCallSessionId: null,
     providerEventId: "event-1",
     updatedAt: now,
     ...overrides,

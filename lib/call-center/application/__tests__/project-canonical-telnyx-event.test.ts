@@ -11,6 +11,7 @@ function record(payload: unknown): CanonicalProjectionRecord {
     canonicalProjectionErrorCode: null,
     canonicalProjectionNextAttemptAt: null,
     canonicalProjectionStatus: "PROCESSING",
+    effectOwner: "LEGACY",
     eventType: "call.initiated",
     id: "inbox-1",
     payload,

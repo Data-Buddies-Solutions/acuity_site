@@ -9,6 +9,7 @@ export type ProviderWebhookStatus =
 
 export type ProviderWebhookRecord = {
   attemptCount: number;
+  effectOwner: "CANONICAL" | "LEGACY" | null;
   errorCode: string | null;
   eventType: string;
   id: string;
@@ -16,6 +17,7 @@ export type ProviderWebhookRecord = {
   payload: unknown;
   processedAt: Date | null;
   processingStatus: ProviderWebhookStatus;
+  providerCallSessionId: string | null;
   providerEventId: string;
   updatedAt: Date;
 };
@@ -32,6 +34,7 @@ export type ProviderWebhookInboxStore = {
   }): Promise<ProviderWebhookRecord | null>;
   complete(input: {
     attemptCount: number;
+    effectOwner: "CANONICAL" | "LEGACY";
     eventId: string;
     now: Date;
     status: "IGNORED" | "PROCESSED";
@@ -212,6 +215,7 @@ export function createProviderWebhookInbox(
 
 const selectedFields = {
   attemptCount: true,
+  effectOwner: true,
   errorCode: true,
   eventType: true,
   id: true,
@@ -219,12 +223,23 @@ const selectedFields = {
   payload: true,
   processedAt: true,
   processingStatus: true,
+  providerCallSessionId: true,
   providerEventId: true,
   updatedAt: true,
 } as const;
 
 function jsonInput(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
+}
+
+function providerCallSessionId(body: unknown) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const data = (body as Record<string, unknown>).data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const payload = (data as Record<string, unknown>).payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const value = (payload as Record<string, unknown>).call_session_id;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export function providerWebhookPayloadRetentionWhere(
@@ -305,7 +320,7 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
       where: { id: eventId },
     });
   },
-  async complete({ attemptCount, eventId, now, status }) {
+  async complete({ attemptCount, effectOwner, eventId, now, status }) {
     const completed = await prisma.providerWebhookEvent.updateMany({
       data: {
         errorCode: null,
@@ -315,6 +330,7 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
       },
       where: {
         attemptCount,
+        effectOwner,
         id: eventId,
         processingStatus: "PROCESSING",
       },
@@ -365,10 +381,12 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
     await prisma.providerWebhookEvent.createMany({
       data: [
         {
+          effectOwner: null,
           eventType: envelope.eventType,
           occurredAt: envelope.occurredAt,
           payload: jsonInput(envelope.body),
           provider: "TELNYX",
+          providerCallSessionId: providerCallSessionId(envelope.body),
           providerEventId: envelope.providerEventId,
         },
       ],

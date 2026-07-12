@@ -2,17 +2,42 @@ import { describe, expect, it } from "bun:test";
 
 import type { CanonicalTelnyxCallFact } from "../telnyx-canonical-call-fact";
 import {
+  assertCanonicalCallEffectOwner,
   assertCanonicalProviderLegIdentity,
   confirmProviderCommand,
   retainedAgentSessionIds,
   earliestObservedAt,
   enrichCanonicalCallIdentity,
   resolveCanonicalAgentLink,
+  requireCanonicalProjectionEffectOwner,
   selectCanonicalProviderCommand,
 } from "../prisma-canonical-call-projector";
 
 const later = new Date("2026-07-11T10:00:05.000Z");
 const earlier = new Date("2026-07-11T10:00:00.000Z");
+
+describe("canonical effect ownership", () => {
+  it("requires every projected event to have a durable effect owner", () => {
+    expect(requireCanonicalProjectionEffectOwner({ effectOwner: "LEGACY" })).toBe(
+      "LEGACY",
+    );
+    expect(requireCanonicalProjectionEffectOwner({ effectOwner: "CANONICAL" })).toBe(
+      "CANONICAL",
+    );
+    expect(() => requireCanonicalProjectionEffectOwner({ effectOwner: null })).toThrow(
+      "CANONICAL_EFFECT_OWNER_MISSING",
+    );
+  });
+
+  it("rejects an event whose owner contradicts its call", () => {
+    expect(() =>
+      assertCanonicalCallEffectOwner({ effectOwner: "LEGACY" }, "CANONICAL"),
+    ).toThrow("CANONICAL_EFFECT_OWNER_MISMATCH");
+    expect(() =>
+      assertCanonicalCallEffectOwner({ effectOwner: "CANONICAL" }, "CANONICAL"),
+    ).not.toThrow();
+  });
+});
 
 describe("canonical agent reservation retention", () => {
   const legs = [

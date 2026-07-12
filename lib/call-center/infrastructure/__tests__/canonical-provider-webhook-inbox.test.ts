@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  canonicalProjectionMainLaneWhere,
   canonicalProjectionRetryAt,
   createCanonicalProjectionInbox,
   type CanonicalProjectionInboxStore,
@@ -15,6 +16,7 @@ function event(): CanonicalProjectionRecord {
     canonicalProjectionErrorCode: null,
     canonicalProjectionNextAttemptAt: null,
     canonicalProjectionStatus: "PROCESSING",
+    effectOwner: "CANONICAL",
     eventType: "call.initiated",
     id: "event-1",
     payload: {},
@@ -37,6 +39,12 @@ function store(
 }
 
 describe("canonical projection inbox", () => {
+  it("waits for the main effect lane to become terminal", () => {
+    expect(canonicalProjectionMainLaneWhere).toEqual({
+      processingStatus: { in: ["PROCESSED", "IGNORED"] },
+    });
+  });
+
   it("claims and lists with an independent bounded lease", async () => {
     const claims: unknown[] = [];
     const listings: unknown[] = [];
