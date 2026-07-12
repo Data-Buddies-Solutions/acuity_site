@@ -283,8 +283,8 @@ export function useCanonicalAgentSession({
 
   useEffect(() => {
     if (presence === "OFFLINE") {
-      void stop();
-      return;
+      const timeout = setTimeout(() => void stop(), 0);
+      return () => clearTimeout(timeout);
     }
     patchReadiness();
   }, [audioReady, connectionState, microphoneReady, patchReadiness, presence, stop]);
@@ -295,7 +295,8 @@ export function useCanonicalAgentSession({
       active &&
       (active.endpointId !== endpointId || active.clientInstanceId !== clientInstanceId)
     ) {
-      void stop();
+      const timeout = setTimeout(() => void stop(), 0);
+      return () => clearTimeout(timeout);
     }
   }, [clientInstanceId, endpointId, stop]);
 
