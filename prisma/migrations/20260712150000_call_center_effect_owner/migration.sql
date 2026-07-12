@@ -8,8 +8,7 @@ ADD COLUMN "effectOwner" "CallCenterEffectOwner" DEFAULT 'LEGACY',
 ADD COLUMN "providerCallSessionId" TEXT;
 
 -- ACTIVE routing did not exist before this migration. Existing inbox rows were
--- therefore handled by the legacy effect owner; record that historical fact so
--- canonical recovery can project them without guessing.
+-- handled by legacy; preserve that owner and recover their Telnyx session key.
 UPDATE "provider_webhook_event"
 SET
   "effectOwner" = 'LEGACY',
