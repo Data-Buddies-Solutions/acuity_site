@@ -1159,7 +1159,9 @@ model CallCenterCall {
   winningLegId          String?                  @unique
   stateVersion          Int                      @default(0)
   receivedAt            DateTime                 @default(now())
+  deadlineAt            DateTime?
   queuedAt              DateTime?
+  queueDeadlineAt       DateTime?
   firstRingAt           DateTime?
   answeredAt            DateTime?
   voicemailStartedAt    DateTime?
@@ -1275,27 +1277,31 @@ model ProviderWebhookEvent {
 }
 
 model CallCenterCommand {
-  id             String                  @id @default(cuid())
-  practiceId     String
-  callId         String
-  legId          String?
-  type           CallCenterCommandType
-  idempotencyKey String
-  status         CallCenterCommandStatus @default(PENDING)
-  attemptCount   Int                     @default(0)
-  nextAttemptAt  DateTime?
-  errorCode      String?
-  arguments      Json                    @default("{}")
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
-  practice       Practice                @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  call           CallCenterCall          @relation(fields: [callId], references: [id], onDelete: Cascade)
-  leg            CallCenterCallLeg?      @relation(fields: [legId], references: [id], onDelete: SetNull)
+  id                 String                  @id @default(cuid())
+  practiceId         String
+  callId             String
+  legId              String?
+  dependsOnCommandId String?
+  type               CallCenterCommandType
+  idempotencyKey     String
+  status             CallCenterCommandStatus @default(PENDING)
+  attemptCount       Int                     @default(0)
+  nextAttemptAt      DateTime?
+  errorCode          String?
+  arguments          Json                    @default("{}")
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  practice           Practice                @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  call               CallCenterCall          @relation(fields: [callId], references: [id], onDelete: Cascade)
+  leg                CallCenterCallLeg?      @relation(fields: [legId], references: [id], onDelete: SetNull)
+  dependsOnCommand   CallCenterCommand?      @relation("CallCenterCommandDependency", fields: [dependsOnCommandId], references: [id], onDelete: SetNull)
+  dependentCommands  CallCenterCommand[]     @relation("CallCenterCommandDependency")
 
   @@unique([practiceId, type, idempotencyKey])
   @@index([status, nextAttemptAt, createdAt])
   @@index([practiceId, callId])
   @@index([legId])
+  @@index([dependsOnCommandId])
   @@map("call_center_command")
 }
 
