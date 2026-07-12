@@ -15,12 +15,22 @@ export function createSnapshotHandler({
 }: Dependencies) {
   return async function GET(request: Request) {
     try {
-      const queueId = new URL(request.url).searchParams.get("queueId")?.trim();
+      const parameters = new URL(request.url).searchParams;
+      const queueId = parameters.get("queueId")?.trim();
+      const clientInstanceId = parameters.get("clientInstanceId")?.trim();
       if (!queueId) {
         return NextResponse.json({ error: "queueId is required" }, { status: 400 });
       }
+      if (!clientInstanceId || clientInstanceId.length > 200) {
+        return NextResponse.json(
+          { error: "clientInstanceId is required" },
+          { status: 400 },
+        );
+      }
 
-      return NextResponse.json(await readSnapshot(await getActor(), queueId));
+      return NextResponse.json(
+        await readSnapshot(await getActor(), queueId, clientInstanceId),
+      );
     } catch (error) {
       if (error instanceof QueueAccessError) {
         return NextResponse.json({ error: error.message }, { status: error.status });

@@ -68,7 +68,11 @@ export function createCanonicalEventsHandler({
   return async function GET(request: Request) {
     const url = new URL(request.url);
     const queueId = url.searchParams.get("queueId")?.trim();
+    const clientInstanceId = url.searchParams.get("clientInstanceId")?.trim();
     if (!queueId) return new Response("queueId is required", { status: 400 });
+    if (!clientInstanceId || clientInstanceId.length > 200) {
+      return new Response("clientInstanceId is required", { status: 400 });
+    }
 
     const actor = await getActor();
     const initialAccessKey = queueAccessKey(actor);
@@ -149,6 +153,7 @@ export function createCanonicalEventsHandler({
             const batch = await readBatch(
               { practiceId: actor.practiceId, userId: actor.userId },
               queueId,
+              clientInstanceId,
               scanCursor,
             );
             if (batch.accessKey !== initialAccessKey) {
@@ -170,7 +175,7 @@ export function createCanonicalEventsHandler({
                 if (item.projection) {
                   frames += encodeCanonicalEvent(
                     item.projection.revision,
-                    item.eventType,
+                    "projection",
                     item.projection,
                   );
                 }

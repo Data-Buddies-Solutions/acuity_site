@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  applyCursor,
   applyProjectionEvent,
   createRealtimeState,
   markRealtimeReconnecting,
@@ -46,6 +47,7 @@ function snapshot(calls: CallView[] = []): CallCenterSnapshot {
       maxWaitSec: 30,
       name: "Optical",
       ringTimeoutSec: 20,
+      routingMode: "LEGACY",
     },
     revision: "10",
     schemaVersion: 1,
@@ -107,6 +109,15 @@ describe("call-center realtime reducer", () => {
 
     expect(applied.revision).toBe("18");
     expect(applied.calls).toEqual([current]);
+  });
+
+  it("advances across filtered cursor frames without changing projections", () => {
+    const initial = createRealtimeState(snapshot([call()]));
+    const advanced = applyCursor(initial, "17");
+
+    expect(advanced.revision).toBe("17");
+    expect(advanced.calls).toBe(initial.calls);
+    expect(applyCursor(advanced, "16")).toBe(advanced);
   });
 
   it("advances the cursor without applying an older agent-session version", () => {

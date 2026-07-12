@@ -24,16 +24,21 @@ describe("canonical call center snapshot route", () => {
     });
 
     await expect(
-      GET(new Request("https://example.test/api/portal/call-center/snapshot?queueId=q1")),
+      GET(
+        new Request(
+          "https://example.test/api/portal/call-center/snapshot?queueId=q1&clientInstanceId=tab-1",
+        ),
+      ),
     ).rejects.toThrow("Unauthorized");
   });
 
   it("passes only the authenticated actor and explicit queue to the snapshot query", async () => {
     const GET = createSnapshotHandler({
       getActor: async () => actor,
-      readSnapshot: async (receivedActor, queueId) => {
+      readSnapshot: async (receivedActor, queueId, clientInstanceId) => {
         expect(receivedActor).toEqual(actor);
         expect(queueId).toBe("queue-1");
+        expect(clientInstanceId).toBe("tab-1");
         return {
           agentSession: null,
           availableQueues: [{ id: "queue-1", name: "Optical" }],
@@ -46,6 +51,7 @@ describe("canonical call center snapshot route", () => {
             maxWaitSec: 30,
             name: "Optical",
             ringTimeoutSec: 20,
+            routingMode: "LEGACY",
           },
           revision: "9223372036854775800",
           schemaVersion: CALL_CENTER_SCHEMA_VERSION,
@@ -54,7 +60,9 @@ describe("canonical call center snapshot route", () => {
       },
     });
     const response = await GET(
-      new Request("https://example.test/api/portal/call-center/snapshot?queueId=queue-1"),
+      new Request(
+        "https://example.test/api/portal/call-center/snapshot?queueId=queue-1&clientInstanceId=tab-1",
+      ),
     );
 
     expect(response.status).toBe(200);
@@ -69,7 +77,9 @@ describe("canonical call center snapshot route", () => {
       },
     });
     const response = await GET(
-      new Request("https://example.test/api/portal/call-center/snapshot?queueId=q2"),
+      new Request(
+        "https://example.test/api/portal/call-center/snapshot?queueId=q2&clientInstanceId=tab-1",
+      ),
     );
 
     expect(response.status).toBe(404);
