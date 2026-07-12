@@ -7,6 +7,7 @@ import {
   readCanonicalEventBatch,
   serializeAgentSession,
   serializeCall,
+  serializeOperation,
 } from "../realtime-queries";
 
 const now = new Date("2026-07-11T12:00:00.000Z");
@@ -57,7 +58,7 @@ describe("canonical realtime serializers", () => {
     });
   });
 
-  it("fails closed for an unscoped queue under selected-location access", () => {
+  it("scopes a practice-wide queue to the actor's selected locations", () => {
     expect(
       queueCallWhere(
         {
@@ -69,7 +70,14 @@ describe("canonical realtime serializers", () => {
         "queue-1",
         [],
       ),
-    ).toMatchObject({ id: { in: [] } });
+    ).toMatchObject({
+      number: {
+        practiceId: "practice-1",
+        practicePhoneNumber: {
+          locationId: { in: ["location-1"] },
+        },
+      },
+    });
   });
 
   it("preserves call stateVersion while removing Date and bigint hazards", () => {
@@ -98,6 +106,7 @@ describe("canonical realtime serializers", () => {
       audioReady: false,
       browserSessionId: "tab-1",
       connectionState: "ERROR",
+      currentCallId: "call-1",
       endpointId: "endpoint-1",
       id: "session-1",
       leaseExpiresAt: now,
@@ -109,6 +118,7 @@ describe("canonical realtime serializers", () => {
     expect(session).toMatchObject({
       clientInstanceId: "tab-1",
       connectionState: "FAILED",
+      currentCallId: "call-1",
       stateVersion: 4,
     });
     expect("browserSessionId" in session).toBe(false);
@@ -133,6 +143,8 @@ describe("canonical realtime serializers", () => {
       tasks: [
         {
           callId: "call-1",
+          callerPhone: null,
+          createdAt: new Date("2026-07-12T12:00:00.000Z"),
           id: "task-1",
           kind: "FOLLOW_UP",
           status: "RESOLVED",
@@ -183,7 +195,12 @@ describe("canonical realtime serializers", () => {
         {
           aggregateId: "call-1",
           aggregateType: "CALL",
-          data: { providerCommandId: "command-1" },
+          data: {
+            agentSessionId: "session-1",
+            endpointId: "endpoint-1",
+            legId: "leg-1",
+            providerCommandId: "command-1",
+          },
           practiceId: "practice-1",
           revision: BigInt(43),
           type: "CALL_CLAIM_REQUESTED",
@@ -202,9 +219,94 @@ describe("canonical realtime serializers", () => {
           operationEventRevision: "43",
           providerCommandId: "command-1",
           status: "PENDING",
+          targetAgentSessionId: "session-1",
+          targetEndpointId: "endpoint-1",
+          targetLegId: "leg-1",
           type: "CLAIM",
         },
       },
+    });
+  });
+
+  it("projects an outbound receipt without exposing browser dial data", () => {
+    const operation = serializeOperation(
+      {
+        aggregateId: "call-outbound",
+        aggregateType: "CALL",
+        data: {
+          agentSessionId: "session-1",
+          callId: "call-outbound",
+          clientState: "must-not-leak",
+          endpointId: "endpoint-1",
+          from: "+15555550000",
+          legId: "leg-outbound",
+          to: "+15555550123",
+        },
+        practiceId: "practice-1",
+        revision: BigInt(44),
+        type: "CALL_OUTBOUND_REQUESTED",
+      },
+      new Map(),
+    );
+
+    expect(operation).toEqual({
+      callId: "call-outbound",
+      errorCode: null,
+      operationEventRevision: "44",
+      providerCommandId: null,
+      status: "CONFIRMED",
+      targetAgentSessionId: "session-1",
+      targetEndpointId: "endpoint-1",
+      targetLegId: "leg-outbound",
+      type: "OUTBOUND",
+    });
+    expect(JSON.stringify(operation)).not.toContain("must-not-leak");
+    expect(JSON.stringify(operation)).not.toContain("+1555555");
+  });
+
+  it("exposes the exact source and target identities for a transfer", () => {
+    const operation = serializeOperation(
+      {
+        aggregateId: "call-1",
+        aggregateType: "CALL",
+        data: {
+          providerCommandId: "transfer-command",
+          sourceLegId: "source-leg",
+          targetAgentSessionId: "target-session",
+          targetEndpointId: "target-endpoint",
+          targetLegId: "target-leg",
+        },
+        practiceId: "practice-1",
+        revision: BigInt(45),
+        type: "CALL_TRANSFER_REQUESTED",
+      },
+      new Map([
+        [
+          "transfer-command",
+          {
+            callId: "call-1",
+            errorCode: null,
+            id: "transfer-command",
+            nextAttemptAt: null,
+            practiceId: "practice-1",
+            status: "SENT",
+            type: "DIAL_AGENT",
+          },
+        ],
+      ]),
+    );
+
+    expect(operation).toEqual({
+      callId: "call-1",
+      errorCode: null,
+      operationEventRevision: "45",
+      providerCommandId: "transfer-command",
+      sourceLegId: "source-leg",
+      status: "SENT",
+      targetAgentSessionId: "target-session",
+      targetEndpointId: "target-endpoint",
+      targetLegId: "target-leg",
+      type: "TRANSFER",
     });
   });
 
@@ -246,6 +348,9 @@ describe("canonical realtime serializers", () => {
           data: {
             operationEventRevision: "43",
             providerCommandId: "command-1",
+            targetAgentSessionId: "session-1",
+            targetEndpointId: "endpoint-1",
+            targetLegId: "leg-1",
           },
           practiceId: "practice-1",
           revision: BigInt(44),

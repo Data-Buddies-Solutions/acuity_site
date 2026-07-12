@@ -17,6 +17,9 @@ export type ClaimCallInput = {
 };
 
 export type ClaimCallReceipt = OperationReceipt & {
+  agentSessionId: string;
+  endpointId: string;
+  legId: string;
   providerCommandId: string;
   status: "PENDING" | "SENT" | "CONFIRMED" | "FAILED";
 };

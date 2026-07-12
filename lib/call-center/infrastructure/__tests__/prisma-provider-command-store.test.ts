@@ -12,12 +12,45 @@ function transaction(
   routingMode: "LEGACY" | "SHADOW" | "ACTIVE",
   {
     accessLocationIds = ["location-1"],
+    arguments: commandArguments = {
+      agentSessionId: "session-1",
+      endpointId: "endpoint-1",
+    },
+    commandType = "DIAL_AGENT",
+    callStatus = "RINGING",
+    dependencyNextAttemptAt,
+    dependencyStatus = null,
+    effectOwner = "CANONICAL",
     legKind = "AGENT",
     memberUserId = "user-1",
+    winningLegId,
   }: {
     accessLocationIds?: string[];
+    arguments?: Record<string, unknown>;
+    commandType?:
+      | "ANSWER_CUSTOMER"
+      | "START_RINGBACK"
+      | "DIAL_AGENT"
+      | "STOP_PLAYBACK"
+      | "HANGUP_LEG"
+      | "PLAY_VOICEMAIL_GREETING"
+      | "START_RECORDING";
+    callStatus?:
+      | "RECEIVED"
+      | "QUEUED"
+      | "RINGING"
+      | "CONNECTED"
+      | "WRAP_UP"
+      | "COMPLETED"
+      | "VOICEMAIL"
+      | "ABANDONED"
+      | "FAILED";
+    dependencyStatus?: "PENDING" | "SENT" | "CONFIRMED" | "FAILED" | null;
+    dependencyNextAttemptAt?: Date | null;
+    effectOwner?: "CANONICAL" | "LEGACY";
     legKind?: "AGENT" | "CUSTOMER";
     memberUserId?: string | null;
+    winningLegId?: string | null;
   } = {},
 ) {
   let updates = 0;
@@ -35,6 +68,15 @@ function transaction(
     stateVersion: 2,
     userId: "user-1",
   };
+  const replacesLegId =
+    typeof commandArguments.replacesLegId === "string"
+      ? commandArguments.replacesLegId
+      : null;
+  const resolvedWinningLegId = winningLegId === undefined ? replacesLegId : winningLegId;
+  const resolvedDependencyNextAttemptAt =
+    dependencyNextAttemptAt === undefined && dependencyStatus === "FAILED"
+      ? new Date(now.getTime() + 60_000)
+      : (dependencyNextAttemptAt ?? null);
   const tx = {
     $queryRaw: async () => [{ id: "command-1" }],
     callCenterAgentSession: {
@@ -49,6 +91,8 @@ function transaction(
       update: async () => ({ stateVersion: 2 }),
     },
     callCenterCallLeg: {
+      findFirst: async ({ where }: { where: { id: string } }) =>
+        where.id === replacesLegId ? { id: replacesLegId } : null,
       findMany: async () => [{ providerCallControlId: "customer-control-1" }],
       updateMany: async () => {
         operations.push("leg.reject");
@@ -56,10 +100,12 @@ function transaction(
       },
     },
     callCenterCommand: {
+      findMany: async () => [],
       findUnique: async () => ({
-        arguments: { agentSessionId: "session-1", endpointId: "endpoint-1" },
+        arguments: commandArguments,
         attemptCount: 0,
         call: {
+          effectOwner,
           number: {
             practicePhoneNumber: {
               locationId: "location-1",
@@ -73,9 +119,18 @@ function transaction(
             ringTimeoutSec: 20,
             routingMode,
           },
-          status: "RINGING",
+          status: callStatus,
+          winningLegId: resolvedWinningLegId,
         },
         callId: "call-1",
+        dependsOnCommand: dependencyStatus
+          ? {
+              callId: "call-1",
+              nextAttemptAt: resolvedDependencyNextAttemptAt,
+              practiceId: "practice-1",
+              status: dependencyStatus,
+            }
+          : null,
         id: "command-1",
         idempotencyKey: "dial:leg-1",
         leg: {
@@ -90,6 +145,9 @@ function transaction(
           endpointId: "endpoint-1",
           id: "leg-1",
           kind: legKind,
+          providerCallControlId:
+            commandType === "DIAL_AGENT" ? null : "customer-control-1",
+          status: "CREATED",
         },
         nextAttemptAt: null,
         practice: {
@@ -97,7 +155,7 @@ function transaction(
         },
         practiceId: "practice-1",
         status: "PENDING",
-        type: "DIAL_AGENT",
+        type: commandType,
         updatedAt: now,
       }),
       update: async () => {
@@ -154,7 +212,52 @@ describe("Prisma provider command store", () => {
     expect(fake.updates()).toBe(1);
   });
 
-  it("refuses provider effects for LEGACY and SHADOW queues", async () => {
+  it("rechecks the exact bridged source before dispatching a transfer dial", async () => {
+    const transferArguments = {
+      agentSessionId: "session-1",
+      endpointId: "endpoint-1",
+      replacesLegId: "source-leg",
+    };
+    const transfer = transaction("ACTIVE", {
+      arguments: transferArguments,
+      callStatus: "CONNECTED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(transfer.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        maxAttempts: 5,
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      command: { arguments: transferArguments, type: "DIAL_AGENT" },
+    });
+
+    const changedSource = transaction("ACTIVE", {
+      arguments: transferArguments,
+      callStatus: "CONNECTED",
+      winningLegId: "other-source",
+    });
+    const changedStore = new PrismaProviderCommandStore((operation) =>
+      operation(changedSource.tx as never),
+    );
+    await expect(
+      changedStore.claim({
+        commandId: "command-1",
+        maxAttempts: 5,
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toBeNull();
+    expect(changedSource.operations).toContain("leg.reject");
+    expect(changedSource.operations).toContain("session.release");
+  });
+
+  it("uses immutable call ownership instead of mutable queue mode", async () => {
     for (const mode of ["LEGACY", "SHADOW"] as const) {
       const fake = transaction(mode);
       const store = new PrismaProviderCommandStore((operation) =>
@@ -168,10 +271,164 @@ describe("Prisma provider command store", () => {
           now,
           staleBefore: new Date(now.getTime() - 60_000),
         }),
+      ).resolves.toMatchObject({ command: { type: "DIAL_AGENT" } });
+      expect(fake.updates()).toBe(1);
+    }
+
+    const legacyCall = transaction("ACTIVE", { effectOwner: "LEGACY" });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(legacyCall.tx as never),
+    );
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        maxAttempts: 5,
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toBeNull();
+    expect(legacyCall.operations).toContain("command.reject");
+  });
+
+  it("claims initial inbound lifecycle commands with typed sanitized arguments", async () => {
+    const cases = [
+      ["ANSWER_CUSTOMER", {}, {}],
+      ["START_RINGBACK", { timeoutSeconds: 30 }, { timeoutSeconds: 30 }],
+      ["STOP_PLAYBACK", {}, {}],
+      ["HANGUP_LEG", {}, {}],
+      [
+        "PLAY_VOICEMAIL_GREETING",
+        { greeting: "  Please leave a message.  " },
+        { greeting: "Please leave a message." },
+      ],
+      ["START_RECORDING", {}, {}],
+    ] as const;
+
+    for (const [commandType, args, expectedArgs] of cases) {
+      const fake = transaction("SHADOW", {
+        arguments: args,
+        commandType,
+        legKind: "CUSTOMER",
+      });
+      const store = new PrismaProviderCommandStore((operation) =>
+        operation(fake.tx as never),
+      );
+
+      await expect(
+        store.claim({
+          commandId: "command-1",
+          maxAttempts: 5,
+          now,
+          staleBefore: new Date(now.getTime() - 60_000),
+        }),
+      ).resolves.toMatchObject({
+        command: {
+          arguments: expectedArgs,
+          provider: { callControlId: "customer-control-1" },
+          type: commandType,
+        },
+      });
+    }
+  });
+
+  it("waits for a predecessor to be sent or confirmed", async () => {
+    for (const dependencyStatus of ["PENDING", "FAILED"] as const) {
+      const fake = transaction("ACTIVE", {
+        arguments: {},
+        commandType: "START_RECORDING",
+        dependencyStatus,
+        legKind: "CUSTOMER",
+      });
+      const store = new PrismaProviderCommandStore((operation) =>
+        operation(fake.tx as never),
+      );
+      await expect(
+        store.claim({
+          commandId: "command-1",
+          maxAttempts: 5,
+          now,
+          staleBefore: new Date(now.getTime() - 60_000),
+        }),
       ).resolves.toBeNull();
       expect(fake.updates()).toBe(0);
-      expect(fake.operations).toContain("command.reject");
-      expect(fake.operations).toContain("session.release");
+      expect(fake.operations).not.toContain("command.reject");
+    }
+
+    for (const dependencyStatus of ["SENT", "CONFIRMED"] as const) {
+      const fake = transaction("ACTIVE", {
+        arguments: {},
+        commandType: "START_RECORDING",
+        dependencyStatus,
+        legKind: "CUSTOMER",
+      });
+      const store = new PrismaProviderCommandStore((operation) =>
+        operation(fake.tx as never),
+      );
+      await expect(
+        store.claim({
+          commandId: "command-1",
+          maxAttempts: 5,
+          now,
+          staleBefore: new Date(now.getTime() - 60_000),
+        }),
+      ).resolves.toMatchObject({ command: { type: "START_RECORDING" } });
+    }
+  });
+
+  it("terminally rejects a command whose prerequisite cannot recover", async () => {
+    const fake = transaction("ACTIVE", {
+      arguments: {},
+      commandType: "START_RECORDING",
+      dependencyNextAttemptAt: null,
+      dependencyStatus: "FAILED",
+      legKind: "CUSTOMER",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        maxAttempts: 5,
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toBeNull();
+    expect(fake.operations).toContain("command.reject");
+    expect(fake.updates()).toBe(0);
+  });
+
+  it("dispatches committed lifecycle effects after their terminal projection", async () => {
+    const cases = [
+      ["VOICEMAIL", "ANSWER_CUSTOMER", {}],
+      ["VOICEMAIL", "START_RINGBACK", { timeoutSeconds: 20 }],
+      ["VOICEMAIL", "STOP_PLAYBACK", {}],
+      ["VOICEMAIL", "PLAY_VOICEMAIL_GREETING", { greeting: "Please leave a message." }],
+      ["VOICEMAIL", "START_RECORDING", {}],
+      ["ABANDONED", "STOP_PLAYBACK", {}],
+      ["ABANDONED", "HANGUP_LEG", {}],
+    ] as const;
+
+    for (const [callStatus, commandType, args] of cases) {
+      const fake = transaction("ACTIVE", {
+        arguments: args,
+        callStatus,
+        commandType,
+        legKind: "CUSTOMER",
+      });
+      const store = new PrismaProviderCommandStore((operation) =>
+        operation(fake.tx as never),
+      );
+
+      await expect(
+        store.claim({
+          commandId: "command-1",
+          maxAttempts: 5,
+          now,
+          staleBefore: new Date(now.getTime() - 60_000),
+        }),
+      ).resolves.toMatchObject({ command: { type: commandType } });
     }
   });
 
@@ -320,12 +577,14 @@ describe("Prisma provider command store", () => {
         },
       },
       callCenterCommand: {
+        findMany: async () => [],
         findUnique: async ({ select }: { select: Record<string, unknown> }) =>
           "leg" in select
             ? {
                 callId: "call-1",
                 leg: { agentSessionId: "session-1", id: "leg-1" },
                 practiceId: "practice-1",
+                type: "DIAL_AGENT",
               }
             : {
                 callId: "call-1",

@@ -12,6 +12,7 @@ function agentSession(stateVersion = 0): AgentSessionView {
     audioReady: false,
     clientInstanceId: "browser-1",
     connectionState: stateVersion ? "READY" : "CONNECTING",
+    currentCallId: null,
     endpointId: "endpoint-1",
     id: "session-1",
     leaseExpiresAt: "2026-07-12T12:01:00.000Z",
@@ -188,6 +189,51 @@ describe("useCanonicalAgentSession", () => {
       },
     });
     expect(result.current.session).toBeNull();
+  });
+
+  it("adopts a newer canonical projection before later heartbeats or release", async () => {
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      requests.push({ method, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (method === "POST") return acquisition();
+      return Response.json({ session: agentSession(1) });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          endpointId: "endpoint-1",
+          microphoneReady: true,
+          presence: "AVAILABLE",
+          projectedSession,
+        }),
+      { initialProps: { projectedSession: null as AgentSessionView | null } },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({
+      projectedSession: {
+        ...agentSession(2),
+        currentCallId: "call-1",
+        presence: "BUSY",
+      },
+    });
+    await waitFor(() => expect(result.current.session?.currentCallId).toBe("call-1"));
+
+    await act(() => result.current.stop());
+    expect(requests.at(-1)).toEqual({
+      method: "DELETE",
+      body: {
+        clientInstanceId: "browser-1",
+        endpointId: "endpoint-1",
+        expectedStateVersion: 2,
+      },
+    });
   });
 
   it("releases the lease instead of heartbeating an offline station", async () => {

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   CallCenterNoteDisposition,
   CallCenterSessionDirection,
+  type Prisma,
 } from "@/generated/prisma/client";
 import {
   buildCallCenterActivityScopeWhere,
@@ -12,18 +13,15 @@ import {
   buildCallCenterPatientSessionScopeWhere,
   buildPortalPatientSessionWhere,
   getCurrentPracticeCallCenterContext,
+  getPortalCallCenterLocationState,
   isAbitaSouthFloridaCallCenterContext,
   isAbitaSweetwaterOpticalCallCenterContext,
   isSpecialAbitaCallCenterContext,
   setCallCenterEnabledForCurrentPractice,
 } from "@/lib/call-center";
+import { resolveCallerThread } from "@/lib/call-center/infrastructure/prisma-resolve-caller-thread";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
-
-const OPEN_NOTE_DISPOSITIONS = [
-  CallCenterNoteDisposition.CALLBACK_NEEDED,
-  CallCenterNoteDisposition.FOLLOW_UP_REQUIRED,
-];
 
 const DISPOSITIONS_THAT_CLOSE_THREAD = new Set<CallCenterNoteDisposition>([
   CallCenterNoteDisposition.RESOLVED,
@@ -37,6 +35,7 @@ type CallCenterActionContext = NonNullable<
 
 type CallCenterActionScope = {
   activityWhere: ReturnType<typeof buildCallCenterActivityScopeWhere>;
+  canonicalLocationIds: string[];
   locationId?: string | null;
   noteWhere: ReturnType<typeof buildCallCenterNoteScopeWhere>;
   sessionWhere: ReturnType<typeof buildCallCenterPatientSessionScopeWhere>;
@@ -97,6 +96,14 @@ function resolveActionScopeFromForm(
   formData: FormData,
 ): CallCenterActionScope | null {
   const officeId = String(formData.get("office") || "").trim();
+  const canonicalLocation = getPortalCallCenterLocationState(context, {
+    locationId: officeId,
+  }).locations.find(({ id }) => id === officeId);
+  const canonicalLocationIds = canonicalLocation?.locationIds?.length
+    ? canonicalLocation.locationIds
+    : canonicalLocation?.locationId
+      ? [canonicalLocation.locationId]
+      : [];
 
   if (context.practice.locations.some((location) => location.id === officeId)) {
     if (!context.hasAllLocationAccess && !context.allowedLocationIds.includes(officeId)) {
@@ -115,6 +122,9 @@ function resolveActionScopeFromForm(
 
     return {
       activityWhere: buildCallCenterActivityScopeWhere(context, selectedLocation),
+      canonicalLocationIds: canonicalLocationIds.length
+        ? canonicalLocationIds
+        : [officeId],
       locationId: officeId,
       noteWhere: buildCallCenterNoteScopeWhere(context, selectedLocation),
       sessionWhere: buildCallCenterPatientSessionScopeWhere(context, selectedLocation),
@@ -124,6 +134,7 @@ function resolveActionScopeFromForm(
   if (!officeId || isSpecialAbitaCallCenterContext(context)) {
     return {
       activityWhere: buildCallCenterActivityScopeWhere(context),
+      canonicalLocationIds,
       locationId: defaultStandaloneNoteLocationId(context),
       noteWhere: buildCallCenterNoteScopeWhere(context),
       sessionWhere: buildCallCenterPatientSessionScopeWhere(context),
@@ -138,6 +149,7 @@ function resolveActionScopeFromForm(
   if ((officeId === "practice" || nullLocationPhone) && context.hasAllLocationAccess) {
     return {
       activityWhere: { locationId: null },
+      canonicalLocationIds: [],
       locationId: null,
       noteWhere: { locationId: null },
       sessionWhere: { locationId: null },
@@ -282,56 +294,26 @@ async function inferNoteSource(
 
 async function closeNeedsActionThread(
   context: CallCenterActionContext,
+  disposition: CallCenterNoteDisposition,
   phoneVariants: string[],
   resolvedAt: Date,
   scope: CallCenterActionScope,
 ) {
-  await Promise.all([
-    prisma.callCenterMissedCall.updateMany({
-      data: {
-        calledBack: true,
-        resolvedAt,
-      },
-      where: {
-        calledBack: false,
-        fromPhone: {
-          in: phoneVariants,
-        },
-        practiceId: context.practice.id,
-        resolvedAt: null,
-        ...scope.activityWhere,
-      },
-    }),
-    prisma.callCenterVoicemail.updateMany({
-      data: {
-        resolvedAt,
-      },
-      where: {
-        fromPhone: {
-          in: phoneVariants,
-        },
-        practiceId: context.practice.id,
-        resolvedAt: null,
-        ...scope.activityWhere,
-      },
-    }),
-    prisma.callCenterNote.updateMany({
-      data: {
-        resolvedThread: true,
-      },
-      where: {
-        disposition: {
-          in: OPEN_NOTE_DISPOSITIONS,
-        },
-        fromPhone: {
-          in: phoneVariants,
-        },
-        practiceId: context.practice.id,
-        resolvedThread: false,
-        ...scope.noteWhere,
-      },
-    }),
-  ]);
+  await resolveCallerThread({
+    actor: {
+      allowedLocationIds: context.allowedLocationIds,
+      hasAllLocationAccess: context.hasAllLocationAccess,
+      practiceId: context.practice.id,
+      userId: context.session.user.id,
+    },
+    canonicalLocationIds: scope.canonicalLocationIds,
+    disposition,
+    legacyMissedCallWhere: scope.activityWhere,
+    legacyNoteWhere: scope.noteWhere,
+    legacyVoicemailWhere: scope.activityWhere as Prisma.CallCenterVoicemailWhereInput,
+    now: resolvedAt,
+    phoneVariants,
+  });
 }
 
 async function createCallCenterNote({
@@ -549,7 +531,13 @@ export async function resolveNeedsActionGroupAction(formData: FormData) {
     stationLabelSnapshot,
     stationSeatId,
   });
-  await closeNeedsActionThread(context, phoneVariants, resolvedAt, scope);
+  await closeNeedsActionThread(
+    context,
+    CallCenterNoteDisposition.RESOLVED,
+    phoneVariants,
+    resolvedAt,
+    scope,
+  );
 
   revalidateCallCenterPaths(phone);
 }
@@ -591,7 +579,7 @@ export async function saveCallCenterNoteAction(formData: FormData) {
   });
 
   if (resolvedThread) {
-    await closeNeedsActionThread(context, phoneVariants, new Date(), scope);
+    await closeNeedsActionThread(context, disposition, phoneVariants, new Date(), scope);
   }
 
   revalidateCallCenterPaths(phone);

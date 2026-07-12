@@ -51,6 +51,13 @@ export type OperationReceipt = OperationReceiptData & {
   revision: string;
 };
 
+export type OperationCreationInput = Omit<OperationReceiptInput, "aggregateId">;
+
+export type OperationCreationResult = {
+  aggregateId: string;
+  data: OperationReceiptData;
+};
+
 function toReceipt(event: OperationReceiptEvent, replayed: boolean): OperationReceipt {
   const { [TARGET_FINGERPRINT_FIELD]: _fingerprint, ...data } = event.data;
   return {
@@ -100,6 +107,47 @@ export async function executeIdempotentOperation<
   const event = await transaction.appendReceipt(
     input,
     { ...data, [TARGET_FINGERPRINT_FIELD]: input.targetFingerprint },
+    now,
+  );
+  return toReceipt(event, false);
+}
+
+/**
+ * Creation variant for operations whose aggregate ID is allocated inside the
+ * transaction. The receipt-key lock remains the single replay boundary.
+ */
+export async function executeIdempotentCreation<
+  TTransaction extends OperationReceiptTransaction,
+>(
+  transaction: TTransaction,
+  input: OperationCreationInput,
+  perform: (transaction: TTransaction) => Promise<OperationCreationResult>,
+  now = new Date(),
+): Promise<OperationReceipt> {
+  await transaction.lockReceiptKey(input.practiceId, input.type, input.idempotencyKey);
+  const existing = await transaction.findReceipt(
+    input.practiceId,
+    input.type,
+    input.idempotencyKey,
+  );
+  if (existing) {
+    if (
+      existing.actorUserId !== input.actorUserId ||
+      existing.aggregateType !== input.aggregateType ||
+      existing.data[TARGET_FINGERPRINT_FIELD] !== input.targetFingerprint
+    ) {
+      throw new OperationReceiptError(
+        "Idempotency key was already used for another target",
+        409,
+      );
+    }
+    return toReceipt(existing, true);
+  }
+
+  const created = await perform(transaction);
+  const event = await transaction.appendReceipt(
+    { ...input, aggregateId: created.aggregateId },
+    { ...created.data, [TARGET_FINGERPRINT_FIELD]: input.targetFingerprint },
     now,
   );
   return toReceipt(event, false);

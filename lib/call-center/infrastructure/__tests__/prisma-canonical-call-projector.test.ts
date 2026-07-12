@@ -4,13 +4,21 @@ import type { CanonicalTelnyxCallFact } from "../telnyx-canonical-call-fact";
 import {
   assertCanonicalCallEffectOwner,
   assertCanonicalProviderLegIdentity,
+  canonicalCallObservation,
   confirmProviderCommand,
-  retainedAgentSessionIds,
+  confirmExactProviderCommand,
+  createStartRecordingAfterGreeting,
   earliestObservedAt,
   enrichCanonicalCallIdentity,
+  hasCanonicalAgentBridgeEvidence,
+  processedWinningAgentLegId,
+  projectedCallDeadline,
+  retainedAgentSessionIds,
   resolveCanonicalAgentLink,
   requireCanonicalProjectionEffectOwner,
   selectCanonicalProviderCommand,
+  settleProviderCommandCallback,
+  shouldPlanCanonicalInboundRouting,
 } from "../prisma-canonical-call-projector";
 
 const later = new Date("2026-07-11T10:00:05.000Z");
@@ -37,6 +45,45 @@ describe("canonical effect ownership", () => {
       assertCanonicalCallEffectOwner({ effectOwner: "CANONICAL" }, "CANONICAL"),
     ).not.toThrow();
   });
+
+  it("plans only canonical inbound customer initiation regardless of queue metadata", () => {
+    expect(
+      shouldPlanCanonicalInboundRouting({
+        direction: "INBOUND",
+        effectOwner: "CANONICAL",
+        eventType: "call.initiated",
+        legKind: "CUSTOMER",
+      }),
+    ).toBe(true);
+    for (const input of [
+      {
+        direction: "INBOUND" as const,
+        effectOwner: "LEGACY" as const,
+        eventType: "call.initiated",
+        legKind: "CUSTOMER" as const,
+      },
+      {
+        direction: "OUTBOUND" as const,
+        effectOwner: "CANONICAL" as const,
+        eventType: "call.initiated",
+        legKind: "CUSTOMER" as const,
+      },
+      {
+        direction: "INBOUND" as const,
+        effectOwner: "CANONICAL" as const,
+        eventType: "call.answered",
+        legKind: "CUSTOMER" as const,
+      },
+      {
+        direction: "INBOUND" as const,
+        effectOwner: "CANONICAL" as const,
+        eventType: "call.initiated",
+        legKind: "AGENT" as const,
+      },
+    ]) {
+      expect(shouldPlanCanonicalInboundRouting(input)).toBe(false);
+    }
+  });
 });
 
 describe("canonical agent reservation retention", () => {
@@ -46,37 +93,184 @@ describe("canonical agent reservation retention", () => {
     { agentSessionId: "session-3", id: "leg-3", status: "FAILED" },
   ];
 
-  it("keeps only the winner after a bridge", () => {
+  it("keeps every live leg reserved until its terminal provider callback", () => {
     expect([
       ...retainedAgentSessionIds({
         callStatus: "CONNECTED",
         legs,
-        winningLegId: "leg-1",
       }),
-    ]).toEqual(["session-1"]);
+    ]).toEqual(["session-1", "session-2"]);
   });
 
-  it("releases an ended winner before the customer leg ends", () => {
+  it("releases ended legs without releasing another live loser", () => {
     expect([
       ...retainedAgentSessionIds({
         callStatus: "CONNECTED",
         legs: legs.map((leg) => (leg.id === "leg-1" ? { ...leg, status: "ENDED" } : leg)),
-        winningLegId: "leg-1",
       }),
-    ]).toEqual([]);
+    ]).toEqual(["session-2"]);
   });
 
-  it("keeps live rings before a winner and releases everyone at terminal", () => {
-    expect([
-      ...retainedAgentSessionIds({ callStatus: "RINGING", legs, winningLegId: null }),
-    ]).toEqual(["session-1", "session-2"]);
+  it("keeps live reservations through call terminal state until each leg ends", () => {
+    expect([...retainedAgentSessionIds({ callStatus: "RINGING", legs })]).toEqual([
+      "session-1",
+      "session-2",
+    ]);
     expect([
       ...retainedAgentSessionIds({
         callStatus: "COMPLETED",
         legs,
-        winningLegId: "leg-1",
+      }),
+    ]).toEqual(["session-1", "session-2"]);
+    expect([
+      ...retainedAgentSessionIds({
+        callStatus: "COMPLETED",
+        legs: legs.map((leg) => ({ ...leg, status: "ENDED" })),
       }),
     ]).toEqual([]);
+  });
+});
+
+describe("canonical bridge winner", () => {
+  it("keeps the persisted winner instead of recomputing from timestamps", () => {
+    expect(
+      processedWinningAgentLegId("leg-first", {
+        id: "leg-later",
+        kind: "AGENT",
+        status: "BRIDGED",
+      }),
+    ).toBe("leg-first");
+  });
+
+  it("elects only the bridged agent leg currently being processed", () => {
+    expect(
+      processedWinningAgentLegId(null, {
+        id: "leg-1",
+        kind: "AGENT",
+        status: "BRIDGED",
+      }),
+    ).toBe("leg-1");
+    expect(
+      processedWinningAgentLegId(null, {
+        id: "customer-1",
+        kind: "CUSTOMER",
+        status: "BRIDGED",
+      }),
+    ).toBeNull();
+  });
+
+  it("replaces the winner only through the target leg's authorized transfer command", () => {
+    const target = { id: "target", kind: "AGENT" as const, status: "BRIDGED" };
+    const transfer = {
+      arguments: { replacesLegId: "source" },
+      callId: "call-1",
+      id: "transfer-command",
+      legId: "target",
+      practiceId: "practice-1",
+      status: "CONFIRMED" as const,
+      type: "DIAL_AGENT" as const,
+    };
+
+    expect(processedWinningAgentLegId("source", target, transfer)).toBe("target");
+    expect(
+      processedWinningAgentLegId("source", target, {
+        ...transfer,
+        arguments: { replacesLegId: "other-source" },
+      }),
+    ).toBe("source");
+    expect(
+      processedWinningAgentLegId("source", target, {
+        ...transfer,
+        legId: "other-target",
+      }),
+    ).toBe("source");
+  });
+
+  it("does not connect an inbound call when the customer bridge arrives first", () => {
+    const call = { direction: "INBOUND" as const, status: "RINGING" as const };
+    const customerBridge = {
+      ...fact({ eventType: "call.bridged", legKind: "CUSTOMER" }),
+      callObservation: "CONNECTED" as const,
+      legKind: "CUSTOMER" as const,
+      legObservation: "BRIDGED" as const,
+    };
+    expect(canonicalCallObservation(customerBridge, call)).toBeNull();
+    expect(
+      hasCanonicalAgentBridgeEvidence(null, [{ id: "customer-leg", kind: "CUSTOMER" }]),
+    ).toBe(false);
+
+    const agentBridge = {
+      ...customerBridge,
+      canonicalCallId: "call-1",
+      canonicalLegId: "agent-leg",
+      legKind: "AGENT" as const,
+    };
+    expect(canonicalCallObservation(agentBridge, call)).toBe("CONNECTED");
+    expect(
+      hasCanonicalAgentBridgeEvidence("agent-leg", [
+        { id: "customer-leg", kind: "CUSTOMER" },
+        { id: "agent-leg", kind: "AGENT" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("drives a direct browser outbound call from answer through hangup", () => {
+    const answered = {
+      ...fact({ direction: "OUTBOUND", eventType: "call.answered", legKind: "AGENT" }),
+      callObservation: "RINGING" as const,
+      legKind: "AGENT" as const,
+      legObservation: "ANSWERED" as const,
+    };
+    expect(
+      canonicalCallObservation(answered, {
+        direction: "OUTBOUND",
+        status: "RINGING",
+      }),
+    ).toBe("CONNECTED");
+    expect(
+      canonicalCallObservation(
+        {
+          ...answered,
+          callObservation: null,
+          eventType: "call.hangup",
+          legObservation: "ENDED",
+        },
+        { direction: "OUTBOUND", status: "CONNECTED" },
+      ),
+    ).toBe("COMPLETED");
+  });
+
+  it("clears the outbound initiation deadline only after the provider callback", () => {
+    const deadlineAt = new Date("2026-07-12T20:01:00.000Z");
+    expect(
+      projectedCallDeadline(
+        { deadlineAt, direction: "OUTBOUND" },
+        { eventType: "call.initiated", occurredAt: deadlineAt },
+      ),
+    ).toBeNull();
+    expect(
+      projectedCallDeadline(
+        { deadlineAt, direction: "OUTBOUND" },
+        { eventType: "call.answered", occurredAt: deadlineAt },
+      ),
+    ).toBe(deadlineAt);
+  });
+
+  it("expires recording errors immediately and clears successful voicemail deadlines", () => {
+    const deadlineAt = new Date("2026-07-12T20:01:00.000Z");
+    const occurredAt = new Date("2026-07-12T20:00:30.000Z");
+    expect(
+      projectedCallDeadline(
+        { deadlineAt, direction: "INBOUND" },
+        { eventType: "call.recording.error", occurredAt },
+      ),
+    ).toEqual(occurredAt);
+    expect(
+      projectedCallDeadline(
+        { deadlineAt, direction: "INBOUND" },
+        { eventType: "call.recording.saved", occurredAt },
+      ),
+    ).toBeNull();
   });
 });
 
@@ -99,6 +293,9 @@ function fact(overrides: Partial<CanonicalTelnyxCallFact> = {}): CanonicalTelnyx
     providerCallLegId: "leg-1",
     providerCallSessionId: "session-1",
     providerEventId: "event-1",
+    recordingDurationSec: 0,
+    recordingId: null,
+    recordingUrl: null,
     toPhone: "+17864657479",
     ...overrides,
   };
@@ -172,32 +369,51 @@ describe("canonical provider linkage", () => {
     const existing = {
       providerCallControlId: "control-1",
       providerCallLegId: "leg-1",
+      providerCallSessionId: "session-1",
     };
 
     expect(() =>
       assertCanonicalProviderLegIdentity(existing, {
         providerCallControlId: "control-1",
         providerCallLegId: "leg-other",
+        providerCallSessionId: "session-1",
       }),
     ).toThrow("CANONICAL_LEG_IDENTITY_MISMATCH");
     expect(() =>
       assertCanonicalProviderLegIdentity(existing, {
         providerCallControlId: "control-other",
         providerCallLegId: "leg-1",
+        providerCallSessionId: "session-1",
       }),
     ).toThrow("CANONICAL_LEG_IDENTITY_MISMATCH");
     expect(() =>
       assertCanonicalProviderLegIdentity(existing, {
         providerCallControlId: "control-1",
         providerCallLegId: "leg-1",
+        providerCallSessionId: "session-1",
       }),
     ).not.toThrow();
     expect(() =>
       assertCanonicalProviderLegIdentity(
-        { providerCallControlId: "control-1", providerCallLegId: null },
-        { providerCallControlId: "control-1", providerCallLegId: "leg-1" },
+        {
+          providerCallControlId: "control-1",
+          providerCallLegId: null,
+          providerCallSessionId: "session-1",
+        },
+        {
+          providerCallControlId: "control-1",
+          providerCallLegId: "leg-1",
+          providerCallSessionId: "session-1",
+        },
       ),
     ).not.toThrow();
+    expect(() =>
+      assertCanonicalProviderLegIdentity(existing, {
+        providerCallControlId: "control-1",
+        providerCallLegId: "leg-1",
+        providerCallSessionId: "session-other",
+      }),
+    ).toThrow("CANONICAL_LEG_IDENTITY_MISMATCH");
   });
 
   it("never falls back when a supplied ring attempt is missing", () => {
@@ -328,6 +544,37 @@ describe("canonical provider command correlation", () => {
     ).rejects.toThrow("CANONICAL_COMMAND_CORRELATION_AMBIGUOUS");
   });
 
+  it("authorizes a transfer callback without command_id only from one exact-leg command", async () => {
+    const transferCommand = {
+      ...command,
+      arguments: { replacesLegId: "source-leg" },
+    };
+    const tx = {
+      callCenterCommand: {
+        findMany: async () => [transferCommand],
+        findUnique: async () => null,
+        updateMany: async () => ({ count: 1 }),
+      },
+      callCenterEvent: {
+        create: async () => ({ revision: BigInt(2) }),
+        findMany: async () => [],
+      },
+    };
+
+    await expect(
+      confirmProviderCommand(
+        tx as never,
+        {
+          ...fact({ legKind: "AGENT", providerCommandId: null }),
+          callObservation: "CONNECTED",
+          legKind: "AGENT",
+          legObservation: "BRIDGED",
+        },
+        target,
+      ),
+    ).resolves.toEqual(transferCommand);
+  });
+
   it("ignores unknown legacy IDs but rejects an unknown canonical command", async () => {
     const tx = {
       callCenterCommand: {
@@ -357,5 +604,261 @@ describe("canonical provider command correlation", () => {
         target,
       ),
     ).rejects.toThrow("CANONICAL_COMMAND_NOT_FOUND");
+  });
+});
+
+describe("canonical voicemail command callbacks", () => {
+  it("confirms the exact greeting and creates one dependent recording command", async () => {
+    const greeting = {
+      callId: "call-1",
+      id: "greeting-1",
+      legId: "customer-leg-1",
+      practiceId: "practice-1",
+      status: "SENT" as const,
+      type: "PLAY_VOICEMAIL_GREETING" as const,
+    };
+    let recordingCreate: Record<string, unknown> | null = null;
+    const tx = {
+      callCenterCommand: {
+        findUnique: async ({ where }: { where: Record<string, unknown> }) =>
+          "id" in where ? greeting : null,
+        updateMany: async () => ({ count: 1 }),
+        upsert: async ({ create }: { create: Record<string, unknown> }) => {
+          recordingCreate = create;
+          return { id: "recording-command-1" };
+        },
+      },
+    };
+
+    await expect(
+      createStartRecordingAfterGreeting(
+        tx as never,
+        {
+          ...fact({
+            eventType: "call.speak.ended",
+            legKind: "CUSTOMER",
+            providerCommandId: "greeting-1",
+          }),
+          callObservation: null,
+          legKind: "CUSTOMER",
+          legObservation: "ANSWERED",
+        },
+        {
+          callId: "call-1",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+        },
+      ),
+    ).resolves.toEqual({ created: true, id: "recording-command-1" });
+    expect(recordingCreate).toMatchObject({
+      arguments: {},
+      dependsOnCommandId: "greeting-1",
+      idempotencyKey: "voicemail-recording:greeting-1",
+      legId: "customer-leg-1",
+      type: "START_RECORDING",
+    });
+  });
+
+  it("rejects a callback linked to the wrong command type", async () => {
+    const tx = {
+      callCenterCommand: {
+        findUnique: async () => ({
+          callId: "call-1",
+          id: "command-1",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+          status: "SENT",
+          type: "START_RECORDING",
+        }),
+      },
+    };
+    await expect(
+      createStartRecordingAfterGreeting(
+        tx as never,
+        {
+          ...fact({ providerCommandId: "command-1" }),
+          callObservation: null,
+          legKind: "CUSTOMER",
+          legObservation: "ANSWERED",
+        },
+        {
+          callId: "call-1",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+        },
+      ),
+    ).rejects.toThrow("CANONICAL_COMMAND_LINK_MISMATCH");
+  });
+
+  it("defers an out-of-order recording callback until its command exists", async () => {
+    const tx = {
+      callCenterCommand: { findUnique: async () => null },
+    };
+    await expect(
+      confirmExactProviderCommand(
+        tx as never,
+        {
+          ...fact({
+            eventType: "call.recording.saved",
+            legKind: null,
+            providerCommandId: "recording-command-missing",
+            recordingId: "recording-1",
+            recordingUrl: "https://example.test/voicemail.mp3",
+          }),
+          callObservation: "VOICEMAIL",
+          legKind: "CUSTOMER",
+          legObservation: "ENDED",
+        },
+        {
+          callId: "call-1",
+          expectedType: "START_RECORDING",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+        },
+      ),
+    ).rejects.toThrow("CANONICAL_COMMAND_NOT_FOUND");
+  });
+});
+
+describe("canonical provider lifecycle callbacks", () => {
+  const cases = [
+    ["call.answered", "ANSWER_CUSTOMER", "CONFIRMED"],
+    ["call.playback.started", "START_RINGBACK", "CONFIRMED"],
+    ["call.playback.ended", "STOP_PLAYBACK", "CONFIRMED"],
+    ["call.speak.started", "PLAY_VOICEMAIL_GREETING", "CONFIRMED"],
+    ["call.recording.error", "START_RECORDING", "FAILED"],
+    ["call.hangup", "HANGUP_LEG", "CONFIRMED"],
+  ] as const;
+
+  it("settles every exact Telnyx command callback without leaving SENT rows", async () => {
+    for (const [eventType, type, outcome] of cases) {
+      let update: { data: Record<string, unknown> } | null = null;
+      const command = {
+        callId: "call-1",
+        id: "command-1",
+        legId: "customer-leg-1",
+        practiceId: "practice-1",
+        status: "SENT" as const,
+        type,
+      };
+      const tx = {
+        callCenterCommand: {
+          findMany: async () => [],
+          findUnique: async () => command,
+          updateMany: async (input: { data: Record<string, unknown> }) => {
+            update = input;
+            return { count: 1 };
+          },
+        },
+      };
+
+      await expect(
+        settleProviderCommandCallback(
+          tx as never,
+          {
+            ...fact({ eventType, providerCommandId: "command-1" }),
+            callObservation: null,
+            legKind: "CUSTOMER",
+            legObservation: eventType === "call.hangup" ? "ENDED" : "ANSWERED",
+          },
+          {
+            callId: "call-1",
+            legId: "customer-leg-1",
+            practiceId: "practice-1",
+          },
+        ),
+      ).resolves.toEqual(command);
+      expect(update).toMatchObject({
+        data: {
+          errorCode: outcome === "FAILED" ? "PROVIDER_CALLBACK_FAILED" : null,
+          nextAttemptAt: null,
+          status: outcome,
+        },
+      });
+    }
+  });
+
+  it("does not mistake stale client state on a remote hangup for a hangup command", async () => {
+    let updates = 0;
+    const tx = {
+      callCenterCommand: {
+        findUnique: async () => ({
+          callId: "call-1",
+          id: "ringback-command",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+          status: "SENT",
+          type: "START_RINGBACK",
+        }),
+        updateMany: async () => {
+          updates += 1;
+          return { count: 1 };
+        },
+      },
+    };
+
+    await expect(
+      settleProviderCommandCallback(
+        tx as never,
+        {
+          ...fact({ eventType: "call.hangup", providerCommandId: "ringback-command" }),
+          callObservation: "HANGUP",
+          legKind: "CUSTOMER",
+          legObservation: "ENDED",
+        },
+        {
+          callId: "call-1",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+        },
+      ),
+    ).resolves.toBeNull();
+    expect(updates).toBe(0);
+  });
+
+  it("accepts one late recording callback after timeout recovery", async () => {
+    let status = "FAILED";
+    let updates = 0;
+    const command = {
+      callId: "call-1",
+      id: "recording-command-1",
+      legId: "customer-leg-1",
+      practiceId: "practice-1",
+      status,
+      type: "START_RECORDING",
+    };
+    const tx = {
+      callCenterCommand: {
+        findUnique: async () => ({ ...command, status }),
+        updateMany: async () => {
+          if (status === "CONFIRMED") return { count: 0 };
+          status = "CONFIRMED";
+          updates += 1;
+          return { count: 1 };
+        },
+      },
+    };
+    const callback = {
+      ...fact({
+        eventType: "call.recording.saved",
+        providerCommandId: command.id,
+        recordingId: "recording-1",
+        recordingUrl: "https://example.test/voicemail.mp3",
+      }),
+      callObservation: "VOICEMAIL" as const,
+      legKind: "CUSTOMER" as const,
+      legObservation: "ENDED" as const,
+    };
+    const input = {
+      callId: "call-1",
+      legId: "customer-leg-1",
+      practiceId: "practice-1",
+    };
+
+    await settleProviderCommandCallback(tx as never, callback, input);
+    await settleProviderCommandCallback(tx as never, callback, input);
+
+    expect(status).toBe("CONFIRMED");
+    expect(updates).toBe(1);
   });
 });

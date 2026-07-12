@@ -52,6 +52,7 @@ export type AgentSessionView = {
   clientInstanceId: string;
   presence: "AVAILABLE" | "BUSY" | "OFFLINE" | "PAUSED" | "WRAP_UP";
   connectionState: "CONNECTING" | "DISCONNECTED" | "FAILED" | "READY";
+  currentCallId: string | null;
   microphoneReady: boolean;
   audioReady: boolean;
   leaseExpiresAt: string;
@@ -77,6 +78,8 @@ export type TaskView = {
   callId: string | null;
   kind: "CALLBACK" | "FOLLOW_UP" | "MISSED_CALL" | "VOICEMAIL";
   status: "OPEN" | "RESOLVED";
+  callerPhone: string | null;
+  createdAt: string;
 };
 
 export type OperationView = {
@@ -86,6 +89,10 @@ export type OperationView = {
   providerCommandId: string | null;
   status: "CONFIRMED" | "FAILED" | "PENDING" | "SENT";
   errorCode: string | null;
+  sourceLegId?: string;
+  targetAgentSessionId?: string;
+  targetEndpointId?: string;
+  targetLegId?: string;
 };
 
 export type OperationalCounts = {
@@ -244,8 +251,12 @@ export function selectIncomingCalls(state: CallCenterRealtimeState) {
 
 export function selectActiveCall(state: CallCenterRealtimeState) {
   return (
-    state.calls.find(({ status }) => status === "CONNECTED" || status === "WRAP_UP") ??
-    null
+    state.calls.find(
+      ({ direction, status }) =>
+        status === "CONNECTED" ||
+        status === "WRAP_UP" ||
+        (direction === "OUTBOUND" && (status === "RECEIVED" || status === "RINGING")),
+    ) ?? null
   );
 }
 

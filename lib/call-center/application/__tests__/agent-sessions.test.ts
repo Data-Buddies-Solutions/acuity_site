@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   acquireAgentSession,
+  AGENT_SESSION_LEASE_MS,
   AgentSessionError,
   type AgentSessionEvent,
   type AgentSessionRecord,
@@ -85,8 +86,8 @@ class FakeStore implements AgentSessionStore {
         const found = this.sessions.find(
           (session) =>
             session.endpointId === id &&
-            session.presence !== "OFFLINE" &&
-            session.connectionState !== "CLOSED",
+            (session.currentCallId !== null ||
+              (session.presence !== "OFFLINE" && session.connectionState !== "CLOSED")),
         );
         return found ? { ...found } : null;
       },
@@ -356,5 +357,78 @@ describe("canonical endpoint leasing", () => {
     expect(
       store.events.filter((event) => event.type === "AGENT_SESSION_RELEASED"),
     ).toHaveLength(1);
+  });
+
+  it("reserves a session with an active call for reconnect instead of releasing it", async () => {
+    const store = new FakeStore();
+    const acquired = await acquireAgentSession(store, actor, identity, start);
+    store.sessions[0].currentCallId = "call-1";
+    store.sessions[0].presence = "BUSY";
+
+    const released = await releaseAgentSession(
+      store,
+      actor,
+      {
+        ...identity,
+        expectedStateVersion: acquired.session.stateVersion,
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 1_000),
+    );
+
+    expect(released.session).toMatchObject({
+      connectionState: "CONNECTING",
+      currentCallId: "call-1",
+      presence: "BUSY",
+      stateVersion: 1,
+    });
+    expect(store.events.at(-1)?.type).toBe("AGENT_SESSION_RECONNECTING");
+    expect(store.events.some((event) => event.type === "AGENT_SESSION_RELEASED")).toBe(
+      false,
+    );
+  });
+
+  it("restores an expired active-call session for the same browser", async () => {
+    const store = new FakeStore();
+    const acquired = await acquireAgentSession(store, actor, identity, start);
+    store.sessions[0].currentCallId = "call-1";
+    store.sessions[0].presence = "BUSY";
+
+    const reconnected = await acquireAgentSession(
+      store,
+      actor,
+      identity,
+      new Date(start.getTime() + AGENT_SESSION_LEASE_MS + 1),
+    );
+
+    expect(reconnected.session).toMatchObject({
+      connectionState: "CONNECTING",
+      currentCallId: "call-1",
+      id: acquired.session.id,
+      presence: "BUSY",
+      stateVersion: 2,
+    });
+    expect(store.events.map((event) => event.type)).toEqual([
+      "AGENT_SESSION_LEASE_ACQUIRED",
+      "AGENT_SESSION_LEASE_EXPIRED",
+      "AGENT_SESSION_RECONNECTED",
+    ]);
+  });
+
+  it("does not let another browser steal an expired active-call session", async () => {
+    const store = new FakeStore();
+    await acquireAgentSession(store, actor, identity, start);
+    store.sessions[0].currentCallId = "call-1";
+    store.sessions[0].presence = "BUSY";
+
+    await expect(
+      acquireAgentSession(
+        store,
+        actor,
+        { ...identity, clientInstanceId: "browser-2" },
+        new Date(start.getTime() + AGENT_SESSION_LEASE_MS + 1),
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(store.sessions).toHaveLength(1);
   });
 });

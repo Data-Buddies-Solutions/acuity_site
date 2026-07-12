@@ -141,6 +141,7 @@ function eventFor(
     data: {
       audioReady: session.audioReady,
       connectionState: serializeAgentConnectionState(session.connectionState),
+      currentCallId: session.currentCallId,
       endpointId: session.endpointId,
       microphoneReady: session.microphoneReady,
       presence: session.presence,
@@ -223,7 +224,25 @@ export async function acquireAgentSession(
 
     const existing = await transaction.findSession(endpoint.id, input.clientInstanceId);
     if (existing && active?.id === existing.id) {
-      return { endpoint, session: existing };
+      if (!existing.currentCallId || existing.connectionState !== "CLOSED") {
+        return { endpoint, session: existing };
+      }
+
+      const session = await transaction.updateSession(existing.id, {
+        audioReady: false,
+        connectionState: "CONNECTING",
+        lastHeartbeatAt: now,
+        leaseExpiresAt: leaseExpiry(now),
+        microphoneReady: false,
+        presence: "BUSY",
+        readyAt: null,
+        stateVersion: existing.stateVersion + 1,
+        userId: actor.userId,
+      });
+      await transaction.appendEvent(
+        eventFor(actor, session, "AGENT_SESSION_RECONNECTED", now),
+      );
+      return { endpoint, session };
     }
 
     let session: AgentSessionRecord;
@@ -234,7 +253,7 @@ export async function acquireAgentSession(
         lastHeartbeatAt: now,
         leaseExpiresAt: leaseExpiry(now),
         microphoneReady: false,
-        presence: "PAUSED",
+        presence: existing.currentCallId ? "BUSY" : "PAUSED",
         readyAt: null,
         stateVersion: existing.stateVersion + 1,
         userId: actor.userId,
@@ -374,6 +393,23 @@ export async function releaseAgentSession(
       return {
         error: new AgentSessionError("Agent session state is stale", 409),
       };
+    }
+
+    if (session.currentCallId) {
+      const reconnecting = await transaction.updateSession(session.id, {
+        audioReady: false,
+        connectionState: "CONNECTING",
+        lastHeartbeatAt: now,
+        leaseExpiresAt: leaseExpiry(now),
+        microphoneReady: false,
+        presence: "BUSY",
+        readyAt: null,
+        stateVersion: session.stateVersion + 1,
+      });
+      await transaction.appendEvent(
+        eventFor(actor, reconnecting, "AGENT_SESSION_RECONNECTING", now),
+      );
+      return { session: reconnecting };
     }
 
     const released = await transaction.updateSession(session.id, {

@@ -13,6 +13,7 @@ export type CanonicalAgentSessionOptions = {
   endpointId: string | null;
   microphoneReady: boolean;
   presence: AgentSessionView["presence"];
+  projectedSession?: AgentSessionView | null;
 };
 
 type AcquisitionResponse = {
@@ -60,6 +61,7 @@ export function useCanonicalAgentSession({
   endpointId,
   microphoneReady,
   presence,
+  projectedSession = null,
 }: CanonicalAgentSessionOptions) {
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<AgentSessionView | null>(null);
@@ -95,6 +97,7 @@ export function useCanonicalAgentSession({
 
     clearHeartbeat();
     patchRequestedRef.current = false;
+    const requestedStateVersion = active.session.stateVersion;
     const request = (async () => {
       const response = await fetch(
         `/api/portal/call-center/agent-sessions/${encodeURIComponent(active.session.id)}`,
@@ -103,7 +106,8 @@ export function useCanonicalAgentSession({
             ...readinessRef.current,
             clientInstanceId: active.clientInstanceId,
             endpointId: active.endpointId,
-            expectedStateVersion: active.session.stateVersion,
+            expectedStateVersion: requestedStateVersion,
+            ...(active.session.currentCallId ? { presence: "BUSY" } : {}),
           }),
           headers: { "Content-Type": "application/json" },
           method: "PATCH",
@@ -118,7 +122,12 @@ export function useCanonicalAgentSession({
       }
     })()
       .catch((requestError) => {
-        if (mountedRef.current && activeRef.current === active && !active.stopping) {
+        if (
+          mountedRef.current &&
+          activeRef.current === active &&
+          !active.stopping &&
+          active.session.stateVersion === requestedStateVersion
+        ) {
           setError(message(requestError));
         }
       })
@@ -161,6 +170,22 @@ export function useCanonicalAgentSession({
     microphoneReady,
     presence,
   ]);
+
+  useEffect(() => {
+    const active = activeRef.current;
+    if (
+      !active ||
+      !projectedSession ||
+      projectedSession.id !== active.session.id ||
+      projectedSession.clientInstanceId !== active.clientInstanceId ||
+      projectedSession.endpointId !== active.endpointId ||
+      projectedSession.stateVersion <= active.session.stateVersion
+    ) {
+      return;
+    }
+
+    active.session = projectedSession;
+  }, [projectedSession]);
 
   const release = useCallback(
     async (active: ActiveSession) => {
@@ -312,5 +337,20 @@ export function useCanonicalAgentSession({
     };
   }, [release]);
 
-  return { error, session, start, stop };
+  const effectiveSession =
+    projectedSession &&
+    session &&
+    projectedSession.id === session.id &&
+    projectedSession.clientInstanceId === session.clientInstanceId &&
+    projectedSession.endpointId === session.endpointId &&
+    projectedSession.stateVersion > session.stateVersion
+      ? projectedSession
+      : session;
+
+  return {
+    error: projectedSession && effectiveSession === projectedSession ? null : error,
+    session: effectiveSession,
+    start,
+    stop,
+  };
 }

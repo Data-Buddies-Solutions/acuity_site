@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
+import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
@@ -10,6 +11,7 @@ type OwnerTransaction = Pick<
   Prisma.TransactionClient,
   | "$queryRaw"
   | "callCenterCall"
+  | "callCenterEvent"
   | "callCenterCallLeg"
   | "callCenterNumber"
   | "providerWebhookEvent"
@@ -25,6 +27,8 @@ type RawIdentity = {
   callerName: string | null;
   canonicalCallId: string | null;
   canonicalLegId: string | null;
+  canonicalOutboundPracticeId: string | null;
+  canonicalOutboundToken: string | null;
   direction: "INBOUND" | "OUTBOUND" | null;
   fromPhone: string;
   occurredAt: Date;
@@ -50,8 +54,8 @@ export class TelnyxEventOwnerError extends Error {
   }
 }
 
-function ownerForMode(mode: "ACTIVE" | "LEGACY" | "SHADOW") {
-  return mode === "ACTIVE" ? "CANONICAL" : "LEGACY";
+function ownerForNewAdmission(activationEnabled: boolean) {
+  return activationEnabled ? "CANONICAL" : "LEGACY";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -97,8 +101,13 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
   }
 
   const state = clientState(payload.client_state);
-  const canonicalCallId = text(state?.callId) || null;
-  const canonicalLegId = text(state?.legId) || null;
+  const canonicalOutboundToken = text(state?.canonicalOutboundToken) || null;
+  const canonicalOutboundPracticeId = text(state?.practiceId) || null;
+  if (canonicalOutboundToken && !canonicalOutboundPracticeId) {
+    throw new TelnyxEventOwnerError("TELNYX_EVENT_OUTBOUND_TOKEN_INCOMPLETE");
+  }
+  const canonicalCallId = canonicalOutboundToken ? null : text(state?.callId) || null;
+  const canonicalLegId = canonicalOutboundToken ? null : text(state?.legId) || null;
   if (Boolean(canonicalCallId) !== Boolean(canonicalLegId)) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_CANONICAL_IDENTITY_INCOMPLETE");
   }
@@ -107,6 +116,8 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
     callerName: text(payload.caller_id_name) || null,
     canonicalCallId,
     canonicalLegId,
+    canonicalOutboundPracticeId,
+    canonicalOutboundToken,
     direction: direction(payload.direction),
     fromPhone: normalizePhone(text(payload.from)),
     occurredAt:
@@ -118,6 +129,29 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
     providerCallSessionId: text(payload.call_session_id) || null,
     toPhone: normalizePhone(text(payload.to)),
   };
+}
+
+async function resolveTrustedOutboundIdentity(tx: OwnerTransaction, raw: RawIdentity) {
+  if (!raw.canonicalOutboundToken) return raw;
+  if (raw.direction !== "OUTBOUND" || !raw.canonicalOutboundPracticeId) {
+    throw new TelnyxEventOwnerError("TELNYX_EVENT_OUTBOUND_TOKEN_INVALID");
+  }
+  const mapping = await tx.callCenterEvent.findUnique({
+    select: { aggregateId: true, aggregateType: true, data: true },
+    where: {
+      practiceId_type_idempotencyKey: {
+        idempotencyKey: `outbound-client-state:${raw.canonicalOutboundToken}`,
+        practiceId: raw.canonicalOutboundPracticeId,
+        type: "CALL_OUTBOUND_CREATED",
+      },
+    },
+  });
+  const data = isRecord(mapping?.data) ? mapping.data : null;
+  const legId = text(data?.legId);
+  if (!mapping || mapping.aggregateType !== "CALL" || !mapping.aggregateId || !legId) {
+    throw new TelnyxEventOwnerError("TELNYX_EVENT_OUTBOUND_TOKEN_NOT_FOUND");
+  }
+  return { ...raw, canonicalCallId: mapping.aggregateId, canonicalLegId: legId };
 }
 
 function assertSameOwner(owners: Array<TelnyxEventOwner | null | undefined>) {
@@ -344,7 +378,11 @@ async function lockNumber(tx: OwnerTransaction, numberId: string) {
   return number;
 }
 
-async function persistInboundOwner(tx: OwnerTransaction, raw: RawIdentity) {
+async function persistInboundOwner(
+  tx: OwnerTransaction,
+  raw: RawIdentity,
+  activationEnabled: boolean,
+) {
   if (raw.direction !== "INBOUND") return null;
   if (!raw.providerCallSessionId) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_CALL_SESSION_MISSING");
@@ -378,7 +416,7 @@ async function persistInboundOwner(tx: OwnerTransaction, raw: RawIdentity) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_QUEUE_PRACTICE_MISMATCH");
   }
 
-  const effectOwner = ownerForMode(queue.routingMode);
+  const effectOwner = ownerForNewAdmission(activationEnabled);
   await tx.callCenterCall.create({
     data: {
       callerName: raw.callerName,
@@ -438,11 +476,13 @@ async function persistEventOwner(
 export async function resolveTelnyxEventOwner(
   event: ProviderWebhookRecord,
   database: OwnerDatabase = prisma,
+  activationConfig: typeof resolveCallCenterActivationConfig = resolveCallCenterActivationConfig,
 ): Promise<TelnyxEventOwner> {
-  const raw = rawIdentity(event);
+  const unresolvedRaw = rawIdentity(event);
   return database.$transaction(async (tx) => {
     const ownerTx = tx as OwnerTransaction;
-    await lockProviderSession(ownerTx, event.id, raw.providerCallSessionId);
+    await lockProviderSession(ownerTx, event.id, unresolvedRaw.providerCallSessionId);
+    const raw = await resolveTrustedOutboundIdentity(ownerTx, unresolvedRaw);
 
     const storedOwner = await storedSessionOwner(
       ownerTx,
@@ -456,7 +496,9 @@ export async function resolveTelnyxEventOwner(
     const callOwner = await findByCustomerSession(ownerTx, raw);
     const existingOwner = assertSameOwner([storedOwner, legOwner, callOwner]);
     const effectOwner =
-      existingOwner ?? (await persistInboundOwner(ownerTx, raw)) ?? "LEGACY";
+      existingOwner ??
+      (await persistInboundOwner(ownerTx, raw, activationConfig().enabled)) ??
+      "LEGACY";
 
     await persistEventOwner(ownerTx, event, raw, effectOwner);
     return effectOwner;

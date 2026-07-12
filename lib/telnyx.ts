@@ -1,4 +1,5 @@
 import { createPublicKey, verify } from "crypto";
+import { CANONICAL_VOICEMAIL_RECORDING_MAX_SECONDS } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 
 const TELNYX_API_BASE = "https://api.telnyx.com";
 const TELNYX_REQUEST_TIMEOUT_MS = 10_000;
@@ -177,6 +178,7 @@ export async function dialTelnyxCall({
 
 export async function speakOnTelnyxCall({
   callControlId,
+  clientState,
   commandId,
   language = "en-US",
   payload,
@@ -184,6 +186,7 @@ export async function speakOnTelnyxCall({
   voice = "Polly.Matthew",
 }: {
   callControlId: string;
+  clientState?: string;
   commandId?: string;
   language?: string;
   payload: string;
@@ -192,6 +195,7 @@ export async function speakOnTelnyxCall({
 }) {
   return telnyxFetch(`/v2/calls/${callControlId}/actions/speak`, {
     body: JSON.stringify({
+      ...(clientState ? { client_state: clientState } : {}),
       ...(commandId ? { command_id: commandId } : {}),
       language,
       payload,
@@ -205,6 +209,7 @@ export async function speakOnTelnyxCall({
 export async function startTelnyxPlayback({
   audioType = "wav",
   callControlId,
+  clientState,
   commandId,
   loop = 1,
   playbackContent,
@@ -212,6 +217,7 @@ export async function startTelnyxPlayback({
 }: {
   audioType?: "mp3" | "wav";
   callControlId: string;
+  clientState?: string;
   commandId?: string;
   loop?: number | "infinity";
   playbackContent: string;
@@ -224,6 +230,7 @@ export async function startTelnyxPlayback({
       loop,
       playback_content: playbackContent,
       target_legs: "self",
+      ...(clientState ? { client_state: clientState } : {}),
       ...(commandId ? { command_id: commandId } : {}),
     }),
     method: "POST",
@@ -235,9 +242,11 @@ export async function stopTelnyxPlayback(
   callControlId: string,
   commandId?: string,
   signal?: AbortSignal,
+  clientState?: string,
 ) {
   return telnyxFetch(`/v2/calls/${callControlId}/actions/playback_stop`, {
     body: JSON.stringify({
+      ...(clientState ? { client_state: clientState } : {}),
       ...(commandId ? { command_id: commandId } : {}),
       stop: "all",
     }),
@@ -250,9 +259,13 @@ export async function answerTelnyxCall(
   callControlId: string,
   commandId?: string,
   signal?: AbortSignal,
+  clientState?: string,
 ) {
   return telnyxFetch(`/v2/calls/${callControlId}/actions/answer`, {
-    body: JSON.stringify(commandId ? { command_id: commandId } : {}),
+    body: JSON.stringify({
+      ...(clientState ? { client_state: clientState } : {}),
+      ...(commandId ? { command_id: commandId } : {}),
+    }),
     method: "POST",
     signal,
   });
@@ -262,9 +275,13 @@ export async function hangupTelnyxCall(
   callControlId: string,
   commandId?: string,
   signal?: AbortSignal,
+  clientState?: string,
 ) {
   const response = await telnyxFetch(`/v2/calls/${callControlId}/actions/hangup`, {
-    body: JSON.stringify(commandId ? { command_id: commandId } : {}),
+    body: JSON.stringify({
+      ...(clientState ? { client_state: clientState } : {}),
+      ...(commandId ? { command_id: commandId } : {}),
+    }),
     method: "POST",
     signal,
   });
@@ -301,17 +318,24 @@ export async function bridgeTelnyxCall({
   });
 }
 
-export async function startTelnyxRecording(
-  callControlId: string,
-  commandId?: string,
-  signal?: AbortSignal,
-) {
+export async function startTelnyxRecording({
+  callControlId,
+  clientState,
+  commandId,
+  signal,
+}: {
+  callControlId: string;
+  clientState?: string;
+  commandId?: string;
+  signal?: AbortSignal;
+}) {
   const response = await telnyxFetch(`/v2/calls/${callControlId}/actions/record_start`, {
     body: JSON.stringify({
       channels: "single",
+      ...(clientState ? { client_state: clientState } : {}),
       ...(commandId ? { command_id: commandId } : {}),
       format: "mp3",
-      max_length: 120,
+      max_length: CANONICAL_VOICEMAIL_RECORDING_MAX_SECONDS,
     }),
     method: "POST",
     signal,

@@ -43,12 +43,17 @@ export function queueAccessWhere(
     ...(actor.hasAllLocationAccess
       ? {}
       : {
-          locations: {
-            some: {
-              location: { practiceId: actor.practiceId },
-              locationId: { in: actor.allowedLocationIds },
+          OR: [
+            { locations: { none: {} } },
+            {
+              locations: {
+                some: {
+                  location: { practiceId: actor.practiceId },
+                  locationId: { in: actor.allowedLocationIds },
+                },
+              },
             },
-          },
+          ],
         }),
   };
 }

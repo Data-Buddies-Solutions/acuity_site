@@ -13,10 +13,10 @@ import { Button } from "@/components/ui/button";
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import {
-  getPortalCallCenterHistoryData,
   type PortalCallCenterHistoryRange,
   type PortalRecentCallItem,
 } from "@/lib/call-center";
+import { readCombinedCallCenterHistory } from "@/lib/call-center/application/portal-combined-call-center-reads";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
 
@@ -45,11 +45,8 @@ export default async function PortalCallCenterHistoryPage({
   const range = parseHistoryRange(
     Array.isArray(params.range) ? params.range[0] : params.range,
   );
-  const data = await getPortalCallCenterHistoryData({
-    page,
-    pageSize: HISTORY_PAGE_SIZE,
-    range,
-  });
+  const historyOptions = { page, pageSize: HISTORY_PAGE_SIZE, range };
+  const data = await readCombinedCallCenterHistory(historyOptions);
 
   if (!data) {
     redirect("/portal");
