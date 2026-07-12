@@ -105,7 +105,7 @@ export type CallCenterSnapshot = {
   calls: CallView[];
   counts: OperationalCounts;
   tasks: TaskView[];
-  // Null means Phase 4A durable user-operation receipts are not available yet.
+  // Null is accepted only from older deployments during a rolling upgrade.
   operations: OperationView[] | null;
 };
 

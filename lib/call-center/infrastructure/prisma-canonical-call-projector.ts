@@ -7,6 +7,8 @@ import {
   terminalCallObservation,
 } from "@/lib/call-center/domain/canonical-call-state";
 import type { CanonicalProjectionRecord } from "@/lib/call-center/infrastructure/canonical-provider-webhook-inbox";
+import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
+import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import {
   resolveCanonicalTelnyxCallObservations,
   resolveCanonicalTelnyxLegKind,
@@ -316,7 +318,7 @@ export async function confirmProviderCommand(
     throw new CanonicalProjectionError("CANONICAL_COMMAND_NOT_SENT");
   }
 
-  await tx.callCenterCommand.updateMany({
+  const updated = await tx.callCenterCommand.updateMany({
     data: {
       errorCode: null,
       nextAttemptAt: null,
@@ -327,6 +329,84 @@ export async function confirmProviderCommand(
       status: { in: ["SENDING", "SENT", "FAILED"] },
     },
   });
+  if (updated.count === 1) {
+    await appendCommandOperationStatus(tx, {
+      attemptCount: 0,
+      commandId: command.id,
+      now: fact.occurredAt,
+      status: "CONFIRMED",
+    });
+  }
+}
+
+const terminalCallStatuses = new Set(["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"]);
+const liveAgentLegStatuses = new Set([
+  "CREATED",
+  "DIALING",
+  "RINGING",
+  "ANSWERED",
+  "BRIDGED",
+]);
+
+export function retainedAgentSessionIds(input: {
+  callStatus: string;
+  legs: Array<{
+    agentSessionId: string | null;
+    id: string;
+    status: string;
+  }>;
+  winningLegId: string | null;
+}) {
+  return new Set(
+    terminalCallStatuses.has(input.callStatus)
+      ? []
+      : input.legs
+          .filter((leg) =>
+            input.winningLegId
+              ? leg.id === input.winningLegId && liveAgentLegStatuses.has(leg.status)
+              : liveAgentLegStatuses.has(leg.status),
+          )
+          .map(({ agentSessionId }) => agentSessionId)
+          .filter((id): id is string => Boolean(id)),
+  );
+}
+
+async function releaseInactiveCallSessions(
+  tx: Transaction,
+  input: {
+    callId: string;
+    callStatus: string;
+    providerEventId: string;
+    winningLegId: string | null;
+  },
+  now: Date,
+) {
+  const legs = await tx.callCenterCallLeg.findMany({
+    select: { agentSessionId: true, id: true, status: true },
+    where: { callId: input.callId, kind: "AGENT", agentSessionId: { not: null } },
+  });
+  const retainedSessionIds = retainedAgentSessionIds({
+    callStatus: input.callStatus,
+    legs,
+    winningLegId: input.winningLegId,
+  });
+  const sessions = await tx.callCenterAgentSession.findMany({
+    select: { id: true },
+    where: { currentCallId: input.callId },
+  });
+
+  for (const session of sessions) {
+    if (retainedSessionIds.has(session.id)) continue;
+    await releaseAgentSessionReservation(tx, {
+      agentSessionId: session.id,
+      callId: input.callId,
+      idempotencyKey: `provider:${input.providerEventId}:release:${session.id}`,
+      now,
+      reason: terminalCallStatuses.has(input.callStatus)
+        ? "CALL_TERMINAL"
+        : "LEG_INACTIVE",
+    });
+  }
 }
 
 function customerPhones(
@@ -599,6 +679,16 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           type: resolvedFact.eventType.toUpperCase().replace(/[^A-Z0-9]+/g, "_"),
         },
       });
+      await releaseInactiveCallSessions(
+        tx,
+        {
+          callId: call.id,
+          callStatus: call.status,
+          providerEventId: event.providerEventId,
+          winningLegId: call.winningLegId,
+        },
+        resolvedFact.occurredAt,
+      );
 
       const completed = await tx.providerWebhookEvent.updateMany({
         data: {
