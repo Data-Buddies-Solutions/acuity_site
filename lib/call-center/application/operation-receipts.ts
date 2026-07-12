@@ -3,6 +3,7 @@ export type OperationReceiptData = Record<string, boolean | number | string | nu
 export type OperationReceiptEvent = {
   aggregateId: string;
   aggregateType: "CALL" | "AGENT_SESSION" | "TASK" | "CONFIGURATION";
+  actorUserId: string | null;
   data: OperationReceiptData;
   occurredAt: Date;
   revision: bigint;
@@ -84,6 +85,7 @@ export async function executeIdempotentOperation<
     if (
       existing.aggregateType !== input.aggregateType ||
       existing.aggregateId !== input.aggregateId ||
+      existing.actorUserId !== input.actorUserId ||
       existing.data[TARGET_FINGERPRINT_FIELD] !== input.targetFingerprint
     ) {
       throw new OperationReceiptError(

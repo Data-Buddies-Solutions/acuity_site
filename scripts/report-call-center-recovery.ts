@@ -1,3 +1,4 @@
+import { prismaShadowRoutingStore } from "@/lib/call-center/infrastructure/prisma-shadow-routing-store";
 import { prisma } from "@/lib/prisma";
 
 function countsBy<T extends string>(
@@ -11,42 +12,49 @@ function countsBy<T extends string>(
 }
 
 try {
-  const [legacyRows, canonicalRows, commandRows, callRows, shadowDecisionCount] =
-    await Promise.all([
-      prisma.providerWebhookEvent
-        .groupBy({
-          _count: { _all: true },
-          by: ["processingStatus"],
-        })
-        .then((rows) =>
-          rows.map(({ _count, processingStatus }) => ({
-            _count,
-            status: processingStatus,
-          })),
-        ),
-      prisma.providerWebhookEvent
-        .groupBy({
-          _count: { _all: true },
-          by: ["canonicalProjectionStatus"],
-        })
-        .then((rows) =>
-          rows.map(({ _count, canonicalProjectionStatus }) => ({
-            _count,
-            status: canonicalProjectionStatus,
-          })),
-        ),
-      prisma.callCenterCommand.groupBy({
+  const [
+    legacyRows,
+    canonicalRows,
+    commandRows,
+    callRows,
+    shadowDecisionCount,
+    missingShadowDecisionCount,
+  ] = await Promise.all([
+    prisma.providerWebhookEvent
+      .groupBy({
         _count: { _all: true },
-        by: ["status"],
-      }),
-      prisma.callCenterCall.groupBy({
+        by: ["processingStatus"],
+      })
+      .then((rows) =>
+        rows.map(({ _count, processingStatus }) => ({
+          _count,
+          status: processingStatus,
+        })),
+      ),
+    prisma.providerWebhookEvent
+      .groupBy({
         _count: { _all: true },
-        by: ["status"],
-      }),
-      prisma.callCenterEvent.count({
-        where: { type: "CALL_ROUTING_SHADOW_DECIDED" },
-      }),
-    ]);
+        by: ["canonicalProjectionStatus"],
+      })
+      .then((rows) =>
+        rows.map(({ _count, canonicalProjectionStatus }) => ({
+          _count,
+          status: canonicalProjectionStatus,
+        })),
+      ),
+    prisma.callCenterCommand.groupBy({
+      _count: { _all: true },
+      by: ["status"],
+    }),
+    prisma.callCenterCall.groupBy({
+      _count: { _all: true },
+      by: ["status"],
+    }),
+    prisma.callCenterEvent.count({
+      where: { type: "CALL_ROUTING_SHADOW_DECIDED" },
+    }),
+    prismaShadowRoutingStore.countMissingDecisions(),
+  ]);
 
   console.log(
     JSON.stringify({
@@ -55,6 +63,7 @@ try {
       commands: countsBy(commandRows),
       generatedAt: new Date().toISOString(),
       legacyProjection: countsBy(legacyRows),
+      missingShadowDecisionCount,
       shadowDecisionCount,
     }),
   );

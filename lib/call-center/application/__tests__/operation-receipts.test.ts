@@ -32,6 +32,7 @@ class MemoryOperationTransaction implements OperationReceiptTransaction {
   ) {
     this.appendCount += 1;
     this.event = {
+      actorUserId: receiptInput.actorUserId,
       aggregateId: receiptInput.aggregateId,
       aggregateType: receiptInput.aggregateType,
       data,
@@ -65,6 +66,7 @@ class MemoryOperationDatabase {
       appendReceipt: async (receiptInput, data, occurredAt) => {
         database.appendCount += 1;
         database.event = {
+          actorUserId: receiptInput.actorUserId,
           aggregateId: receiptInput.aggregateId,
           aggregateType: receiptInput.aggregateType,
           data,
@@ -134,6 +136,24 @@ describe("durable operation receipts", () => {
       executeIdempotentOperation(transaction, conflicting, async () => {
         throw new Error("must not run");
       }),
+    ).rejects.toEqual(
+      new OperationReceiptError(
+        "Idempotency key was already used for another target",
+        409,
+      ),
+    );
+  });
+
+  it("does not replay another user's receipt", async () => {
+    const transaction = new MemoryOperationTransaction();
+    await executeIdempotentOperation(transaction, input, async () => ({ ok: true }), now);
+
+    await expect(
+      executeIdempotentOperation(
+        transaction,
+        { ...input, actorUserId: "user-2" },
+        async () => ({ ok: false }),
+      ),
     ).rejects.toEqual(
       new OperationReceiptError(
         "Idempotency key was already used for another target",

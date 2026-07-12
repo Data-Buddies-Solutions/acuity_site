@@ -3,11 +3,36 @@ import { describe, expect, it } from "bun:test";
 import { recordShadowRoutingDecision } from "@/lib/call-center/application/shadow-routing";
 import {
   PrismaShadowRoutingStore,
+  type ShadowRoutingPrismaClient,
   type ShadowRoutingPrismaTransaction,
   type ShadowRoutingTransactionRunner,
 } from "../prisma-shadow-routing-store";
 
 describe("Prisma shadow routing store", () => {
+  it("selects only bounded active SHADOW calls missing a decision", async () => {
+    const queryTexts: string[] = [];
+    const client = {
+      $queryRaw: async (query: { sql: string }) => {
+        queryTexts.push(query.sql);
+        if (query.sql.includes("COUNT(*)")) return [{ count: BigInt(1) }];
+        return [{ callId: "call-1", practiceId: "practice-1" }];
+      },
+    } as unknown as ShadowRoutingPrismaClient;
+    const store = new PrismaShadowRoutingStore(undefined, client);
+
+    await expect(store.listMissingDecisions(5)).resolves.toEqual([
+      { callId: "call-1", practiceId: "practice-1" },
+    ]);
+    await expect(store.countMissingDecisions()).resolves.toBe(1);
+    const queryText = queryTexts.join("\n");
+    expect(queryText).toContain("queue.\"routingMode\" = CAST('SHADOW'");
+    expect(queryText).toContain("NOT EXISTS");
+    expect(queryText).toContain('event."idempotencyKey" = call."id"');
+    expect(queryText).not.toContain("COMPLETED");
+    expect(queryText).not.toContain("VOICEMAIL");
+    expect(queryTexts).toHaveLength(2);
+  });
+
   it("locks the call and writes only one sanitized event", async () => {
     const operations: string[] = [];
     let event: { data: unknown; occurredAt: Date; revision: bigint } | null = null;

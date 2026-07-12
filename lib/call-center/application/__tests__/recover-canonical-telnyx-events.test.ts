@@ -34,6 +34,14 @@ describe("canonical projection recovery", () => {
       ignored: 0,
       projected: 0,
       selected: 0,
+      shadowRouting: {
+        failed: 0,
+        remaining: 0,
+        recorded: 0,
+        replayed: 0,
+        selected: 0,
+        skipped: 0,
+      },
     });
     expect(reads).toBe(0);
   });
@@ -58,6 +66,14 @@ describe("canonical projection recovery", () => {
             ? { outcome: "IGNORED" }
             : { errorCode: "BOUNDED", outcome: "FAILED" };
       },
+      shadowRecovery: async () => ({
+        failed: 1,
+        remaining: 1,
+        recorded: 2,
+        replayed: 0,
+        selected: 3,
+        skipped: 0,
+      }),
     });
 
     await expect(recover()).resolves.toEqual({
@@ -66,6 +82,14 @@ describe("canonical projection recovery", () => {
       ignored: 1,
       projected: 1,
       selected: 3,
+      shadowRouting: {
+        failed: 1,
+        remaining: 1,
+        recorded: 2,
+        replayed: 0,
+        selected: 3,
+        skipped: 0,
+      },
     });
     expect(limit).toBe(5);
     expect(order).toEqual(["1", "2", "3"]);

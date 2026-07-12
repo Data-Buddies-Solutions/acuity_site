@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   buildCanonicalBatchItems,
+  localAgentSessionWhere,
   queueCallWhere,
   readCanonicalEventBatch,
   serializeAgentSession,
@@ -11,6 +12,26 @@ import {
 const now = new Date("2026-07-11T12:00:00.000Z");
 
 describe("canonical realtime serializers", () => {
+  it("binds the local session projection to this browser instance", () => {
+    expect(
+      localAgentSessionWhere(
+        {
+          allowedLocationIds: [],
+          hasAllLocationAccess: true,
+          practiceId: "practice-1",
+          userId: "user-1",
+        },
+        ["endpoint-1"],
+        "tab-1",
+        now,
+      ),
+    ).toMatchObject({
+      browserSessionId: "tab-1",
+      endpointId: { in: ["endpoint-1"] },
+      practiceId: "practice-1",
+      userId: "user-1",
+    });
+  });
   it("scopes queue calls through the configured practice-number location", () => {
     expect(
       queueCallWhere(
@@ -102,6 +123,8 @@ describe("canonical realtime serializers", () => {
         {
           aggregateId: "task-1",
           aggregateType: "TASK",
+          data: {},
+          practiceId: "practice-1",
           revision: BigInt(42),
           type: "TASK_RESOLVED",
         },
@@ -124,6 +147,127 @@ describe("canonical realtime serializers", () => {
     });
   });
 
+  it("projects a claim receipt as one durable operation", () => {
+    const counts = { active: 0, openTasks: 0, recent: 0, waiting: 1 };
+    const [item] = buildCanonicalBatchItems({
+      calls: [
+        {
+          answeredAt: null,
+          callerName: null,
+          direction: "INBOUND",
+          endedAt: null,
+          fromPhone: "+17865550100",
+          id: "call-1",
+          legs: [],
+          queueId: "queue-1",
+          receivedAt: now,
+          stateVersion: 2,
+          status: "RINGING",
+          toPhone: "+17865550101",
+          winningLegId: null,
+        },
+      ],
+      commands: [
+        {
+          callId: "call-1",
+          errorCode: null,
+          id: "command-1",
+          nextAttemptAt: null,
+          practiceId: "practice-1",
+          status: "PENDING",
+          type: "DIAL_AGENT",
+        },
+      ],
+      counts,
+      events: [
+        {
+          aggregateId: "call-1",
+          aggregateType: "CALL",
+          data: { providerCommandId: "command-1" },
+          practiceId: "practice-1",
+          revision: BigInt(43),
+          type: "CALL_CLAIM_REQUESTED",
+        },
+      ],
+      sessions: [],
+      tasks: [],
+    });
+
+    expect(item.projection).toMatchObject({
+      aggregateType: "COMMAND",
+      delta: {
+        kind: "OPERATION_UPSERT",
+        operation: {
+          callId: "call-1",
+          operationEventRevision: "43",
+          providerCommandId: "command-1",
+          status: "PENDING",
+          type: "CLAIM",
+        },
+      },
+    });
+  });
+
+  it("projects later command failure onto the original operation", () => {
+    const [item] = buildCanonicalBatchItems({
+      calls: [
+        {
+          answeredAt: null,
+          callerName: null,
+          direction: "INBOUND",
+          endedAt: null,
+          fromPhone: "+17865550100",
+          id: "call-1",
+          legs: [],
+          queueId: "queue-1",
+          receivedAt: now,
+          stateVersion: 2,
+          status: "QUEUED",
+          toPhone: "+17865550101",
+          winningLegId: null,
+        },
+      ],
+      commands: [
+        {
+          callId: "call-1",
+          errorCode: "PROVIDER_VALIDATION_FAILED",
+          id: "command-1",
+          nextAttemptAt: null,
+          practiceId: "practice-1",
+          status: "FAILED",
+          type: "DIAL_AGENT",
+        },
+      ],
+      counts: { active: 0, openTasks: 0, recent: 0, waiting: 1 },
+      events: [
+        {
+          aggregateId: "call-1",
+          aggregateType: "CALL",
+          data: {
+            operationEventRevision: "43",
+            providerCommandId: "command-1",
+          },
+          practiceId: "practice-1",
+          revision: BigInt(44),
+          type: "CALL_OPERATION_STATUS_CHANGED",
+        },
+      ],
+      sessions: [],
+      tasks: [],
+    });
+
+    expect(item.projection).toMatchObject({
+      revision: "44",
+      delta: {
+        kind: "OPERATION_UPSERT",
+        operation: {
+          operationEventRevision: "43",
+          status: "FAILED",
+        },
+      },
+    });
+  });
+
   it("keeps each poll query count constant for a full filtered batch", async () => {
     async function run(eventCount: number) {
       let queries = 0;
@@ -139,11 +283,14 @@ describe("canonical realtime serializers", () => {
           count: counted(0),
           findMany: counted([]),
         },
+        callCenterCommand: { findMany: counted([]) },
         callCenterEvent: {
           findMany: counted(
             Array.from({ length: eventCount }, (_, index) => ({
               aggregateId: `other-call-${index}`,
               aggregateType: "CALL",
+              data: {},
+              practiceId: "practice-1",
               revision: BigInt(index + 1),
               type: "CALL_UPDATED",
             })),
@@ -156,6 +303,7 @@ describe("canonical realtime serializers", () => {
             maxWaitSec: 30,
             name: "Optical",
             ringTimeoutSec: 20,
+            routingMode: "LEGACY",
           }),
         },
         callCenterTask: {
@@ -173,6 +321,7 @@ describe("canonical realtime serializers", () => {
       const batch = await readCanonicalEventBatch(
         { practiceId: "practice-1", userId: "user-1" },
         "queue-1",
+        "tab-1",
         BigInt(0),
         database,
       );

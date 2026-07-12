@@ -11,6 +11,22 @@ const canonicalDisabled = {
   ignored: 0,
   projected: 0,
   selected: 0,
+  shadowRouting: {
+    failed: 0,
+    remaining: 0,
+    recorded: 0,
+    replayed: 0,
+    selected: 0,
+    skipped: 0,
+  },
+} as const;
+const commandsDisabled = {
+  dispatched: 0,
+  enabled: false,
+  failed: 0,
+  selected: 0,
+  skipped: 0,
+  stale: 0,
 } as const;
 
 function request(token?: string) {
@@ -28,6 +44,7 @@ describe("call center webhook recovery cron", () => {
         recoveryCalls += 1;
         return {
           canonical: canonicalDisabled,
+          commands: commandsDisabled,
           enabled: false,
           failed: 0,
           recovered: 0,
@@ -51,6 +68,7 @@ describe("call center webhook recovery cron", () => {
         recoveryCalls += 1;
         return {
           canonical: canonicalDisabled,
+          commands: commandsDisabled,
           enabled: false,
           failed: 0,
           recovered: 0,
@@ -75,6 +93,22 @@ describe("call center webhook recovery cron", () => {
           ignored: 1,
           projected: 2,
           selected: 3,
+          shadowRouting: {
+            failed: 0,
+            remaining: 0,
+            recorded: 1,
+            replayed: 0,
+            selected: 1,
+            skipped: 0,
+          },
+        },
+        commands: {
+          dispatched: 1,
+          enabled: true,
+          failed: 0,
+          selected: 1,
+          skipped: 0,
+          stale: 0,
         },
         enabled: true,
         failed: 1,
@@ -94,6 +128,22 @@ describe("call center webhook recovery cron", () => {
         ignored: 1,
         projected: 2,
         selected: 3,
+        shadowRouting: {
+          failed: 0,
+          remaining: 0,
+          recorded: 1,
+          replayed: 0,
+          selected: 1,
+          skipped: 0,
+        },
+      },
+      commands: {
+        dispatched: 1,
+        enabled: true,
+        failed: 0,
+        selected: 1,
+        skipped: 0,
+        stale: 0,
       },
       enabled: true,
       failed: 1,

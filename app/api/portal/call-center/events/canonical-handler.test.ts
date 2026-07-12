@@ -18,6 +18,7 @@ const queue = {
   maxWaitSec: 30,
   name: "Optical",
   ringTimeoutSec: 20,
+  routingMode: "LEGACY" as const,
 };
 
 async function body(response: Response) {
@@ -28,7 +29,6 @@ function filteredBatch(from: number, to: number): CanonicalEventBatch {
   return {
     accessKey: "ALL",
     items: Array.from({ length: to - from + 1 }, (_, index) => ({
-      eventType: "OTHER_QUEUE_EVENT",
       projection: null,
       reset: false,
       revision: BigInt(from + index),
@@ -42,7 +42,6 @@ function projectionBatch(revision: number): CanonicalEventBatch {
     accessKey: "ALL",
     items: [
       {
-        eventType: "CALL_CONNECTED",
         projection: {
           aggregateId: "call-1",
           aggregateType: "CALL",
@@ -84,7 +83,7 @@ describe("canonical call center event stream", () => {
     });
     const response = await GET(
       new Request(
-        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&after=3",
+        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=3",
         { headers: { "last-event-id": "20" } },
       ),
     );
@@ -108,7 +107,7 @@ describe("canonical call center event stream", () => {
       });
       const response = await GET(
         new Request(
-          `https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&after=${after}`,
+          `https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=${after}`,
         ),
       );
       expect(await body(response)).toContain(`"reason":"${reason}"`);
@@ -126,7 +125,7 @@ describe("canonical call center event stream", () => {
     });
     const response = await GET(
       new Request(
-        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&after=7",
+        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=7",
       ),
     );
     const reader = response.body?.getReader();
@@ -135,7 +134,7 @@ describe("canonical call center event stream", () => {
     const text = new TextDecoder().decode(first?.value);
 
     expect(text).not.toContain("id: 8");
-    expect(text).toContain("id: 11\nevent: CALL_CONNECTED");
+    expect(text).toContain("id: 11\nevent: projection");
     expect(text).toContain('"stateVersion":7');
     expect(text).toContain("id: 11\nevent: cursor");
   });
@@ -144,7 +143,7 @@ describe("canonical call center event stream", () => {
     const cursors: bigint[] = [];
     const GET = handler({
       getActor: async () => actor,
-      readBatch: async (_identity, _queueId, cursor) => {
+      readBatch: async (_identity, _queueId, _clientInstanceId, cursor) => {
         cursors.push(cursor);
         if (cursor === BigInt(7)) return filteredBatch(8, 107);
         if (cursor === BigInt(107)) return filteredBatch(108, 207);
@@ -154,7 +153,7 @@ describe("canonical call center event stream", () => {
     const request = (lastEventId: string) =>
       GET(
         new Request(
-          "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1",
+          "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1",
           { headers: { "last-event-id": lastEventId } },
         ),
       );
@@ -186,7 +185,7 @@ describe("canonical call center event stream", () => {
     });
     const response = await GET(
       new Request(
-        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&after=1",
+        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=1",
       ),
     );
 
@@ -201,7 +200,6 @@ describe("canonical call center event stream", () => {
         accessKey: "ALL",
         items: [
           {
-            eventType: "CONFIGURATION_UPDATED",
             projection: null,
             reset: true,
             revision: BigInt(9),
@@ -212,7 +210,7 @@ describe("canonical call center event stream", () => {
     });
     const response = await GET(
       new Request(
-        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&after=8",
+        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=8",
       ),
     );
 
@@ -230,7 +228,7 @@ describe("canonical call center event stream", () => {
     });
     const response = await GET(
       new Request(
-        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&after=1",
+        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=1",
       ),
     );
 
@@ -250,7 +248,7 @@ describe("canonical call center event stream", () => {
     });
     const response = await GET(
       new Request(
-        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&after=1",
+        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=1",
       ),
     );
 
@@ -269,7 +267,7 @@ describe("canonical call center event stream", () => {
     });
     const response = await GET(
       new Request(
-        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&after=1",
+        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=1",
       ),
     );
 

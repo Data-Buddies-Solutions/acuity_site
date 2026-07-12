@@ -66,7 +66,11 @@ export type EndpointView = {
 };
 
 export type QueueSummary = { id: string; name: string };
-export type QueueView = QueueSummary & { maxWaitSec: number; ringTimeoutSec: number };
+export type QueueView = QueueSummary & {
+  maxWaitSec: number;
+  ringTimeoutSec: number;
+  routingMode: "LEGACY" | "SHADOW" | "ACTIVE";
+};
 
 export type TaskView = {
   id: string;
@@ -101,7 +105,7 @@ export type CallCenterSnapshot = {
   calls: CallView[];
   counts: OperationalCounts;
   tasks: TaskView[];
-  // Null means Phase 4A durable user-operation receipts are not available yet.
+  // Null is accepted only from older deployments during a rolling upgrade.
   operations: OperationView[] | null;
 };
 
@@ -213,7 +217,21 @@ export function applyProjectionEvent(
       );
       return { ...advanced, operations: [...operations, delta.operation] };
     }
+    default:
+      return requestSnapshotReset(state, "UNAPPLICABLE_DELTA");
   }
+}
+
+export function applyCursor(
+  state: CallCenterRealtimeState,
+  revision: Revision,
+): CallCenterRealtimeState {
+  const current = parseRevision(state.revision);
+  const candidate = parseRevision(revision);
+  if (current === null || candidate === null) {
+    return requestSnapshotReset(state, "INVALID_CURSOR");
+  }
+  return candidate > current ? { ...state, revision } : state;
 }
 
 export function selectIncomingCalls(state: CallCenterRealtimeState) {

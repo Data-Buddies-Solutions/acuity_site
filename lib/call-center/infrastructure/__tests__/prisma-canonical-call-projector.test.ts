@@ -3,17 +3,63 @@ import { describe, expect, it } from "bun:test";
 import type { CanonicalTelnyxCallFact } from "../telnyx-canonical-call-fact";
 import {
   assertCanonicalProviderLegIdentity,
+  confirmProviderCommand,
+  retainedAgentSessionIds,
   earliestObservedAt,
   enrichCanonicalCallIdentity,
   resolveCanonicalAgentLink,
+  selectCanonicalProviderCommand,
 } from "../prisma-canonical-call-projector";
 
 const later = new Date("2026-07-11T10:00:05.000Z");
 const earlier = new Date("2026-07-11T10:00:00.000Z");
 
+describe("canonical agent reservation retention", () => {
+  const legs = [
+    { agentSessionId: "session-1", id: "leg-1", status: "BRIDGED" },
+    { agentSessionId: "session-2", id: "leg-2", status: "RINGING" },
+    { agentSessionId: "session-3", id: "leg-3", status: "FAILED" },
+  ];
+
+  it("keeps only the winner after a bridge", () => {
+    expect([
+      ...retainedAgentSessionIds({
+        callStatus: "CONNECTED",
+        legs,
+        winningLegId: "leg-1",
+      }),
+    ]).toEqual(["session-1"]);
+  });
+
+  it("releases an ended winner before the customer leg ends", () => {
+    expect([
+      ...retainedAgentSessionIds({
+        callStatus: "CONNECTED",
+        legs: legs.map((leg) => (leg.id === "leg-1" ? { ...leg, status: "ENDED" } : leg)),
+        winningLegId: "leg-1",
+      }),
+    ]).toEqual([]);
+  });
+
+  it("keeps live rings before a winner and releases everyone at terminal", () => {
+    expect([
+      ...retainedAgentSessionIds({ callStatus: "RINGING", legs, winningLegId: null }),
+    ]).toEqual(["session-1", "session-2"]);
+    expect([
+      ...retainedAgentSessionIds({
+        callStatus: "COMPLETED",
+        legs,
+        winningLegId: "leg-1",
+      }),
+    ]).toEqual([]);
+  });
+});
+
 function fact(overrides: Partial<CanonicalTelnyxCallFact> = {}): CanonicalTelnyxCallFact {
   return {
     callerName: "Patient Name",
+    canonicalCallId: null,
+    canonicalLegId: null,
     clientQueueItemId: null,
     clientRingAttemptId: null,
     direction: "INBOUND",
@@ -24,6 +70,7 @@ function fact(overrides: Partial<CanonicalTelnyxCallFact> = {}): CanonicalTelnyx
     legKind: "CUSTOMER",
     occurredAt: earlier,
     providerCallControlId: "control-1",
+    providerCommandId: null,
     providerCallLegId: "leg-1",
     providerCallSessionId: "session-1",
     providerEventId: "event-1",
@@ -167,5 +214,123 @@ describe("canonical provider linkage", () => {
         ringAttempt: null,
       }),
     ).toBe(context);
+  });
+});
+
+describe("canonical provider command correlation", () => {
+  const target = { callId: "call-1", legId: "leg-1", practiceId: "practice-1" };
+  const command = {
+    ...target,
+    id: "command-1",
+    status: "SENDING" as const,
+    type: "DIAL_AGENT" as const,
+  };
+
+  it("selects one exact command and keeps confirmed callback replay idempotent", () => {
+    expect(selectCanonicalProviderCommand([command], target)).toEqual(command);
+    expect(
+      selectCanonicalProviderCommand([{ ...command, status: "CONFIRMED" }], target),
+    ).toMatchObject({ id: "command-1", status: "CONFIRMED" });
+  });
+
+  it("rejects ambiguous or cross-boundary command links", () => {
+    expect(() =>
+      selectCanonicalProviderCommand([command, { ...command, id: "command-2" }], target),
+    ).toThrow("CANONICAL_COMMAND_CORRELATION_AMBIGUOUS");
+    expect(() =>
+      selectCanonicalProviderCommand([{ ...command, practiceId: "practice-2" }], target),
+    ).toThrow("CANONICAL_COMMAND_LINK_MISMATCH");
+  });
+
+  it("confirms an explicit in-flight command without exposing provider detail", async () => {
+    let update: unknown;
+    const tx = {
+      callCenterCommand: {
+        findMany: async () => [],
+        findUnique: async () => command,
+        updateMany: async (input: unknown) => {
+          update = input;
+          return { count: 1 };
+        },
+      },
+      callCenterEvent: {
+        create: async () => ({ revision: BigInt(2) }),
+        findMany: async () => [],
+      },
+    };
+
+    await confirmProviderCommand(
+      tx as never,
+      {
+        ...fact({
+          canonicalCallId: "call-1",
+          canonicalLegId: "leg-1",
+          providerCommandId: "command-1",
+        }),
+        callObservation: "RINGING",
+        legKind: "AGENT",
+        legObservation: "RINGING",
+      },
+      target,
+    );
+
+    expect(update).toMatchObject({
+      data: { errorCode: null, nextAttemptAt: null, status: "CONFIRMED" },
+      where: { id: "command-1", status: { in: ["SENDING", "SENT", "FAILED"] } },
+    });
+  });
+
+  it("uses exact-leg fallback and rejects ambiguous missing command IDs", async () => {
+    const tx = {
+      callCenterCommand: {
+        findMany: async () => [command, { ...command, id: "command-2" }],
+        findUnique: async () => null,
+        updateMany: async () => ({ count: 0 }),
+      },
+    };
+
+    await expect(
+      confirmProviderCommand(
+        tx as never,
+        {
+          ...fact({ legKind: "AGENT", providerCommandId: null }),
+          callObservation: "RINGING",
+          legKind: "AGENT",
+          legObservation: "RINGING",
+        },
+        target,
+      ),
+    ).rejects.toThrow("CANONICAL_COMMAND_CORRELATION_AMBIGUOUS");
+  });
+
+  it("ignores unknown legacy IDs but rejects an unknown canonical command", async () => {
+    const tx = {
+      callCenterCommand: {
+        findMany: async () => [],
+        findUnique: async () => null,
+        updateMany: async () => ({ count: 0 }),
+      },
+    };
+    const resolved = {
+      ...fact({ legKind: "AGENT", providerCommandId: "legacy-command" }),
+      callObservation: "RINGING" as const,
+      legKind: "AGENT" as const,
+      legObservation: "RINGING" as const,
+    };
+
+    await expect(confirmProviderCommand(tx as never, resolved, target)).resolves.toBe(
+      undefined,
+    );
+    await expect(
+      confirmProviderCommand(
+        tx as never,
+        {
+          ...resolved,
+          canonicalCallId: "call-1",
+          canonicalLegId: "leg-1",
+        },
+        target,
+      ),
+    ).rejects.toThrow("CANONICAL_COMMAND_NOT_FOUND");
   });
 });

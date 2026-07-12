@@ -87,8 +87,9 @@ open.
 6. Publish Phase 4A canonical command APIs and Phase 5A snapshot, ordered SSE,
    reducer, and media adapter in shadow. Do not activate either owner alone.
    Land the effect-free routing decision and operation-receipt primitives first.
-   Before moving a queue to `SHADOW`, add bounded recovery for active shadow
-   calls missing their immutable decision receipt. A shadow decision must never
+   Before moving a queue to `SHADOW`, verify the bounded recovery aggregate is
+   zero for active shadow calls missing their immutable decision receipt. A
+   recovered decision is labeled `RECOVERY`, and a shadow decision must never
    create a `CallCenterCommand` row.
 7. Activate Phase 4B routing and Phase 5B frontend together for optical. Repeat
    for South Florida and then other queues only after every gate below passes.
@@ -127,6 +128,9 @@ before expanding a queue or tenant.
 - Keep generic command production and canonical activation blocked; queues stay
   `LEGACY` or decision-only `SHADOW`. Telnyx callbacks may omit `command_id`, so
   command ID matching cannot be the only confirmation path.
+- Keep `CALL_CENTER_CANONICAL_COMMAND_DISPATCH_ENABLED=false` until canonical
+  operations create reviewed commands and the coordinated `ACTIVE` cutover is
+  approved. The persistence boundary must still reject non-`ACTIVE` queues.
 - Before activation, persist the command-to-leg relationship and provider call
   identifiers, then prove callbacks correlate to exactly one stored leg by
   provider ID even when `command_id` is absent, duplicated, or delivered out of
@@ -141,14 +145,19 @@ before expanding a queue or tenant.
 
 ### UI and command convergence
 
+- Send the same canonical `clientInstanceId` to snapshot, stream, and endpoint
+  lease APIs. Reject a missing identity rather than selecting another tab.
+- Listen only for `projection`, `cursor`, and `reset` SSE events. Apply domain
+  types from the projection payload; do not enumerate provider event names.
 - One user action keeps one HTTP idempotency key across retry and remount. A
   duplicate for the same target returns the original operation receipt; reuse
   for another target returns a conflict.
 - One accepted operation creates at most one intended provider command. The
   operation receipt and provider-effect idempotency key are separate facts.
 - `Take` and transfer remain `Connecting` until a canonical event or snapshot
-  reports `ACTIVE` or `FAILED`. Request completion and browser media state do
-  not clear the pending state.
+  reports the intended leg `BRIDGED` and call `CONNECTED`, or the durable
+  operation `FAILED`. Request completion and browser media state do not clear
+  the pending state.
 - Snapshot and its global event high-water cursor come from one consistent read.
   Tenant-filtered revision gaps are normal; reconnect resumes with
   `Last-Event-ID` and resets only outside retention or on an unsafe delta.
