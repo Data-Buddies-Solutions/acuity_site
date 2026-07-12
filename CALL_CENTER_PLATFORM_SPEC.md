@@ -897,7 +897,7 @@ applied safely.
 - `POST /api/portal/call-center/agent-sessions`
   - check in to an endpoint;
   - acquire the endpoint lease;
-  - return an agent-session ID and short-lived WebRTC JWT.
+  - return the agent-session ID and lease state without provider credentials.
 - `PATCH /api/portal/call-center/agent-sessions/:id`
   - heartbeat presence and provider connection state.
 - `DELETE /api/portal/call-center/agent-sessions/:id`
@@ -908,13 +908,16 @@ the provider-ready event. PATCH requires the last acknowledged `stateVersion`
 and rejects stale updates, so delayed ready notifications cannot overwrite a
 newer failure. Lease expiry still handles abrupt browser loss.
 The lease is 60 seconds. Acquisition locks the endpoint row, closes expired live
-sessions, commits the session and sanitized event together, and only then mints
-the short-lived provider token. Same-user, same-client live acquisition returns
-the existing session without a mutation or duplicate event; heartbeat PATCH owns
-lease renewal. A fresh different-client lease returns `409`. The client ID is
-session-storage-only, and a browser `BroadcastChannel` claim regenerates copied
-new-tab identities before POST. The wire serializer maps database `ERROR` and
-`CLOSED` connection states to `FAILED` and `DISCONNECTED`.
+sessions, and commits the session and sanitized event together. It does not mint
+provider credentials. Phase 5B must add a separate session-bound credential
+endpoint before canonical media becomes active; this preserves the session ID
+and an immediate release path if the provider call fails. Same-user, same-client
+live acquisition returns the existing session without a mutation or duplicate
+event; heartbeat PATCH owns lease renewal. A fresh different-client lease
+returns `409`. The client ID is session-storage-only, and a browser
+`BroadcastChannel` claim regenerates copied new-tab identities before POST. The
+wire serializer maps database `ERROR` and `CLOSED` connection states to `FAILED`
+and `DISCONNECTED`.
 
 ### Call commands
 
@@ -1188,7 +1191,7 @@ answer, bridge, hangup, playback, and recording events.
 - command retry reuses one provider command ID;
 - deadline worker advances abandoned, voicemail, and wrap-up calls;
 - queue and location authorization;
-- short-lived endpoint token issuance; and
+- session-bound endpoint token issuance without a hidden committed lease; and
 - voicemail authorization.
 
 ### Provider contract tests

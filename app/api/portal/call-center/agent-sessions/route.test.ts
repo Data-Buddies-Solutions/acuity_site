@@ -74,20 +74,15 @@ describe("canonical agent-session route", () => {
     expect(await response.json()).toEqual({ error: "Unauthorized" });
   });
 
-  it("commits acquisition before minting a token", async () => {
-    const order: string[] = [];
+  it("returns the committed lease without provider credentials", async () => {
+    let acquired = false;
     const acquire: typeof acquireAgentSession = async () => {
-      order.push("committed");
+      acquired = true;
       return acquisition();
     };
     const { POST } = createAgentSessionHandlers({
       acquire,
       clock: () => now,
-      createToken: async (credentialId) => {
-        expect(credentialId).toBe("credential-1");
-        order.push("token");
-        return "short-lived-token";
-      },
       getContext: context,
     });
     const response = await POST(
@@ -98,40 +93,16 @@ describe("canonical agent-session route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(order).toEqual(["committed", "token"]);
+    expect(acquired).toBe(true);
     const body = await response.json();
-    expect(body).toMatchObject({
-      callerNumber: "+17865550100",
-      endpoint: { id: "seat-legacy-id", label: "Optical" },
+    expect(body).toEqual({
       leaseDurationMs: 60_000,
-      session: { clientInstanceId: "browser-1", stateVersion: 0 },
-      token: "short-lived-token",
+      session: expect.objectContaining({
+        clientInstanceId: "browser-1",
+        stateVersion: 0,
+      }),
     });
     expect(body.session.browserSessionId).toBeUndefined();
-  });
-
-  it("does not mint a token when acquisition fails", async () => {
-    let tokenCalls = 0;
-    const acquire: typeof acquireAgentSession = async () => {
-      throw new AgentSessionError("Queue membership is required", 403);
-    };
-    const { POST } = createAgentSessionHandlers({
-      acquire,
-      createToken: async () => {
-        tokenCalls += 1;
-        return "token";
-      },
-      getContext: context,
-    });
-    const response = await POST(
-      request("POST", {
-        clientInstanceId: "browser-1",
-        endpointId: "seat-legacy-id",
-      }),
-    );
-
-    expect(response.status).toBe(403);
-    expect(tokenCalls).toBe(0);
   });
 
   it("accepts only the canonical clientInstanceId wire field", async () => {
