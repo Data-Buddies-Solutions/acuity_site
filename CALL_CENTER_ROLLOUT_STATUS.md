@@ -109,6 +109,14 @@ passes 472 tests, and CI plus the Vercel preview are green. It has no migration
 or environment-variable change. `ACTIVE` remains rejected and dispatch remains
 disabled, so this PR cannot affect calls.
 
+Draft PR [#110](https://github.com/Data-Buddies-Solutions/acuity_site/pull/110)
+wakes a committed pending claim command through Next.js `after()` and shares
+one dispatcher composition with the recovery cron. Provider I/O remains outside
+the claim transaction and response, pending replays safely re-wake the same
+durable row, and any scheduling or callback failure leaves cron recovery intact.
+Local validation passes 476 tests and the production build. It has no migration
+or environment-variable change, and all production effect gates remain closed.
+
 Legacy routing and projections remain authoritative. Phase 3B has an independent
 passive projector recovery lane; canonical writes and checkpoint completion are
 transactional, and it cannot issue provider commands or write legacy
@@ -158,18 +166,18 @@ endpoints, and seven memberships.
 
 ## Release sequence
 
-| Release                  | Contents                                                     | Current state                   | Exit gate                                                           |
-| ------------------------ | ------------------------------------------------------------ | ------------------------------- | ------------------------------------------------------------------- |
-| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                   | Closed by migration recovery                                        |
-| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean | Complete                                                            |
-| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed      | Included in current observation gate                                |
-| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed      | Cross-profile synthetic call gate                                   |
-| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed      | Coordination gate failed on duplicate Take burst                    |
-| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                   | Normal, transfer, remount, and reconnect gates                      |
-| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed    | Empty aggregate report; live receipt pending                        |
-| Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102    | Enabled passively; observation gate remains                         |
-| Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | #103-#109 ready and green       | Build active operations/media/actions, then activate 4B/5B together |
-| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred     | Phases 0-6 complete and provider contract tests proven              |
+| Release                  | Contents                                                     | Current state                                 | Exit gate                                                           |
+| ------------------------ | ------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------- |
+| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                                 | Closed by migration recovery                                        |
+| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean               | Complete                                                            |
+| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed                    | Included in current observation gate                                |
+| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed                    | Cross-profile synthetic call gate                                   |
+| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed                    | Coordination gate failed on duplicate Take burst                    |
+| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                                 | Normal, transfer, remount, and reconnect gates                      |
+| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed                  | Empty aggregate report; live receipt pending                        |
+| Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102                  | Enabled passively; observation gate remains                         |
+| Coordinated call control | Idempotent commands, ordered SSE, reducer, and media adapter | #103-#109 ready; #110 draft and locally green | Build active operations/media/actions, then activate 4B/5B together |
+| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred                   | Phases 0-6 complete and provider contract tests proven              |
 
 ## Validation receipt
 
@@ -208,17 +216,20 @@ endpoints, and seven memberships.
   Vercel checks. PR #109 passes 472 tests locally, focused and
   full typecheck/lint/format validation, Prisma validation, and the optimized
   production build. It has no migration or environment-variable change.
+- PR #110 passes 476 tests locally, typecheck, lint, formatting, Prisma
+  validation, and the optimized production build. It has no migration or
+  environment-variable change.
 
 ## Next full-system test gate
 
 The complete redesigned call center is not testable yet. The safe sequence is:
 
-1. merge #103, #105, #106, #107, and #108 in order;
+1. merge #103, #105, #106, #107, #108, #109, and #110 in order;
 2. move a dedicated test queue to `SHADOW` and capture real projection,
    readiness, routing-decision, reconnect, and mismatch evidence while legacy
    still owns every effect;
 3. land the remaining implementation slices:
-   - manual claim and immediate post-commit dispatch;
+   - manual claim and immediate post-commit dispatch (#109/#110);
    - active inbound routing, first-bridge winner/loser handling, deadlines, and
      voicemail/failover;
    - transfer, outbound, disposition/tasks, and their durable operation status;
