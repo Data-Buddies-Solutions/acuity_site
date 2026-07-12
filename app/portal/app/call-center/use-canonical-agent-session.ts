@@ -16,10 +16,8 @@ export type CanonicalAgentSessionOptions = {
 };
 
 type AcquisitionResponse = {
-  callerNumber: string | null;
   leaseDurationMs: number;
   session: AgentSessionView;
-  token: string;
 };
 
 type SessionResponse = { session: AgentSessionView };
@@ -63,10 +61,8 @@ export function useCanonicalAgentSession({
   microphoneReady,
   presence,
 }: CanonicalAgentSessionOptions) {
-  const [callerNumber, setCallerNumber] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<AgentSessionView | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const activeRef = useRef<ActiveSession | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const identityRef = useRef({ clientInstanceId, endpointId });
@@ -202,9 +198,7 @@ export function useCanonicalAgentSession({
     clearHeartbeat();
     patchRequestedRef.current = false;
     if (mountedRef.current) {
-      setCallerNumber(null);
       setSession(null);
-      setToken(null);
     }
 
     const pending = release(active).finally(() => {
@@ -247,7 +241,10 @@ export function useCanonicalAgentSession({
       if (mountedRef.current) setError(null);
       try {
         const response = await fetch("/api/portal/call-center/agent-sessions", {
-          body: JSON.stringify({ clientInstanceId, endpointId }),
+          body: JSON.stringify({
+            clientInstanceId,
+            endpointId,
+          }),
           headers: { "Content-Type": "application/json" },
           method: "POST",
         });
@@ -271,9 +268,7 @@ export function useCanonicalAgentSession({
         }
 
         activeRef.current = active;
-        setCallerNumber(acquired.callerNumber);
         setSession(acquired.session);
-        setToken(acquired.token);
         patchReadiness();
       } catch (startError) {
         if (mountedRef.current) setError(message(startError));
@@ -287,8 +282,12 @@ export function useCanonicalAgentSession({
   }, [clientInstanceId, deactivate, endpointId, patchReadiness, release]);
 
   useEffect(() => {
+    if (presence === "OFFLINE") {
+      void stop();
+      return;
+    }
     patchReadiness();
-  }, [audioReady, connectionState, microphoneReady, patchReadiness, presence]);
+  }, [audioReady, connectionState, microphoneReady, patchReadiness, presence, stop]);
 
   useEffect(() => {
     const active = activeRef.current;
@@ -312,5 +311,5 @@ export function useCanonicalAgentSession({
     };
   }, [release]);
 
-  return { callerNumber, error, session, start, stop, token };
+  return { error, session, start, stop };
 }

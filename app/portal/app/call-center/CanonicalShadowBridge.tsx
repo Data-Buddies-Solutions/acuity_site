@@ -82,7 +82,7 @@ function ConnectedCanonicalShadowBridge({
   const shadowActive = realtime.state?.queue.routingMode === "SHADOW";
 
   useEffect(() => {
-    if (endpointId && shadowActive) {
+    if (endpointId && presence !== "OFFLINE" && shadowActive) {
       void start();
     } else {
       void stop();
@@ -91,7 +91,7 @@ function ConnectedCanonicalShadowBridge({
     return () => {
       void stop();
     };
-  }, [endpointId, shadowActive, start, stop]);
+  }, [endpointId, presence, shadowActive, start, stop]);
 
   if (realtime.state && !shadowActive) return null;
   if (realtime.error || error) {

@@ -217,6 +217,8 @@ export function applyProjectionEvent(
       );
       return { ...advanced, operations: [...operations, delta.operation] };
     }
+    default:
+      return requestSnapshotReset(state, "UNAPPLICABLE_DELTA");
   }
 }
 

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useReducer } from "react";
 import {
   applyCursor,
   applyProjectionEvent,
+  CALL_CENTER_SCHEMA_VERSION,
   createRealtimeState,
   markRealtimeReconnecting,
   requestSnapshotReset,
@@ -13,6 +14,7 @@ import {
   type CallCenterSnapshot,
   type ProjectionEvent,
 } from "@/lib/call-center/realtime-contract";
+import { parseRevision } from "@/lib/call-center/realtime";
 
 type HookState = {
   error: Error | null;
@@ -118,6 +120,102 @@ function requestUrl(path: string, parameters: Record<string, string>) {
   return `${path}?${new URLSearchParams(parameters)}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function hasId(value: unknown): value is Record<string, unknown> & { id: string } {
+  return isRecord(value) && typeof value.id === "string";
+}
+
+function hasVersion(value: unknown) {
+  return hasId(value) && Number.isInteger(value.stateVersion);
+}
+
+function isCounts(value: unknown) {
+  return (
+    isRecord(value) &&
+    ["active", "openTasks", "recent", "waiting"].every(
+      (key) => Number.isInteger(value[key]) && Number(value[key]) >= 0,
+    )
+  );
+}
+
+function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapshot {
+  if (!isRecord(value) || value.schemaVersion !== CALL_CENTER_SCHEMA_VERSION) {
+    return false;
+  }
+  if (typeof value.revision !== "string" || parseRevision(value.revision) === null) {
+    return false;
+  }
+  if (
+    !isRecord(value.queue) ||
+    value.queue.id !== queueId ||
+    !["ACTIVE", "LEGACY", "SHADOW"].includes(String(value.queue.routingMode))
+  ) {
+    return false;
+  }
+  return (
+    isCounts(value.counts) &&
+    Array.isArray(value.availableQueues) &&
+    value.availableQueues.every(hasId) &&
+    Array.isArray(value.calls) &&
+    value.calls.every(hasVersion) &&
+    Array.isArray(value.endpoints) &&
+    value.endpoints.every(hasId) &&
+    Array.isArray(value.tasks) &&
+    value.tasks.every(hasId) &&
+    (value.agentSession === null || hasVersion(value.agentSession)) &&
+    (value.operations === null ||
+      (Array.isArray(value.operations) &&
+        value.operations.every(
+          (operation) =>
+            isRecord(operation) && typeof operation.operationEventRevision === "string",
+        )))
+  );
+}
+
+function isProjection(value: unknown): value is ProjectionEvent {
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== CALL_CENTER_SCHEMA_VERSION ||
+    typeof value.revision !== "string" ||
+    parseRevision(value.revision) === null ||
+    typeof value.aggregateId !== "string" ||
+    !["AGENT_SESSION", "CALL", "COMMAND", "CONFIGURATION", "TASK"].includes(
+      String(value.aggregateType),
+    ) ||
+    !Number.isInteger(value.stateVersion) ||
+    Number(value.stateVersion) < 0 ||
+    !isRecord(value.delta) ||
+    (value.counts !== undefined && !isCounts(value.counts))
+  ) {
+    return false;
+  }
+
+  switch (value.delta.kind) {
+    case "AGENT_SESSION_REMOVE":
+      return typeof value.delta.sessionId === "string";
+    case "AGENT_SESSION_UPSERT":
+      return hasVersion(value.delta.session);
+    case "CALL_REMOVE":
+      return typeof value.delta.callId === "string";
+    case "CALL_UPSERT":
+      return hasVersion(value.delta.call);
+    case "OPERATION_UPSERT":
+      return (
+        isRecord(value.delta.operation) &&
+        typeof value.delta.operation.operationEventRevision === "string"
+      );
+    case "TASK_REMOVE":
+      return typeof value.delta.taskId === "string";
+    case "TASK_UPSERT":
+      return hasId(value.delta.task);
+    default:
+      return false;
+  }
+}
+
 export type UseCanonicalCallCenterOptions = {
   clientInstanceId: string;
   queueId: string;
@@ -163,7 +261,11 @@ export function useCanonicalCallCenter({
           throw new Error(`Failed to load call center (${response.status})`);
         }
 
-        const snapshot = (await response.json()) as CallCenterSnapshot;
+        const data: unknown = await response.json();
+        if (!isSnapshot(data, queueId)) {
+          throw new Error("Call center returned an incompatible snapshot");
+        }
+        const snapshot = data;
         if (!active) return;
         dispatch({ type: "snapshot", snapshot });
 
@@ -184,10 +286,9 @@ export function useCanonicalCallCenter({
         source.addEventListener("projection", (event) => {
           if (!active) return;
           try {
-            dispatch({
-              type: "projection",
-              event: messageData(event) as ProjectionEvent,
-            });
+            const data = messageData(event);
+            if (!isProjection(data)) throw new Error("Incompatible projection");
+            dispatch({ type: "projection", event: data });
           } catch {
             reset("UNAPPLICABLE_DELTA");
           }
@@ -200,7 +301,8 @@ export function useCanonicalCallCenter({
               typeof data !== "object" ||
               data === null ||
               !("revision" in data) ||
-              typeof data.revision !== "string"
+              typeof data.revision !== "string" ||
+              parseRevision(data.revision) === null
             ) {
               throw new Error("Canonical cursor has no revision");
             }

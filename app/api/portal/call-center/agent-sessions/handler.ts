@@ -18,9 +18,7 @@ import {
   updateAgentSessionReadiness,
 } from "@/lib/call-center/application/agent-sessions";
 import { prismaAgentSessionStore } from "@/lib/call-center/infrastructure/prisma-agent-session-store";
-import { getAllowedCallCenterOutboundPhoneNumbers } from "@/lib/call-center";
 import { serializeAgentSessionView } from "@/lib/call-center/domain/agent-session-wire";
-import { createTelnyxLoginToken } from "@/lib/telnyx";
 
 const identitySchema = z.object({
   clientInstanceId: z.string().trim().min(1).max(200),
@@ -39,14 +37,10 @@ const releaseSchema = identitySchema.extend({
 const paramsSchema = z.object({ sessionId: z.string().trim().min(1).max(200) });
 
 type RouteContext = { params: Promise<{ sessionId: string }> };
-type RequestContext = {
-  actor: AgentSessionActor;
-  callerNumber: string | null;
-};
+type RequestContext = { actor: AgentSessionActor };
 type AgentSessionHandlersDependencies = {
   acquire?: typeof acquireAgentSession;
   clock?: () => Date;
-  createToken?: typeof createTelnyxLoginToken;
   getContext?: () => Promise<RequestContext>;
   release?: typeof releaseAgentSession;
   updateReadiness?: typeof updateAgentSessionReadiness;
@@ -61,9 +55,6 @@ async function getRequestContext(): Promise<RequestContext> {
       practiceId: context.practice.id,
       userId: context.session.user.id,
     },
-    callerNumber:
-      getAllowedCallCenterOutboundPhoneNumbers(context)[0]?.phoneNumber ??
-      context.practice.callCenterSettings.outboundCallerNumber,
   };
 }
 
@@ -74,7 +65,6 @@ async function readSessionId(routeContext: RouteContext) {
 export function createAgentSessionHandlers({
   acquire = acquireAgentSession,
   clock = () => new Date(),
-  createToken = createTelnyxLoginToken,
   getContext = getRequestContext,
   release = releaseAgentSession,
   updateReadiness = updateAgentSessionReadiness,
@@ -90,15 +80,9 @@ export function createAgentSessionHandlers({
         clock(),
       );
 
-      // The lease and audit event commit before this external provider call.
-      const token = await createToken(acquired.endpoint.providerCredentialId);
-
       return NextResponse.json({
-        callerNumber: context.callerNumber,
-        endpoint: { id: acquired.endpoint.id, label: acquired.endpoint.label },
         leaseDurationMs: AGENT_SESSION_LEASE_MS,
         session: serializeAgentSessionView(acquired.session),
-        token,
       });
     },
     {

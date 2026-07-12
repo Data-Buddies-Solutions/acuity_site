@@ -41,7 +41,7 @@ class FakeEventSource {
 const originalEventSource = globalThis.EventSource;
 const originalFetch = globalThis.fetch;
 
-function snapshot(revision = "10"): CallCenterSnapshot {
+function snapshot(revision = "10", queueId = "queue-1"): CallCenterSnapshot {
   return {
     agentSession: null,
     availableQueues: [{ id: "queue-1", name: "Optical" }],
@@ -50,7 +50,7 @@ function snapshot(revision = "10"): CallCenterSnapshot {
     endpoints: [],
     operations: null,
     queue: {
-      id: "queue-1",
+      id: queueId,
       maxWaitSec: 30,
       name: "Optical",
       ringTimeoutSec: 20,
@@ -181,6 +181,46 @@ describe("useCanonicalCallCenter", () => {
     expect(sources).toHaveLength(1);
   });
 
+  it("fails closed on an incompatible snapshot", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ ...snapshot(), schemaVersion: 2 }),
+    ) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
+    );
+
+    await waitFor(() =>
+      expect(result.current.error?.message).toBe(
+        "Call center returned an incompatible snapshot",
+      ),
+    );
+    expect(result.current.state).toBeNull();
+    expect(sources).toHaveLength(0);
+  });
+
+  it("resets instead of applying an unknown projection delta", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return Response.json(snapshot(requestCount === 1 ? "10" : "20"));
+    }) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
+    );
+    await waitFor(() => expect(sources).toHaveLength(1));
+
+    act(() =>
+      sources[0]?.emit("projection", {
+        ...projection("11"),
+        delta: { kind: "FUTURE_DELTA" },
+      }),
+    );
+
+    expect(sources[0]?.closeCount).toBe(1);
+    await waitFor(() => expect(result.current.state?.revision).toBe("20"));
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("aborts an obsolete snapshot request when its identity changes", async () => {
     let firstSignal: AbortSignal | undefined;
     let resolveFirst: ((response: Response) => void) | undefined;
@@ -191,7 +231,7 @@ describe("useCanonicalCallCenter", () => {
           resolveFirst = resolve;
         });
       }
-      return Promise.resolve(Response.json(snapshot("50")));
+      return Promise.resolve(Response.json(snapshot("50", "queue-2")));
     }) as unknown as typeof fetch;
     const { result, rerender } = renderHook(
       ({ queueId }) => useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId }),

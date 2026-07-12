@@ -6,8 +6,9 @@ legacy call routing, ringing, presence, or Take ownership.
 ## Contract
 
 - `POST /api/portal/call-center/agent-sessions` acquires a 60-second endpoint
-  lease and then returns a short-lived Telnyx token. An exact live replay returns
-  the existing session without mutating it or appending another event.
+  lease and returns its canonical session. An exact live replay returns the
+  existing session without mutating it or appending another event. Provider
+  credentials are deliberately outside this transaction.
 - `PATCH /api/portal/call-center/agent-sessions/:sessionId` heartbeats the lease
   with explicit provider connection, microphone, browser-audio, and presence
   state plus the last acknowledged `expectedStateVersion`.
@@ -49,9 +50,9 @@ identity copied when a new tab is opened and regenerates the second tab's ID
 before check-in, causing an attempted shared endpoint to receive the server's
 normal `409` lease conflict.
 
-Telnyx token creation runs only after the lease transaction commits. A provider
-token failure therefore cannot create an untracked browser credential; the
-session remains non-available until an explicit successful readiness update.
+The passive lease route does not mint Telnyx credentials. The coordinated media
+cutover must use a separate session-bound credential endpoint so a provider
+failure cannot hide a committed lease from the browser that must release it.
 Database `ERROR` and `CLOSED` states serialize to realtime `FAILED` and
 `DISCONNECTED`; database enum names do not leak into the canonical contract.
 
@@ -60,4 +61,6 @@ Database `ERROR` and `CLOSED` states serialize to realtime `FAILED` and
 These routes are passive foundations. The current legacy presence API and
 routing engine remain the only production effect owners until the coordinated
 backend/frontend cutover. Do not wire the UI to canonical availability in a
-separate deployment from canonical snapshot and routing ownership.
+separate deployment from canonical snapshot and routing ownership. The SHADOW
+shell may mirror legacy readiness into this lease, but it must not request
+provider credentials or create another media owner.

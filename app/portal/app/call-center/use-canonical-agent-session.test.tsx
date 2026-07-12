@@ -23,10 +23,8 @@ function agentSession(stateVersion = 0): AgentSessionView {
 
 function acquisition() {
   return Response.json({
-    callerNumber: "+17865550100",
     leaseDurationMs: 60_000,
     session: agentSession(),
-    token: "short-lived-token",
   });
 }
 
@@ -51,7 +49,7 @@ describe("useCanonicalAgentSession", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("acquires explicitly and publishes the canonical credentials", async () => {
+  it("acquires explicitly without requesting provider credentials", async () => {
     const { result } = renderHook(() =>
       useCanonicalAgentSession({
         audioReady: true,
@@ -67,11 +65,7 @@ describe("useCanonicalAgentSession", () => {
     await act(() => result.current.start());
 
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
-    expect(result.current).toMatchObject({
-      callerNumber: "+17865550100",
-      error: null,
-      token: "short-lived-token",
-    });
+    expect(result.current.error).toBeNull();
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       1,
       "/api/portal/call-center/agent-sessions",
@@ -194,7 +188,34 @@ describe("useCanonicalAgentSession", () => {
       },
     });
     expect(result.current.session).toBeNull();
-    expect(result.current.token).toBeNull();
+  });
+
+  it("releases the lease instead of heartbeating an offline station", async () => {
+    const methods: string[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      methods.push(init?.method ?? "GET");
+      if (init?.method === "POST") return acquisition();
+      return Response.json({ session: agentSession(1) });
+    }) as unknown as typeof fetch;
+    const { result, rerender } = renderHook(
+      ({ presence }) =>
+        useCanonicalAgentSession({
+          audioReady: presence === "AVAILABLE",
+          clientInstanceId: "browser-1",
+          connectionState: presence === "AVAILABLE" ? "READY" : "CONNECTING",
+          endpointId: "endpoint-1",
+          microphoneReady: presence === "AVAILABLE",
+          presence,
+        }),
+      { initialProps: { presence: "AVAILABLE" as AgentSessionView["presence"] } },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(methods).toEqual(["POST", "PATCH"]));
+    rerender({ presence: "OFFLINE" });
+
+    await waitFor(() => expect(methods).toEqual(["POST", "PATCH", "DELETE"]));
+    expect(result.current.session).toBeNull();
   });
 
   it("best-effort releases the active lease when unmounted", async () => {
@@ -252,7 +273,6 @@ describe("useCanonicalAgentSession", () => {
     await act(() => starting);
     await waitFor(() => expect(methods).toEqual(["POST", "DELETE"]));
     expect(result.current.session).toBeNull();
-    expect(result.current.token).toBeNull();
   });
 
   it("starts the newly selected endpoint after a stale acquisition finishes", async () => {
@@ -267,14 +287,12 @@ describe("useCanonicalAgentSession", () => {
         postEndpoints.push(body.endpointId ?? "");
         if (postEndpoints.length === 1) return firstPost.promise;
         return Response.json({
-          callerNumber: "+17865550100",
           leaseDurationMs: 60_000,
           session: {
             ...agentSession(),
             endpointId: "endpoint-2",
             id: "session-2",
           },
-          token: "second-token",
         });
       }
       return Response.json({
