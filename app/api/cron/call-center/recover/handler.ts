@@ -1,4 +1,5 @@
-import { recoverProviderWebhooks } from "@/lib/call-center/application/recover-provider-webhooks";
+import { recoverCallCenter } from "@/lib/call-center/application/recover-call-center";
+import { InvalidCanonicalCommandDispatchConfigError } from "@/lib/call-center/infrastructure/command-dispatch-config";
 import { InvalidCanonicalProjectionConfigError } from "@/lib/call-center/infrastructure/canonical-projection-config";
 import { InvalidDurableWebhookIngressConfigError } from "@/lib/call-center/infrastructure/durable-ingress-config";
 import { createLogger } from "@/lib/logger";
@@ -9,12 +10,12 @@ type Environment = Record<string, string | undefined>;
 
 type RecoveryHandlerDependencies = {
   environment?: Environment;
-  recover?: typeof recoverProviderWebhooks;
+  recover?: typeof recoverCallCenter;
 };
 
 export function createCallCenterRecoveryHandler({
   environment = process.env,
-  recover = recoverProviderWebhooks,
+  recover = recoverCallCenter,
 }: RecoveryHandlerDependencies = {}) {
   return async function GET(request: Request) {
     const secret = environment.CRON_SECRET?.trim();
@@ -35,7 +36,8 @@ export function createCallCenterRecoveryHandler({
         {
           status:
             error instanceof InvalidDurableWebhookIngressConfigError ||
-            error instanceof InvalidCanonicalProjectionConfigError
+            error instanceof InvalidCanonicalProjectionConfigError ||
+            error instanceof InvalidCanonicalCommandDispatchConfigError
               ? 503
               : 500,
         },

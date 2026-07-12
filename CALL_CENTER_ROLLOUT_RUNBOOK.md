@@ -128,6 +128,9 @@ before expanding a queue or tenant.
 - Keep generic command production and canonical activation blocked; queues stay
   `LEGACY` or decision-only `SHADOW`. Telnyx callbacks may omit `command_id`, so
   command ID matching cannot be the only confirmation path.
+- Keep `CALL_CENTER_CANONICAL_COMMAND_DISPATCH_ENABLED=false` until canonical
+  operations create reviewed commands and the coordinated `ACTIVE` cutover is
+  approved. The persistence boundary must still reject non-`ACTIVE` queues.
 - Before activation, persist the command-to-leg relationship and provider call
   identifiers, then prove callbacks correlate to exactly one stored leg by
   provider ID even when `command_id` is absent, duplicated, or delivered out of
