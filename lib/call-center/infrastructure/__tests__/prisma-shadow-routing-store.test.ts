@@ -41,8 +41,11 @@ describe("Prisma shadow routing store", () => {
         },
       },
       callCenterCall: {
-        findFirst: async () => {
+        findFirst: async (query: {
+          select: { queue: { select: { members: { where: unknown } } } };
+        }) => {
           operations.push("call.findFirst");
+          expect(query.select.queue.select.members.where).toEqual({ role: "AGENT" });
           return {
             direction: "INBOUND",
             id: "call-1",

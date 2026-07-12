@@ -75,7 +75,10 @@ class PrismaShadowRoutingTransaction implements ShadowRoutingTransaction {
             enabled: true,
             id: true,
             locations: { select: { locationId: true } },
-            members: { select: { enabled: true, userId: true } },
+            members: {
+              select: { enabled: true, userId: true },
+              where: { role: "AGENT" },
+            },
             routingMode: true,
           },
         },
