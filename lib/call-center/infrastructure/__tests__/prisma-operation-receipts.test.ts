@@ -9,9 +9,11 @@ import {
 describe("Prisma durable operation receipts", () => {
   it("locks the key and commits the operation receipt through one transaction", async () => {
     const operations: string[] = [];
+    let lockKey: unknown;
     const transaction = {
-      $queryRaw: async () => {
+      $queryRaw: async (query: { values: unknown[] }) => {
         operations.push("receipt.lock");
+        [lockKey] = query.values;
         return [{ pg_advisory_xact_lock: null }];
       },
       callCenterEvent: {
@@ -72,5 +74,7 @@ describe("Prisma durable operation receipts", () => {
       "command.create",
       "receipt.create",
     ]);
+    expect(lockKey).toBe('["practice-1","CALL_CLAIM_REQUESTED","request-1"]');
+    expect(String(lockKey)).not.toContain("\u0000");
   });
 });
