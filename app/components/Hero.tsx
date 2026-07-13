@@ -49,7 +49,7 @@ export default function Hero() {
           <div className="mt-6 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row sm:gap-4 md:mt-7 lg:mt-8">
             <Button
               asChild
-              className="marketing-cta w-full rounded-[4px] bg-[#172033] px-5 py-3 text-[12px] font-medium tracking-[0.11em] shadow-[0_18px_42px_rgba(23,32,51,0.18)] transition-colors hover:bg-[#22304a] sm:w-auto md:px-6"
+              className="w-full rounded-[4px] bg-[#172033] px-5 py-3 text-sm font-semibold shadow-[0_18px_42px_rgba(23,32,51,0.18)] transition-colors hover:bg-[#22304a] sm:w-auto md:px-6"
               size="default"
               variant="default"
             >
@@ -63,7 +63,7 @@ export default function Hero() {
               </a>
             </Button>
             <BookCallButton
-              className="marketing-cta w-full rounded-[4px] border border-[#d4dae3] bg-white px-5 py-3 text-[12px] font-medium tracking-[0.11em] text-[#172033] shadow-sm transition-colors hover:border-[#bdc7d7] hover:bg-[#f7f8fb] sm:w-auto md:px-6"
+              className="w-full rounded-[4px] border border-[#d4dae3] bg-white px-5 py-3 text-sm font-semibold text-[#172033] shadow-sm transition-colors hover:border-[#bdc7d7] hover:bg-[#f7f8fb] sm:w-auto md:px-6"
               iconVariant="none"
               size="default"
               variant="secondary"

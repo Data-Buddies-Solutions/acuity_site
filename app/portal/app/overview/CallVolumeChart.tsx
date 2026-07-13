@@ -40,17 +40,24 @@ function ChartTooltip({
   );
 }
 
-export default function CallVolumeChart({ points }: { points: PortalCallVolumePoint[] }) {
+export default function CallVolumeChart({
+  points,
+  totalMinutes,
+}: {
+  points: PortalCallVolumePoint[];
+  totalMinutes: string;
+}) {
   const tickInterval = points.length > 12 ? Math.ceil(points.length / 8) - 1 : 0;
 
   return (
-    <div className="rounded-xl border border-[var(--portal-border-strong)] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.04)] transition duration-150 hover:border-[#b9c4dd] hover:shadow-[0_2px_4px_rgba(16,24,40,0.06),0_16px_34px_rgba(16,24,40,0.08)]">
-      <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold tracking-normal text-[var(--portal-ink)]">
-          Call Volume
-        </h3>
+    <div className="flex h-full min-h-0 flex-col p-5 lg:p-6">
+      <div>
+        <h2 className="text-base font-semibold text-[var(--portal-ink)]">Call volume</h2>
+        <p className="mt-1 text-xs text-[var(--portal-muted)]">
+          {totalMinutes} minutes handled
+        </p>
       </div>
-      <div className="mt-4 h-52 min-w-0">
+      <div className="mt-3 min-h-48 min-w-0 flex-1">
         <ResponsiveContainer height="100%" minWidth={0} width="100%">
           <BarChart data={points} margin={{ bottom: 4, left: 0, right: 12, top: 10 }}>
             <CartesianGrid stroke="#edf0f5" strokeDasharray="3 3" vertical={false} />
