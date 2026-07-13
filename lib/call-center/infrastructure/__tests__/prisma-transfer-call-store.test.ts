@@ -71,6 +71,7 @@ function database({
   };
 
   const transaction = {
+    $executeRaw: async () => 1,
     $queryRaw: async () => [],
     callCenterAgentSession: {
       findMany: async () => [targetSession],
