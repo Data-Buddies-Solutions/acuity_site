@@ -35,10 +35,7 @@ describe("canonical transfer route", () => {
       },
     });
 
-    const response = await POST(
-      request({ targetEndpointId: "target-endpoint-1" }),
-      routeContext,
-    );
+    const response = await POST(request({ targetUserId: "target-user-1" }), routeContext);
 
     expect(response.status).toBe(409);
     expect(calls).toBe(0);
@@ -64,14 +61,15 @@ describe("canonical transfer route", () => {
           stateVersion: 8,
           status: "PENDING",
           targetAgentSessionId: "target-session-1",
-          targetEndpointId: input.targetEndpointId,
+          targetEndpointId: "target-endpoint-1",
           targetLegId: "target-leg-1",
+          targetUserId: input.targetUserId,
         };
       },
     });
 
     const response = await POST(
-      request({ targetEndpointId: " target-endpoint-1 " }),
+      request({ targetUserId: " target-user-1 " }),
       routeContext,
     );
     expect(response.status).toBe(202);
@@ -80,7 +78,7 @@ describe("canonical transfer route", () => {
       input: {
         callId: "call-1",
         idempotencyKey: "transfer-1",
-        targetEndpointId: "target-endpoint-1",
+        targetUserId: "target-user-1",
       },
     });
     expect(scheduled).toEqual(["command-1"]);
@@ -105,12 +103,10 @@ describe("canonical transfer route", () => {
         targetAgentSessionId: "target-session-1",
         targetEndpointId: "target-endpoint-1",
         targetLegId: "target-leg-1",
+        targetUserId: "target-user-1",
       }),
     });
-    const response = await POST(
-      request({ targetEndpointId: "target-endpoint-1" }),
-      routeContext,
-    );
+    const response = await POST(request({ targetUserId: "target-user-1" }), routeContext);
     expect(response.status).toBe(200);
     expect(scheduled).toEqual([]);
   });
@@ -134,13 +130,11 @@ describe("canonical transfer route", () => {
         targetAgentSessionId: "target-session-1",
         targetEndpointId: "target-endpoint-1",
         targetLegId: "target-leg-1",
+        targetUserId: "target-user-1",
       }),
     });
 
-    const response = await POST(
-      request({ targetEndpointId: "target-endpoint-1" }),
-      routeContext,
-    );
+    const response = await POST(request({ targetUserId: "target-user-1" }), routeContext);
 
     expect(response.status).toBe(200);
     expect(scheduled).toEqual(["command-1"]);
@@ -157,12 +151,12 @@ describe("canonical transfer route", () => {
       },
     });
     const invalidBody = await POST(
-      request({ practiceId: "practice-2", targetEndpointId: "endpoint-1" }),
+      request({ practiceId: "practice-2", targetUserId: "user-1" }),
       routeContext,
     );
     const missingKey = await POST(
       new Request("https://example.test/transfer", {
-        body: JSON.stringify({ targetEndpointId: "endpoint-1" }),
+        body: JSON.stringify({ targetUserId: "user-1" }),
         headers: { "content-type": "application/json" },
         method: "POST",
       }),

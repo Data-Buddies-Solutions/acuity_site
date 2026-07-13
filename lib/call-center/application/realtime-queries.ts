@@ -240,6 +240,8 @@ export function serializeOperation(
           targetAgentSessionId: data.targetAgentSessionId,
           targetEndpointId: data.targetEndpointId,
           targetLegId: data.targetLegId,
+          targetUserId:
+            typeof data.targetUserId === "string" ? data.targetUserId : undefined,
         }
       : null;
   if (type === "CLAIM" && !claim) return null;
@@ -506,40 +508,61 @@ export async function readCallCenterSnapshot(
       const queueLocationIds = queue.locations.map(({ locationId }) => locationId);
       const callWhere = queueCallWhere(actor, queueId, queueLocationIds);
       const accessibleQueues = await listAccessibleQueues(actor, transaction);
-      const endpoints = await transaction.callCenterEndpoint.findMany({
-        orderBy: [{ label: "asc" }, { id: "asc" }],
+      const agentProfile = await transaction.callCenterEndpoint.findFirst({
         select: { enabled: true, id: true, label: true, locationId: true },
-        where: endpointWhere(actor, queueLocationIds),
+        where: { ...endpointWhere(actor, queueLocationIds), userId: actor.userId },
       });
-      const endpointIds = endpoints.map(({ id }) => id);
-      const [highWater, agentSession, activeCalls, recentCalls, tasks, counts] =
-        await Promise.all([
-          transaction.callCenterEvent.aggregate({ _max: { revision: true } }),
-          transaction.callCenterAgentSession.findFirst({
-            orderBy: [{ lastHeartbeatAt: "desc" }, { id: "asc" }],
-            select: sessionSelect,
-            where: localAgentSessionWhere(actor, endpointIds, clientInstanceId, now),
-          }),
-          transaction.callCenterCall.findMany({
-            orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
-            select: callSelect,
-            take: 100,
-            where: { ...callWhere, status: { in: [...ACTIVE_CALL_STATUSES] } },
-          }),
-          transaction.callCenterCall.findMany({
-            orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
-            select: callSelect,
-            take: 50,
-            where: { ...callWhere, status: { in: [...TERMINAL_CALL_STATUSES] } },
-          }),
-          transaction.callCenterTask.findMany({
-            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-            select: taskSelect,
-            take: 100,
-            where: { call: callWhere, practiceId: actor.practiceId, status: "OPEN" },
-          }),
-          readOperationalCounts(transaction, callWhere, actor.practiceId),
-        ]);
+      const endpointIds = agentProfile ? [agentProfile.id] : [];
+      const [
+        highWater,
+        agentSession,
+        activeCalls,
+        recentCalls,
+        tasks,
+        counts,
+        targetMemberships,
+      ] = await Promise.all([
+        transaction.callCenterEvent.aggregate({ _max: { revision: true } }),
+        transaction.callCenterAgentSession.findFirst({
+          orderBy: [{ lastHeartbeatAt: "desc" }, { id: "asc" }],
+          select: sessionSelect,
+          where: localAgentSessionWhere(actor, endpointIds, clientInstanceId, now),
+        }),
+        transaction.callCenterCall.findMany({
+          orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
+          select: callSelect,
+          take: 100,
+          where: { ...callWhere, status: { in: [...ACTIVE_CALL_STATUSES] } },
+        }),
+        transaction.callCenterCall.findMany({
+          orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
+          select: callSelect,
+          take: 50,
+          where: { ...callWhere, status: { in: [...TERMINAL_CALL_STATUSES] } },
+        }),
+        transaction.callCenterTask.findMany({
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: taskSelect,
+          take: 100,
+          where: { call: callWhere, practiceId: actor.practiceId, status: "OPEN" },
+        }),
+        readOperationalCounts(transaction, callWhere, actor.practiceId),
+        transaction.callCenterQueueMember.findMany({
+          orderBy: [{ user: { name: "asc" } }, { userId: "asc" }],
+          select: { user: { select: { id: true, name: true } } },
+          where: {
+            enabled: true,
+            queueId,
+            role: "AGENT",
+            userId: { not: actor.userId },
+            user: {
+              callCenterEndpoints: {
+                some: endpointWhere(actor, queueLocationIds),
+              },
+            },
+          },
+        }),
+      ]);
       const callIds = [...activeCalls, ...recentCalls].map(({ id }) => id);
       const operationEvents = callIds.length
         ? await transaction.callCenterEvent.findMany({
@@ -579,10 +602,10 @@ export async function readCallCenterSnapshot(
 
       return {
         agentSession: agentSession ? serializeAgentSession(agentSession) : null,
+        agentProfile,
         availableQueues: accessibleQueues.map(({ id, name }) => ({ id, name })),
         calls: [...activeCalls, ...recentCalls].map(serializeCall),
         counts,
-        endpoints,
         operations: operationEvents
           .map((event) => serializeOperation(event, commandById))
           .filter((operation): operation is OperationView => Boolean(operation)),
@@ -596,6 +619,10 @@ export async function readCallCenterSnapshot(
         revision: revisionString(highWater._max.revision ?? BigInt(0)),
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
         tasks: tasks.map(serializeTask),
+        transferTargets: targetMemberships.map(({ user }) => ({
+          name: user.name,
+          userId: user.id,
+        })),
       };
     },
     { isolationLevel: "RepeatableRead" },

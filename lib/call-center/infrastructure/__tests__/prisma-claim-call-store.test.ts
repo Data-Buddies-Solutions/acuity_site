@@ -20,7 +20,6 @@ const actor: QueueAccessActor = {
 const input: ClaimCallInput = {
   callId: "call-1",
   clientInstanceId: "browser-1",
-  endpointId: "endpoint-1",
   expectedSessionStateVersion: 2,
   idempotencyKey: "operation-1",
 };
@@ -77,6 +76,7 @@ function fakeDatabase({
       locationId: endpointLocationId,
       providerCredentialId: "credential-1",
       sipUsername: "seat-1",
+      userId: "user-1",
     },
     endpointId: "endpoint-1",
     id: "session-1",

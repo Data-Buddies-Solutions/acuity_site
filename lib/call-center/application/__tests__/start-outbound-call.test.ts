@@ -21,7 +21,6 @@ const actor = {
 const input: StartOutboundCallInput = {
   clientInstanceId: "browser-1",
   destination: "+15555550123",
-  endpointId: "endpoint-1",
   expectedSessionStateVersion: 3,
   idempotencyKey: "operation-1",
   numberId: "number-1",

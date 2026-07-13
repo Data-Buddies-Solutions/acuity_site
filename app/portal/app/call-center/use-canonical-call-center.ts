@@ -161,8 +161,14 @@ function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapsho
     value.availableQueues.every(hasId) &&
     Array.isArray(value.calls) &&
     value.calls.every(hasVersion) &&
-    Array.isArray(value.endpoints) &&
-    value.endpoints.every(hasId) &&
+    (value.agentProfile === null || hasId(value.agentProfile)) &&
+    Array.isArray(value.transferTargets) &&
+    value.transferTargets.every(
+      (target) =>
+        isRecord(target) &&
+        typeof target.name === "string" &&
+        typeof target.userId === "string",
+    ) &&
     Array.isArray(value.tasks) &&
     value.tasks.every(hasId) &&
     (value.agentSession === null || hasVersion(value.agentSession)) &&

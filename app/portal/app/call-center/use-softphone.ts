@@ -359,7 +359,7 @@ function useSoftphoneMediaEngine({
         debug("token-request-start");
         let response: Response;
         if (credentialMode === "CANONICAL") {
-          if (!agentSessionId || !stationSeatId || !browserSessionId) {
+          if (!agentSessionId || !browserSessionId) {
             throw new Error("Canonical agent session is unavailable");
           }
           response = await fetch(
@@ -367,7 +367,6 @@ function useSoftphoneMediaEngine({
             {
               body: JSON.stringify({
                 clientInstanceId: browserSessionId,
-                endpointId: stationSeatId,
               }),
               headers: { "Content-Type": "application/json" },
               method: "POST",

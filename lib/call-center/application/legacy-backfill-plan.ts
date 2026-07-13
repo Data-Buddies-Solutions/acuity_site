@@ -673,6 +673,7 @@ export function buildLegacyCallCenterBootstrap(
       }
       return {
         id: endpoint.proposedId,
+        userId: null,
         locationId: endpoint.locationId,
         label: endpoint.proposedLabel,
         providerCredentialId: requiredBootstrapText(source.providerCredentialId),

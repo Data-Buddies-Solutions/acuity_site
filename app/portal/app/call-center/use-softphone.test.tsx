@@ -262,7 +262,7 @@ describe("useSoftphoneMedia canonical credentials", () => {
     await waitFor(() => expect(result.current.connection).toBe("READY"));
     expect(requests).toEqual([
       {
-        body: { clientInstanceId: "browser-1", endpointId: "endpoint-1" },
+        body: { clientInstanceId: "browser-1" },
         method: "POST",
         url: "/api/portal/call-center/agent-sessions/session-1/token",
       },

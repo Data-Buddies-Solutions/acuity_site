@@ -141,16 +141,16 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     }
 
     await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.endpointId} FOR UPDATE`,
+      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} FOR UPDATE`,
     );
     await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} AND "endpointId" = ${input.endpointId} AND "browserSessionId" = ${input.clientInstanceId} FOR UPDATE`,
+      Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} AND "browserSessionId" = ${input.clientInstanceId} FOR UPDATE`,
     );
     const session = await this.transaction.callCenterAgentSession.findFirst({
       include: { endpoint: true },
       where: {
         browserSessionId: input.clientInstanceId,
-        endpointId: input.endpointId,
+        endpoint: { userId: actor.userId },
         practiceId: actor.practiceId,
         userId: actor.userId,
       },
@@ -170,6 +170,7 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       session.leaseExpiresAt <= now ||
       !isAgentSessionReady(session) ||
       !session.endpoint.enabled ||
+      session.endpoint.userId !== actor.userId ||
       !session.endpoint.providerCredentialId ||
       !session.endpoint.sipUsername ||
       !scopeAllowed

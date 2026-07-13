@@ -18,7 +18,6 @@ const actor: QueueAccessActor = {
 const input: ClaimCallInput = {
   callId: "call-1",
   clientInstanceId: "browser-1",
-  endpointId: "endpoint-1",
   expectedSessionStateVersion: 4,
   idempotencyKey: "operation-1",
 };
@@ -42,7 +41,7 @@ function transaction() {
       return {
         agentSessionId: "session-1",
         callId: claimInput.callId,
-        endpointId: claimInput.endpointId,
+        endpointId: "endpoint-1",
         legId: "leg-1",
         operationType: "CLAIM",
         providerCommandId: "command-1",

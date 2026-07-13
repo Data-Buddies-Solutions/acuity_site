@@ -75,7 +75,6 @@ function ConnectedCanonicalShadowBridge({
     audioReady,
     clientInstanceId,
     connectionState,
-    endpointId,
     microphoneReady,
     presence,
   });

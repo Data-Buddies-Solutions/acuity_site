@@ -106,6 +106,7 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
                   locationId: true,
                   providerCredentialId: true,
                   sipUsername: true,
+                  userId: true,
                 },
               },
               id: true,
@@ -135,7 +136,11 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
         members: queue.members.map((member) => ({
           enabled: member.enabled,
           sessions: sessions
-            .filter((session) => session.userId === member.userId)
+            .filter(
+              (session) =>
+                session.userId === member.userId &&
+                session.endpoint.userId === member.userId,
+            )
             .map((session) => ({
               audioReady: session.audioReady,
               connectionState: session.connectionState,
@@ -312,6 +317,7 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
             locationId: session.endpoint.locationId,
             providerCredentialId: { not: null },
             sipUsername: { not: null },
+            userId: selection.userId,
           },
           endpointId: selection.endpointId,
           id: selection.agentSessionId,

@@ -34,7 +34,7 @@ describe("canonical agent-session token route", () => {
       now,
     ) => {
       authorized = { actor: receivedActor, input, now };
-      return { endpointLabel: "Optical", providerCredentialId: "credential-1" };
+      return { agentLabel: "Maria", providerCredentialId: "credential-1" };
     };
     const checkedAt = new Date("2026-07-12T12:00:00.000Z");
     const POST = createCanonicalAgentSessionTokenHandler({
@@ -48,10 +48,7 @@ describe("canonical agent-session token route", () => {
       getActor: async () => actor,
     });
 
-    const response = await POST(
-      request({ clientInstanceId: " browser-1 ", endpointId: " endpoint-1 " }),
-      context,
-    );
+    const response = await POST(request({ clientInstanceId: " browser-1 " }), context);
 
     expect(response.status).toBe(200);
     expect(authorized).toEqual({
@@ -59,14 +56,13 @@ describe("canonical agent-session token route", () => {
       input: {
         activationEnabled: true,
         clientInstanceId: "browser-1",
-        endpointId: "endpoint-1",
         sessionId: "session-1",
       },
       now: checkedAt,
     });
     expect(credentialId).toBe("credential-1");
     expect(await response.json()).toEqual({
-      stationLabel: "Optical",
+      agentLabel: "Maria",
       token: "login-token",
     });
   });
@@ -87,10 +83,7 @@ describe("canonical agent-session token route", () => {
       getActor: async () => actor,
     });
 
-    const response = await POST(
-      request({ browserSessionId: "browser-1", endpointId: "endpoint-1" }),
-      context,
-    );
+    const response = await POST(request({ browserSessionId: "browser-1" }), context);
     expect(response.status).toBe(422);
     expect(authorized).toBe(false);
     expect(tokens).toBe(0);
@@ -101,23 +94,19 @@ describe("canonical agent-session token route", () => {
     const POST = createCanonicalAgentSessionTokenHandler({
       authorize: async (_store, _actor, input) => {
         authorized = input;
-        return { endpointLabel: "Optical", providerCredentialId: "credential-1" };
+        return { agentLabel: "Maria", providerCredentialId: "credential-1" };
       },
       createToken: async () => "drain-token",
       getActivation: () => ({ enabled: false }),
       getActor: async () => actor,
     });
 
-    const response = await POST(
-      request({ clientInstanceId: "browser-1", endpointId: "endpoint-1" }),
-      context,
-    );
+    const response = await POST(request({ clientInstanceId: "browser-1" }), context);
 
     expect(response.status).toBe(200);
     expect(authorized).toEqual({
       activationEnabled: false,
       clientInstanceId: "browser-1",
-      endpointId: "endpoint-1",
       sessionId: "session-1",
     });
   });
@@ -137,10 +126,7 @@ describe("canonical agent-session token route", () => {
       getActor: async () => actor,
     });
 
-    const response = await POST(
-      request({ clientInstanceId: "browser-1", endpointId: "endpoint-1" }),
-      context,
-    );
+    const response = await POST(request({ clientInstanceId: "browser-1" }), context);
 
     expect(response.status).toBe(404);
     expect(tokens).toBe(0);

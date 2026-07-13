@@ -40,9 +40,9 @@ export class PrismaAgentSessionCredentialStore implements AgentSessionCredential
         select: {
           endpoint: {
             select: {
-              label: true,
               locationId: true,
               providerCredentialId: true,
+              user: { select: { name: true } },
             },
           },
         },
@@ -56,8 +56,8 @@ export class PrismaAgentSessionCredentialStore implements AgentSessionCredential
               : { in: actor.allowedLocationIds },
             practiceId: actor.practiceId,
             providerCredentialId: { not: null },
+            userId: actor.userId,
           },
-          endpointId: input.endpointId,
           id: input.sessionId,
           leaseExpiresAt: { gt: now },
           practiceId: actor.practiceId,
@@ -102,7 +102,7 @@ export class PrismaAgentSessionCredentialStore implements AgentSessionCredential
       });
       return membership
         ? {
-            endpointLabel: endpoint.label,
+            agentLabel: endpoint.user?.name ?? "Call center agent",
             providerCredentialId: endpoint.providerCredentialId,
           }
         : null;

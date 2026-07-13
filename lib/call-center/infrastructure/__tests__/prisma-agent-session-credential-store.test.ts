@@ -11,7 +11,6 @@ const actor = {
 const input = {
   activationEnabled: true,
   clientInstanceId: "browser-1",
-  endpointId: "endpoint-1",
   sessionId: "session-1",
 };
 const now = new Date("2026-07-12T12:00:00.000Z");
@@ -28,9 +27,9 @@ describe("Prisma canonical agent-session credential store", () => {
               sessionWhere = where;
               return {
                 endpoint: {
-                  label: "Optical",
                   locationId: "location-1",
                   providerCredentialId: "credential-1",
+                  user: { name: "Maria" },
                 },
               };
             },
@@ -45,13 +44,12 @@ describe("Prisma canonical agent-session credential store", () => {
     } as never);
 
     await expect(store.resolve(actor, input, now)).resolves.toEqual({
-      endpointLabel: "Optical",
+      agentLabel: "Maria",
       providerCredentialId: "credential-1",
     });
     expect(sessionWhere).toEqual(
       expect.objectContaining({
         browserSessionId: "browser-1",
-        endpointId: "endpoint-1",
         id: "session-1",
         practiceId: "practice-1",
         userId: "user-1",
@@ -72,9 +70,9 @@ describe("Prisma canonical agent-session credential store", () => {
               sessionWhere = where;
               return {
                 endpoint: {
-                  label: "Optical",
                   locationId: "location-1",
                   providerCredentialId: "credential-1",
+                  user: { name: "Maria" },
                 },
               };
             },
@@ -88,7 +86,7 @@ describe("Prisma canonical agent-session credential store", () => {
     await expect(
       store.resolve(actor, { ...input, activationEnabled: false }, now),
     ).resolves.toEqual({
-      endpointLabel: "Optical",
+      agentLabel: "Maria",
       providerCredentialId: "credential-1",
     });
     expect(sessionWhere).toEqual(
