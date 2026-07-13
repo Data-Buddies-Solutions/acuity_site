@@ -60,6 +60,9 @@ describe("Prisma call center activation preflight", () => {
     expect(queries[0]).toContain('FROM "practice_call_center_settings"');
     expect(queries[0]).toContain('FROM "call_center_command"');
     expect(queries[0]).toContain('FROM "provider_webhook_event"');
+    expect(queries[0]).toContain(
+      'event."canonicalProjectionStatus" = CAST(\'IGNORED\' AS "ProviderWebhookProcessingStatus")',
+    );
     expect(queries[0]).toContain('FROM "call_center_call_leg"');
     expect(queries[0]).not.toContain('event."payload" #>>');
     expect(queries[0]).toContain('JOIN "call_center_agent_session"');

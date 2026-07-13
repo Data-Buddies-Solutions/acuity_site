@@ -16,6 +16,13 @@ const logger = createLogger("call-center-webhook-processor");
 const LEGACY_PROJECTION_ERROR = "legacy_projection_failed";
 const OWNER_RESOLUTION_ERROR = "event_owner_resolution_failed";
 const INBOX_COMPLETION_ERROR = "provider_webhook_completion_failed";
+const TERMINAL_DIRECT_HANDOFF_ERRORS = new Set([
+  "TELNYX_DIRECT_HANDOFF_IDENTITY_INVALID",
+  "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE",
+  "TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID",
+  "TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED",
+  "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID",
+]);
 
 type LegacyProjectionResult = { ignored?: boolean } & Record<string, unknown>;
 
@@ -120,6 +127,31 @@ export function createTelnyxVoiceEventProcessor({
         processingStatus,
       };
     } catch (error) {
+      if (
+        phase === "OWNER" &&
+        error instanceof TelnyxEventOwnerError &&
+        TERMINAL_DIRECT_HANDOFF_ERRORS.has(error.code)
+      ) {
+        const completed = await inbox.complete({
+          attemptCount: event.attemptCount,
+          effectOwner: null,
+          errorCode: error.code,
+          eventId: event.id,
+          now: clock(),
+          status: "IGNORED",
+        });
+        if (!completed) {
+          await markProjectionFailed(inbox, event, INBOX_COMPLETION_ERROR);
+          throw new Error("Provider webhook processing claim was lost");
+        }
+        return {
+          duplicate: false as const,
+          ignored: true as const,
+          providerWebhookEventId: received.id,
+          processingStatus: "IGNORED" as const,
+          reason: error.code,
+        };
+      }
       const errorCode = processingErrorCode(phase, error);
       await markProjectionFailed(inbox, event, errorCode);
       logger.error("webhook processing failed", {

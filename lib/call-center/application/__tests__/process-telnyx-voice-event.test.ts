@@ -32,6 +32,7 @@ function claimedEvent(
 ): ProviderWebhookRecord {
   return {
     attemptCount: status === "PROCESSING" ? 1 : 0,
+    directHandoffTokenHash: null,
     effectOwner: null,
     errorCode: null,
     eventType: envelope.eventType,
@@ -317,6 +318,31 @@ describe("Telnyx voice event processor", () => {
 
     await expect(process(envelope)).rejects.toBe(ownerError);
     expect(failed[0]?.errorCode).toBe("TELNYX_EVENT_IDENTITY_MISMATCH");
+  });
+
+  it("terminates a rejected direct handoff without scheduling retries", async () => {
+    const { completed, failed, inbox } = setup();
+    const ownerError = new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_TOKEN_INVALID");
+    const process = createTelnyxVoiceEventProcessor({
+      clock: () => now,
+      inbox,
+      projectLegacyEvent: async () => ({ ok: true }),
+      resolveOwner: async () => {
+        throw ownerError;
+      },
+    });
+
+    await expect(process(envelope)).resolves.toMatchObject({
+      ignored: true,
+      processingStatus: "IGNORED",
+      reason: "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID",
+    });
+    expect(completed[0]).toMatchObject({
+      effectOwner: null,
+      errorCode: "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID",
+      status: "IGNORED",
+    });
+    expect(failed).toHaveLength(0);
   });
 
   it("separates inbox completion failure from projection failure", async () => {

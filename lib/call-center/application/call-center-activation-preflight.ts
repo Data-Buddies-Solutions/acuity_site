@@ -3,6 +3,7 @@ export const CALL_CENTER_ACTIVATION_REQUIRED_MIGRATIONS = [
   "20260712160000_call_center_active_routing_ordering_deadlines",
   "20260712220000_call_center_agent_offered_call",
   "20260713190000_call_center_agent_profiles",
+  "20260713210000_call_center_direct_handoff_foundation",
 ] as const;
 
 export const CALL_CENTER_COMMAND_CONFIRMATION_GRACE_MS = 2 * 60_000;

@@ -8,6 +8,7 @@ import {
   confirmProviderCommand,
   confirmExactProviderCommand,
   createStartRecordingAfterGreeting,
+  directHandoffLifecycleProjection,
   earliestObservedAt,
   enrichCanonicalCallIdentity,
   hasCanonicalAgentBridgeEvidence,
@@ -119,6 +120,35 @@ describe("canonical effect ownership", () => {
     ]) {
       expect(shouldPlanCanonicalInboundRouting(input)).toBe(false);
     }
+  });
+});
+
+describe("direct handoff lifecycle", () => {
+  it("marks ingress connected only after the canonical call connects", () => {
+    expect(directHandoffLifecycleProjection("RINGING", later)).toBeNull();
+    expect(directHandoffLifecycleProjection("CONNECTED", later)).toEqual({
+      data: {
+        connectedAt: later,
+        failedAt: null,
+        failureCode: null,
+        status: "CONNECTED",
+      },
+      fromStatus: ["FAILED", "INGRESS_SEEN"],
+    });
+    expect(directHandoffLifecycleProjection("COMPLETED", later)).toEqual(
+      directHandoffLifecycleProjection("CONNECTED", later),
+    );
+  });
+
+  it("records terminal failure without rewriting a connected handoff", () => {
+    expect(directHandoffLifecycleProjection("VOICEMAIL", later)).toEqual({
+      data: {
+        failedAt: later,
+        failureCode: "CALL_VOICEMAIL",
+        status: "FAILED",
+      },
+      fromStatus: ["INGRESS_SEEN"],
+    });
   });
 });
 

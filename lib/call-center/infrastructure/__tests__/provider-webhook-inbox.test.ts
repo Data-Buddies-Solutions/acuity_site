@@ -5,6 +5,7 @@ import {
   decideProviderWebhookClaim,
   providerWebhookPayloadRetentionWhere,
   providerWebhookRetryAt,
+  sanitizedProviderWebhookBody,
   type ProviderWebhookInboxMaintenanceStore,
   type ProviderWebhookInboxStore,
   type ProviderWebhookRecord,
@@ -15,6 +16,7 @@ const now = new Date("2026-07-11T12:00:00.000Z");
 function event(overrides: Partial<ProviderWebhookRecord> = {}): ProviderWebhookRecord {
   return {
     attemptCount: 0,
+    directHandoffTokenHash: null,
     effectOwner: null,
     errorCode: null,
     eventType: "call.initiated",
@@ -31,6 +33,23 @@ function event(overrides: Partial<ProviderWebhookRecord> = {}): ProviderWebhookR
 }
 
 describe("provider webhook claim decisions", () => {
+  it("removes direct handoff tokens before durable persistence", () => {
+    const token = "one-time-token";
+    const sanitized = sanitizedProviderWebhookBody({
+      data: {
+        payload: {
+          custom_headers: {
+            "X-Acuity-Handoff-Id": "handoff-1",
+            "X-Acuity-Handoff-Token": token,
+          },
+        },
+      },
+    });
+
+    expect(sanitized.tokenHash).toHaveLength(64);
+    expect(JSON.stringify(sanitized.body)).not.toContain(token);
+  });
+
   it("claims new, failed, and stale processing events", () => {
     expect(decideProviderWebhookClaim(event(), now)).toBe("CLAIM");
     expect(decideProviderWebhookClaim(event({ processingStatus: "FAILED" }), now)).toBe(
