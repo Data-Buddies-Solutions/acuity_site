@@ -53,6 +53,7 @@ const callSelect = {
       kind: true,
       providerCallControlId: true,
       providerCallLegId: true,
+      providerCallSessionId: true,
       status: true,
     },
   },

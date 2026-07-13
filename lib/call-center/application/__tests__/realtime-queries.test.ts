@@ -88,7 +88,18 @@ describe("canonical realtime serializers", () => {
       endedAt: null,
       fromPhone: "+17865550100",
       id: "call-1",
-      legs: [],
+      legs: [
+        {
+          agentSessionId: "session-1",
+          endpointId: "endpoint-1",
+          id: "leg-1",
+          kind: "AGENT",
+          providerCallControlId: "control-1",
+          providerCallLegId: "provider-leg-1",
+          providerCallSessionId: "provider-session-1",
+          status: "RINGING",
+        },
+      ],
       queueId: "queue-1",
       receivedAt: now,
       stateVersion: 12,
@@ -99,6 +110,7 @@ describe("canonical realtime serializers", () => {
 
     expect(call.stateVersion).toBe(12);
     expect(call.receivedAt).toBe("2026-07-11T12:00:00.000Z");
+    expect(call.legs[0]?.providerCallSessionId).toBe("provider-session-1");
   });
 
   it("uses the canonical client identity and connection vocabulary", () => {

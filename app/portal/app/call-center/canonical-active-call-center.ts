@@ -101,26 +101,48 @@ function sameProviderLeg(leg: CallView["legs"][number], observation: MediaObserv
   return Boolean(controlMatch || legMatch);
 }
 
+function sameProviderSession(
+  leg: CallView["legs"][number],
+  observation: MediaObservation,
+) {
+  return Boolean(
+    leg.providerCallSessionId &&
+    observation.direction === "INBOUND" &&
+    ["ACTIVE", "CONNECTING", "HELD", "RINGING"].includes(observation.state) &&
+    observation.providerCallSessionId === leg.providerCallSessionId,
+  );
+}
+
 export function selectCanonicalBrowserMediaLeg(
   call: CallView,
   agentSessionId: string,
   endpointId: string,
   observations: readonly MediaObservation[],
 ) {
-  const candidates = call.legs.flatMap((leg) => {
-    if (
-      leg.kind !== "AGENT" ||
-      leg.agentSessionId !== agentSessionId ||
-      leg.endpointId !== endpointId ||
-      ["ENDED", "FAILED"].includes(leg.status)
-    ) {
-      return [];
-    }
-    return observations
-      .filter((observation) => sameProviderLeg(leg, observation))
-      .map((observation) => ({ leg, observation }));
-  });
-  return candidates.length === 1 ? candidates[0] : null;
+  const liveLegs = call.legs.filter(
+    (leg) =>
+      leg.kind === "AGENT" &&
+      leg.agentSessionId === agentSessionId &&
+      leg.endpointId === endpointId &&
+      !["ENDED", "FAILED"].includes(leg.status),
+  );
+  const liveObservations = observations.filter(
+    ({ state }) => !["ENDED", "FAILED"].includes(state),
+  );
+  const matches = (
+    predicate: (leg: CallView["legs"][number], observation: MediaObservation) => boolean,
+  ) =>
+    liveLegs.flatMap((leg) =>
+      liveObservations
+        .filter((observation) => predicate(leg, observation))
+        .map((observation) => ({ leg, observation })),
+    );
+
+  const exact = matches(sameProviderLeg);
+  if (exact.length) return exact.length === 1 ? exact[0] : null;
+
+  const session = matches(sameProviderSession);
+  return session.length === 1 ? session[0] : null;
 }
 
 export function selectLatestClaimOperation(
