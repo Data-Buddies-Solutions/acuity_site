@@ -1,10 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PhoneOff } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CirclePause,
+  Headphones,
+  PhoneCall,
+  PhoneIncoming,
+  PhoneMissed,
+  PhoneOff,
+  PhoneOutgoing,
+  Voicemail,
+} from "lucide-react";
 
+import { PortalBadge } from "@/app/portal/app/PortalBadge";
+import { PortalSelect } from "@/app/portal/app/PortalFields";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import {
   selectActiveCall,
@@ -12,8 +27,10 @@ import {
   type AgentSessionView,
   type CallView,
   type OperationView,
+  type TaskView,
   type TransferTargetView,
 } from "@/lib/call-center/realtime-contract";
+import { formatPhone } from "@/lib/format";
 
 import {
   claimCallCenterClientInstance,
@@ -88,17 +105,19 @@ export function CanonicalActiveWorkspace({
   }, []);
 
   if (!enabled) {
-    return <CanonicalUnavailable message="Call center is disabled." />;
+    return <CanonicalUnavailable message="Calling is turned off for this practice." />;
   }
   if (!queueId) {
     return (
-      <CanonicalUnavailable message="Canonical activation requires one configured queue for this location." />
+      <CanonicalUnavailable message="Calling is not configured for this location." />
     );
   }
   if (identityError) {
-    return <CanonicalUnavailable message="Canonical browser identity is unavailable." />;
+    return (
+      <CanonicalUnavailable message="This browser could not start calling. Refresh and try again." />
+    );
   }
-  if (!client) return <CanonicalUnavailable message="Connecting canonical workspace…" />;
+  if (!client) return <CanonicalUnavailable message="Connecting to the call center…" />;
 
   return (
     <ConnectedCanonicalActiveWorkspace
@@ -312,7 +331,7 @@ function ConnectedCanonicalActiveWorkspace({
         mediaObservations,
       );
       if (!match) {
-        setActionError("The canonical agent leg is not bound to this browser media leg.");
+        setActionError("This call is still connecting. Try again in a moment.");
         return;
       }
       if (!beginCanonicalTake(takingRef.current, call.id)) return;
@@ -335,17 +354,16 @@ function ConnectedCanonicalActiveWorkspace({
           },
         );
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: unknown;
-          } | null;
-          throw new Error(
-            typeof body?.error === "string" ? body.error : "Canonical Take failed",
-          );
+          throw new Error("We could not answer this call. Try again.");
         }
         await answerMedia(match.observation.mediaLegId);
       } catch (error) {
         setCallCenterCurrentCallGuard(session.currentCallId);
-        setActionError(error instanceof Error ? error.message : "Canonical Take failed");
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "We could not answer this call. Try again.",
+        );
       } finally {
         takingRef.current.delete(call.id);
       }
@@ -360,7 +378,9 @@ function ConnectedCanonicalActiveWorkspace({
       await answerMedia(transferTakeCandidate.observation.mediaLegId);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Canonical transfer Take failed",
+        error instanceof Error
+          ? error.message
+          : "We could not answer this transfer. Try again.",
       );
     }
   }, [actionsEnabled, answerMedia, transferTakeCandidate]);
@@ -393,16 +413,13 @@ function ConnectedCanonicalActiveWorkspace({
           },
         );
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: unknown;
-          } | null;
-          throw new Error(
-            typeof body?.error === "string" ? body.error : "Canonical transfer failed",
-          );
+          throw new Error("We could not transfer this call. Try again.");
         }
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "Canonical transfer failed",
+          error instanceof Error
+            ? error.message
+            : "We could not transfer this call. Try again.",
         );
       } finally {
         transferringRef.current.delete(`${call.id}:${source.id}`);
@@ -434,10 +451,12 @@ function ConnectedCanonicalActiveWorkspace({
             method: "POST",
           },
         );
-        if (!response.ok) throw new Error("Canonical disposition failed");
+        if (!response.ok) throw new Error("We could not mark this follow-up done.");
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "Canonical disposition failed",
+          error instanceof Error
+            ? error.message
+            : "We could not mark this follow-up done.",
         );
       } finally {
         setSubmittingDisposition(null);
@@ -488,7 +507,6 @@ function ConnectedCanonicalActiveWorkspace({
       const body = (await response.json().catch(() => null)) as {
         callId?: unknown;
         clientState?: unknown;
-        error?: unknown;
         from?: unknown;
         to?: unknown;
       } | null;
@@ -499,11 +517,7 @@ function ConnectedCanonicalActiveWorkspace({
         typeof body.from !== "string" ||
         typeof body.to !== "string"
       ) {
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : "Canonical outbound call could not be started",
-        );
+        throw new Error("We could not start this call. Check the number and try again.");
       }
       setCallCenterCurrentCallGuard(body.callId);
       const mediaLegId = dialMediaLeg({
@@ -518,7 +532,7 @@ function ConnectedCanonicalActiveWorkspace({
       setActionError(
         error instanceof Error
           ? error.message
-          : "Canonical outbound call could not be started",
+          : "We could not start this call. Check the number and try again.",
       );
     } finally {
       outboundStartingRef.current = false;
@@ -535,239 +549,302 @@ function ConnectedCanonicalActiveWorkspace({
   ]);
 
   if (realtime.error) {
-    return <CanonicalUnavailable message={realtime.error.message} />;
+    return (
+      <CanonicalUnavailable message="We could not connect to the call center. Refresh to try again." />
+    );
   }
   if (realtime.loading || !state) {
-    return <CanonicalUnavailable message="Loading canonical queue…" />;
+    return <CanonicalUnavailable message="Connecting to the call center…" />;
   }
 
-  const readinessMessage = canonicalSessionError
-    ? canonicalSessionError
+  const stationPresence = session?.presence ?? presence;
+  const callingReady = Boolean(
+    session?.connectionState === "READY" && session.microphoneReady && session.audioReady,
+  );
+  const stationLabel = !agentProfileId
+    ? "Calling unavailable"
+    : callingReady
+      ? stationPresence === "PAUSED"
+        ? "Paused"
+        : stationPresence === "BUSY"
+          ? "On a call"
+          : "Available for calls"
+      : media.setupPending
+        ? "Starting calling"
+        : "Calling is off";
+  const stationDescription = canonicalSessionError
+    ? "We could not connect your calling status. Try again."
     : !agentProfileId
-      ? "Calling is not configured for your login."
-      : session?.connectionState === "READY" &&
-          session.microphoneReady &&
-          session.audioReady
-        ? "Ready for canonical calls."
-        : "Enable calling to allow microphone and browser audio.";
+      ? "Calling is not configured for this login."
+      : callingReady
+        ? "Ready for incoming and outbound calls."
+        : "Allow microphone and browser audio to start calling.";
+  const outboundHelp = !actionsEnabled
+    ? "Calling is temporarily unavailable."
+    : activeCall
+      ? "Finish the current call before starting another."
+      : !callingReady
+        ? "Start taking calls before placing an outbound call."
+        : stationPresence !== "AVAILABLE"
+          ? "Set your status to Available to place a call."
+          : !selectedNumberId
+            ? "No outbound caller number is configured."
+            : "Enter a patient number to begin.";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {!actionsEnabled ? (
         <section
-          aria-label="Canonical rollback status"
-          className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+          aria-label="Calling unavailable"
+          className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
         >
-          <p className="font-semibold">Call center rollback is active</p>
-          <p className="mt-1">
-            Existing canonical calls remain visible, but new canonical actions are blocked.
-          </p>
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="font-medium">Calling is temporarily unavailable.</p>
+            <p className="mt-0.5 text-amber-900/75">
+              Existing calls remain visible and follow-ups can still be reviewed.
+            </p>
+          </div>
         </section>
       ) : null}
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--portal-muted)]">
-                Live queue
+
+      <section
+        aria-label="Calling status"
+        className="flex flex-col gap-4 rounded-2xl border border-[var(--portal-border)] bg-white px-4 py-3.5 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <div
+            className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+              callingReady
+                ? "bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
+                : "bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
+            }`}
+          >
+            {callingReady ? (
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            ) : stationPresence === "PAUSED" ? (
+              <CirclePause className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Headphones className="h-4 w-4" aria-hidden="true" />
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-[var(--portal-ink)]">
+                {stationLabel}
               </p>
-              <h2 className="mt-1 text-lg font-semibold text-[var(--portal-ink)]">
-                {state.queue.name}
-              </h2>
-              <p className="mt-1 text-sm text-[var(--portal-muted)]">
-                {state.counts.waiting} waiting · {state.counts.active} active
-              </p>
+              <PortalBadge
+                className={
+                  state.connection === "CONNECTED"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-800"
+                }
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    state.connection === "CONNECTED" ? "bg-emerald-500" : "bg-amber-500"
+                  }`}
+                />
+                {state.connection === "CONNECTED" ? "Live" : "Reconnecting"}
+              </PortalBadge>
             </div>
-            <span className="text-xs text-[var(--portal-muted)]">
-              {state.connection === "CONNECTED" ? "Live" : "Reconnecting"}
-            </span>
-          </div>
-
-          {actionError ? (
-            <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-              {actionError}
+            <p className="mt-0.5 text-xs leading-relaxed text-[var(--portal-muted)]">
+              {state.connection === "RECONNECTING"
+                ? "Trying to reconnect. New calls may be delayed."
+                : stationDescription}
             </p>
-          ) : null}
-
-          <ul className="mt-5 space-y-3">
-            {incomingCalls.map((call) => {
-              const match = session
-                ? selectCanonicalBrowserMediaLeg(
-                    call,
-                    session.id,
-                    session.endpointId,
-                    mediaObservations,
-                  )
-                : null;
-              const operation =
-                session && match
-                  ? selectLatestClaimOperation(state.operations, {
-                      agentSessionId: session.id,
-                      callId: call.id,
-                      endpointId: session.endpointId,
-                      legId: match.leg.id,
-                    })
-                  : null;
-              const connecting = operation && operation.status !== "FAILED";
-              return (
-                <li
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-3"
-                  key={call.id}
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-[var(--portal-ink)]">
-                      {call.callerName || callPhone(call)}
-                    </p>
-                    <p className="text-xs text-[var(--portal-muted)]">
-                      {operation?.status === "FAILED"
-                        ? `Take failed · ${operation.errorCode ?? "provider failure"}`
-                        : connecting
-                          ? "Connecting"
-                          : match
-                            ? "Ringing your browser"
-                            : "Waiting for your canonical media leg"}
-                    </p>
-                  </div>
-                  <Button
-                    disabled={
-                      !actionsEnabled || !session || !match || Boolean(connecting)
-                    }
-                    onClick={() => void takeCall(call)}
-                    variant="primary"
-                  >
-                    {connecting ? "Connecting" : "Take"}
-                  </Button>
-                </li>
-              );
-            })}
-            {incomingCalls.length === 0 ? (
-              <li className="py-8 text-center text-sm text-[var(--portal-muted)]">
-                No callers are waiting.
-              </li>
-            ) : null}
-          </ul>
-
-          {activeCall ? (
-            <CanonicalActiveCall
-              actionsEnabled={actionsEnabled}
-              call={activeCall}
-              endpointId={agentProfileId}
-              media={media}
-              onTakeTransfer={takeTransfer}
-              onTransfer={transferActiveCall}
-              operations={state.operations}
-              sessionId={session?.id ?? null}
-              transferTargets={state.transferTargets}
-              transferTakeCandidate={transferTakeCandidate}
-            />
-          ) : null}
-          <div className="mt-6 grid gap-5 md:grid-cols-2">
-            <section>
-              <h3 className="text-sm font-semibold">Recent calls</h3>
-              <ul className="mt-2 space-y-2">
-                {recentCalls.map((call) => (
-                  <li className="rounded-lg border p-3" key={call.id}>
-                    <p className="text-sm font-medium">
-                      {call.callerName || callPhone(call)}
-                    </p>
-                    <p className="text-xs text-[var(--portal-muted)]">{call.status}</p>
-                    <Button
-                      disabled={!actionsEnabled || submittingDisposition === call.id}
-                      onClick={() => void saveDisposition(call, "RESOLVED")}
-                      size="sm"
-                      variant="secondary"
-                    >
-                      {submittingDisposition === call.id ? "Saving…" : "Resolve"}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-            <section>
-              <h3 className="text-sm font-semibold">Open follow-up</h3>
-              <ul className="mt-2 space-y-2">
-                {state.tasks.map((task) => (
-                  <li className="rounded-lg border p-3" key={task.id}>
-                    <p className="text-sm font-medium">
-                      {task.kind.replaceAll("_", " ")}
-                    </p>
-                    <p className="text-xs text-[var(--portal-muted)]">
-                      {task.callerPhone || "Canonical call task"}
-                    </p>
-                    {task.callId ? (
-                      <Button
-                        disabled={!actionsEnabled}
-                        onClick={() => {
-                          const call = state.calls.find(({ id }) => id === task.callId);
-                          if (call) void saveDisposition(call, "RESOLVED");
-                        }}
-                        size="sm"
-                        variant="secondary"
-                      >
-                        Resolve task
-                      </Button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </section>
           </div>
-        </section>
+        </div>
 
-        <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5">
-          <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
-            Your calling status
-          </h2>
-          <label className="mt-4 block text-xs font-semibold text-[var(--portal-muted)]">
-            Presence
-            <select
-              className="mt-1 h-10 w-full rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm"
-              disabled={Boolean(session?.currentCallId || session?.offeredCallId)}
-              onChange={(event) =>
-                setPresence(event.target.value as AgentSessionView["presence"])
-              }
-              value={session?.presence ?? presence}
-            >
-              {session?.presence === "BUSY" ? <option value="BUSY">Busy</option> : null}
-              <option value="AVAILABLE">Available</option>
-              <option value="PAUSED">Paused</option>
-            </select>
-          </label>
+        {callingReady ? (
+          <PortalSelect
+            aria-label="Calling status"
+            className="sm:min-w-40"
+            disabled={Boolean(session?.currentCallId || session?.offeredCallId)}
+            onChange={(event) =>
+              setPresence(event.target.value as AgentSessionView["presence"])
+            }
+            value={stationPresence}
+            wrapperClassName="sm:w-auto"
+          >
+            {session?.presence === "BUSY" ? (
+              <option value="BUSY">On a call</option>
+            ) : null}
+            <option value="AVAILABLE">Available</option>
+            <option value="PAUSED">Paused</option>
+          </PortalSelect>
+        ) : (
           <Button
-            className="mt-4 w-full"
+            className="w-full sm:w-auto"
             disabled={!agentProfileId || media.setupPending}
             onClick={() => void media.prepare()}
-            variant="secondary"
+            variant="primary"
           >
-            {media.setupPending ? "Enabling…" : "Enable calling"}
+            <Headphones className="h-4 w-4" aria-hidden="true" />
+            {media.setupPending ? "Starting…" : "Start taking calls"}
           </Button>
-          <p className="mt-3 text-sm text-[var(--portal-muted)]">{readinessMessage}</p>
-          {media.error || media.setupError ? (
-            <p className="mt-2 text-sm text-red-700">{media.error || media.setupError}</p>
-          ) : null}
-          <div className="mt-6 border-t border-[var(--portal-border)] pt-5">
-            <h3 className="text-sm font-semibold text-[var(--portal-ink)]">
-              Outbound call
-            </h3>
-            <label className="mt-3 block text-xs font-semibold text-[var(--portal-muted)]">
-              Caller ID
-              <select
-                className="mt-1 h-10 w-full rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm"
-                disabled={!eligibleOutboundNumbers.length}
-                onChange={(event) => setNumberChoice(event.target.value)}
-                value={selectedNumberId}
-              >
-                {eligibleOutboundNumbers.map((number) => (
-                  <option key={number.id} value={number.id}>
-                    {number.label} · {number.phoneNumber}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="mt-3 block text-xs font-semibold text-[var(--portal-muted)]">
-              Patient number
+        )}
+      </section>
+
+      {media.error || media.setupError ? (
+        <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {media.error || media.setupError}
+        </p>
+      ) : null}
+
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <Card className="gap-0 rounded-2xl bg-white py-0 shadow-sm ring-[var(--portal-border)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--portal-border)] px-5 py-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
+                {activeCall ? (
+                  <PhoneCall className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
+                )}
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-[var(--portal-ink)]">
+                  {activeCall ? "Current call" : "Incoming calls"}
+                </h2>
+                <p className="text-xs text-[var(--portal-muted)]">
+                  {activeCall
+                    ? "The active call stays in focus until it ends."
+                    : `${state.counts.waiting} waiting · ${state.counts.active} active`}
+                </p>
+              </div>
+            </div>
+            {!activeCall ? (
+              <PortalBadge tone="soft">
+                {state.counts.waiting === 1
+                  ? "1 caller waiting"
+                  : `${state.counts.waiting} callers waiting`}
+              </PortalBadge>
+            ) : null}
+          </div>
+
+          <div className="min-h-[17rem] p-5">
+            {actionError ? (
+              <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                {actionError}
+              </p>
+            ) : null}
+
+            {activeCall ? (
+              <CanonicalActiveCall
+                actionsEnabled={actionsEnabled}
+                call={activeCall}
+                endpointId={agentProfileId}
+                media={media}
+                onTakeTransfer={takeTransfer}
+                onTransfer={transferActiveCall}
+                operations={state.operations}
+                sessionId={session?.id ?? null}
+                transferTargets={state.transferTargets}
+                transferTakeCandidate={transferTakeCandidate}
+              />
+            ) : incomingCalls.length ? (
+              <ul className="space-y-3">
+                {incomingCalls.map((call) => {
+                  const match = session
+                    ? selectCanonicalBrowserMediaLeg(
+                        call,
+                        session.id,
+                        session.endpointId,
+                        mediaObservations,
+                      )
+                    : null;
+                  const operation =
+                    session && match
+                      ? selectLatestClaimOperation(state.operations, {
+                          agentSessionId: session.id,
+                          callId: call.id,
+                          endpointId: session.endpointId,
+                          legId: match.leg.id,
+                        })
+                      : null;
+                  const connecting = operation && operation.status !== "FAILED";
+                  const phone = formatPhone(callPhone(call));
+
+                  return (
+                    <li
+                      className="flex flex-col gap-4 rounded-xl border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4 sm:flex-row sm:items-center sm:justify-between"
+                      key={call.id}
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[var(--portal-accent)] shadow-sm">
+                          <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
+                            {call.callerName || phone}
+                          </p>
+                          <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
+                            {call.callerName ? `${phone} · ` : ""}
+                            {operation?.status === "FAILED"
+                              ? "Could not answer. Try again."
+                              : connecting
+                                ? "Connecting…"
+                                : match
+                                  ? "Ringing now"
+                                  : "Preparing this call"}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        className="w-full sm:w-auto"
+                        disabled={
+                          !actionsEnabled || !session || !match || Boolean(connecting)
+                        }
+                        onClick={() => void takeCall(call)}
+                        variant="primary"
+                      >
+                        {connecting ? "Connecting…" : "Answer"}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="flex min-h-[13rem] flex-col items-center justify-center text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
+                  <PhoneIncoming className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <p className="mt-4 text-sm font-semibold text-[var(--portal-ink)]">
+                  Ready for incoming calls
+                </p>
+                <p className="mt-1 max-w-xs text-sm leading-relaxed text-[var(--portal-muted)]">
+                  New calls will appear here when a patient needs the front desk.
+                </p>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card className="gap-0 rounded-2xl bg-white py-0 shadow-sm ring-[var(--portal-border)]">
+          <div className="border-b border-[var(--portal-border)] px-5 py-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
+                <PhoneOutgoing className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-[var(--portal-ink)]">
+                  Call a patient
+                </h2>
+                <p className="text-xs text-[var(--portal-muted)]">
+                  Start an outbound call.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-5">
+            <label className="block">
+              <span className="text-xs font-medium text-[var(--portal-muted)]">
+                Patient number
+              </span>
               <Input
-                className="mt-1"
+                className="mt-1.5 h-11 text-base"
                 inputMode="tel"
                 onChange={(event) => setDestination(event.target.value)}
                 placeholder="(555) 555-0123"
@@ -775,8 +852,39 @@ function ConnectedCanonicalActiveWorkspace({
                 value={destination}
               />
             </label>
+
+            {eligibleOutboundNumbers.length > 1 ? (
+              <label className="block">
+                <span className="text-xs font-medium text-[var(--portal-muted)]">
+                  Calling from
+                </span>
+                <PortalSelect
+                  className="mt-1.5"
+                  disabled={!eligibleOutboundNumbers.length}
+                  onChange={(event) => setNumberChoice(event.target.value)}
+                  value={selectedNumberId}
+                >
+                  {eligibleOutboundNumbers.map((number) => (
+                    <option key={number.id} value={number.id}>
+                      {number.label} · {formatPhone(number.phoneNumber)}
+                    </option>
+                  ))}
+                </PortalSelect>
+              </label>
+            ) : eligibleOutboundNumbers[0] ? (
+              <div className="rounded-xl bg-[var(--portal-panel-soft)] px-3 py-2.5">
+                <p className="text-[11px] font-medium text-[var(--portal-muted)]">
+                  Calling from
+                </p>
+                <p className="mt-0.5 truncate text-sm font-medium text-[var(--portal-ink)]">
+                  {eligibleOutboundNumbers[0].label} ·{" "}
+                  {formatPhone(eligibleOutboundNumbers[0].phoneNumber)}
+                </p>
+              </div>
+            ) : null}
+
             <Button
-              className="mt-3 w-full"
+              className="w-full"
               disabled={
                 startingOutbound ||
                 !actionsEnabled ||
@@ -789,12 +897,25 @@ function ConnectedCanonicalActiveWorkspace({
               onClick={() => void startOutbound()}
               variant="primary"
             >
+              <PhoneOutgoing className="h-4 w-4" aria-hidden="true" />
               {startingOutbound ? "Starting…" : "Call patient"}
             </Button>
+            <p className="text-xs leading-relaxed text-[var(--portal-muted)]">
+              {outboundHelp}
+            </p>
           </div>
           <audio ref={media.remoteAudioRef} autoPlay className="hidden" />
-        </section>
+        </Card>
       </div>
+
+      <CanonicalActivity
+        actionsEnabled={actionsEnabled}
+        calls={state.calls}
+        onResolve={(call) => void saveDisposition(call, "RESOLVED")}
+        recentCalls={recentCalls}
+        submittingDisposition={submittingDisposition}
+        tasks={state.tasks}
+      />
     </div>
   );
 }
@@ -844,42 +965,60 @@ function CanonicalActiveCall({
   );
   const targetTransfer =
     transferTakeCandidate?.call.id === call.id ? transferTakeCandidate : null;
+  const phone = formatPhone(callPhone(call));
+
   return (
-    <div className="mt-5 rounded-lg border border-[var(--portal-border)] p-4">
-      <p className="text-sm font-semibold text-[var(--portal-ink)]">
-        {call.status === "CONNECTED" || call.status === "WRAP_UP"
-          ? "Connected"
-          : "Calling"}{" "}
-        · {call.callerName || callPhone(call)}
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          disabled={!actionsEnabled || !canEnd}
-          onClick={() => match && media.hangup(match.observation.mediaLegId)}
-          variant="secondary"
-        >
-          <PhoneOff className="h-4 w-4" aria-hidden="true" />
-          End
-        </Button>
-        {targetTransfer ? (
+    <div className="rounded-2xl bg-[#19203a] p-5 text-white shadow-[0_18px_50px_rgba(25,32,58,0.14)]">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
+            <PhoneCall className="h-4 w-4" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <PortalBadge className="border-white/15 bg-white/10 text-white">
+              {call.status === "CONNECTED" || call.status === "WRAP_UP"
+                ? "Connected"
+                : "Calling"}
+            </PortalBadge>
+            <p className="mt-3 truncate text-xl font-semibold text-white">
+              {call.callerName || phone}
+            </p>
+            {call.callerName ? (
+              <p className="mt-1 text-sm text-white/60">{phone}</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {targetTransfer ? (
+            <Button
+              disabled={
+                !actionsEnabled ||
+                !["RINGING", "CONNECTING"].includes(targetTransfer.observation.state)
+              }
+              onClick={() => void onTakeTransfer()}
+              variant="primary"
+            >
+              Take transfer
+            </Button>
+          ) : null}
           <Button
-            disabled={
-              !actionsEnabled ||
-              !["RINGING", "CONNECTING"].includes(targetTransfer.observation.state)
-            }
-            onClick={() => void onTakeTransfer()}
-            variant="primary"
+            disabled={!actionsEnabled || !canEnd}
+            onClick={() => match && media.hangup(match.observation.mediaLegId)}
+            variant="destructive"
           >
-            Take transfer
+            <PhoneOff className="h-4 w-4" aria-hidden="true" />
+            End call
           </Button>
-        ) : null}
+        </div>
       </div>
+
       {source ? (
-        <div className="mt-4 border-t border-[var(--portal-border)] pt-4">
-          <label className="block text-xs font-semibold text-[var(--portal-muted)]">
+        <div className="mt-5 border-t border-white/12 pt-5">
+          <label className="block text-xs font-medium text-white/65">
             Transfer to
-            <select
-              className="mt-1 h-10 w-full rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm"
+            <PortalSelect
+              className="mt-1.5"
               disabled={!actionsEnabled || transferTargets.length === 0}
               onChange={(event) => setTargetChoice(event.target.value)}
               value={selectedTargetId}
@@ -889,10 +1028,10 @@ function CanonicalActiveCall({
                   {target.name}
                 </option>
               ))}
-            </select>
+            </PortalSelect>
           </label>
           <Button
-            className="mt-2"
+            className="mt-3"
             disabled={!actionsEnabled || !selectedTargetId || Boolean(transferOperation)}
             onClick={() => void onTransfer(call, selectedTargetId)}
             variant="secondary"
@@ -905,25 +1044,241 @@ function CanonicalActiveCall({
           </Button>
           {transferOperation ? (
             <p
-              className={`mt-2 text-xs ${transferOperation.status === "FAILED" ? "text-red-700" : "text-[var(--portal-muted)]"}`}
+              className={`mt-2 text-xs ${transferOperation.status === "FAILED" ? "text-red-200" : "text-white/55"}`}
             >
               {transferOperation.status === "FAILED"
-                ? `Transfer failed · ${transferOperation.errorCode ?? "provider failure"}`
+                ? "The transfer could not be completed. Try again."
                 : `Transfer ${transferOperation.status.toLowerCase()}`}
             </p>
           ) : transferTargets.length === 0 ? (
-            <p className="mt-2 text-xs text-[var(--portal-muted)]">
-              No other configured agent is available for transfer.
+            <p className="mt-2 text-xs text-white/55">
+              No other staff member is available for transfer.
             </p>
           ) : null}
         </div>
       ) : targetTransfer ? (
-        <p className="mt-3 text-xs text-[var(--portal-muted)]">
-          Transfer from the connected agent is ringing your browser.
-        </p>
+        <p className="mt-4 text-xs text-white/60">A transferred call is ringing now.</p>
       ) : null}
     </div>
   );
+}
+
+function CanonicalActivity({
+  actionsEnabled,
+  calls,
+  onResolve,
+  recentCalls,
+  submittingDisposition,
+  tasks,
+}: {
+  actionsEnabled: boolean;
+  calls: CallView[];
+  onResolve: (call: CallView) => void;
+  recentCalls: CallView[];
+  submittingDisposition: string | null;
+  tasks: TaskView[];
+}) {
+  return (
+    <Card className="gap-0 rounded-2xl bg-white py-0 shadow-sm ring-[var(--portal-border)]">
+      <Tabs className="gap-0" defaultValue={tasks.length ? "follow-up" : "recent"}>
+        <div className="flex flex-col gap-4 border-b border-[var(--portal-border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--portal-ink)]">Activity</h2>
+            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
+              Work that needs attention, followed by recent calls.
+            </p>
+          </div>
+          <TabsList className="h-9" variant="default">
+            <TabsTrigger className="px-3" value="follow-up">
+              Follow-up
+              {tasks.length ? (
+                <span className="rounded-full bg-[var(--portal-accent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                  {tasks.length}
+                </span>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger className="px-3" value="recent">
+              Recent calls
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent className="m-0" value="follow-up">
+          {tasks.length ? (
+            <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
+              {tasks.map((task) => {
+                const TaskIcon = task.kind === "VOICEMAIL" ? Voicemail : PhoneMissed;
+                const call = task.callId
+                  ? calls.find(({ id }) => id === task.callId)
+                  : null;
+
+                return (
+                  <li
+                    className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
+                    key={task.id}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
+                        <TaskIcon className="h-4 w-4" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
+                          {followUpLabel(task.kind)}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
+                          {task.callerPhone
+                            ? formatPhone(task.callerPhone)
+                            : "Patient call"}
+                          {` · ${formatRelativeTime(task.createdAt)}`}
+                        </p>
+                      </div>
+                    </div>
+                    {call ? (
+                      <Button
+                        className="w-full sm:w-auto"
+                        disabled={
+                          !actionsEnabled || submittingDisposition === task.callId
+                        }
+                        onClick={() => onResolve(call)}
+                        size="sm"
+                        variant="secondary"
+                      >
+                        {submittingDisposition === task.callId ? "Saving…" : "Mark done"}
+                      </Button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <ActivityEmptyState
+              description="New missed calls and voicemails will appear here."
+              title="You’re caught up"
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent className="m-0" value="recent">
+          {recentCalls.length ? (
+            <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
+              {recentCalls.map((call) => {
+                const DirectionIcon =
+                  call.direction === "OUTBOUND" ? PhoneOutgoing : PhoneIncoming;
+                const phone = formatPhone(callPhone(call));
+
+                return (
+                  <li
+                    className="flex items-center justify-between gap-4 px-5 py-3.5"
+                    key={call.id}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]">
+                        <DirectionIcon className="h-4 w-4" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
+                          {call.callerName || phone}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
+                          {call.callerName ? `${phone} · ` : ""}
+                          {call.direction === "OUTBOUND" ? "Outbound" : "Inbound"}
+                          {` · ${formatRelativeTime(call.endedAt || call.receivedAt)}`}
+                        </p>
+                      </div>
+                    </div>
+                    <PortalBadge className={callStatusClassName(call.status)}>
+                      {callStatusLabel(call.status)}
+                    </PortalBadge>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <ActivityEmptyState
+              description="Completed calls will appear here."
+              title="No recent calls"
+            />
+          )}
+        </TabsContent>
+      </Tabs>
+    </Card>
+  );
+}
+
+function ActivityEmptyState({
+  description,
+  title,
+}: {
+  description: string;
+  title: string;
+}) {
+  return (
+    <div className="flex min-h-40 flex-col items-center justify-center px-5 py-8 text-center">
+      <CheckCircle2 className="h-5 w-5 text-[var(--portal-accent)]" aria-hidden="true" />
+      <p className="mt-3 text-sm font-medium text-[var(--portal-ink)]">{title}</p>
+      <p className="mt-1 text-xs text-[var(--portal-muted)]">{description}</p>
+    </div>
+  );
+}
+
+function followUpLabel(kind: TaskView["kind"]) {
+  switch (kind) {
+    case "CALLBACK":
+      return "Callback requested";
+    case "FOLLOW_UP":
+      return "Patient follow-up";
+    case "MISSED_CALL":
+      return "Missed call";
+    case "VOICEMAIL":
+      return "New voicemail";
+  }
+}
+
+function callStatusLabel(status: CallView["status"]) {
+  switch (status) {
+    case "ABANDONED":
+      return "Missed";
+    case "COMPLETED":
+      return "Completed";
+    case "FAILED":
+      return "Failed";
+    case "VOICEMAIL":
+      return "Voicemail";
+    default:
+      return status.toLowerCase().replaceAll("_", " ");
+  }
+}
+
+function callStatusClassName(status: CallView["status"]) {
+  switch (status) {
+    case "COMPLETED":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "VOICEMAIL":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "ABANDONED":
+    case "FAILED":
+      return "border-red-200 bg-red-50 text-red-700";
+    default:
+      return "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]";
+  }
+}
+
+function formatRelativeTime(value: string, now = Date.now()) {
+  const timestamp = new Date(value).getTime();
+
+  if (!Number.isFinite(timestamp)) {
+    return "Recently";
+  }
+
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60_000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 function callPhone(call: CallView) {
@@ -932,8 +1287,13 @@ function callPhone(call: CallView) {
 
 function CanonicalUnavailable({ message }: { message: string }) {
   return (
-    <section className="rounded-xl border border-[var(--portal-border)] bg-white p-6 text-sm text-[var(--portal-muted)]">
-      {message}
-    </section>
+    <Card className="items-center gap-3 rounded-2xl bg-white px-6 py-10 text-center shadow-sm ring-[var(--portal-border)]">
+      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
+        <Headphones className="h-5 w-5" aria-hidden="true" />
+      </div>
+      <p className="max-w-md text-sm leading-relaxed text-[var(--portal-muted)]">
+        {message}
+      </p>
+    </Card>
   );
 }

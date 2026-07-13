@@ -103,8 +103,10 @@ export default async function PortalCallCenterPage({
     <div className="mx-auto max-w-6xl space-y-6">
       <PracticePageHeader
         branding={data.branding}
+        logoMeta="Answer and place patient calls."
         practiceName={data.practiceName}
         showLogo={false}
+        size="compact"
         title="Call Center"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -115,6 +117,7 @@ export default async function PortalCallCenterPage({
                 canonicalActivation || Boolean(canonicalWorkspace?.drainingCanonical)
               }
               locations={data.locations}
+              showLabel={false}
             />
           ) : null}
           {canonicalWorkspace && canonicalWorkspace.availableQueues.length > 1 ? (
