@@ -290,7 +290,6 @@ async function resolveAgentContext(
   const ringAttempt = fact.clientRingAttemptId
     ? await tx.callCenterRingAttempt.findUnique({
         select: {
-          arguments: true,
           queueItem: {
             select: {
               callerSession: { select: { telnyxCallSessionId: true } },
