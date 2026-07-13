@@ -64,6 +64,7 @@ describe("call center webhook recovery cron", () => {
         recoveryCalls += 1;
         return {
           activeLifecycle: activeLifecycleEmpty,
+          expiredHandoffs: 0,
           canonical: canonicalDisabled,
           commands: commandsDisabled,
           outboundInitiations: outboundInitiationsEmpty,
@@ -91,6 +92,7 @@ describe("call center webhook recovery cron", () => {
         recoveryCalls += 1;
         return {
           activeLifecycle: activeLifecycleEmpty,
+          expiredHandoffs: 0,
           canonical: canonicalDisabled,
           commands: commandsDisabled,
           outboundInitiations: outboundInitiationsEmpty,
@@ -123,6 +125,7 @@ describe("call center webhook recovery cron", () => {
           voicemail: 1,
           waiting: 0,
         },
+        expiredHandoffs: 4,
         canonical: {
           enabled: true,
           failed: 0,
@@ -175,6 +178,7 @@ describe("call center webhook recovery cron", () => {
         voicemail: 1,
         waiting: 0,
       },
+      expiredHandoffs: 4,
       canonical: {
         enabled: true,
         failed: 0,

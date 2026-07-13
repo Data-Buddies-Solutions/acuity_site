@@ -68,8 +68,9 @@ The current Abita handoff still uses the public-number path:
 Abita caller -> Acuity phone number -> Acuity queue -> browser SIP leg -> bridge
 ```
 
-The API-mediated direct-SIP replacement is deliberately deferred to Phase 7 at
-the end of this specification.
+The API-mediated SIP-ingress replacement is now implemented default-off in
+Phase 7 at the end of this specification. It cannot be activated until the
+provider contract canary and migration-first rollout gates pass.
 
 ## Why This Work Exists
 
@@ -1632,10 +1633,9 @@ The product currently needs available staff to ring. Round robin, skills,
 priority weights, and schedules are plausible but unproven requirements. Adding
 them now would create a policy engine before there is policy.
 
-Decision: parallel first; extend only from observed demand. Phase 7 may lease
-one endpoint for a direct handoff only after its shadow comparison proves that
-the policy does not reduce answer reliability. That selection remains Acuity
-queue policy and never moves into the source agent.
+Decision: parallel first; extend only from observed demand. Phase 7 admits the
+caller through Acuity's application SIP ingress and then reuses the same queue
+policy. Endpoint selection never moves into the source agent.
 
 ### Why keep a durable command table?
 
@@ -1697,11 +1697,11 @@ the architecture:
 Everything else in this specification should be implementable without
 customer-specific branching.
 
-## Future Phase 7: API-Mediated Direct SIP Handoff
+## Phase 7: API-Mediated Direct SIP Handoff
 
-Status: accepted long-term direction, explicitly deferred until Phases 0-6 are
-complete and the canonical queue, call, leg, endpoint, and agent-session owners
-have passed their production observation gates.
+Status: default-off implementation in progress. Activation remains blocked on
+the migration-first rollout, Phases 4B/5B prerequisites, and one Telnyx/LiveKit
+contract canary proving that REFER headers reach the Acuity SIP ingress webhook.
 
 This phase removes the unnecessary public-phone-number hop from voice-agent
 handoffs without giving `abita_agent` ownership of Acuity routing.
@@ -1729,11 +1729,16 @@ Target path:
 ```text
 abita_agent
   -> authenticated Acuity handoff API
-  -> Acuity atomically selects and leases a ready agent session and endpoint
-  -> short-lived queue-bound SIP destination
-  -> direct SIP transfer
-  -> browser media connection
+  -> short-lived signed Acuity SIP ingress destination
+  -> Acuity validates and consumes the handoff
+  -> existing canonical queue routing
+  -> ready browser endpoint(s) -> Take -> bridge
 ```
+
+The SIP target is an Acuity-controlled application ingress, not a public DID
+and not a reusable user credential. This removes the 618 phone-number hop while
+keeping readiness, queue selection, voicemail, provider commands, and browser
+media correlation inside the existing canonical owner.
 
 The first integration is Abita, but the contract is source-neutral. No
 customer-specific routing branch belongs in the API or domain model.
@@ -1742,38 +1747,44 @@ customer-specific routing branch belongs in the API or domain model.
 
 1. `abita_agent` owns the decision to request a human handoff and the original
    LiveKit call identifier.
-2. Acuity owns tenant resolution, queue selection, readiness, endpoint leasing,
-   call claim, no-answer behavior, voicemail, failover, and reporting.
-3. The handoff API returns a destination; it never exposes a reusable raw seat
-   credential or lets the caller select a seat.
-4. A short-lived handoff reservation owns the interval between API acceptance
-   and authenticated SIP ingress.
+2. Acuity resolves the configured number from the original route phone and owns
+   queue selection, readiness, endpoint offers, Take, no-answer behavior,
+   voicemail, failover, and reporting.
+3. The API returns one configured application SIP URI plus signed one-time
+   headers. It never exposes a reusable user credential or selects a user.
+4. A short-lived handoff row owns only the interval between API issuance and
+   authenticated SIP ingress. It does not reserve an agent before media exists.
 5. The canonical `Call` and `CallLeg` remain the only owners of logical outcome
    and provider-leg state after ingress.
 6. Ordinary patient calls continue to use the practice's public numbers. This
    phase changes trusted voice-agent handoffs only.
+7. Each service credential is pinned to one practice. The request cannot choose
+   or discover another tenant.
 
-### Handoff reservation schema
+### Handoff schema
 
-Add one narrow `CallCenterHandoff` model only when this phase begins:
+Add one narrow `CallCenterHandoff` model:
 
 ```text
 CallCenterHandoff
   id
   practiceId
   queueId
+  numberId
   callId?
-  endpointId?
-  agentSessionId?
   sourceSystem
   sourceCallId
   idempotencyKey
-  tokenHash?
-  status            RESERVED | INGRESS_SEEN | CONNECTED | EXPIRED | FAILED | FALLBACK
-  expiresAt?
-  ingressSeenAt
-  connectedAt
-  failureCode
+  requestFingerprint
+  tokenHash
+  callerPhone
+  status            ISSUED | INGRESS_SEEN | CONNECTED | EXPIRED | FAILED
+  providerCallSessionId?
+  expiresAt
+  ingressSeenAt?
+  connectedAt?
+  failedAt?
+  failureCode?
   createdAt
   updatedAt
 ```
@@ -1781,17 +1792,15 @@ CallCenterHandoff
 Required constraints:
 
 - unique `(practiceId, sourceSystem, idempotencyKey)`;
-- one live reservation per endpoint lease;
-- token stored only as a hash and accepted once;
-- `RESERVED` requires call, endpoint, agent-session, token, and expiry fields;
-- `FALLBACK` stores the idempotent fallback decision without an endpoint or
-  token;
+- unique `(sourceSystem, sourceCallId)` so one upstream call cannot be admitted
+  into two practices;
+- token stored only as a hash and accepted once; the durable webhook inbox also
+  replaces the raw header with its hash before persistence;
+- `ISSUED` has no provider session or canonical call;
+- `INGRESS_SEEN` binds exactly one provider session and canonical call;
 - bounded expiry measured in seconds, not an open-ended assignment; and
 - categorical failure codes only, with no caller number or provider payload in
   logs.
-
-Do not add this model earlier. Until the direct handoff exists, it would be an
-unused second owner for queue assignment.
 
 ### API contract
 
@@ -1806,23 +1815,25 @@ Request:
 
 ```json
 {
-  "sourceSystem": "abita",
   "sourceCallId": "livekit-call-id",
-  "practiceKey": "practice-key",
-  "queueKey": "optical",
-  "officeKey": "north-miami-beach",
   "callerPhone": "+1...",
-  "trunkPhone": "+1..."
+  "routePhoneNumber": "+1..."
 }
 ```
+
+The authenticated credential fixes `sourceSystem = ABITA` and one configured
+practice; callers cannot choose a practice, queue, endpoint, or source name.
+`routePhoneNumber` must resolve to exactly one enabled `CallCenterNumber` and
+inbound queue inside that practice.
 
 Accepted response:
 
 ```json
 {
+  "type": "DIRECT",
   "handoffId": "handoff-id",
-  "sipUri": "sip:one-time-token@handoff.example",
-  "expiresAt": "2026-07-10T12:00:20Z",
+  "sipUri": "sip:acuity-ingress@sip.telnyx.com",
+  "expiresAt": "2026-07-10T12:00:30Z",
   "sipHeaders": {
     "X-Acuity-Handoff-Id": "handoff-id",
     "X-Acuity-Handoff-Token": "one-time-token"
@@ -1830,70 +1841,71 @@ Accepted response:
 }
 ```
 
-No-ready-seat, disabled-queue, or controlled-degradation response:
-
-```json
-{
-  "fallback": "PUBLIC_NUMBER",
-  "phoneNumber": "+1...",
-  "reason": "NO_READY_ENDPOINT"
-}
-```
-
-The API must authenticate the source, tenant-scope every lookup, validate the
-queue/office relationship, and perform endpoint lease plus handoff reservation
-in one transaction. Repeating the same idempotency key returns the same live
-reservation or its terminal result; it never selects a second endpoint.
+The API authenticates the source, tenant-scopes through the configured number,
+validates the number/queue relationship under locks, and creates the handoff in
+one transaction. Repeating the exact live request returns the same token;
+changed input or a changed idempotency key for the same source call returns
+`409`. Disabled or incomplete configuration fails closed before a REFER.
 
 ### Runtime sequence
 
 1. `abita_agent` requests a handoff before moving media.
-2. Acuity resolves the queue and atomically leases one eligible ready agent
-   session and endpoint.
-3. Acuity creates or claims the canonical call, records the reservation, and
-   returns a one-time SIP destination.
-4. `abita_agent` calls LiveKit `transferSipParticipant` with the returned URI
+2. Acuity resolves the existing enabled number and queue, records an `ISSUED`
+   handoff, and returns the application SIP URI plus one-time signed headers.
+3. `abita_agent` calls LiveKit `transferSipParticipant` with the returned URI
    and signed headers.
-5. Acuity SIP ingress validates and consumes the token, binds the provider leg
-   to the reservation, and confirms `INGRESS_SEEN`.
-6. The browser receives the provider call while Live Queue remains the only
-   pre-answer UI.
-7. Answer connects the media and marks the handoff `CONNECTED`. Timeout,
-   transfer failure, or missing ingress expires the lease and lets Acuity choose
-   failover, voicemail, or the public-number fallback.
+4. The signed Telnyx webhook validates and consumes the token, atomically binds
+   one provider session, creates the canonical customer call/leg, freezes
+   `effectOwner = CANONICAL`, and marks `INGRESS_SEEN`.
+5. The existing canonical router offers the call to ready users. Live Queue is
+   the only pre-answer UI; `offeredCallId` does not make a user Busy.
+6. Take and provider answer/bridge use the existing command and projection
+   path. Confirmed connection marks both the session and handoff connected.
+7. No-ready behavior, voicemail, failover, hangup, and reporting remain the
+   ordinary canonical call lifecycle.
 
 Provider-specific transfer failure semantics must be proven with LiveKit and
-Telnyx contract tests before implementation. The domain contract above must not
-assume that an unconfirmed transfer moved the caller.
+Telnyx contract tests before activation. The direct-transfer client disables
+LiveKit RPC failover, records REFER as started before awaiting its ambiguous
+result, and never changes routes after an ownership conflict. The legacy phone
+path keeps its existing retry behavior while direct handoff is unconfigured.
 
 ### Rollout and rollback
 
-1. Implement the API in shadow mode: select and reserve nothing, but compare the
-   endpoint Acuity would choose with the live queue decision.
-2. Enable real reservations without direct transfer and verify expiry and
-   idempotency under duplicate requests.
-3. Enable direct SIP for the optical queue behind a queue-level flag.
-4. Run answer, no-answer, transfer failure, API timeout, duplicate request,
+1. Merge and apply the additive handoff migration before behavior code reads it.
+2. Deploy the API, ingress binding, and Abita client default-off.
+3. Configure one Acuity-controlled Telnyx SIP application URI and enable SIP URI
+   calling. Prove header propagation, signed webhook delivery, provider IDs, and
+   invalid-token rejection with one canary.
+4. Enable one global direct-handoff switch for all configured numbers; do not
+   add an optical-only branch or per-user URI.
+5. Run answer, no-answer, transfer failure, API timeout, duplicate request,
    expired token, reconnect, voicemail, and rollback synthetic tests.
-5. Compare answer rate, first-ring latency, handoff failure rate, voicemail
+6. Compare answer rate, first-ring latency, handoff failure rate, voicemail
    rate, duplicate-leg count, and invariant failures with the public-number
    path.
-6. Expand by queue only after the observation window is clean.
 
-Rollback is one configuration change: disable direct handoff for the queue and
-return the existing public-number destination. Public-number ingress remains
-operational until direct SIP has passed the full rollout window.
+Expired unconsumed issuances are closed by the bounded recovery worker after a
+five-minute webhook grace window. Invalid or expired signed ingress is marked
+terminal in both inbox lanes rather than becoming a retrying dead letter.
+
+Rollback is one configuration change:
+`CALL_CENTER_DIRECT_HANDOFF_ENABLED=false`. This stops new API admissions;
+already-issued tokens remain valid for their 30-second lease and already-bound
+calls retain immutable canonical ownership. Abita may use its explicitly
+enabled pre-REFER phone fallback while the old number path remains available.
 
 ### Phase 7 completion gate
 
 Phase 7 is complete only when:
 
 - `abita_agent` contains no static Acuity seat URI or seat-selection logic;
-- Acuity is the only owner of endpoint selection and leasing;
+- Acuity is the only owner of queue and endpoint selection;
 - duplicate API requests and duplicate SIP ingress cannot create a second leg;
 - no-answer, voicemail, failover, and reporting match the canonical queue
   behavior;
 - direct-SIP and public-number paths produce the same canonical call outcome;
-- global rollback is rehearsed; and
-- the public-number hop is removed only for trusted handoffs whose rollout gate
-  is closed.
+- global rollback is rehearsed;
+- provider evidence proves REFER header propagation and gateway webhook
+  correlation; and
+- the 618 public-number hop is removed only after the observation gate closes.
