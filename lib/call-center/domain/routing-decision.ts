@@ -10,6 +10,7 @@ export const ROUTING_EXCLUSION_CODES = [
   "PRESENCE_NOT_AVAILABLE",
   "MICROPHONE_NOT_READY",
   "AUDIO_NOT_READY",
+  "OFFERED_CALL",
   "CURRENT_CALL",
 ] as const;
 
@@ -19,6 +20,7 @@ export type RoutingSessionCandidate = {
   audioReady: boolean;
   connectionState: "CONNECTING" | "READY" | "ERROR" | "CLOSED";
   currentCallId: string | null;
+  offeredCallId: string | null;
   endpoint: {
     configured: boolean;
     enabled: boolean;
@@ -85,6 +87,7 @@ function exclusionFor(
   if (session.presence !== "AVAILABLE") return "PRESENCE_NOT_AVAILABLE";
   if (!session.microphoneReady) return "MICROPHONE_NOT_READY";
   if (!session.audioReady) return "AUDIO_NOT_READY";
+  if (session.offeredCallId) return "OFFERED_CALL";
   if (session.currentCallId) return "CURRENT_CALL";
   return null;
 }

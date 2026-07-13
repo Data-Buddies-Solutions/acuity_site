@@ -44,7 +44,8 @@ describe("canonical call center snapshot route", () => {
           availableQueues: [{ id: "queue-1", name: "Optical" }],
           calls: [],
           counts: { active: 0, openTasks: 0, recent: 0, waiting: 0 },
-          endpoints: [],
+          agentProfile: null,
+          transferTargets: [],
           operations: null,
           queue: {
             id: "queue-1",

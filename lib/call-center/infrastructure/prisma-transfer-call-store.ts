@@ -115,7 +115,6 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
             type: "DIAL_AGENT",
           },
         },
-        endpointId: { not: input.targetEndpointId },
         kind: "AGENT",
         status: { in: [...liveAgentLegStatuses] },
       },
@@ -132,9 +131,27 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
       throw new TransferCallError("Canonical call not found", 404);
     }
 
+    if (input.targetUserId === actor.userId) {
+      throw new TransferCallError("Choose a different agent", 422);
+    }
     await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.targetEndpointId} FOR UPDATE`,
+      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${input.targetUserId} FOR UPDATE`,
     );
+    const targetEndpoint = await this.transaction.callCenterEndpoint.findUnique({
+      where: {
+        practiceId_userId: {
+          practiceId: actor.practiceId,
+          userId: input.targetUserId,
+        },
+      },
+    });
+    if (
+      !targetEndpoint?.enabled ||
+      !targetEndpoint.providerCredentialId ||
+      !targetEndpoint.sipUsername
+    ) {
+      throw new TransferCallError("Transfer target is not configured", 409);
+    }
     const sessions = await this.transaction.callCenterAgentSession.findMany({
       include: { endpoint: true },
       orderBy: { id: "asc" },
@@ -142,7 +159,7 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
       where: {
         audioReady: true,
         connectionState: "READY",
-        endpointId: input.targetEndpointId,
+        endpointId: targetEndpoint.id,
         leaseExpiresAt: { gt: now },
         microphoneReady: true,
         practiceId: actor.practiceId,
@@ -168,7 +185,9 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
       !session.endpoint.enabled ||
       !session.endpoint.providerCredentialId ||
       !session.endpoint.sipUsername ||
-      session.endpointId === sourceLeg.endpointId
+      session.endpointId === sourceLeg.endpointId ||
+      session.userId !== input.targetUserId ||
+      session.endpoint.userId !== session.userId
     ) {
       throw new TransferCallError("Transfer target is not ready", 409);
     }
@@ -239,8 +258,12 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
       const argumentsRecord = record(existingCommand.arguments);
       if (
         argumentsRecord?.replacesLegId === sourceLeg.id &&
-        session.currentCallId === call.id &&
-        session.presence === "BUSY"
+        ((session.offeredCallId === call.id &&
+          session.currentCallId === null &&
+          session.presence === "AVAILABLE") ||
+          (session.offeredCallId === null &&
+            session.currentCallId === call.id &&
+            session.presence === "BUSY"))
       ) {
         return {
           callId: call.id,
@@ -252,24 +275,30 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
           targetAgentSessionId: session.id,
           targetEndpointId: session.endpointId,
           targetLegId: existing.id,
+          targetUserId: session.userId,
         };
       }
       throw new TransferCallError("Transfer target is already occupied", 409);
     }
-    if (session.presence !== "AVAILABLE" || session.currentCallId) {
+    if (
+      session.presence !== "AVAILABLE" ||
+      session.currentCallId ||
+      session.offeredCallId
+    ) {
       throw new TransferCallError("Transfer target is already occupied", 409);
     }
 
     const reserved = await this.transaction.callCenterAgentSession.updateMany({
       data: {
-        currentCallId: call.id,
-        presence: "BUSY",
+        offeredCallId: call.id,
+        readyAt: null,
         stateVersion: { increment: 1 },
       },
       where: {
         audioReady: true,
         connectionState: "READY",
         currentCallId: null,
+        offeredCallId: null,
         endpointId: session.endpointId,
         id: session.id,
         leaseExpiresAt: { gt: now },
@@ -304,6 +333,7 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
           agentSessionId: session.id,
           endpointId: session.endpointId,
           replacesLegId: sourceLeg.id,
+          targetUserId: session.userId,
         },
         callId: call.id,
         idempotencyKey: `transfer:${sourceLeg.id}:${leg.id}`,
@@ -328,13 +358,15 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
         aggregateType: "AGENT_SESSION",
         data: {
           callId: call.id,
-          presence: "BUSY",
+          presence: "AVAILABLE",
           replacesLegId: sourceLeg.id,
+          stateVersion: session.stateVersion + 1,
+          targetUserId: session.userId,
         },
         idempotencyKey: `transfer-session:${leg.id}`,
         occurredAt: now,
         practiceId: call.practiceId,
-        type: "AGENT_SESSION_BUSY",
+        type: "AGENT_SESSION_CALL_OFFERED",
       },
     });
 
@@ -348,6 +380,7 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
       targetAgentSessionId: session.id,
       targetEndpointId: session.endpointId,
       targetLegId: leg.id,
+      targetUserId: session.userId,
     };
   }
 }

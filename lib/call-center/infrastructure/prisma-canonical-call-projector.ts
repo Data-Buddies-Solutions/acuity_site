@@ -7,7 +7,10 @@ import {
 } from "@/lib/call-center/domain/canonical-call-state";
 import { canonicalVoicemailRecordingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import type { CanonicalProjectionRecord } from "@/lib/call-center/infrastructure/canonical-provider-webhook-inbox";
-import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
+import {
+  promoteAgentSessionOffer,
+  releaseAgentSessionReservation,
+} from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
 import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import {
   failProviderCommandDependents,
@@ -615,6 +618,21 @@ const liveAgentLegStatuses = new Set([
   "BRIDGED",
 ]);
 
+export function isConfirmedAgentConnection(input: {
+  confirmedCommandType: string | null;
+  direction: "INBOUND" | "OUTBOUND";
+  eventType: string;
+  legKind: string;
+  legStatus: string;
+}) {
+  return (
+    input.legKind === "AGENT" &&
+    (input.confirmedCommandType === "DIAL_AGENT" || input.direction === "OUTBOUND") &&
+    (input.eventType === "call.answered" || input.eventType === "call.bridged") &&
+    (input.legStatus === "ANSWERED" || input.legStatus === "BRIDGED")
+  );
+}
+
 export function retainedAgentSessionIds(input: {
   callStatus: string;
   legs: Array<{
@@ -623,6 +641,7 @@ export function retainedAgentSessionIds(input: {
     status: string;
   }>;
 }) {
+  if (terminalCallStatuses.has(input.callStatus)) return new Set<string>();
   return new Set(
     input.legs
       .filter((leg) => liveAgentLegStatuses.has(leg.status))
@@ -650,7 +669,9 @@ async function releaseInactiveCallSessions(
   });
   const sessions = await tx.callCenterAgentSession.findMany({
     select: { id: true },
-    where: { currentCallId: input.callId },
+    where: {
+      OR: [{ currentCallId: input.callId }, { offeredCallId: input.callId }],
+    },
   });
 
   for (const session of sessions) {
@@ -991,6 +1012,24 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
               practiceId: call.practiceId,
             })
           : null;
+      if (
+        effectOwner === "CANONICAL" &&
+        leg.agentSessionId &&
+        isConfirmedAgentConnection({
+          confirmedCommandType: confirmedDialCommand?.type ?? null,
+          direction: call.direction,
+          eventType: resolvedFact.eventType,
+          legKind: leg.kind,
+          legStatus: leg.status,
+        })
+      ) {
+        await promoteAgentSessionOffer(tx, {
+          agentSessionId: leg.agentSessionId,
+          callId: call.id,
+          idempotencyKey: `call:${call.id}:leg:${leg.id}:session-busy`,
+          now: resolvedFact.occurredAt,
+        });
+      }
       if (
         effectOwner === "CANONICAL" &&
         (resolvedFact.legKind === "CUSTOMER" || resolvedFact.eventType === "call.hangup")

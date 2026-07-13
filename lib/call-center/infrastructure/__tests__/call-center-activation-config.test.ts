@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   InvalidCallCenterActivationConfigError,
   resolveCallCenterActivationConfig,
+  resolvePortalCallCenterActivationConfig,
 } from "../call-center-activation-config";
 
 describe("call center activation config", () => {
@@ -65,4 +66,17 @@ describe("call center activation config", () => {
       }
     },
   );
+
+  it("falls the portal back to legacy when activation configuration is invalid", () => {
+    expect(
+      resolvePortalCallCenterActivationConfig({
+        CALL_CENTER_CANONICAL_ACTIVATION_ENABLED: "true",
+      }),
+    ).toEqual({ enabled: false, valid: false });
+    expect(
+      resolvePortalCallCenterActivationConfig({
+        CALL_CENTER_CANONICAL_ACTIVATION_ENABLED: "false",
+      }),
+    ).toEqual({ enabled: false, valid: true });
+  });
 });

@@ -59,6 +59,7 @@ function configuration(): ValidatedCallCenterConfiguration {
     endpoints: [
       {
         id: "endpoint-1",
+        userId: "user-1",
         locationId: "location-1",
         label: "Front desk",
         providerCredentialId: "credential-1",

@@ -10,7 +10,6 @@ import { prismaClaimCallStore } from "@/lib/call-center/infrastructure/prisma-cl
 const bodySchema = z
   .object({
     clientInstanceId: z.string().trim().min(1).max(200),
-    endpointId: z.string().trim().min(1).max(200),
     expectedSessionStateVersion: z.number().int().nonnegative(),
   })
   .strict();

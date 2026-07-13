@@ -39,7 +39,6 @@ describe("canonical claim route", () => {
       request(
         {
           clientInstanceId: "browser-1",
-          endpointId: "endpoint-1",
           expectedSessionStateVersion: 2,
         },
         "operation-1",
@@ -79,7 +78,6 @@ describe("canonical claim route", () => {
       request(
         {
           clientInstanceId: " browser-1 ",
-          endpointId: " endpoint-1 ",
           expectedSessionStateVersion: 2,
         },
         " operation-1 ",
@@ -93,7 +91,6 @@ describe("canonical claim route", () => {
       input: {
         callId: "call-1",
         clientInstanceId: "browser-1",
-        endpointId: "endpoint-1",
         expectedSessionStateVersion: 2,
         idempotencyKey: "operation-1",
       },
@@ -126,7 +123,6 @@ describe("canonical claim route", () => {
       request(
         {
           clientInstanceId: "browser-1",
-          endpointId: "endpoint-1",
           expectedSessionStateVersion: 2,
         },
         "operation-1",
@@ -164,7 +160,6 @@ describe("canonical claim route", () => {
       request(
         {
           clientInstanceId: "browser-1",
-          endpointId: "endpoint-1",
           expectedSessionStateVersion: 2,
         },
         "operation-1",
@@ -189,7 +184,6 @@ describe("canonical claim route", () => {
     const missingKey = await POST(
       request({
         clientInstanceId: "browser-1",
-        endpointId: "endpoint-1",
         expectedSessionStateVersion: 2,
       }),
       routeContext,
@@ -198,7 +192,6 @@ describe("canonical claim route", () => {
       request(
         {
           clientInstanceId: "browser-1",
-          endpointId: "endpoint-1",
           expectedSessionStateVersion: 2,
           practiceId: "practice-2",
         },

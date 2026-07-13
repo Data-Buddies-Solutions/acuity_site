@@ -10,9 +10,7 @@ import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { prismaTransferCallStore } from "@/lib/call-center/infrastructure/prisma-transfer-call-store";
 
-const bodySchema = z
-  .object({ targetEndpointId: z.string().trim().min(1).max(200) })
-  .strict();
+const bodySchema = z.object({ targetUserId: z.string().trim().min(1).max(200) }).strict();
 const paramsSchema = z.object({ callId: z.string().trim().min(1).max(200) });
 const IDEMPOTENCY_KEY_MAX_LENGTH = 200;
 
@@ -50,7 +48,7 @@ export function createTransferCallHandler({
       const input: TransferCallInput = {
         callId: parameters.data.callId,
         idempotencyKey: idempotencyKey(request),
-        targetEndpointId: body.targetEndpointId,
+        targetUserId: body.targetUserId,
       };
       const receipt = await transfer(prismaTransferCallStore, actor, input);
       if (receipt.status === "PENDING") {

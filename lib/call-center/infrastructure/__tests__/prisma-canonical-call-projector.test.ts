@@ -11,6 +11,7 @@ import {
   earliestObservedAt,
   enrichCanonicalCallIdentity,
   hasCanonicalAgentBridgeEvidence,
+  isConfirmedAgentConnection,
   processedWinningAgentLegId,
   projectedCallDeadline,
   retainedAgentSessionIds,
@@ -23,6 +24,41 @@ import {
 
 const later = new Date("2026-07-11T10:00:05.000Z");
 const earlier = new Date("2026-07-11T10:00:00.000Z");
+
+describe("canonical agent presence", () => {
+  const answeredAgent = {
+    eventType: "call.answered",
+    legKind: "AGENT",
+    legStatus: "ANSWERED",
+  };
+
+  it("requires provider confirmation from the owned inbound dial", () => {
+    expect(
+      isConfirmedAgentConnection({
+        ...answeredAgent,
+        confirmedCommandType: "DIAL_AGENT",
+        direction: "INBOUND",
+      }),
+    ).toBe(true);
+    expect(
+      isConfirmedAgentConnection({
+        ...answeredAgent,
+        confirmedCommandType: null,
+        direction: "INBOUND",
+      }),
+    ).toBe(false);
+  });
+
+  it("uses the exact outbound agent callback as confirmation", () => {
+    expect(
+      isConfirmedAgentConnection({
+        ...answeredAgent,
+        confirmedCommandType: null,
+        direction: "OUTBOUND",
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("canonical effect ownership", () => {
   it("requires every projected event to have a durable effect owner", () => {
@@ -111,7 +147,7 @@ describe("canonical agent reservation retention", () => {
     ]).toEqual(["session-2"]);
   });
 
-  it("keeps live reservations through call terminal state until each leg ends", () => {
+  it("releases every reservation immediately when the call is terminal", () => {
     expect([...retainedAgentSessionIds({ callStatus: "RINGING", legs })]).toEqual([
       "session-1",
       "session-2",
@@ -121,7 +157,7 @@ describe("canonical agent reservation retention", () => {
         callStatus: "COMPLETED",
         legs,
       }),
-    ]).toEqual(["session-1", "session-2"]);
+    ]).toEqual([]);
     expect([
       ...retainedAgentSessionIds({
         callStatus: "COMPLETED",

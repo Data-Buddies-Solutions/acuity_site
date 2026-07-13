@@ -22,7 +22,6 @@ import { serializeAgentSessionView } from "@/lib/call-center/domain/agent-sessio
 
 const identitySchema = z.object({
   clientInstanceId: z.string().trim().min(1).max(200),
-  endpointId: z.string().trim().min(1).max(200),
 });
 const readinessSchema = identitySchema.extend({
   audioReady: z.boolean(),
@@ -86,8 +85,8 @@ export function createAgentSessionHandlers({
       });
     },
     {
-      errorMessage: "Failed to acquire call center endpoint",
-      logLabel: "[portal-call-center] Failed to acquire canonical endpoint",
+      errorMessage: "Failed to start call center session",
+      logLabel: "[portal-call-center] Failed to start canonical agent session",
     },
   );
 
@@ -126,8 +125,8 @@ export function createAgentSessionHandlers({
       return NextResponse.json({ session: serializeAgentSessionView(result.session) });
     },
     {
-      errorMessage: "Failed to release call center endpoint",
-      logLabel: "[portal-call-center] Failed to release canonical endpoint",
+      errorMessage: "Failed to release call center session",
+      logLabel: "[portal-call-center] Failed to release canonical agent session",
     },
   );
 

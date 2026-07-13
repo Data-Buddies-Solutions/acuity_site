@@ -123,6 +123,7 @@ class PrismaShadowRoutingTransaction implements ShadowRoutingTransaction {
               audioReady: true,
               connectionState: true,
               currentCallId: true,
+              offeredCallId: true,
               endpoint: {
                 select: {
                   enabled: true,
@@ -161,6 +162,7 @@ class PrismaShadowRoutingTransaction implements ShadowRoutingTransaction {
               audioReady: session.audioReady,
               connectionState: session.connectionState,
               currentCallId: session.currentCallId,
+              offeredCallId: session.offeredCallId,
               endpoint: {
                 configured: Boolean(
                   session.endpoint.providerCredentialId && session.endpoint.sipUsername,

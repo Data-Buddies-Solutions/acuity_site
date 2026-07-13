@@ -17,6 +17,7 @@ const sessionSelect = {
   browserSessionId: true,
   connectionState: true,
   currentCallId: true,
+  offeredCallId: true,
   endpointId: true,
   id: true,
   lastHeartbeatAt: true,
@@ -58,12 +59,13 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     });
   }
 
-  async closeExpiredSessions(endpointId: string, now: Date) {
+  async closeExpiredSessions(practiceId: string, userId: string, now: Date) {
     const expired = await this.transaction.callCenterAgentSession.findMany({
       select: sessionSelect,
       where: {
         connectionState: { not: "CLOSED" },
-        endpointId,
+        practiceId,
+        userId,
         leaseExpiresAt: { lte: now },
         presence: { not: "OFFLINE" },
       },
@@ -100,13 +102,15 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     return toAgentSessionRecord(session);
   }
 
-  async findActiveSession(endpointId: string) {
+  async findActiveSession(practiceId: string, userId: string) {
     const session = await this.transaction.callCenterAgentSession.findFirst({
       select: sessionSelect,
       where: {
-        endpointId,
+        practiceId,
+        userId,
         OR: [
           { currentCallId: { not: null } },
+          { offeredCallId: { not: null } },
           {
             connectionState: { not: "CLOSED" },
             presence: { not: "OFFLINE" },
@@ -117,20 +121,20 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     return session ? toAgentSessionRecord(session) : null;
   }
 
-  async findSession(endpointId: string, clientInstanceId: string) {
-    const session = await this.transaction.callCenterAgentSession.findUnique({
+  async findSession(practiceId: string, userId: string, clientInstanceId: string) {
+    const session = await this.transaction.callCenterAgentSession.findFirst({
+      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
       select: sessionSelect,
       where: {
-        endpointId_browserSessionId: {
-          browserSessionId: clientInstanceId,
-          endpointId,
-        },
+        browserSessionId: clientInstanceId,
+        practiceId,
+        userId,
       },
     });
     return session ? toAgentSessionRecord(session) : null;
   }
 
-  async getAccessibleEndpoint(actor: AgentSessionActor, endpointId: string) {
+  async getAccessibleEndpoint(actor: AgentSessionActor) {
     const endpoint = await this.transaction.callCenterEndpoint.findFirst({
       select: {
         id: true,
@@ -140,7 +144,7 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
       },
       where: {
         enabled: true,
-        id: endpointId,
+        userId: actor.userId,
         locationId: actor.hasAllLocationAccess
           ? undefined
           : { in: actor.allowedLocationIds },
@@ -195,13 +199,13 @@ export class PrismaAgentSessionStore implements AgentSessionStore {
     return randomUUID();
   }
 
-  withEndpointLock<T>(
-    endpointId: string,
+  withAgentLock<T>(
+    actor: AgentSessionActor,
     work: (transaction: AgentSessionTransaction) => Promise<T>,
   ) {
     return this.database.$transaction(async (transaction) => {
       await transaction.$queryRaw(
-        Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${endpointId} FOR UPDATE`,
+        Prisma.sql`SELECT "id" FROM "user" WHERE "id" = ${actor.userId} FOR UPDATE`,
       );
       return work(new PrismaAgentSessionTransaction(transaction));
     });

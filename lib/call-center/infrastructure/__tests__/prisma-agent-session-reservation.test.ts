@@ -2,11 +2,139 @@ import { describe, expect, it } from "bun:test";
 
 import type { Prisma } from "@/generated/prisma/client";
 
-import { releaseAgentSessionReservation } from "../prisma-agent-session-reservation";
+import {
+  promoteAgentSessionOffer,
+  releaseAgentSessionReservation,
+} from "../prisma-agent-session-reservation";
 
 const now = new Date("2026-07-12T12:00:00.000Z");
 
 describe("canonical agent-session reservation release", () => {
+  it("promotes one confirmed offer to the active busy call", async () => {
+    let update: Record<string, unknown> | null = null;
+    let event: Record<string, unknown> | null = null;
+    const transaction = {
+      $queryRaw: async () => [],
+      callCenterAgentSession: {
+        findUnique: async () => ({
+          currentCallId: null,
+          endpointId: "endpoint-1",
+          id: "session-1",
+          offeredCallId: "call-1",
+          practiceId: "practice-1",
+          presence: "AVAILABLE",
+          stateVersion: 3,
+        }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          update = data;
+          return { stateVersion: 4 };
+        },
+      },
+      callCenterEvent: {
+        create: async ({ data }: { data: Record<string, unknown> }) => {
+          event = data;
+          return { revision: BigInt(1) };
+        },
+      },
+    } as unknown as Prisma.TransactionClient;
+
+    await promoteAgentSessionOffer(transaction, {
+      agentSessionId: "session-1",
+      callId: "call-1",
+      idempotencyKey: "call:call-1:leg:leg-1:session-busy",
+      now,
+    });
+
+    expect(update).toMatchObject({
+      currentCallId: "call-1",
+      offeredCallId: null,
+      presence: "BUSY",
+    });
+    expect(event).toMatchObject({
+      aggregateId: "session-1",
+      data: { callId: "call-1", presence: "BUSY", stateVersion: 4 },
+      type: "AGENT_SESSION_BUSY",
+    });
+  });
+
+  it("promotes the exact answered offer after browser readiness changes", async () => {
+    let update: Record<string, unknown> | null = null;
+    const transaction = {
+      $queryRaw: async () => [],
+      callCenterAgentSession: {
+        findUnique: async () => ({
+          currentCallId: null,
+          endpointId: "endpoint-1",
+          id: "session-1",
+          offeredCallId: "call-1",
+          practiceId: "practice-1",
+          presence: "PAUSED",
+          stateVersion: 3,
+        }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          update = data;
+          return { stateVersion: 4 };
+        },
+      },
+      callCenterEvent: { create: async () => ({ revision: BigInt(1) }) },
+    } as unknown as Prisma.TransactionClient;
+
+    await promoteAgentSessionOffer(transaction, {
+      agentSessionId: "session-1",
+      callId: "call-1",
+      idempotencyKey: "call:call-1:leg:leg-1:session-busy",
+      now,
+    });
+
+    expect(update).toMatchObject({
+      currentCallId: "call-1",
+      offeredCallId: null,
+      presence: "BUSY",
+    });
+  });
+
+  it("clears an unanswered offer without inventing an active call", async () => {
+    let update: Record<string, unknown> | null = null;
+    const transaction = {
+      $queryRaw: async () => [],
+      callCenterAgentSession: {
+        findUnique: async () => ({
+          audioReady: true,
+          connectionState: "READY",
+          currentCallId: null,
+          endpointId: "endpoint-1",
+          id: "session-1",
+          leaseExpiresAt: new Date(now.getTime() + 60_000),
+          microphoneReady: true,
+          offeredCallId: "call-1",
+          practiceId: "practice-1",
+          presence: "AVAILABLE",
+          readyAt: null,
+          stateVersion: 3,
+        }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          update = data;
+          return { stateVersion: 4 };
+        },
+      },
+      callCenterEvent: { create: async () => ({ revision: BigInt(1) }) },
+    } as unknown as Prisma.TransactionClient;
+
+    await releaseAgentSessionReservation(transaction, {
+      agentSessionId: "session-1",
+      callId: "call-1",
+      idempotencyKey: "call-1:offer-release",
+      now,
+      reason: "LEG_INACTIVE",
+    });
+
+    expect(update).toMatchObject({
+      currentCallId: null,
+      offeredCallId: null,
+      presence: "AVAILABLE",
+    });
+  });
+
   it("makes a still-ready endpoint available and emits its new state", async () => {
     const operations: string[] = [];
     let event: Record<string, unknown> | null = null;

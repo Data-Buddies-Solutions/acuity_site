@@ -25,6 +25,7 @@ function fakeDatabase({ failedReservation = false } = {}) {
         locationId: "location-1",
         providerCredentialId: "credential-1",
         sipUsername: "agent-1",
+        userId: "user-1",
       },
       endpointId: "endpoint-1",
       id: "session-1",
@@ -44,6 +45,7 @@ function fakeDatabase({ failedReservation = false } = {}) {
         locationId: "location-1",
         providerCredentialId: "credential-2",
         sipUsername: "agent-2",
+        userId: "user-2",
       },
       endpointId: "endpoint-2",
       id: "session-2",
@@ -158,6 +160,10 @@ function fakeDatabase({ failedReservation = false } = {}) {
     },
     callCenterEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
+        if (data.type !== "CALL_ROUTING_ACTIVE_STARTED") {
+          operations.push(`session-event.create:${String(data.aggregateId)}`);
+          return { data: data.data, occurredAt: data.occurredAt, revision: BigInt(18) };
+        }
         operations.push("routing-event.create");
         routingEvent = {
           data: data.data,

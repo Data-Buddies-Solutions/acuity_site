@@ -37,6 +37,7 @@ export type CallCenterConfigurationInput = {
   }>;
   endpoints: Array<{
     id: string;
+    userId: string | null;
     locationId: string | null;
     label: string;
     providerCredentialId: string | null;
@@ -238,6 +239,7 @@ function normalizeConfiguration(
     endpoints: input.endpoints.map((endpoint) => ({
       ...endpoint,
       id: clean(endpoint.id),
+      userId: cleanOptional(endpoint.userId),
       locationId: cleanOptional(endpoint.locationId),
       label: clean(endpoint.label),
       providerCredentialId: cleanOptional(endpoint.providerCredentialId),
@@ -275,9 +277,12 @@ export function collectCallCenterConfigurationReferences(
         providerNumberId ? [providerNumberId] : [],
       ),
     ),
-    memberUserIds: sorted(
-      configuration.queues.flatMap(({ members }) => members.map(({ userId }) => userId)),
-    ),
+    memberUserIds: sorted([
+      ...configuration.queues.flatMap(({ members }) =>
+        members.map(({ userId }) => userId),
+      ),
+      ...configuration.endpoints.flatMap(({ userId }) => (userId ? [userId] : [])),
+    ]),
     providerCredentialIds: sorted(
       configuration.endpoints.flatMap(({ providerCredentialId }) =>
         providerCredentialId ? [providerCredentialId] : [],
@@ -480,6 +485,12 @@ export function validateCallCenterConfiguration(
     configuration.endpoints,
     ({ sipUsername }) => sipUsername ?? "",
     (index) => `endpoints[${index}].sipUsername`,
+    issues,
+  );
+  addDuplicateIssues(
+    configuration.endpoints,
+    ({ userId }) => userId ?? "",
+    (index) => `endpoints[${index}].userId`,
     issues,
   );
 
@@ -727,11 +738,30 @@ export function validateCallCenterConfiguration(
         message: "Endpoint location does not belong to this practice",
       });
     }
-    if (endpoint.enabled && (!endpoint.providerCredentialId || !endpoint.sipUsername)) {
+    if (endpoint.userId && !context.practiceMemberUserIds.has(endpoint.userId)) {
+      issues.push({
+        code: "MEMBERSHIP_REQUIRED",
+        path: `${path}.userId`,
+        message: "Agent profile user must belong to this practice",
+      });
+    }
+    const requiresAgentIdentity = configuration.queues.some(
+      (queue) =>
+        queue.enabled &&
+        queue.routingMode !== "LEGACY" &&
+        Boolean(endpoint.locationId && queue.locationIds.includes(endpoint.locationId)),
+    );
+    if (
+      endpoint.enabled &&
+      (!endpoint.providerCredentialId ||
+        !endpoint.sipUsername ||
+        (requiresAgentIdentity && !endpoint.userId))
+    ) {
       issues.push({
         code: "ENDPOINT_CREDENTIALS_REQUIRED",
         path,
-        message: "Enabled endpoints require provider and SIP credentials",
+        message:
+          "Enabled agent profiles require a user, provider credential, and SIP username",
       });
     }
     if (
@@ -771,10 +801,16 @@ export function validateCallCenterConfiguration(
     const hasAgent = queue.members.some(
       (member) => member.enabled && member.role === "AGENT",
     );
+    const agentUserIds = new Set(
+      queue.members
+        .filter((member) => member.enabled && member.role === "AGENT")
+        .map(({ userId }) => userId),
+    );
     const queueLocations = new Set(queue.locationIds);
     const hasEndpoint = configuration.endpoints.some(
       (endpoint) =>
         endpoint.enabled &&
+        Boolean(endpoint.userId && agentUserIds.has(endpoint.userId)) &&
         Boolean(endpoint.providerCredentialId && endpoint.sipUsername) &&
         Boolean(endpoint.locationId && queueLocations.has(endpoint.locationId)),
     );

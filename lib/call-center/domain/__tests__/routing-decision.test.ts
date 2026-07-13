@@ -17,6 +17,7 @@ function session(
     audioReady: true,
     connectionState: "READY",
     currentCallId: null,
+    offeredCallId: null,
     endpoint: {
       configured: true,
       enabled: true,
@@ -91,6 +92,7 @@ describe("inbound routing decision", () => {
                   locationId: "location-2",
                 },
               }),
+              session("offered", "endpoint-4", { offeredCallId: "call-ringing" }),
               session("busy", "endpoint-3", { currentCallId: "call-active" }),
             ],
           },
@@ -104,6 +106,7 @@ describe("inbound routing decision", () => {
       CURRENT_CALL: 1,
       LEASE_EXPIRED: 1,
       LOCATION_MISMATCH: 1,
+      OFFERED_CALL: 1,
     });
   });
 

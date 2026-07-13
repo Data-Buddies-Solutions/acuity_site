@@ -2,7 +2,7 @@
 
 Status: Active phased migration
 
-Last reviewed: 2026-07-12
+Last reviewed: 2026-07-13
 
 Scope: `acuity_site` call-center schema, backend, provider integration, APIs,
 realtime delivery, and portal frontend.
@@ -16,7 +16,7 @@ Differences between call centers must be data:
 
 - which inbound numbers route to which queue;
 - which users belong to a queue;
-- which endpoints those users may occupy;
+- which provider calling profile belongs to each user;
 - how long a queue rings before voicemail;
 - which outbound caller IDs are allowed; and
 - which locations a queue represents.
@@ -55,6 +55,12 @@ The detailed rollout ledger is
   automated preflight, and controlled by one global activation/rollback switch.
   `SHADOW` and the aggregate recovery report remain optional diagnostics, not
   mandatory rollout stages.
+- PR #118 adds separate ringing-offer occupancy and binds each durable provider
+  profile to at most one practice user. PR #119 makes canonical sessions,
+  credentials, Take, outbound calls, and transfers resolve that profile from
+  the authenticated user; the canonical portal no longer asks a user to select
+  a station. Both changes remain default-off until their migration and
+  activation gates pass.
 
 The current Abita handoff still uses the public-number path:
 
@@ -120,6 +126,7 @@ customer-visible behavior that differs by account.
 - `PracticeCallCenterSettings` owns practice-level provider configuration.
 - `Call` owns logical call state and final outcome.
 - `CallLeg` owns one provider telephony leg.
+- `CallCenterEndpoint` owns one user's durable provider calling profile.
 - `CallCenterAgentSession` owns current staff readiness.
 - `CallCenterQueue` owns routing and voicemail policy.
 - `CallCenterNumber` owns number-to-queue assignment.
@@ -173,7 +180,8 @@ is seeded into queues, numbers, memberships, endpoints, and locations.
    ended, unless queue policy explicitly has no eligible endpoints.
 3. `AVAILABLE` requires a fresh heartbeat, provider connection state `READY`,
    microphone readiness, and audio readiness.
-4. One endpoint has at most one live agent session.
+4. One user has at most one live agent session, and one provider profile belongs
+   to at most one user in a practice.
 5. One call has at most one winning agent leg.
 6. The first bridged agent leg wins atomically; losing legs are canceled.
 7. Call and leg terminal states never move backward.
@@ -356,18 +364,21 @@ Practice membership remains the outer tenant boundary. Queue membership grants
 call-center access within that practice. Location access is checked against the
 queue's configured locations.
 
-Shared user accounts should be migrated toward individual users. The endpoint
-lease still prevents two browsers from silently occupying one station during
-the transition.
+Every operator uses an individual user account. Shared logins are not a routing
+or readiness primitive.
 
 ### `CallCenterEndpoint`
 
-Represents a durable browser/SIP station.
+Represents the durable Telnyx credential and SIP identity for one agent. The
+database name remains `CallCenterEndpoint` during the additive migration, but
+the canonical product concept is an agent calling profile, not a selectable
+station.
 
 Fields:
 
 - `id`;
 - `practiceId`;
+- `userId` nullable only while an existing profile remains on `LEGACY`;
 - `locationId` nullable;
 - `label`;
 - `providerCredentialId`;
@@ -382,8 +393,12 @@ Telnyx recommends backend-generated JWT authentication and waiting for
 
 - https://developers.telnyx.com/development/webrtc/js-sdk/tutorials/make-your-first-call
 
-Credential and SIP fields may be null while an endpoint is disabled. Enabling
-an endpoint requires both values.
+Credential and SIP fields may be null while a profile is disabled. Every
+enabled profile used by a `SHADOW` or `ACTIVE` queue requires a user, provider
+credential, SIP username, enabled `AGENT` membership, and compatible location.
+Unique `(practiceId, userId)` prevents two profiles from being assigned to one
+operator. Canonical activation fails closed while any enabled route is
+incomplete.
 
 During migration, a backfilled endpoint keeps the legacy seat ID as its endpoint
 ID. This preserves provider-leg and operational correlation without a second
@@ -391,7 +406,8 @@ identifier mapping table.
 
 ### `CallCenterAgentSession`
 
-Represents one user checked into one endpoint in one browser.
+Represents one authenticated user connected in one browser. The server resolves
+the user's calling profile; the browser never chooses or submits an endpoint.
 
 Fields:
 
@@ -405,6 +421,7 @@ Fields:
 - `connectionState`: `CONNECTING`, `READY`, `ERROR`, or `CLOSED`;
 - `microphoneReady`;
 - `audioReady`;
+- `offeredCallId` nullable, for a ringing/connecting offer that has not bridged;
 - `currentCallId` nullable;
 - `readyAt` nullable;
 - `lastHeartbeatAt`;
@@ -419,14 +436,15 @@ Eligibility requires:
 - `connectionState = READY`;
 - microphone and audio ready;
 - fresh heartbeat;
-- unexpired endpoint lease;
-- no current call; and
-- endpoint enabled.
+- unexpired agent-session lease;
+- no offered or current call; and
+- assigned calling profile enabled.
 
-Use the deployed partial unique index over active session states. Endpoint
-acquisition locks the endpoint, closes any expired active session, and claims
-the endpoint in one transaction. The index prevents two active owners; the
-recovery worker is a fallback, not the correctness mechanism.
+Use the deployed partial unique index over active session states. Acquisition
+locks the authenticated user, closes any expired session for that user, and
+claims the assigned profile in one transaction. A second browser receives a
+conflict. The database constraints are the correctness mechanism; the recovery
+worker is only a fallback.
 
 ### `Call`
 
@@ -796,6 +814,12 @@ becomes the winning active leg and source ends. On timeout, target ends and the
 source continues. A blind transfer may explicitly end the source, but that is a
 different command and UI confirmation.
 
+The portal submits a target user, never a station or SIP identity. In the same
+transaction, the server locks and resolves that user's configured calling
+profile and current ready session, verifies queue/location membership, and
+creates the replacement leg. Self-transfer, missing configuration, mismatched
+session ownership, or stale readiness fails before provider I/O.
+
 ## Deadline and Recovery Worker
 
 Use Postgres as the durable work queue. A short-lived worker invocation claims
@@ -837,7 +861,8 @@ Returns:
 
 - a global event high-water revision read consistently with the projections;
 - visible queue configuration;
-- the current user's agent session and endpoint readiness;
+- the current user's agent session and assigned calling profile readiness;
+- other configured agent users eligible for an internal transfer;
 - active and waiting calls;
 - recent terminal calls;
 - open tasks; and
@@ -898,8 +923,8 @@ applied safely.
 ### Agent session commands
 
 - `POST /api/portal/call-center/agent-sessions`
-  - check in to an endpoint;
-  - acquire the endpoint lease;
+  - connect the authenticated user in this browser;
+  - resolve and acquire that user's calling profile server-side;
   - return the agent-session ID and lease state without provider credentials.
 - `PATCH /api/portal/call-center/agent-sessions/:id`
   - heartbeat presence and provider connection state.
@@ -910,8 +935,9 @@ The server accepts `connectionState = READY` only after the frontend receives
 the provider-ready event. PATCH requires the last acknowledged `stateVersion`
 and rejects stale updates, so delayed ready notifications cannot overwrite a
 newer failure. Lease expiry still handles abrupt browser loss.
-The lease is 60 seconds. Acquisition locks the endpoint row, closes expired live
-sessions, and commits the session and sanitized event together. It does not mint
+The lease is 60 seconds. Acquisition locks the authenticated user row, closes
+expired live sessions for that user, and commits the session and sanitized
+event together. It does not mint
 provider credentials. Phase 5B must add a separate session-bound credential
 endpoint before canonical media becomes active; this preserves the session ID
 and an immediate release path if the provider call fails. Same-user, same-client
@@ -1047,8 +1073,8 @@ remount, and browser media notification do not clear that state.
 
 The portal shows one truthful readiness checklist:
 
-- station selected;
-- endpoint lease acquired;
+- calling profile configured for the authenticated user;
+- agent session acquired;
 - provider connected;
 - microphone allowed;
 - sound enabled; and
@@ -1422,8 +1448,9 @@ owner so rollback cannot strand in-flight calls.
 
 The first canonical user-operation vertical is manual claim. Authenticated
 `POST /api/portal/call-center/calls/:id/claim` accepts only the canonical browser
-identity, endpoint, acknowledged session version, and `Idempotency-Key`. In one
-transaction it locks the operation key, call, and agent session; revalidates
+identity, acknowledged session version, and `Idempotency-Key`; it resolves the
+user's profile server-side. In one transaction it locks the operation key,
+call, and agent session; revalidates
 queue access and `AGENT` membership; requires an eligible canonical-owned call and an
 unwon inbound queued/ringing call; reuses any existing live same-session leg;
 or reserves the session, creates one agent leg and one `DIAL_AGENT` command, and
@@ -1548,13 +1575,16 @@ PHI into the domain stream.
 
 Decision: keep both; they own different facts.
 
-### Why both endpoints and agent sessions?
+### Why both calling profiles and agent sessions?
 
-An endpoint is durable provider configuration. An agent session is an ephemeral
-user occupying that endpoint in one browser. Combining them caused the current
-false-availability problem and makes shared stations unsafe.
+A calling profile is durable provider configuration assigned one-to-one to a
+practice user. An agent session is that user's ephemeral browser readiness.
+Combining durable credentials with live readiness caused false availability;
+letting the browser choose the credential made identity and concurrency
+ambiguous.
 
-Decision: separate durable endpoint identity from leased user readiness.
+Decision: keep the internal provider profile separate from readiness, bind it to
+the authenticated user, and resolve it only on the server.
 
 ### Why both calls and legs?
 

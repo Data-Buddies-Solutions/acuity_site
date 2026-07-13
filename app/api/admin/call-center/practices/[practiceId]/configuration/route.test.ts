@@ -20,6 +20,7 @@ function storedConfiguration(currentVersion = version): VersionedCallCenterConfi
       endpoints: [
         {
           id: "legacy-seat-1",
+          userId: null,
           locationId: null,
           label: "Front desk",
           providerCredentialId: "secret-credential",

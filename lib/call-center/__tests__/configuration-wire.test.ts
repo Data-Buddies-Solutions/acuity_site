@@ -99,6 +99,7 @@ describe("call-center configuration wire schema", () => {
       endpoints: [
         {
           id: "endpoint-1",
+          userId: "user-1",
           locationId: null,
           label: "Front desk",
           providerCredentialId: "credential-secret-id",

@@ -421,13 +421,20 @@ async function loadProviderCommandClaim(
         true,
       );
     }
+    const offered =
+      session?.offeredCallId === command.callId &&
+      session?.currentCallId === null &&
+      session?.presence === "AVAILABLE";
+    const active =
+      session?.offeredCallId === null &&
+      session?.currentCallId === command.callId &&
+      session?.presence === "BUSY";
     if (
       !session ||
       session.id !== args.agentSessionId ||
       session.endpointId !== args.endpointId ||
-      session.currentCallId !== command.callId ||
+      (!offered && !active) ||
       session.connectionState !== "READY" ||
-      session.presence !== "BUSY" ||
       !session.microphoneReady ||
       !session.audioReady ||
       session.leaseExpiresAt <= input.now

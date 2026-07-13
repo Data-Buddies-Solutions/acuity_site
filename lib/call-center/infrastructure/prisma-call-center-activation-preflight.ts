@@ -162,6 +162,7 @@ export class PrismaCallCenterActivationPreflightStore implements CallCenterActiv
                  AND route_membership."userId" = route_member."userId"
                 JOIN "call_center_endpoint" AS route_endpoint
                   ON route_endpoint."practiceId" = queue."practiceId"
+                 AND route_endpoint."userId" = route_member."userId"
                  AND route_endpoint."enabled" = true
                  AND NULLIF(BTRIM(route_endpoint."providerCredentialId"), '') IS NOT NULL
                  AND NULLIF(BTRIM(route_endpoint."sipUsername"), '') IS NOT NULL
@@ -344,10 +345,12 @@ export class PrismaCallCenterActivationPreflightStore implements CallCenterActiv
            AND session."practiceId" = endpoint."practiceId"
           WHERE endpoint."id" = ${input.testEndpointId}
             AND endpoint."enabled" = true
+            AND endpoint."userId" = session."userId"
             AND NULLIF(BTRIM(endpoint."providerCredentialId"), '') IS NOT NULL
             AND NULLIF(BTRIM(endpoint."sipUsername"), '') IS NOT NULL
             AND session."presence" = CAST('AVAILABLE' AS "CallCenterAgentPresence")
             AND session."currentCallId" IS NULL
+            AND session."offeredCallId" IS NULL
             AND session."connectionState" = CAST('READY' AS "CallCenterAgentConnectionState")
             AND session."microphoneReady" = true
             AND session."audioReady" = true

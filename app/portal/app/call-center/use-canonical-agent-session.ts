@@ -10,7 +10,6 @@ export type CanonicalAgentSessionOptions = {
   audioReady: boolean;
   clientInstanceId: string | null;
   connectionState: CanonicalAgentConnectionState;
-  endpointId: string | null;
   microphoneReady: boolean;
   presence: AgentSessionView["presence"];
   projectedSession?: AgentSessionView | null;
@@ -36,6 +35,13 @@ type Readiness = Pick<
   "audioReady" | "connectionState" | "microphoneReady" | "presence"
 >;
 
+export function canonicalHeartbeatPresence(
+  session: Pick<AgentSessionView, "currentCallId" | "offeredCallId" | "presence">,
+  requested: AgentSessionView["presence"],
+) {
+  return session.currentCallId || session.offeredCallId ? session.presence : requested;
+}
+
 function message(error: unknown) {
   return error instanceof Error ? error.message : "Call center session failed";
 }
@@ -58,7 +64,6 @@ export function useCanonicalAgentSession({
   audioReady,
   clientInstanceId,
   connectionState,
-  endpointId,
   microphoneReady,
   presence,
   projectedSession = null,
@@ -67,7 +72,7 @@ export function useCanonicalAgentSession({
   const [session, setSession] = useState<AgentSessionView | null>(null);
   const activeRef = useRef<ActiveSession | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const identityRef = useRef({ clientInstanceId, endpointId });
+  const identityRef = useRef({ clientInstanceId });
   const lifecycleRef = useRef(0);
   const mountedRef = useRef(true);
   const patchPromiseRef = useRef<Promise<void> | null>(null);
@@ -105,9 +110,11 @@ export function useCanonicalAgentSession({
           body: JSON.stringify({
             ...readinessRef.current,
             clientInstanceId: active.clientInstanceId,
-            endpointId: active.endpointId,
             expectedStateVersion: requestedStateVersion,
-            ...(active.session.currentCallId ? { presence: "BUSY" } : {}),
+            presence: canonicalHeartbeatPresence(
+              active.session,
+              readinessRef.current.presence,
+            ),
           }),
           headers: { "Content-Type": "application/json" },
           method: "PATCH",
@@ -161,15 +168,8 @@ export function useCanonicalAgentSession({
       microphoneReady,
       presence,
     };
-    identityRef.current = { clientInstanceId, endpointId };
-  }, [
-    audioReady,
-    clientInstanceId,
-    connectionState,
-    endpointId,
-    microphoneReady,
-    presence,
-  ]);
+    identityRef.current = { clientInstanceId };
+  }, [audioReady, clientInstanceId, connectionState, microphoneReady, presence]);
 
   useEffect(() => {
     const active = activeRef.current;
@@ -200,7 +200,6 @@ export function useCanonicalAgentSession({
           {
             body: JSON.stringify({
               clientInstanceId: active.clientInstanceId,
-              endpointId: active.endpointId,
               expectedStateVersion: active.session.stateVersion,
             }),
             headers: { "Content-Type": "application/json" },
@@ -246,17 +245,13 @@ export function useCanonicalAgentSession({
       await releasePromiseRef.current;
       if (generation !== lifecycleRef.current) return;
 
-      if (!endpointId || !clientInstanceId) {
-        if (mountedRef.current) setError("Choose a call center endpoint first");
+      if (!clientInstanceId) {
+        if (mountedRef.current) setError("Call center browser identity is unavailable");
         return;
       }
 
       const current = activeRef.current;
-      if (
-        current &&
-        current.endpointId === endpointId &&
-        current.clientInstanceId === clientInstanceId
-      ) {
+      if (current && current.clientInstanceId === clientInstanceId) {
         patchReadiness();
         return;
       }
@@ -268,7 +263,6 @@ export function useCanonicalAgentSession({
         const response = await fetch("/api/portal/call-center/agent-sessions", {
           body: JSON.stringify({
             clientInstanceId,
-            endpointId,
           }),
           headers: { "Content-Type": "application/json" },
           method: "POST",
@@ -276,7 +270,7 @@ export function useCanonicalAgentSession({
         const acquired = await responseJson<AcquisitionResponse>(response);
         const active: ActiveSession = {
           clientInstanceId,
-          endpointId,
+          endpointId: acquired.session.endpointId,
           leaseDurationMs: acquired.leaseDurationMs,
           session: acquired.session,
           stopping: false,
@@ -285,7 +279,6 @@ export function useCanonicalAgentSession({
         if (
           !mountedRef.current ||
           generation !== lifecycleRef.current ||
-          identityRef.current.endpointId !== endpointId ||
           identityRef.current.clientInstanceId !== clientInstanceId
         ) {
           await release(active);
@@ -304,7 +297,7 @@ export function useCanonicalAgentSession({
 
     startPromiseRef.current = pending;
     await pending;
-  }, [clientInstanceId, deactivate, endpointId, patchReadiness, release]);
+  }, [clientInstanceId, deactivate, patchReadiness, release]);
 
   useEffect(() => {
     if (presence === "OFFLINE") {
@@ -316,14 +309,11 @@ export function useCanonicalAgentSession({
 
   useEffect(() => {
     const active = activeRef.current;
-    if (
-      active &&
-      (active.endpointId !== endpointId || active.clientInstanceId !== clientInstanceId)
-    ) {
+    if (active && active.clientInstanceId !== clientInstanceId) {
       const timeout = setTimeout(() => void stop(), 0);
       return () => clearTimeout(timeout);
     }
-  }, [clientInstanceId, endpointId, stop]);
+  }, [clientInstanceId, stop]);
 
   useEffect(() => {
     mountedRef.current = true;
