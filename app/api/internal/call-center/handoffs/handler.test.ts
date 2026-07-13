@@ -52,8 +52,9 @@ describe("direct handoff handler", () => {
           replayed: false,
           sipHeaders: {
             "X-Acuity-Handoff-Id": "handoff-1",
-            "X-Acuity-Handoff-Token": "token-1",
+            "X-Acuity-Handoff-Token": "legacy-token",
           },
+          sipUri: "sip:acuity-ingress~ah1~opaque-token@sip.telnyx.com",
         };
       },
     });
@@ -65,9 +66,9 @@ describe("direct handoff handler", () => {
       handoffId: "handoff-1",
       sipHeaders: {
         "X-Acuity-Handoff-Id": "handoff-1",
-        "X-Acuity-Handoff-Token": "token-1",
+        "X-Acuity-Handoff-Token": "legacy-token",
       },
-      sipUri: "sip:acuity-ingress@sip.telnyx.com",
+      sipUri: "sip:acuity-ingress~ah1~opaque-token@sip.telnyx.com",
       type: "DIRECT",
     });
     expect(captured).toMatchObject({
@@ -78,6 +79,7 @@ describe("direct handoff handler", () => {
         routePhoneNumber: "+19542872010",
         sourceCallId: "source-call-1",
       },
+      options: { baseSipUri: "sip:acuity-ingress@sip.telnyx.com" },
     });
   });
 });

@@ -42,7 +42,7 @@ type Dependencies = {
   config?: () => DirectHandoffConfig;
   reserve?: (
     input: ReserveDirectHandoffInput,
-    options: { expiresAt: Date; now: Date; secret: string },
+    options: { baseSipUri: string; expiresAt: Date; now: Date; secret: string },
   ) => Promise<Reservation>;
 };
 
@@ -74,6 +74,7 @@ export function createDirectHandoffHandler({
     const reservation = await reserve(
       { ...body, idempotencyKey, practiceId: resolved.practiceId },
       {
+        baseSipUri: resolved.sipUri,
         expiresAt: new Date(now.getTime() + DIRECT_HANDOFF_TTL_MS),
         now,
         secret: resolved.secret,
@@ -85,7 +86,7 @@ export function createDirectHandoffHandler({
         expiresAt: reservation.expiresAt.toISOString(),
         handoffId: reservation.handoffId,
         sipHeaders: reservation.sipHeaders,
-        sipUri: resolved.sipUri,
+        sipUri: reservation.sipUri,
         type: "DIRECT",
       },
       { status: reservation.replayed ? 200 : 201 },

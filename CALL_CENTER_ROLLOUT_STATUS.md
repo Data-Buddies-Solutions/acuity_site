@@ -245,12 +245,13 @@ endpoints, and seven memberships.
 | Canonical foundations    | Generic configuration and passive canonical calls             | #91-#93, #95, #97, #100-#102        | Enabled passively; observation gate remains                       |
 | Coordinated call control | Commands, SSE, reducer, media adapter, and effect ownership   | #103/#111-#113 merged to `main`     | Build active operations/media/actions for every configured number |
 | User-owned calling       | One profile and one active browser per authenticated user     | #118/#119 in review                 | Apply migrations, assign users, preflight, controlled calls       |
-| Direct SIP handoff       | Signed API issuance plus Acuity-owned SIP application ingress | Default-off implementation prepared | Migration applied and provider contract canary proven             |
+| Direct SIP handoff       | Signed API issuance plus tokenized Acuity SIP application URI | Default-off implementation prepared | Migration applied and URI-user provider canary proven             |
 
-The prepared Phase 7 slice pins the Abita credential to one practice, hashes
-the one-time token before durable inbox persistence, terminalizes rejected
-ingress, recovers stale issuances in bounded batches, and repairs successful
-handoff outcomes under bridge/hangup callback reordering.
+The prepared Phase 7 slice pins the Abita credential to one practice, carries
+the one-time token in the SIP URI user, and stores only its hash in the durable
+inbox. It terminalizes rejected ingress, recovers stale issuances in bounded
+batches, and repairs successful handoff outcomes under bridge/hangup callback
+reordering.
 
 ## Validation receipt
 
@@ -345,10 +346,10 @@ happen after the global observation window.
 - Run duplicate-event, out-of-order, reconnect, and global rollback tests across
   every configured phone number immediately after activation.
 - Keep Phase 7 default-off until #118/#119 and the handoff migration are
-  deployed, then prove LiveKit REFER header propagation, Telnyx SIP application
-  ingress, duplicate-session rejection, and ambiguous transfer behavior with a
-  provider canary. Legacy deletion is not required to deploy the default-off
-  slice and does not begin as part of Phase 7 activation.
+  deployed, then prove tokenized URI-user propagation through LiveKit REFER,
+  Telnyx SIP application ingress, duplicate-session rejection, and ambiguous
+  transfer behavior with a provider canary. Legacy deletion is not required to
+  deploy the default-off slice and does not begin as part of Phase 7 activation.
 
 Update this file after every PR merge, production migration, synthetic-call
 gate, queue-mode change, rollback, or material blocker.
