@@ -21,6 +21,7 @@ import {
   selectCanonicalProviderCommand,
   settleProviderCommandCallback,
   shouldPlanCanonicalInboundRouting,
+  shouldReconcileCanonicalInboundLifecycle,
 } from "../prisma-canonical-call-projector";
 
 const later = new Date("2026-07-11T10:00:05.000Z");
@@ -120,6 +121,25 @@ describe("canonical effect ownership", () => {
     ]) {
       expect(shouldPlanCanonicalInboundRouting(input)).toBe(false);
     }
+  });
+
+  it("reconciles an inbound call from its outbound agent-leg callback", () => {
+    expect(
+      shouldReconcileCanonicalInboundLifecycle({
+        callDirection: "INBOUND",
+        effectOwner: "CANONICAL",
+        initialRoutingHadNoAgents: false,
+        legKind: "AGENT",
+      }),
+    ).toBe(true);
+    expect(
+      shouldReconcileCanonicalInboundLifecycle({
+        callDirection: "OUTBOUND",
+        effectOwner: "CANONICAL",
+        initialRoutingHadNoAgents: false,
+        legKind: "AGENT",
+      }),
+    ).toBe(false);
   });
 });
 
