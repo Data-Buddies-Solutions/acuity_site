@@ -32,6 +32,7 @@ const call: CallView = {
       kind: "AGENT",
       providerCallControlId: "control-1",
       providerCallLegId: "provider-leg-1",
+      providerCallSessionId: "provider-session-1",
       status: "RINGING",
     },
   ],
@@ -64,6 +65,7 @@ const transferredCall: CallView = {
       kind: "AGENT",
       providerCallControlId: "source-control",
       providerCallLegId: "source-provider-leg",
+      providerCallSessionId: "source-provider-session",
       status: "BRIDGED",
     },
     {
@@ -73,6 +75,7 @@ const transferredCall: CallView = {
       kind: "AGENT",
       providerCallControlId: "target-control",
       providerCallLegId: "target-provider-leg",
+      providerCallSessionId: "target-provider-session",
       status: "RINGING",
     },
   ],
@@ -100,6 +103,7 @@ const targetObservation = {
   mediaLegId: "target-media",
   providerCallControlId: "target-control",
   providerCallLegId: "target-provider-leg",
+  providerCallSessionId: "target-provider-session",
 };
 
 describe("canonical active call center correlation", () => {
@@ -169,22 +173,62 @@ describe("canonical active call center correlation", () => {
     expect(beginCanonicalTransfer(inFlight, "call-1", "other-source-leg")).toBe(true);
   });
 
-  it("matches browser media only by canonical provider IDs", () => {
-    expect(
-      selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [observation]),
-    ).toEqual({ leg: call.legs[0], observation });
+  it("prefers exact provider IDs over provider-session fallback", () => {
+    const peer = {
+      ...observation,
+      mediaLegId: "peer-media",
+      providerCallControlId: "peer-control",
+      providerCallLegId: "peer-leg",
+    };
     expect(
       selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [
-        { ...observation, providerCallControlId: null, providerCallLegId: null },
+        peer,
+        observation,
+      ]),
+    ).toEqual({ leg: call.legs[0], observation });
+  });
+
+  it("matches the single live inbound peer leg from the provider session", () => {
+    const peer = {
+      ...observation,
+      mediaLegId: "peer-media",
+      providerCallControlId: "peer-control",
+      providerCallLegId: "peer-leg",
+    };
+
+    expect(
+      selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [peer]),
+    ).toEqual({ leg: call.legs[0], observation: peer });
+    expect(
+      selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [
+        { ...peer, direction: "OUTBOUND" },
+      ]),
+    ).toBeNull();
+    expect(
+      selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [
+        { ...peer, providerCallSessionId: "other-session" },
       ]),
     ).toBeNull();
   });
 
-  it("fails closed when provider correlation is ambiguous", () => {
+  it("ignores terminal media and fails closed on live ambiguity", () => {
+    const peer = {
+      ...observation,
+      mediaLegId: "peer-media",
+      providerCallControlId: "peer-control",
+      providerCallLegId: "peer-leg",
+    };
+
     expect(
       selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [
+        { ...peer, state: "ENDED" },
         observation,
-        { ...observation, mediaLegId: "media-2" },
+      ]),
+    ).toEqual({ leg: call.legs[0], observation });
+    expect(
+      selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [
+        peer,
+        { ...peer, mediaLegId: "peer-media-2" },
       ]),
     ).toBeNull();
   });

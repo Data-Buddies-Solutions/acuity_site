@@ -44,6 +44,7 @@ export type CallLegView = {
   status: "ANSWERED" | "BRIDGED" | "CREATED" | "DIALING" | "ENDED" | "FAILED" | "RINGING";
   providerCallControlId: string | null;
   providerCallLegId: string | null;
+  providerCallSessionId: string | null;
 };
 
 export type AgentSessionView = {
