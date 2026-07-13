@@ -19,6 +19,7 @@ model User {
   callCenterNotes            CallCenterNote[]
   callCenterPresence         CallCenterPresence[]
   callCenterQueueMemberships CallCenterQueueMember[]
+  callCenterEndpoints        CallCenterEndpoint[]
   callCenterAgentSessions    CallCenterAgentSession[]
   assignedCallCenterTasks    CallCenterTask[]         @relation("CallCenterTaskAssignee")
   resolvedCallCenterTasks    CallCenterTask[]         @relation("CallCenterTaskResolver")
@@ -1094,6 +1095,7 @@ model CallCenterQueueMember {
 model CallCenterEndpoint {
   id                   String                   @id @default(cuid())
   practiceId           String
+  userId               String?
   locationId           String?
   label                String
   providerCredentialId String?                  @unique
@@ -1102,11 +1104,13 @@ model CallCenterEndpoint {
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
   practice             Practice                 @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  user                 User?                    @relation(fields: [userId], references: [id], onDelete: Restrict)
   location             PracticeLocation?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
   agentSessions        CallCenterAgentSession[]
   callLegs             CallCenterCallLeg[]
 
   @@unique([practiceId, label])
+  @@unique([practiceId, userId])
   @@index([practiceId, enabled])
   @@index([practiceId, locationId, enabled])
   @@index([locationId])
