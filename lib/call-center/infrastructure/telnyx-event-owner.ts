@@ -1,7 +1,6 @@
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
-import { directHandoffIdentity } from "@/lib/call-center/infrastructure/direct-handoff-headers";
-import { matchesDirectHandoffTokenHash } from "@/lib/call-center/infrastructure/direct-handoff-token";
+import { hasDirectHandoffIdentity } from "@/lib/call-center/infrastructure/direct-handoff-uri";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
@@ -33,7 +32,7 @@ type RawIdentity = {
   canonicalOutboundPracticeId: string | null;
   canonicalOutboundToken: string | null;
   direction: "INBOUND" | "OUTBOUND" | null;
-  directHandoff: { handoffId: string; tokenHash: string } | null;
+  directHandoff: { tokenHash: string } | null;
   fromPhone: string;
   occurredAt: Date;
   providerCallControlId: string | null;
@@ -117,16 +116,11 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
   }
   let directHandoff: RawIdentity["directHandoff"];
   try {
-    const identity = directHandoffIdentity(payload);
+    const identity = hasDirectHandoffIdentity(payload);
     if (Boolean(identity) !== Boolean(event.directHandoffTokenHash)) {
       throw new Error("DIRECT_HANDOFF_IDENTITY_INVALID");
     }
-    directHandoff = identity
-      ? {
-          handoffId: identity.handoffId,
-          tokenHash: event.directHandoffTokenHash!,
-        }
-      : null;
+    directHandoff = identity ? { tokenHash: event.directHandoffTokenHash! } : null;
   } catch {
     throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_IDENTITY_INVALID");
   }
@@ -163,16 +157,16 @@ async function persistDirectHandoffOwner(
   }
 
   await tx.$queryRaw(
-    Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "id" = ${identity.handoffId} FOR UPDATE`,
+    Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "tokenHash" = ${identity.tokenHash} FOR UPDATE`,
   );
   let handoff = await tx.callCenterHandoff.findUnique({
     include: {
       number: { include: { practicePhoneNumber: true } },
       queue: true,
     },
-    where: { id: identity.handoffId },
+    where: { tokenHash: identity.tokenHash },
   });
-  if (!handoff || !matchesDirectHandoffTokenHash(identity.tokenHash, handoff.tokenHash)) {
+  if (!handoff) {
     throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_TOKEN_INVALID");
   }
   if (
@@ -203,7 +197,7 @@ async function persistDirectHandoffOwner(
       number: { include: { practicePhoneNumber: true } },
       queue: true,
     },
-    where: { id: identity.handoffId },
+    where: { tokenHash: identity.tokenHash },
   });
   if (!handoff) {
     throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");

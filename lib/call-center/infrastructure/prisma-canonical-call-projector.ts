@@ -90,6 +90,19 @@ export function shouldPlanCanonicalInboundRouting(input: {
   );
 }
 
+export function shouldReconcileCanonicalInboundLifecycle(input: {
+  callDirection: "INBOUND" | "OUTBOUND";
+  effectOwner: CallCenterEffectOwner;
+  initialRoutingHadNoAgents: boolean;
+  legKind: "AGENT" | "CUSTOMER";
+}) {
+  return (
+    input.effectOwner === "CANONICAL" &&
+    input.callDirection === "INBOUND" &&
+    (input.legKind === "AGENT" || input.initialRoutingHadNoAgents)
+  );
+}
+
 export function requireCanonicalProjectionEffectOwner(event: {
   effectOwner: CallCenterEffectOwner | null;
 }) {
@@ -1234,9 +1247,12 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         }
       }
       if (
-        effectOwner === "CANONICAL" &&
-        resolvedFact.direction === "INBOUND" &&
-        (resolvedFact.legKind === "AGENT" || initialRoutingHadNoAgents)
+        shouldReconcileCanonicalInboundLifecycle({
+          callDirection: call.direction,
+          effectOwner,
+          initialRoutingHadNoAgents,
+          legKind: resolvedFact.legKind,
+        })
       ) {
         const lifecycle = await reconcileActiveInboundCallInTransaction(
           tx,

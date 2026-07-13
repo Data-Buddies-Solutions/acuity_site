@@ -34,14 +34,11 @@ function event(overrides: Partial<ProviderWebhookRecord> = {}): ProviderWebhookR
 
 describe("provider webhook claim decisions", () => {
   it("removes direct handoff tokens before durable persistence", () => {
-    const token = "one-time-token";
+    const token = "a".repeat(43);
     const sanitized = sanitizedProviderWebhookBody({
       data: {
         payload: {
-          custom_headers: {
-            "X-Acuity-Handoff-Id": "handoff-1",
-            "X-Acuity-Handoff-Token": token,
-          },
+          to: `sip:acuity-handoff~ah1~${token}@abitacallcenter.sip.telnyx.com`,
         },
       },
     });

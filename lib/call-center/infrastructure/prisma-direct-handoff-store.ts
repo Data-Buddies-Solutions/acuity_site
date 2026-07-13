@@ -2,18 +2,17 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { Prisma } from "@/generated/prisma/client";
 import {
-  DIRECT_HANDOFF_ID_HEADER,
-  DIRECT_HANDOFF_TOKEN_HEADER,
-} from "@/lib/call-center/infrastructure/direct-handoff-headers";
-import {
   directHandoffRequestFingerprint,
   directHandoffToken,
   directHandoffTokenHash,
 } from "@/lib/call-center/infrastructure/direct-handoff-token";
+import { directHandoffSipUri } from "@/lib/call-center/infrastructure/direct-handoff-uri";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
 const SOURCE_SYSTEM = "ABITA";
+const LEGACY_HANDOFF_ID_HEADER = "X-Acuity-Handoff-Id";
+const LEGACY_HANDOFF_TOKEN_HEADER = "X-Acuity-Handoff-Token";
 
 export type ReserveDirectHandoffInput = {
   callerPhone: string;
@@ -28,6 +27,7 @@ export type DirectHandoffReservation = {
   handoffId: string;
   replayed: boolean;
   sipHeaders: Record<string, string>;
+  sipUri: string;
 };
 
 export class DirectHandoffReservationError extends Error {
@@ -58,23 +58,27 @@ function normalizedInput(input: ReserveDirectHandoffInput) {
 
 function response(
   row: { expiresAt: Date; id: string },
+  baseSipUri: string,
   secret: string,
   replayed: boolean,
 ): DirectHandoffReservation {
+  const token = directHandoffToken(row.id, secret);
   return {
     expiresAt: row.expiresAt,
     handoffId: row.id,
     replayed,
     sipHeaders: {
-      [DIRECT_HANDOFF_ID_HEADER]: row.id,
-      [DIRECT_HANDOFF_TOKEN_HEADER]: directHandoffToken(row.id, secret),
+      [LEGACY_HANDOFF_ID_HEADER]: row.id,
+      [LEGACY_HANDOFF_TOKEN_HEADER]: token,
     },
+    sipUri: directHandoffSipUri(baseSipUri, token),
   };
 }
 
 export async function reserveDirectHandoff(
   rawInput: ReserveDirectHandoffInput,
   options: {
+    baseSipUri: string;
     expiresAt: Date;
     now: Date;
     secret: string;
@@ -197,7 +201,7 @@ export async function reserveDirectHandoff(
           });
           return { terminalError: true as const };
         }
-        return response(handoff, options.secret, true);
+        return response(handoff, options.baseSipUri, options.secret, true);
       }
 
       const id = randomUUID();
@@ -216,7 +220,7 @@ export async function reserveDirectHandoff(
           tokenHash: directHandoffTokenHash(directHandoffToken(id, options.secret)),
         },
       });
-      return response(handoff, options.secret, false);
+      return response(handoff, options.baseSipUri, options.secret, false);
     });
     if ("terminalError" in result) {
       throw new DirectHandoffReservationError(

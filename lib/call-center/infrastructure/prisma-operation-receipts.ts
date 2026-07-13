@@ -63,8 +63,8 @@ export class PrismaOperationReceiptTransaction implements OperationReceiptTransa
   }
 
   async lockReceiptKey(practiceId: string, type: string, idempotencyKey: string) {
-    const lockKey = `${practiceId}\u0000${type}\u0000${idempotencyKey}`;
-    await this.prisma.$queryRaw(
+    const lockKey = JSON.stringify([practiceId, type, idempotencyKey]);
+    await this.prisma.$executeRaw(
       Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
     );
   }

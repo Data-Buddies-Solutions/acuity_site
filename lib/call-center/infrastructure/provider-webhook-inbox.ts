@@ -2,7 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
-import { redactDirectHandoffToken } from "./direct-handoff-headers";
+import { redactDirectHandoffToken } from "./direct-handoff-uri";
 import type { TelnyxVoiceWebhookEnvelope } from "./telnyx-voice-envelope";
 
 export type ProviderWebhookStatus =

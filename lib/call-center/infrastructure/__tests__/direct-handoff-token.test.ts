@@ -4,15 +4,13 @@ import {
   directHandoffRequestFingerprint,
   directHandoffToken,
   directHandoffTokenHash,
-  matchesDirectHandoffToken,
 } from "@/lib/call-center/infrastructure/direct-handoff-token";
 
 describe("direct handoff token", () => {
   it("replays deterministically while persisting only a hash", () => {
     const token = directHandoffToken("handoff-1", "secret-1");
     expect(token).toBe(directHandoffToken("handoff-1", "secret-1"));
-    expect(matchesDirectHandoffToken(token, directHandoffTokenHash(token))).toBe(true);
-    expect(matchesDirectHandoffToken("other", directHandoffTokenHash(token))).toBe(false);
+    expect(directHandoffTokenHash(token)).toHaveLength(64);
   });
 
   it("fingerprints the complete normalized request", () => {
