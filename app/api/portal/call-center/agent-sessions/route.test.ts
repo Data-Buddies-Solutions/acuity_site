@@ -24,6 +24,7 @@ const session: AgentSessionRecord = {
   clientInstanceId: "browser-1",
   connectionState: "CONNECTING",
   currentCallId: null,
+  offeredCallId: null,
   endpointId: "seat-legacy-id",
   id: "session-1",
   lastHeartbeatAt: now,
@@ -66,7 +67,6 @@ describe("canonical agent-session route", () => {
     const response = await POST(
       request("POST", {
         clientInstanceId: "browser-1",
-        endpointId: "seat-legacy-id",
       }),
     );
 
@@ -88,7 +88,6 @@ describe("canonical agent-session route", () => {
     const response = await POST(
       request("POST", {
         clientInstanceId: "browser-1",
-        endpointId: "seat-legacy-id",
       }),
     );
 
@@ -115,7 +114,6 @@ describe("canonical agent-session route", () => {
     const response = await POST(
       request("POST", {
         browserSessionId: "legacy-browser-field",
-        endpointId: "seat-legacy-id",
       }),
     );
 
@@ -137,7 +135,6 @@ describe("canonical agent-session route", () => {
       request("PATCH", {
         clientInstanceId: "browser-1",
         connectionState: "READY",
-        endpointId: "seat-legacy-id",
         expectedStateVersion: 0,
         microphoneReady: true,
         presence: "AVAILABLE",
@@ -171,7 +168,6 @@ describe("canonical agent-session route", () => {
         audioReady: true,
         clientInstanceId: "browser-1",
         connectionState: "READY",
-        endpointId: "seat-legacy-id",
         expectedStateVersion: 0,
         microphoneReady: true,
         presence: "AVAILABLE",
@@ -201,7 +197,6 @@ describe("canonical agent-session route", () => {
     const response = await DELETE(
       request("DELETE", {
         clientInstanceId: "browser-1",
-        endpointId: "seat-legacy-id",
         expectedStateVersion: 0,
       }),
       routeContext,
@@ -210,7 +205,6 @@ describe("canonical agent-session route", () => {
     expect(response.status).toBe(200);
     expect(releasedIdentity).toEqual({
       clientInstanceId: "browser-1",
-      endpointId: "seat-legacy-id",
       expectedStateVersion: 0,
       sessionId: "session-1",
     });

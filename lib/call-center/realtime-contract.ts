@@ -53,17 +53,23 @@ export type AgentSessionView = {
   presence: "AVAILABLE" | "BUSY" | "OFFLINE" | "PAUSED" | "WRAP_UP";
   connectionState: "CONNECTING" | "DISCONNECTED" | "FAILED" | "READY";
   currentCallId: string | null;
+  offeredCallId: string | null;
   microphoneReady: boolean;
   audioReady: boolean;
   leaseExpiresAt: string;
   stateVersion: number;
 };
 
-export type EndpointView = {
+export type AgentProfileView = {
   id: string;
   label: string;
   locationId: string | null;
   enabled: boolean;
+};
+
+export type TransferTargetView = {
+  name: string;
+  userId: string;
 };
 
 export type QueueSummary = { id: string; name: string };
@@ -93,6 +99,7 @@ export type OperationView = {
   targetAgentSessionId?: string;
   targetEndpointId?: string;
   targetLegId?: string;
+  targetUserId?: string;
 };
 
 export type OperationalCounts = {
@@ -108,7 +115,8 @@ export type CallCenterSnapshot = {
   queue: QueueView;
   availableQueues: QueueSummary[];
   agentSession: AgentSessionView | null;
-  endpoints: EndpointView[];
+  agentProfile: AgentProfileView | null;
+  transferTargets: TransferTargetView[];
   calls: CallView[];
   counts: OperationalCounts;
   tasks: TaskView[];

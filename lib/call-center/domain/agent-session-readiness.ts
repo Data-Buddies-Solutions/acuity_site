@@ -7,6 +7,7 @@ export type AgentSessionReadiness = {
   audioReady: boolean;
   connectionState: CallCenterAgentConnectionState;
   currentCallId: string | null;
+  offeredCallId: string | null;
   microphoneReady: boolean;
   presence: CallCenterAgentPresence;
 };
@@ -17,6 +18,7 @@ export function isAgentSessionReady(state: AgentSessionReadiness) {
     state.connectionState === "READY" &&
     state.microphoneReady &&
     state.audioReady &&
+    state.offeredCallId === null &&
     state.currentCallId === null
   );
 }
@@ -45,6 +47,8 @@ export function readinessValidationError(state: AgentSessionReadiness) {
   if (!state.audioReady) {
     return "AVAILABLE requires browser audio";
   }
+
+  if (state.offeredCallId) return null;
 
   return "AVAILABLE requires no active call";
 }

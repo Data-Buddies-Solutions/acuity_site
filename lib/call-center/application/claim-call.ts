@@ -11,7 +11,6 @@ export const CALL_CLAIM_REQUESTED_EVENT = "CALL_CLAIM_REQUESTED";
 export type ClaimCallInput = {
   callId: string;
   clientInstanceId: string;
-  endpointId: string;
   expectedSessionStateVersion: number;
   idempotencyKey: string;
 };
@@ -52,7 +51,6 @@ function targetFingerprint(input: ClaimCallInput) {
   return JSON.stringify({
     callId: input.callId,
     clientInstanceId: input.clientInstanceId,
-    endpointId: input.endpointId,
   });
 }
 

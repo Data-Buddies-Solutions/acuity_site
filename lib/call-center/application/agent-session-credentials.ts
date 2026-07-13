@@ -8,12 +8,11 @@ export type AgentSessionCredentialActor = {
 export type AgentSessionCredentialInput = {
   activationEnabled: boolean;
   clientInstanceId: string;
-  endpointId: string;
   sessionId: string;
 };
 
 export type AgentSessionCredential = {
-  endpointLabel: string;
+  agentLabel: string;
   providerCredentialId: string;
 };
 

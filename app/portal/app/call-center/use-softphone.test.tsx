@@ -33,6 +33,10 @@ class FakeTelnyxClient {
     this.disconnectCount += 1;
   }
 
+  off(event: string) {
+    this.handlers.delete(event);
+  }
+
   newCall() {
     throw new Error("Not used in this test");
   }
@@ -134,6 +138,7 @@ describe("useLegacySoftphoneMedia", () => {
 
     unmount();
     expect(clients[0]?.disconnectCount).toBe(1);
+    expect(clients[0]?.handlers.size).toBe(0);
   });
 
   it("observes active media without attaching until the leg is explicitly selected", async () => {
@@ -257,10 +262,55 @@ describe("useSoftphoneMedia canonical credentials", () => {
     await waitFor(() => expect(result.current.connection).toBe("READY"));
     expect(requests).toEqual([
       {
-        body: { clientInstanceId: "browser-1", endpointId: "endpoint-1" },
+        body: { clientInstanceId: "browser-1" },
         method: "POST",
         url: "/api/portal/call-center/agent-sessions/session-1/token",
       },
     ]);
+  });
+
+  it("reports an empty token failure without exposing a JSON parser error", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(null, { status: 503 }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        credentialMode: "CANONICAL",
+        enabled: true,
+        stationSeatId: "endpoint-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.connection).toBe("FAILED"));
+    expect(result.current.error).toBe("Unable to connect Telnyx (503)");
+    expect(result.current.error).not.toContain("JSON");
+    expect(clients).toHaveLength(0);
+  });
+
+  it("shows the API explanation when a station lease is rejected", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        { error: "Selected call center station is already active in another browser" },
+        { status: 409 },
+      ),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        credentialMode: "CANONICAL",
+        enabled: true,
+        stationSeatId: "endpoint-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.connection).toBe("FAILED"));
+    expect(result.current.error).toBe(
+      "Selected call center station is already active in another browser",
+    );
   });
 });

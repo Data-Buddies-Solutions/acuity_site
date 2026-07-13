@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getPortalCallCenterData, resolveTelnyxRuntimeSettings } from "@/lib/call-center";
 import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
-import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
+import { resolvePortalCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
+import { createLogger } from "@/lib/logger";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import { PracticePageHeader } from "../PracticePageHeader";
@@ -15,6 +16,7 @@ import { QueuePicker } from "./QueuePicker";
 import { enableCallCenterAction } from "./actions";
 
 export const dynamic = "force-dynamic";
+const logger = createLogger("portal-call-center-page");
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 
@@ -30,7 +32,13 @@ export default async function PortalCallCenterPage({
   }
 
   const params = searchParams ? await searchParams : {};
-  const canonicalActivation = resolveCallCenterActivationConfig().enabled;
+  const activation = resolvePortalCallCenterActivationConfig();
+  const canonicalActivation = activation.enabled;
+  if (!activation.valid) {
+    logger.error("canonical activation configuration invalid", {
+      errorCode: "INVALID_CALL_CENTER_ACTIVATION_CONFIG",
+    });
+  }
   const selectedLocationId = Array.isArray(params.office)
     ? params.office[0]
     : params.office;
@@ -54,11 +62,13 @@ export default async function PortalCallCenterPage({
     : selectedLocation?.locationId
       ? [selectedLocation.locationId]
       : [];
-  const canonicalWorkspace = await readPortalCanonicalWorkspace(
-    selectedCanonicalLocationIds,
-    canonicalActivation,
-    selectedQueueId,
-  );
+  const canonicalWorkspace = activation.valid
+    ? await readPortalCanonicalWorkspace(
+        selectedCanonicalLocationIds,
+        canonicalActivation,
+        selectedQueueId,
+      )
+    : null;
   const selectedOfficeId = selectedLocation?.id ?? selectedLocationId ?? null;
   const practiceWideOutboundCallerNumber =
     selectedLocation?.outboundNumber ||

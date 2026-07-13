@@ -39,6 +39,7 @@ export type AgentSessionRecord = {
   clientInstanceId: string;
   connectionState: CallCenterAgentConnectionState;
   currentCallId: string | null;
+  offeredCallId: string | null;
   endpointId: string;
   id: string;
   lastHeartbeatAt: Date;
@@ -77,17 +78,22 @@ export type AgentSessionEvent = {
 
 export interface AgentSessionTransaction {
   appendEvent(event: AgentSessionEvent): Promise<void>;
-  closeExpiredSessions(endpointId: string, now: Date): Promise<AgentSessionRecord[]>;
+  closeExpiredSessions(
+    practiceId: string,
+    userId: string,
+    now: Date,
+  ): Promise<AgentSessionRecord[]>;
   createSession(input: AgentSessionRecord): Promise<AgentSessionRecord>;
-  findActiveSession(endpointId: string): Promise<AgentSessionRecord | null>;
+  findActiveSession(
+    practiceId: string,
+    userId: string,
+  ): Promise<AgentSessionRecord | null>;
   findSession(
-    endpointId: string,
+    practiceId: string,
+    userId: string,
     clientInstanceId: string,
   ): Promise<AgentSessionRecord | null>;
-  getAccessibleEndpoint(
-    actor: AgentSessionActor,
-    endpointId: string,
-  ): Promise<AgentSessionEndpoint | null>;
+  getAccessibleEndpoint(actor: AgentSessionActor): Promise<AgentSessionEndpoint | null>;
   hasQueueAccess(
     actor: AgentSessionActor,
     endpoint: AgentSessionEndpoint,
@@ -97,15 +103,14 @@ export interface AgentSessionTransaction {
 
 export interface AgentSessionStore {
   createId(): string;
-  withEndpointLock<T>(
-    endpointId: string,
+  withAgentLock<T>(
+    actor: AgentSessionActor,
     work: (transaction: AgentSessionTransaction) => Promise<T>,
   ): Promise<T>;
 }
 
 type SessionIdentity = {
   clientInstanceId: string;
-  endpointId: string;
 };
 
 export type AgentSessionReadinessUpdate = SessionIdentity & {
@@ -142,6 +147,7 @@ function eventFor(
       audioReady: session.audioReady,
       connectionState: serializeAgentConnectionState(session.connectionState),
       currentCallId: session.currentCallId,
+      offeredCallId: session.offeredCallId,
       endpointId: session.endpointId,
       microphoneReady: session.microphoneReady,
       presence: session.presence,
@@ -156,10 +162,13 @@ function eventFor(
 async function recordExpiredSessions(
   transaction: AgentSessionTransaction,
   actor: AgentSessionActor,
-  endpointId: string,
   now: Date,
 ) {
-  const expired = await transaction.closeExpiredSessions(endpointId, now);
+  const expired = await transaction.closeExpiredSessions(
+    actor.practiceId,
+    actor.userId,
+    now,
+  );
 
   for (const session of expired) {
     await transaction.appendEvent(
@@ -173,12 +182,13 @@ async function recordExpiredSessions(
 async function authorizeEndpoint(
   transaction: AgentSessionTransaction,
   actor: AgentSessionActor,
-  endpointId: string,
 ): Promise<AgentSessionEndpoint | ExpectedError> {
-  const endpoint = await transaction.getAccessibleEndpoint(actor, endpointId);
+  const endpoint = await transaction.getAccessibleEndpoint(actor);
 
   if (!endpoint) {
-    return { error: new AgentSessionError("Call center endpoint not found", 404) };
+    return {
+      error: new AgentSessionError("Calling is not configured for this user", 404),
+    };
   }
 
   if (!(await transaction.hasQueueAccess(actor, endpoint))) {
@@ -202,13 +212,13 @@ export async function acquireAgentSession(
   input: SessionIdentity,
   now = new Date(),
 ) {
-  const result = await store.withEndpointLock(input.endpointId, async (transaction) => {
-    const endpoint = await authorizeEndpoint(transaction, actor, input.endpointId);
+  const result = await store.withAgentLock(actor, async (transaction) => {
+    const endpoint = await authorizeEndpoint(transaction, actor);
     if ("error" in endpoint) return endpoint;
 
-    await recordExpiredSessions(transaction, actor, endpoint.id, now);
+    await recordExpiredSessions(transaction, actor, now);
 
-    const active = await transaction.findActiveSession(endpoint.id);
+    const active = await transaction.findActiveSession(actor.practiceId, actor.userId);
     if (
       active &&
       (active.clientInstanceId !== input.clientInstanceId ||
@@ -216,15 +226,22 @@ export async function acquireAgentSession(
     ) {
       return {
         error: new AgentSessionError(
-          "Call center endpoint is active in another browser",
+          "This user is already active in another browser",
           409,
         ),
       };
     }
 
-    const existing = await transaction.findSession(endpoint.id, input.clientInstanceId);
+    const existing = await transaction.findSession(
+      actor.practiceId,
+      actor.userId,
+      input.clientInstanceId,
+    );
     if (existing && active?.id === existing.id) {
-      if (!existing.currentCallId || existing.connectionState !== "CLOSED") {
+      if (
+        (!existing.currentCallId && !existing.offeredCallId) ||
+        existing.connectionState !== "CLOSED"
+      ) {
         return { endpoint, session: existing };
       }
 
@@ -234,7 +251,7 @@ export async function acquireAgentSession(
         lastHeartbeatAt: now,
         leaseExpiresAt: leaseExpiry(now),
         microphoneReady: false,
-        presence: "BUSY",
+        presence: existing.currentCallId ? "BUSY" : "PAUSED",
         readyAt: null,
         stateVersion: existing.stateVersion + 1,
         userId: actor.userId,
@@ -264,6 +281,7 @@ export async function acquireAgentSession(
         clientInstanceId: input.clientInstanceId,
         connectionState: "CONNECTING",
         currentCallId: null,
+        offeredCallId: null,
         endpointId: endpoint.id,
         id: store.createId(),
         lastHeartbeatAt: now,
@@ -292,11 +310,11 @@ export async function updateAgentSessionReadiness(
   input: AgentSessionReadinessUpdate,
   now = new Date(),
 ) {
-  const result = await store.withEndpointLock(input.endpointId, async (transaction) => {
-    const endpoint = await authorizeEndpoint(transaction, actor, input.endpointId);
+  const result = await store.withAgentLock(actor, async (transaction) => {
+    const endpoint = await authorizeEndpoint(transaction, actor);
     if ("error" in endpoint) return endpoint;
 
-    const expired = await recordExpiredSessions(transaction, actor, endpoint.id, now);
+    const expired = await recordExpiredSessions(transaction, actor, now);
     if (
       expired.some(
         (session) =>
@@ -306,19 +324,23 @@ export async function updateAgentSessionReadiness(
       )
     ) {
       return {
-        error: new AgentSessionError("Endpoint lease expired; reacquire it", 409),
+        error: new AgentSessionError("Agent session expired; reconnect it", 409),
       };
     }
 
-    const session = await transaction.findSession(endpoint.id, input.clientInstanceId);
+    const session = await transaction.findSession(
+      actor.practiceId,
+      actor.userId,
+      input.clientInstanceId,
+    );
     if (!session || session.id !== input.sessionId || session.userId !== actor.userId) {
       return { error: new AgentSessionError("Agent session not found", 404) };
     }
 
-    const active = await transaction.findActiveSession(endpoint.id);
+    const active = await transaction.findActiveSession(actor.practiceId, actor.userId);
     if (active?.id !== session.id) {
       return {
-        error: new AgentSessionError("Endpoint lease is not active; reacquire it", 409),
+        error: new AgentSessionError("Agent session is not active; reconnect it", 409),
       };
     }
 
@@ -330,7 +352,7 @@ export async function updateAgentSessionReadiness(
 
     if (input.presence === "OFFLINE" || input.connectionState === "CLOSED") {
       return {
-        error: new AgentSessionError("Use DELETE to release an endpoint lease", 422),
+        error: new AgentSessionError("Use DELETE to release an agent session", 422),
       };
     }
 
@@ -338,6 +360,7 @@ export async function updateAgentSessionReadiness(
       audioReady: input.audioReady,
       connectionState: input.connectionState,
       currentCallId: session.currentCallId,
+      offeredCallId: session.offeredCallId,
       microphoneReady: input.microphoneReady,
       presence: input.presence,
     };
@@ -371,12 +394,16 @@ export async function releaseAgentSession(
   input: OwnedSessionIdentity,
   now = new Date(),
 ) {
-  const result = await store.withEndpointLock(input.endpointId, async (transaction) => {
-    const endpoint = await authorizeEndpoint(transaction, actor, input.endpointId);
+  const result = await store.withAgentLock(actor, async (transaction) => {
+    const endpoint = await authorizeEndpoint(transaction, actor);
     if ("error" in endpoint) return endpoint;
 
-    const expired = await recordExpiredSessions(transaction, actor, endpoint.id, now);
-    const session = await transaction.findSession(endpoint.id, input.clientInstanceId);
+    const expired = await recordExpiredSessions(transaction, actor, now);
+    const session = await transaction.findSession(
+      actor.practiceId,
+      actor.userId,
+      input.clientInstanceId,
+    );
     if (!session || session.id !== input.sessionId || session.userId !== actor.userId) {
       return { error: new AgentSessionError("Agent session not found", 404) };
     }
@@ -395,14 +422,14 @@ export async function releaseAgentSession(
       };
     }
 
-    if (session.currentCallId) {
+    if (session.currentCallId || session.offeredCallId) {
       const reconnecting = await transaction.updateSession(session.id, {
         audioReady: false,
         connectionState: "CONNECTING",
         lastHeartbeatAt: now,
         leaseExpiresAt: leaseExpiry(now),
         microphoneReady: false,
-        presence: "BUSY",
+        presence: session.currentCallId ? "BUSY" : "PAUSED",
         readyAt: null,
         stateVersion: session.stateVersion + 1,
       });

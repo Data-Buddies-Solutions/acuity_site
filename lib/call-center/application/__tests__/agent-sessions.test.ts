@@ -36,17 +36,18 @@ class FakeStore implements AgentSessionStore {
     return `session-${this.nextId++}`;
   }
 
-  async withEndpointLock<T>(
-    endpointId: string,
+  async withAgentLock<T>(
+    requestActor: typeof actor,
     work: (transaction: AgentSessionTransaction) => Promise<T>,
   ) {
-    const previous = this.locks.get(endpointId) ?? Promise.resolve();
+    const lockKey = `${requestActor.practiceId}:${requestActor.userId}`;
+    const previous = this.locks.get(lockKey) ?? Promise.resolve();
     let unlock = () => {};
     const current = new Promise<void>((resolve) => {
       unlock = resolve;
     });
     this.locks.set(
-      endpointId,
+      lockKey,
       previous.then(() => current),
     );
     await previous;
@@ -55,10 +56,11 @@ class FakeStore implements AgentSessionStore {
       appendEvent: async (event) => {
         this.events.push(event);
       },
-      closeExpiredSessions: async (id, now) => {
+      closeExpiredSessions: async (practiceId, userId, now) => {
         const expired = this.sessions.filter(
           (session) =>
-            session.endpointId === id &&
+            session.practiceId === practiceId &&
+            session.userId === userId &&
             session.presence !== "OFFLINE" &&
             session.connectionState !== "CLOSED" &&
             session.leaseExpiresAt <= now,
@@ -82,29 +84,31 @@ class FakeStore implements AgentSessionStore {
         this.sessions.push(created);
         return { ...created };
       },
-      findActiveSession: async (id) => {
+      findActiveSession: async (practiceId, userId) => {
         const found = this.sessions.find(
           (session) =>
-            session.endpointId === id &&
+            session.practiceId === practiceId &&
+            session.userId === userId &&
             (session.currentCallId !== null ||
+              session.offeredCallId !== null ||
               (session.presence !== "OFFLINE" && session.connectionState !== "CLOSED")),
         );
         return found ? { ...found } : null;
       },
-      findSession: async (id, clientInstanceId) => {
+      findSession: async (practiceId, userId, clientInstanceId) => {
         const found = this.sessions.find(
           (session) =>
-            session.endpointId === id && session.clientInstanceId === clientInstanceId,
+            session.practiceId === practiceId &&
+            session.userId === userId &&
+            session.clientInstanceId === clientInstanceId,
         );
         return found ? { ...found } : null;
       },
-      getAccessibleEndpoint: async (requestActor, id) => {
+      getAccessibleEndpoint: async (sessionActor) => {
         const allowedLocation =
-          requestActor.hasAllLocationAccess ||
-          requestActor.allowedLocationIds.includes(this.endpoint.locationId);
-        return id === this.endpoint.id &&
-          requestActor.practiceId === actor.practiceId &&
-          allowedLocation
+          sessionActor.hasAllLocationAccess ||
+          sessionActor.allowedLocationIds.includes(this.endpoint.locationId);
+        return sessionActor.practiceId === actor.practiceId && allowedLocation
           ? this.endpoint
           : null;
       },
@@ -127,12 +131,11 @@ class FakeStore implements AgentSessionStore {
 
 const identity = {
   clientInstanceId: "browser-1",
-  endpointId: "seat-legacy-id",
 };
 const start = new Date("2026-07-11T12:00:00.000Z");
 
-describe("canonical endpoint leasing", () => {
-  it("serializes concurrent browsers so only one can own an endpoint", async () => {
+describe("canonical agent sessions", () => {
+  it("serializes concurrent browsers so only one can own an agent login", async () => {
     const store = new FakeStore();
     const results = await Promise.allSettled([
       acquireAgentSession(store, actor, identity, start),

@@ -13,7 +13,6 @@ import { createTelnyxLoginToken } from "@/lib/telnyx";
 const bodySchema = z
   .object({
     clientInstanceId: z.string().trim().min(1).max(200),
-    endpointId: z.string().trim().min(1).max(200),
   })
   .strict();
 const paramsSchema = z.object({ sessionId: z.string().trim().min(1).max(200) });
@@ -53,7 +52,7 @@ export function createCanonicalAgentSessionTokenHandler({
         clock(),
       );
       const token = await createToken(credential.providerCredentialId);
-      return NextResponse.json({ stationLabel: credential.endpointLabel, token });
+      return NextResponse.json({ agentLabel: credential.agentLabel, token });
     },
     {
       errorMessage: "Failed to create canonical Telnyx token",

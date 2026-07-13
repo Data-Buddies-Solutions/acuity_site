@@ -3,7 +3,10 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 
-import { useCanonicalAgentSession } from "./use-canonical-agent-session";
+import {
+  canonicalHeartbeatPresence,
+  useCanonicalAgentSession,
+} from "./use-canonical-agent-session";
 
 const originalFetch = globalThis.fetch;
 
@@ -17,6 +20,7 @@ function agentSession(stateVersion = 0): AgentSessionView {
     id: "session-1",
     leaseExpiresAt: "2026-07-12T12:01:00.000Z",
     microphoneReady: Boolean(stateVersion),
+    offeredCallId: null,
     presence: stateVersion ? "AVAILABLE" : "PAUSED",
     stateVersion,
   };
@@ -38,6 +42,21 @@ function deferred<T>() {
 }
 
 describe("useCanonicalAgentSession", () => {
+  it("does not infer busy from a ringing offer", () => {
+    expect(
+      canonicalHeartbeatPresence(
+        { currentCallId: null, offeredCallId: "call-1", presence: "AVAILABLE" },
+        "BUSY",
+      ),
+    ).toBe("AVAILABLE");
+    expect(
+      canonicalHeartbeatPresence(
+        { currentCallId: "call-1", offeredCallId: null, presence: "BUSY" },
+        "AVAILABLE",
+      ),
+    ).toBe("BUSY");
+  });
+
   beforeEach(() => {
     globalThis.fetch = mock(async (_input, init) => {
       if (init?.method === "POST") return acquisition();
@@ -56,7 +75,6 @@ describe("useCanonicalAgentSession", () => {
         audioReady: true,
         clientInstanceId: "browser-1",
         connectionState: "READY",
-        endpointId: "endpoint-1",
         microphoneReady: true,
         presence: "AVAILABLE",
       }),
@@ -73,7 +91,6 @@ describe("useCanonicalAgentSession", () => {
       expect.objectContaining({
         body: JSON.stringify({
           clientInstanceId: "browser-1",
-          endpointId: "endpoint-1",
         }),
         method: "POST",
       }),
@@ -88,7 +105,6 @@ describe("useCanonicalAgentSession", () => {
       audioReady: true,
       clientInstanceId: "browser-1",
       connectionState: "READY",
-      endpointId: "endpoint-1",
       expectedStateVersion: 0,
       microphoneReady: true,
       presence: "AVAILABLE",
@@ -114,7 +130,6 @@ describe("useCanonicalAgentSession", () => {
           audioReady,
           clientInstanceId: "browser-1",
           connectionState: "READY",
-          endpointId: "endpoint-1",
           microphoneReady: true,
           presence,
         }),
@@ -141,7 +156,6 @@ describe("useCanonicalAgentSession", () => {
         audioReady: false,
         clientInstanceId: "browser-1",
         connectionState: "READY",
-        endpointId: "endpoint-1",
         expectedStateVersion: 1,
         microphoneReady: true,
         presence: "BUSY",
@@ -165,7 +179,6 @@ describe("useCanonicalAgentSession", () => {
         audioReady: true,
         clientInstanceId: "browser-1",
         connectionState: "READY",
-        endpointId: "endpoint-1",
         microphoneReady: true,
         presence: "AVAILABLE",
       }),
@@ -184,7 +197,6 @@ describe("useCanonicalAgentSession", () => {
       method: "DELETE",
       body: {
         clientInstanceId: "browser-1",
-        endpointId: "endpoint-1",
         expectedStateVersion: 1,
       },
     });
@@ -206,7 +218,6 @@ describe("useCanonicalAgentSession", () => {
           audioReady: true,
           clientInstanceId: "browser-1",
           connectionState: "READY",
-          endpointId: "endpoint-1",
           microphoneReady: true,
           presence: "AVAILABLE",
           projectedSession,
@@ -230,7 +241,6 @@ describe("useCanonicalAgentSession", () => {
       method: "DELETE",
       body: {
         clientInstanceId: "browser-1",
-        endpointId: "endpoint-1",
         expectedStateVersion: 2,
       },
     });
@@ -249,7 +259,6 @@ describe("useCanonicalAgentSession", () => {
           audioReady: presence === "AVAILABLE",
           clientInstanceId: "browser-1",
           connectionState: presence === "AVAILABLE" ? "READY" : "CONNECTING",
-          endpointId: "endpoint-1",
           microphoneReady: presence === "AVAILABLE",
           presence,
         }),
@@ -277,7 +286,6 @@ describe("useCanonicalAgentSession", () => {
         audioReady: true,
         clientInstanceId: "browser-1",
         connectionState: "READY",
-        endpointId: "endpoint-1",
         microphoneReady: true,
         presence: "AVAILABLE",
       }),
@@ -302,7 +310,6 @@ describe("useCanonicalAgentSession", () => {
         audioReady: true,
         clientInstanceId: "browser-1",
         connectionState: "READY",
-        endpointId: "endpoint-1",
         microphoneReady: true,
         presence: "AVAILABLE",
       }),
@@ -321,66 +328,6 @@ describe("useCanonicalAgentSession", () => {
     expect(result.current.session).toBeNull();
   });
 
-  it("starts the newly selected endpoint after a stale acquisition finishes", async () => {
-    const firstPost = deferred<Response>();
-    const postEndpoints: string[] = [];
-    globalThis.fetch = mock(async (_input, init) => {
-      const method = init?.method ?? "GET";
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
-        endpointId?: string;
-      };
-      if (method === "POST") {
-        postEndpoints.push(body.endpointId ?? "");
-        if (postEndpoints.length === 1) return firstPost.promise;
-        return Response.json({
-          leaseDurationMs: 60_000,
-          session: {
-            ...agentSession(),
-            endpointId: "endpoint-2",
-            id: "session-2",
-          },
-        });
-      }
-      return Response.json({
-        session: {
-          ...agentSession(1),
-          endpointId: body.endpointId ?? "endpoint-1",
-          id: body.endpointId === "endpoint-2" ? "session-2" : "session-1",
-        },
-      });
-    }) as unknown as typeof fetch;
-
-    const { result, rerender } = renderHook(
-      ({ endpointId }) =>
-        useCanonicalAgentSession({
-          audioReady: true,
-          clientInstanceId: "browser-1",
-          connectionState: "READY",
-          endpointId,
-          microphoneReady: true,
-          presence: "AVAILABLE",
-        }),
-      { initialProps: { endpointId: "endpoint-1" } },
-    );
-
-    let firstStart!: Promise<void>;
-    act(() => {
-      firstStart = result.current.start();
-    });
-    await waitFor(() => expect(postEndpoints).toEqual(["endpoint-1"]));
-
-    rerender({ endpointId: "endpoint-2" });
-    let secondStart!: Promise<void>;
-    act(() => {
-      secondStart = result.current.start();
-    });
-    firstPost.resolve(acquisition());
-
-    await act(() => Promise.all([firstStart, secondStart]));
-    await waitFor(() => expect(result.current.session?.endpointId).toBe("endpoint-2"));
-    expect(postEndpoints).toEqual(["endpoint-1", "endpoint-2"]);
-  });
-
   it("surfaces acquisition failures without creating a session", async () => {
     globalThis.fetch = mock(async () =>
       Response.json({ error: "Endpoint is already leased" }, { status: 409 }),
@@ -390,7 +337,6 @@ describe("useCanonicalAgentSession", () => {
         audioReady: false,
         clientInstanceId: "browser-1",
         connectionState: "CONNECTING",
-        endpointId: "endpoint-1",
         microphoneReady: false,
         presence: "PAUSED",
       }),

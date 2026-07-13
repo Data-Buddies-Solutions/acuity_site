@@ -108,16 +108,16 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     }
 
     await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.endpointId} FOR UPDATE`,
+      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} FOR UPDATE`,
     );
     await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} AND "endpointId" = ${input.endpointId} AND "browserSessionId" = ${input.clientInstanceId} FOR UPDATE`,
+      Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} AND "browserSessionId" = ${input.clientInstanceId} FOR UPDATE`,
     );
     const session = await this.transaction.callCenterAgentSession.findFirst({
       include: { endpoint: true },
       where: {
         browserSessionId: input.clientInstanceId,
-        endpointId: input.endpointId,
+        endpoint: { userId: actor.userId },
         practiceId: actor.practiceId,
         userId: actor.userId,
       },
@@ -135,10 +135,11 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     }
     if (
       !session.endpoint.enabled ||
+      session.endpoint.userId !== actor.userId ||
       !session.endpoint.providerCredentialId ||
       !session.endpoint.sipUsername
     ) {
-      throw new ClaimCallError("Call center endpoint is not configured", 409);
+      throw new ClaimCallError("Calling is not configured for this agent", 409);
     }
     const queueLocationIds = new Set(
       lockedQueue.locations.map(({ locationId }) => locationId),
@@ -185,7 +186,15 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
       throw new ClaimCallError("Existing claim is missing its provider command", 409);
     }
     if (existing && existingCommand) {
-      if (session.currentCallId !== call.id || session.presence !== "BUSY") {
+      const offered =
+        session.offeredCallId === call.id &&
+        session.currentCallId === null &&
+        session.presence === "AVAILABLE";
+      const active =
+        session.offeredCallId === null &&
+        session.currentCallId === call.id &&
+        session.presence === "BUSY";
+      if (!offered && !active) {
         throw new ClaimCallError("Existing claim session is inconsistent", 409);
       }
       return {
@@ -203,7 +212,11 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     if (session.stateVersion !== input.expectedSessionStateVersion) {
       throw new ClaimCallError("Agent session changed; refresh and try again", 409);
     }
-    if (session.presence !== "AVAILABLE" || session.currentCallId) {
+    if (
+      session.presence !== "AVAILABLE" ||
+      session.currentCallId ||
+      session.offeredCallId
+    ) {
       throw new ClaimCallError("Agent session is not ready to claim calls", 409);
     }
     const attemptNumber =
@@ -239,8 +252,8 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     });
     const updatedSession = await this.transaction.callCenterAgentSession.update({
       data: {
-        currentCallId: call.id,
-        presence: "BUSY",
+        offeredCallId: call.id,
+        readyAt: null,
         stateVersion: { increment: 1 },
       },
       select: { stateVersion: true },
@@ -271,13 +284,13 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
         aggregateType: "AGENT_SESSION",
         data: {
           callId: call.id,
-          presence: "BUSY",
+          presence: "AVAILABLE",
           stateVersion: updatedSession.stateVersion,
         },
         idempotencyKey: `claim-session:${leg.id}`,
         occurredAt: now,
         practiceId: call.practiceId,
-        type: "AGENT_SESSION_BUSY",
+        type: "AGENT_SESSION_CALL_OFFERED",
       },
     });
 

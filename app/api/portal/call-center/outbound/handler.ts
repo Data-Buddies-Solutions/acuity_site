@@ -13,7 +13,6 @@ const bodySchema = z
   .object({
     clientInstanceId: z.string().trim().min(1).max(200),
     destination: z.string().trim().min(1).max(40),
-    endpointId: z.string().trim().min(1).max(200),
     expectedSessionStateVersion: z.number().int().nonnegative(),
     numberId: z.string().trim().min(1).max(200),
     queueId: z.string().trim().min(1).max(200),

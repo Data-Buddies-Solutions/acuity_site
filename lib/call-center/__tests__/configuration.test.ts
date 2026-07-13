@@ -45,6 +45,7 @@ function validInput(): CallCenterConfigurationInput {
     endpoints: [
       {
         id: "endpoint-1",
+        userId: "user-1",
         locationId: "location-1",
         label: " Optical Front Desk ",
         providerCredentialId: "credential-1",
@@ -161,6 +162,44 @@ describe("call-center configuration validation", () => {
         "INVALID_OUTBOUND_NUMBER",
       ]),
     );
+  });
+
+  it("requires every enabled canonical profile to identify its agent", () => {
+    const input = validInput();
+    input.endpoints[0]!.userId = null;
+
+    expect(
+      issueCodes(() => validateCallCenterConfiguration(input, validContext())),
+    ).toEqual(
+      expect.arrayContaining(["ENDPOINT_CREDENTIALS_REQUIRED", "INCOMPLETE_ROUTING"]),
+    );
+  });
+
+  it("allows an unassigned profile while its queue remains LEGACY", () => {
+    const input = validInput();
+    input.queues[0]!.routingMode = "LEGACY";
+    input.endpoints[0]!.userId = null;
+
+    expect(
+      validateCallCenterConfiguration(input, validContext()).endpoints[0],
+    ).toMatchObject({ userId: null });
+  });
+
+  it("rejects assigning two call profiles to one user", () => {
+    const input = validInput();
+    input.endpoints.push({
+      enabled: false,
+      id: "endpoint-2",
+      label: "Spare",
+      locationId: "location-1",
+      providerCredentialId: null,
+      sipUsername: null,
+      userId: "user-1",
+    });
+
+    expect(
+      issueCodes(() => validateCallCenterConfiguration(input, validContext())),
+    ).toContain("DUPLICATE_VALUE");
   });
 
   it("requires a shadow endpoint to belong to one of its queue locations", () => {
@@ -472,6 +511,7 @@ describe("transactional configuration boundary", () => {
       label: "Retired endpoint",
       providerCredentialId: null,
       sipUsername: null,
+      userId: null,
       enabled: false,
     });
     let persisted: CallCenterConfigurationInput | null = null;

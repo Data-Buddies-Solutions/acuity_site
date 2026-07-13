@@ -1,6 +1,6 @@
 # Call Center Rollout Status
 
-Last updated: July 12, 2026
+Last updated: July 13, 2026
 
 ## Current position
 
@@ -154,9 +154,34 @@ The activation follow-up replaces the unsafe lock key, terminates proven
 out-of-scope `LEGACY` sessions as `IGNORED`, adds a private exact-session
 historical repair with a sanitized audit receipt, and strengthens preflight so
 every enabled queue must have one coherent number/member/endpoint route. The
-remaining production configuration repair must add the South Florida and
-optical inbound targets and bind their shared seats to explicit permitted
-locations before ingress/projection are re-enabled.
+production configuration repair added the optical inbound target and bound its
+test seat to an explicit permitted location. South Florida remains deliberately
+disabled until its number and seats are intentionally configured and tested.
+
+After that repair, the automated preflight passed all twelve checks for the
+dedicated optical endpoint. The activation redeploy was rolled back before a
+controlled call because its runtime configuration snapshot failed strict
+activation validation and the portal Server Component threw instead of falling
+back to legacy. Activation remains off. The next application slice makes the
+portal fail closed to the legacy workspace while effect-producing routes stay
+strict, and separates an agent's ringing offer from its connected call. An
+offer keeps the agent `AVAILABLE`; a confirmed provider answer or bridge
+promotes that exact offer to `BUSY`; terminal hangup releases it to
+`AVAILABLE`. Its additive migration must be applied before the next activation
+preflight and optical test.
+
+PR [#118](https://github.com/Data-Buddies-Solutions/acuity_site/pull/118) now
+contains the additive ringing-offer migration plus a nullable user binding on
+each durable provider profile. The binding is unique per practice and remains
+nullable only so existing `LEGACY` rows can migrate without guessed identity.
+PR [#119](https://github.com/Data-Buddies-Solutions/acuity_site/pull/119) makes
+the canonical runtime user-owned: the authenticated user resolves one profile
+server-side for session acquisition, token minting, Take, and outbound calls;
+the canonical frontend has no station selector; internal transfer targets a
+user and resolves that user's ready profile/session transactionally. Activation
+configuration rejects an enabled canonical route without a coherent
+user/member/profile binding. Both PRs target `main`; #118 must merge and its
+migrations must be applied before #119 is deployed.
 
 Legacy routing and projections remain authoritative. Phase 3B has an independent
 passive projector recovery lane; canonical writes and checkpoint completion are
@@ -202,7 +227,7 @@ endpoints, and seven memberships.
 | 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92/#97; out-of-scope repair pending         | Projection rolled back off            |
 | 4A    | Canonical routing, commands, and immutable effect ownership              | #103/#111-#113 merged                        | No commands; all queues stay LEGACY   |
 | 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #111 merged                                  | Legacy UI remains authoritative       |
-| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; activation fix pending          | Deployed off; preflight blocked       |
+| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; #118/#119 in review             | Deployed off after rollback           |
 | 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                                  | Blocked until observation closes      |
 | 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred          | Public-number handoff remains         |
 
@@ -219,6 +244,7 @@ endpoints, and seven memberships.
 | Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed    | Empty aggregate report; live receipt pending                      |
 | Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102    | Enabled passively; observation gate remains                       |
 | Coordinated call control | Commands, SSE, reducer, media adapter, and effect ownership  | #103/#111-#113 merged to `main` | Build active operations/media/actions for every configured number |
+| User-owned calling       | One profile and one active browser per authenticated user    | #118/#119 in review             | Apply migrations, assign users, preflight, controlled calls       |
 | Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred     | Phases 0-6 complete and provider contract tests proven            |
 
 ## Validation receipt
@@ -273,10 +299,12 @@ endpoints, and seven memberships.
 
 The remaining finish line is:
 
-1. pass full typecheck, lint, tests, formatting, Prisma validation, production
-   build, and final ACTIVE invariant review;
-2. merge the complete application refactor to `main` and deploy it default-off;
-3. run one automated preflight that verifies migration state, complete enabled
+1. merge PR #118 and apply its additive migrations with the production
+   migration workflow;
+2. merge PR #119 and deploy it default-off after full typecheck, lint, tests,
+   formatting, Prisma validation, production build, and ACTIVE invariant review;
+3. assign each enabled canonical profile to its individual practice user, then
+   run one automated preflight that verifies migration state, complete enabled
    configuration, current endpoint readiness, callback ownership, and zero
    unhealthy command/event counts;
 4. activate canonical routing and frontend ownership together for all
@@ -300,15 +328,15 @@ happen after the global observation window.
   `CALL_CENTER_WEBHOOK_RETENTION_DAYS` before deploying PR #90.
 - Deploy first with `CALL_CENTER_DURABLE_WEBHOOK_INGRESS_ENABLED=false`, verify
   the authorized recovery route, then enable durable ingress and redeploy.
-- Keep one active browser per provider credential until canonical endpoint
-  leasing is proven under concurrent check-in.
+- Keep one active browser per user until canonical session leasing is proven
+  under concurrent login.
 - Make activation run one automated preflight and fail closed on dead letters,
   ambiguous commands, stale unconfirmed commands, incomplete configuration, or
   an unapplied migration.
 - Treat duplicate Take, transfer, concurrent-tab, remount, and reconnect tests
   as hard gates for the coordinated 4B/5B cutover.
 - Run no-ready-endpoint voicemail and ring-timeout recovery.
-- Run transfer ringing and Take from the target seat.
+- Run transfer ringing and Take from the target user's browser.
 - Run duplicate-event, out-of-order, reconnect, and global rollback tests across
   every configured phone number immediately after activation.
 - Do not begin Phase 7 direct SIP work until Phases 1-6 are active, legacy

@@ -11,7 +11,7 @@ export const CALL_TRANSFER_REQUESTED_EVENT = "CALL_TRANSFER_REQUESTED";
 export type TransferCallInput = {
   callId: string;
   idempotencyKey: string;
-  targetEndpointId: string;
+  targetUserId: string;
 };
 
 export type TransferCallReceipt = OperationReceipt & {
@@ -24,6 +24,7 @@ export type TransferCallReceipt = OperationReceipt & {
   targetAgentSessionId: string;
   targetEndpointId: string;
   targetLegId: string;
+  targetUserId: string;
 };
 
 export interface TransferCallTransaction extends OperationReceiptTransaction {
@@ -53,7 +54,7 @@ export class TransferCallError extends Error {
 function targetFingerprint(input: TransferCallInput) {
   return JSON.stringify({
     callId: input.callId,
-    targetEndpointId: input.targetEndpointId,
+    targetUserId: input.targetUserId,
   });
 }
 

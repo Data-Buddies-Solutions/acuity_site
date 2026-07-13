@@ -50,6 +50,8 @@ const numberSchema = z
 const endpointSchema = z
   .object({
     id: idSchema,
+    /** Omitted preserves the current server-side assignment; null clears it. */
+    userId: optionalIdSchema.optional(),
     locationId: optionalIdSchema,
     label: z.string().trim().min(1).max(100),
     /** Omitted preserves the current server-side value; null clears it. */
@@ -103,6 +105,8 @@ export function resolveCallCenterConfigurationWireInput(
       const existing = currentEndpoints.get(endpoint.id);
       return {
         id: endpoint.id,
+        userId:
+          endpoint.userId === undefined ? (existing?.userId ?? null) : endpoint.userId,
         locationId: endpoint.locationId,
         label: endpoint.label,
         enabled: endpoint.enabled,

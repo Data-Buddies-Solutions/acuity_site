@@ -12,16 +12,14 @@ import {
   type AgentSessionView,
   type CallView,
   type OperationView,
+  type TransferTargetView,
 } from "@/lib/call-center/realtime-contract";
 
 import {
   claimCallCenterClientInstance,
   type CallCenterClientInstance,
 } from "./call-center-client-instance";
-import {
-  setCallCenterCurrentCallGuard,
-  useCallCenterCurrentCallGuard,
-} from "./call-center-current-call-guard";
+import { setCallCenterCurrentCallGuard } from "./call-center-current-call-guard";
 import {
   beginCanonicalTransfer,
   beginCanonicalTake,
@@ -124,8 +122,6 @@ function ConnectedCanonicalActiveWorkspace({
   queueId: string;
 }) {
   const realtime = useCanonicalCallCenter({ clientInstanceId, queueId });
-  const currentCallGuarded = useCallCenterCurrentCallGuard();
-  const [endpointChoice, setEndpointChoice] = useState("");
   const [presence, setPresence] = useState<AgentSessionView["presence"]>("AVAILABLE");
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
@@ -142,10 +138,7 @@ function ConnectedCanonicalActiveWorkspace({
   const answeredMediaRef = useRef(new Set<string>());
   const outboundMediaLegsRef = useRef(new Set<string>());
   const outboundStartingRef = useRef(false);
-  const endpoints = realtime.state?.endpoints ?? [];
-  const selectedEndpointId = endpoints.some(({ id }) => id === endpointChoice)
-    ? endpointChoice
-    : (endpoints[0]?.id ?? "");
+  const agentProfileId = realtime.state?.agentProfile?.id ?? "";
   const eligibleOutboundNumbers = outboundNumbers;
   const selectedNumberId = eligibleOutboundNumbers.some(({ id }) => id === numberChoice)
     ? numberChoice
@@ -153,14 +146,13 @@ function ConnectedCanonicalActiveWorkspace({
   const state = realtime.state;
   const projectedSession =
     state?.agentSession?.clientInstanceId === clientInstanceId &&
-    state.agentSession.endpointId === selectedEndpointId
+    state.agentSession.endpointId === agentProfileId
       ? state.agentSession
       : null;
   const canonicalSession = useCanonicalAgentSession({
     audioReady: mediaReadiness.audioReady,
     clientInstanceId,
     connectionState: mediaReadiness.connectionState,
-    endpointId: selectedEndpointId || null,
     microphoneReady: mediaReadiness.microphoneReady,
     presence:
       mediaReadiness.connectionState === "READY" &&
@@ -173,14 +165,13 @@ function ConnectedCanonicalActiveWorkspace({
   const leasedSession = canonicalSession.session;
   const leasedSessionId = leasedSession?.id ?? null;
   const leasedCurrentCallId = leasedSession?.currentCallId ?? null;
+  const leasedOfferedCallId = leasedSession?.offeredCallId ?? null;
   const media = useSoftphoneMedia({
     agentSessionId: leasedSessionId,
     browserSessionId: clientInstanceId,
     credentialMode: "CANONICAL",
-    enabled: Boolean(
-      selectedEndpointId && leasedSession?.endpointId === selectedEndpointId,
-    ),
-    stationSeatId: selectedEndpointId || null,
+    enabled: Boolean(agentProfileId && leasedSession?.endpointId === agentProfileId),
+    stationSeatId: agentProfileId || null,
   });
   const {
     activate: activateMedia,
@@ -210,7 +201,7 @@ function ConnectedCanonicalActiveWorkspace({
   }, [media.connection, media.microphoneReady, media.soundReady]);
 
   useEffect(() => {
-    if (selectedEndpointId && presence !== "OFFLINE") {
+    if (agentProfileId && presence !== "OFFLINE") {
       void startCanonicalSession();
     } else {
       void stopCanonicalSession();
@@ -218,14 +209,26 @@ function ConnectedCanonicalActiveWorkspace({
     return () => {
       void stopCanonicalSession();
     };
-  }, [presence, selectedEndpointId, startCanonicalSession, stopCanonicalSession]);
+  }, [presence, agentProfileId, startCanonicalSession, stopCanonicalSession]);
 
   const session = projectedSession;
 
   useEffect(() => {
     if (!state || !leasedSessionId) return;
-    setCallCenterCurrentCallGuard(session?.currentCallId ?? leasedCurrentCallId);
-  }, [leasedCurrentCallId, leasedSessionId, session?.currentCallId, state]);
+    setCallCenterCurrentCallGuard(
+      session?.currentCallId ??
+        session?.offeredCallId ??
+        leasedCurrentCallId ??
+        leasedOfferedCallId,
+    );
+  }, [
+    leasedCurrentCallId,
+    leasedOfferedCallId,
+    leasedSessionId,
+    session?.currentCallId,
+    session?.offeredCallId,
+    state,
+  ]);
   const incomingCalls = useMemo(() => (state ? selectIncomingCalls(state) : []), [state]);
   const transferTakeCandidate =
     state && session
@@ -322,7 +325,6 @@ function ConnectedCanonicalActiveWorkspace({
           {
             body: JSON.stringify({
               clientInstanceId,
-              endpointId: session.endpointId,
               expectedSessionStateVersion: session.stateVersion,
             }),
             headers: {
@@ -364,11 +366,11 @@ function ConnectedCanonicalActiveWorkspace({
   }, [actionsEnabled, answerMedia, transferTakeCandidate]);
 
   const transferActiveCall = useCallback(
-    async (call: CallView, targetEndpointId: string) => {
+    async (call: CallView, targetUserId: string) => {
       if (!actionsEnabled || !session) return;
       const source = selectCanonicalTransferSource(call, session);
-      if (!source || source.endpointId === targetEndpointId) {
-        setActionError("The connected source leg cannot transfer to that endpoint.");
+      if (!source) {
+        setActionError("The connected source leg is unavailable for transfer.");
         return;
       }
       if (!beginCanonicalTransfer(transferringRef.current, call.id, source.id)) return;
@@ -378,13 +380,13 @@ function ConnectedCanonicalActiveWorkspace({
         const response = await fetch(
           `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/transfer`,
           {
-            body: JSON.stringify({ targetEndpointId }),
+            body: JSON.stringify({ targetUserId }),
             headers: {
               "Content-Type": "application/json",
               "Idempotency-Key": canonicalTransferIdempotencyKey(
                 call.id,
                 source.id,
-                targetEndpointId,
+                targetUserId,
               ),
             },
             method: "POST",
@@ -473,7 +475,6 @@ function ConnectedCanonicalActiveWorkspace({
         body: JSON.stringify({
           clientInstanceId,
           destination,
-          endpointId: session.endpointId,
           expectedSessionStateVersion: session.stateVersion,
           numberId: selectedNumberId,
           queueId,
@@ -542,11 +543,13 @@ function ConnectedCanonicalActiveWorkspace({
 
   const readinessMessage = canonicalSessionError
     ? canonicalSessionError
-    : session?.connectionState === "READY" &&
-        session.microphoneReady &&
-        session.audioReady
-      ? "Ready for canonical calls."
-      : "Select a station and enable calling.";
+    : !agentProfileId
+      ? "Calling is not configured for your login."
+      : session?.connectionState === "READY" &&
+          session.microphoneReady &&
+          session.audioReady
+        ? "Ready for canonical calls."
+        : "Enable calling to allow microphone and browser audio.";
 
   return (
     <div className="space-y-4">
@@ -621,8 +624,8 @@ function ConnectedCanonicalActiveWorkspace({
                         : connecting
                           ? "Connecting"
                           : match
-                            ? "Ringing this station"
-                            : "Waiting for this station's canonical media leg"}
+                            ? "Ringing your browser"
+                            : "Waiting for your canonical media leg"}
                     </p>
                   </div>
                   <Button
@@ -648,13 +651,13 @@ function ConnectedCanonicalActiveWorkspace({
             <CanonicalActiveCall
               actionsEnabled={actionsEnabled}
               call={activeCall}
-              endpoints={endpoints}
-              endpointId={selectedEndpointId}
+              endpointId={agentProfileId}
               media={media}
               onTakeTransfer={takeTransfer}
               onTransfer={transferActiveCall}
               operations={state.operations}
               sessionId={session?.id ?? null}
+              transferTargets={state.transferTargets}
               transferTakeCandidate={transferTakeCandidate}
             />
           ) : null}
@@ -712,40 +715,27 @@ function ConnectedCanonicalActiveWorkspace({
         </section>
 
         <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5">
-          <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Station</h2>
+          <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
+            Your calling status
+          </h2>
           <label className="mt-4 block text-xs font-semibold text-[var(--portal-muted)]">
-            Endpoint
-            <select
-              className="mt-1 h-10 w-full rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm"
-              disabled={currentCallGuarded || Boolean(session?.currentCallId)}
-              onChange={(event) => setEndpointChoice(event.target.value)}
-              value={selectedEndpointId}
-            >
-              {endpoints.map((endpoint) => (
-                <option key={endpoint.id} value={endpoint.id}>
-                  {endpoint.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="mt-3 block text-xs font-semibold text-[var(--portal-muted)]">
             Presence
             <select
               className="mt-1 h-10 w-full rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm"
-              disabled={Boolean(session?.currentCallId)}
+              disabled={Boolean(session?.currentCallId || session?.offeredCallId)}
               onChange={(event) =>
                 setPresence(event.target.value as AgentSessionView["presence"])
               }
-              value={session?.currentCallId ? "BUSY" : presence}
+              value={session?.presence ?? presence}
             >
-              {session?.currentCallId ? <option value="BUSY">Busy</option> : null}
+              {session?.presence === "BUSY" ? <option value="BUSY">Busy</option> : null}
               <option value="AVAILABLE">Available</option>
               <option value="PAUSED">Paused</option>
             </select>
           </label>
           <Button
             className="mt-4 w-full"
-            disabled={!selectedEndpointId || media.setupPending}
+            disabled={!agentProfileId || media.setupPending}
             onClick={() => void media.prepare()}
             variant="secondary"
           >
@@ -812,24 +802,24 @@ function ConnectedCanonicalActiveWorkspace({
 function CanonicalActiveCall({
   actionsEnabled,
   call,
-  endpoints,
   endpointId,
   media,
   onTakeTransfer,
   onTransfer,
   operations,
   sessionId,
+  transferTargets,
   transferTakeCandidate,
 }: {
   actionsEnabled: boolean;
   call: CallView;
-  endpoints: Array<{ enabled: boolean; id: string; label: string }>;
   endpointId: string;
   media: ReturnType<typeof useSoftphoneMedia>;
   onTakeTransfer: () => Promise<void>;
-  onTransfer: (call: CallView, targetEndpointId: string) => Promise<void>;
+  onTransfer: (call: CallView, targetUserId: string) => Promise<void>;
   operations: readonly OperationView[] | null;
   sessionId: string | null;
+  transferTargets: TransferTargetView[];
   transferTakeCandidate: ReturnType<typeof selectCanonicalTransferTakeCandidate>;
 }) {
   const [targetChoice, setTargetChoice] = useState("");
@@ -838,18 +828,15 @@ function CanonicalActiveCall({
     : null;
   const localSession = sessionId ? { endpointId, id: sessionId } : null;
   const source = localSession ? selectCanonicalTransferSource(call, localSession) : null;
-  const transferTargets = endpoints.filter(
-    (endpoint) => endpoint.enabled && endpoint.id !== source?.endpointId,
-  );
-  const selectedTargetId = transferTargets.some(({ id }) => id === targetChoice)
+  const selectedTargetId = transferTargets.some(({ userId }) => userId === targetChoice)
     ? targetChoice
-    : (transferTargets[0]?.id ?? "");
+    : (transferTargets[0]?.userId ?? "");
   const transferOperation =
     source && selectedTargetId
       ? selectLatestTransferOperation(operations, {
           callId: call.id,
           sourceLegId: source.id,
-          targetEndpointId: selectedTargetId,
+          targetUserId: selectedTargetId,
         })
       : null;
   const canEnd = Boolean(
@@ -897,9 +884,9 @@ function CanonicalActiveCall({
               onChange={(event) => setTargetChoice(event.target.value)}
               value={selectedTargetId}
             >
-              {transferTargets.map((endpoint) => (
-                <option key={endpoint.id} value={endpoint.id}>
-                  {endpoint.label}
+              {transferTargets.map((target) => (
+                <option key={target.userId} value={target.userId}>
+                  {target.name}
                 </option>
               ))}
             </select>
@@ -926,13 +913,13 @@ function CanonicalActiveCall({
             </p>
           ) : transferTargets.length === 0 ? (
             <p className="mt-2 text-xs text-[var(--portal-muted)]">
-              No other configured endpoint is available for transfer.
+              No other configured agent is available for transfer.
             </p>
           ) : null}
         </div>
       ) : targetTransfer ? (
         <p className="mt-3 text-xs text-[var(--portal-muted)]">
-          Transfer from the connected agent is ringing this exact station leg.
+          Transfer from the connected agent is ringing your browser.
         </p>
       ) : null}
     </div>

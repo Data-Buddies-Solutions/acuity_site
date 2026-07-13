@@ -285,6 +285,7 @@ export async function persistConfigurationSnapshot(
       locationId: endpoint.locationId,
       providerCredentialId: endpoint.providerCredentialId,
       sipUsername: endpoint.sipUsername,
+      userId: endpoint.userId,
     };
     await transaction.callCenterEndpoint.upsert({
       create: { ...data, id: endpoint.id, practiceId: configuration.practiceId },
@@ -425,6 +426,7 @@ export async function readCallCenterConfiguration(
           label: true,
           providerCredentialId: true,
           sipUsername: true,
+          userId: true,
           enabled: true,
         },
       },

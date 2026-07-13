@@ -42,6 +42,7 @@ describe("canonical transfer operation", () => {
           targetAgentSessionId: "target-session-1",
           targetEndpointId: "target-endpoint-1",
           targetLegId: "target-leg-1",
+          targetUserId: "target-user-1",
         };
       },
       findReceipt: async () => {
@@ -59,7 +60,7 @@ describe("canonical transfer operation", () => {
       {
         callId: "call-1",
         idempotencyKey: "transfer-1",
-        targetEndpointId: "target-endpoint-1",
+        targetUserId: "target-user-1",
       },
       new Date("2026-07-12T12:00:00.000Z"),
     );
@@ -101,9 +102,9 @@ describe("canonical transfer operation", () => {
     await transferCall({ transaction: (operation) => operation(transaction) }, actor, {
       callId: "call-1",
       idempotencyKey: "transfer-1",
-      targetEndpointId: "endpoint-1",
+      targetUserId: "user-1",
     });
     expect(eventType).toBe(CALL_TRANSFER_REQUESTED_EVENT);
-    expect(fingerprint).toContain("endpoint-1");
+    expect(fingerprint).toContain("user-1");
   });
 });

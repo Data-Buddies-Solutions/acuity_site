@@ -13,7 +13,10 @@ const actor: QueueAccessActor = {
   userId: "source-user",
 };
 
-function database({ competingTransfer = false } = {}) {
+function database({
+  competingTransfer = false,
+  targetSessionUserId = "target-user",
+} = {}) {
   let receipt: Record<string, unknown> | null = null;
   let targetLegCreates = 0;
   let commandCreates = 0;
@@ -30,6 +33,7 @@ function database({ competingTransfer = false } = {}) {
       locationId: "location-1",
       providerCredentialId: "credential-1",
       sipUsername: "target-agent",
+      userId: "target-user",
     },
     endpointId: "target-endpoint",
     id: "target-session",
@@ -38,7 +42,7 @@ function database({ competingTransfer = false } = {}) {
     practiceId: "practice-1",
     presence: "AVAILABLE",
     stateVersion: 3,
-    userId: "target-user",
+    userId: targetSessionUserId,
   };
   const call = {
     effectOwner: "CANONICAL",
@@ -79,6 +83,9 @@ function database({ competingTransfer = false } = {}) {
         callUpdate = data;
         return { stateVersion: 8 };
       },
+    },
+    callCenterEndpoint: {
+      findUnique: async () => targetSession.endpoint,
     },
     callCenterCallLeg: {
       count: async () => 1,
@@ -143,7 +150,7 @@ describe("Prisma canonical transfer store", () => {
     const input = {
       callId: "call-1",
       idempotencyKey: "transfer-1",
-      targetEndpointId: "target-endpoint",
+      targetUserId: "target-user",
     };
 
     const accepted = await transferCall(store, actor, input, now);
@@ -163,6 +170,7 @@ describe("Prisma canonical transfer store", () => {
         agentSessionId: "target-session",
         endpointId: "target-endpoint",
         replacesLegId: "source-leg",
+        targetUserId: "target-user",
       },
       idempotencyKey: "transfer:source-leg:target-leg",
       legId: "target-leg",
@@ -187,7 +195,51 @@ describe("Prisma canonical transfer store", () => {
         {
           callId: "call-1",
           idempotencyKey: "transfer-competing",
-          targetEndpointId: "target-endpoint",
+          targetUserId: "target-user",
+        },
+        now,
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(fake.targetLegCreates()).toBe(0);
+    expect(fake.commandCreates()).toBe(0);
+  });
+
+  it("rejects a transfer back to the authenticated agent", async () => {
+    const fake = database();
+    const store = new PrismaTransferCallStore((operation) =>
+      operation(fake.transaction as never),
+    );
+
+    await expect(
+      transferCall(
+        store,
+        actor,
+        {
+          callId: "call-1",
+          idempotencyKey: "transfer-self",
+          targetUserId: actor.userId,
+        },
+        now,
+      ),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(fake.targetLegCreates()).toBe(0);
+    expect(fake.commandCreates()).toBe(0);
+  });
+
+  it("rejects a target session owned by a different user", async () => {
+    const fake = database({ targetSessionUserId: "wrong-user" });
+    const store = new PrismaTransferCallStore((operation) =>
+      operation(fake.transaction as never),
+    );
+
+    await expect(
+      transferCall(
+        store,
+        actor,
+        {
+          callId: "call-1",
+          idempotencyKey: "transfer-wrong-owner",
+          targetUserId: "target-user",
         },
         now,
       ),

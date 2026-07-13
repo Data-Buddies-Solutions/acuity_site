@@ -23,6 +23,7 @@ function transaction(
     effectOwner = "CANONICAL",
     legKind = "AGENT",
     memberUserId = "user-1",
+    sessionState = "ACTIVE",
     winningLegId,
   }: {
     accessLocationIds?: string[];
@@ -50,6 +51,7 @@ function transaction(
     effectOwner?: "CANONICAL" | "LEGACY";
     legKind?: "AGENT" | "CUSTOMER";
     memberUserId?: string | null;
+    sessionState?: "ACTIVE" | "OFFERED";
     winningLegId?: string | null;
   } = {},
 ) {
@@ -58,13 +60,14 @@ function transaction(
   const session = {
     audioReady: true,
     connectionState: "READY",
-    currentCallId: "call-1",
+    currentCallId: sessionState === "ACTIVE" ? "call-1" : null,
+    offeredCallId: sessionState === "OFFERED" ? "call-1" : null,
     endpointId: "endpoint-1",
     id: "session-1",
     leaseExpiresAt: new Date(now.getTime() + 60_000),
     microphoneReady: true,
     practiceId: "practice-1",
-    presence: "BUSY",
+    presence: sessionState === "ACTIVE" ? "BUSY" : "AVAILABLE",
     stateVersion: 2,
     userId: "user-1",
   };
@@ -183,7 +186,7 @@ function transaction(
 
 describe("Prisma provider command store", () => {
   it("claims one ACTIVE dial with provider details resolved only in memory", async () => {
-    const fake = transaction("ACTIVE");
+    const fake = transaction("ACTIVE", { sessionState: "OFFERED" });
     const runner: ProviderCommandTransactionRunner = (operation) =>
       operation(fake.tx as never);
     const store = new PrismaProviderCommandStore(runner);
@@ -221,6 +224,7 @@ describe("Prisma provider command store", () => {
     const transfer = transaction("ACTIVE", {
       arguments: transferArguments,
       callStatus: "CONNECTED",
+      sessionState: "OFFERED",
     });
     const store = new PrismaProviderCommandStore((operation) =>
       operation(transfer.tx as never),

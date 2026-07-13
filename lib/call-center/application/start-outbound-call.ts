@@ -11,7 +11,6 @@ export const CALL_OUTBOUND_REQUESTED_EVENT = "CALL_OUTBOUND_REQUESTED";
 export type StartOutboundCallInput = {
   clientInstanceId: string;
   destination: string;
-  endpointId: string;
   expectedSessionStateVersion: number;
   idempotencyKey: string;
   numberId: string;
@@ -59,7 +58,6 @@ function targetFingerprint(input: StartOutboundCallInput) {
   return JSON.stringify({
     clientInstanceId: input.clientInstanceId,
     destination: input.destination,
-    endpointId: input.endpointId,
     numberId: input.numberId,
     queueId: input.queueId,
   });

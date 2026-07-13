@@ -83,11 +83,18 @@ export async function createTelnyxLoginToken(credentialId: string) {
     method: "POST",
   });
 
+  return readTelnyxLoginTokenResponse(response);
+}
+
+export async function readTelnyxLoginTokenResponse(response: Response) {
   if (!response.ok) {
     throw new TelnyxError("Failed to generate Telnyx login token", response.status);
   }
 
   const token = (await response.text()).trim();
+  if (!token) {
+    throw new TelnyxError("Telnyx returned an empty login token", 502);
+  }
 
   try {
     const parsed = JSON.parse(token);

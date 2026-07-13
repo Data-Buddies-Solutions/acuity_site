@@ -91,6 +91,7 @@ const transferOperation: OperationView = {
   targetAgentSessionId: "target-session",
   targetEndpointId: "target-endpoint",
   targetLegId: "target-leg",
+  targetUserId: "target-user",
   type: "TRANSFER",
 };
 
@@ -338,14 +339,14 @@ describe("canonical active call center correlation", () => {
       selectLatestTransferOperation([transferOperation, failed], {
         callId: "call-1",
         sourceLegId: "source-leg",
-        targetEndpointId: "target-endpoint",
+        targetUserId: "target-user",
       }),
     ).toEqual(failed);
     expect(
       selectLatestTransferOperation([transferOperation], {
         callId: "call-1",
         sourceLegId: "source-leg",
-        targetEndpointId: "other-endpoint",
+        targetUserId: "other-user",
       }),
     ).toBeNull();
   });

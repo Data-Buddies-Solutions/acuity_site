@@ -46,6 +46,58 @@ type SoftphoneMediaOptions = {
 };
 
 type LegacyObserver = (call: LegacySoftphoneCall) => void;
+const TELNYX_CLIENT_EVENTS = [
+  "telnyx.error",
+  "telnyx.notification",
+  "telnyx.ready",
+  "telnyx.rtc.mediaError",
+  "telnyx.rtc.peerConnectionFailureError",
+  "telnyx.socket.close",
+  "telnyx.warning",
+] as const;
+
+async function readTokenResponse(response: Response): Promise<TelnyxTokenResponse> {
+  const text = await response.text().catch(() => "");
+  let body: unknown = null;
+
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+  }
+
+  if (!response.ok) {
+    const detail =
+      body &&
+      typeof body === "object" &&
+      "error" in body &&
+      typeof body.error === "string"
+        ? body.error
+        : `Unable to connect Telnyx (${response.status})`;
+    throw new Error(detail);
+  }
+
+  if (!body || typeof body !== "object") {
+    throw new Error("Call center connection returned an empty response");
+  }
+
+  const credentials = body as Record<string, unknown>;
+  if (typeof credentials.token === "string" && credentials.token.trim()) {
+    return { token: credentials.token };
+  }
+  if (
+    typeof credentials.login === "string" &&
+    credentials.login.trim() &&
+    typeof credentials.password === "string" &&
+    credentials.password
+  ) {
+    return { login: credentials.login, password: credentials.password };
+  }
+
+  throw new Error("Call center connection returned invalid credentials");
+}
 
 function connectionId() {
   return (
@@ -307,7 +359,7 @@ function useSoftphoneMediaEngine({
         debug("token-request-start");
         let response: Response;
         if (credentialMode === "CANONICAL") {
-          if (!agentSessionId || !stationSeatId || !browserSessionId) {
+          if (!agentSessionId || !browserSessionId) {
             throw new Error("Canonical agent session is unavailable");
           }
           response = await fetch(
@@ -315,7 +367,6 @@ function useSoftphoneMediaEngine({
             {
               body: JSON.stringify({
                 clientInstanceId: browserSessionId,
-                endpointId: stationSeatId,
               }),
               headers: { "Content-Type": "application/json" },
               method: "POST",
@@ -330,9 +381,8 @@ function useSoftphoneMediaEngine({
             `/api/portal/call-center/telnyx-token${query ? `?${query}` : ""}`,
           );
         }
-        const data = await response.json();
+        const data = await readTokenResponse(response);
         debug("token-request-finished", { ok: response.ok, status: response.status });
-        if (!response.ok) throw new Error(data.error || "Unable to connect Telnyx");
         if (cancelled) return;
 
         const { TelnyxRTC } = await import("@telnyx/webrtc");
@@ -431,7 +481,9 @@ function useSoftphoneMediaEngine({
         current.filter(({ connectionId: id }) => id !== adapterConnectionId),
       );
       detachAudio();
-      clientRef.current?.disconnect();
+      const client = clientRef.current;
+      for (const event of TELNYX_CLIENT_EVENTS) client?.off(event);
+      client?.disconnect();
       clientRef.current = null;
     };
   }, [

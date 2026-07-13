@@ -25,6 +25,10 @@ tenant-scoped data.
   its strong `ETag` in `If-Match` on `PUT`. A stale version is a hard stop.
 - Endpoint credential and SIP values are write-only. Omit them to preserve the
   stored values, send `null` to clear them, and never copy them into evidence.
+- Assign every enabled canonical calling profile to exactly one individual
+  practice user. That user must be an enabled `AGENT` member of each queue the
+  profile serves and have compatible location access. The browser never chooses
+  a profile.
 - An enabled queue, number, endpoint, or queue membership must be explicitly
   disabled before it may be omitted. Omitted disabled rows remain stored for
   review and rollback.
@@ -103,6 +107,10 @@ generic Phase 4B/5B implementation is completed for every configured number.
    activate routing and frontend ownership together through one global switch.
    Run controlled live calls against every configured number immediately after
    activation.
+   For the user-owned profile slice, merge PR #118 first and apply both additive
+   migrations through **Production Migrations** with `confirm=DEPLOY`. Then
+   merge and deploy PR #119 default-off. Use the protected configuration API to
+   set `userId` on every enabled canonical profile before running preflight.
 8. Complete Phase 6A by removing legacy application reads and writes. Keep the
    tables read-only for a full release window and prove zero runtime access.
 9. Publish the separate Phase 6B SQL contract migration only after rollback no
@@ -133,22 +141,23 @@ switch controls new admissions and frontend ownership, not in-flight cleanup.
 The preflight proves the runtime chain as well as database rows. Durable webhook
 ingress, approved bounded payload retention, and canonical projection must all
 be enabled. Every enabled queue's practice settings must also be enabled with a
-Telnyx connection ID.
+Telnyx connection ID. Every enabled route must join one queue member to that
+same user's configured calling profile and current session.
 
 ### Browser readiness
 
 - Readiness defaults to false after deployment. Refresh every call-center
   browser so it loads the current client; do not rely on an already-open tab.
-- In the refreshed browser, select the correct station, choose **Enable
-  calling**, grant microphone and audio playback access, and wait for the
-  server-acknowledged ready state.
+- In the refreshed browser, sign in as the assigned individual user, choose
+  **Enable calling**, grant microphone and audio playback access, and wait for
+  the server-acknowledged ready state. There is no station selector.
 - Before routing live traffic, verify at least one intended endpoint has a
   current heartbeat and is ready in the server-side view. A green browser-only
   indicator is not sufficient proof.
-- Keep one active browser per Telnyx credential/SIP identity and deliberately
-  low call concurrency until a concurrent check-in test proves an atomic
-  session lease: one winner, lease expiry, reconnect, and loser demotion must
-  all be deterministic. Do not scale on browser presence alone.
+- Keep one active browser per user and deliberately low call concurrency until
+  a concurrent-login test proves an atomic session lease: one winner, lease
+  expiry, reconnect, and loser demotion must all be deterministic. Do not scale
+  on browser presence alone.
 
 ### Command and canonical correlation
 
@@ -174,6 +183,14 @@ Telnyx connection ID.
 
 ### UI and command convergence
 
+- Persist ringing ownership separately from active-call ownership. Routing or
+  transfer sets `offeredCallId` while the session remains `AVAILABLE`.
+- Only a confirmed provider answer or bridge for that exact offered leg may
+  promote it to `currentCallId` and set the session `BUSY`. A browser click,
+  command acceptance, or local media state is not connection proof.
+- A terminal call or agent leg clears the matching offer or active call. A
+  ready session returns to `AVAILABLE`; an explicitly paused or disconnected
+  session keeps its non-ready state.
 - Send the same canonical `clientInstanceId` to snapshot, stream, and endpoint
   lease APIs. Reject a missing identity rather than selecting another tab.
 - Listen only for `projection`, `cursor`, and `reset` SSE events. Apply domain
@@ -196,6 +213,10 @@ Telnyx connection ID.
 - Canonical routing and canonical frontend ownership activate and roll back
   together for all configured queues and phone numbers. Legacy and canonical
   paths must never both produce commands for one call.
+- If the portal cannot validate the activation snapshot, log only sanitized
+  configuration diagnostics and render the legacy workspace. Provider-effect
+  APIs remain strict and fail closed; a page-render error must never become a
+  routing decision.
 
 ### Raw webhook governance
 
@@ -224,8 +245,10 @@ synthetic calls cannot enter patient reporting or follow-up queues. Immediately
 after global activation, prove both paths:
 
 1. Ready endpoint: inbound event is durably recorded, the eligible test
-   endpoints ring, answer and bridge complete once, losing test legs cancel,
-   and the final state is terminal.
+   endpoints ring while their agents remain `AVAILABLE`, Take answers and
+   bridges exactly once, the winning agent becomes `BUSY` only after provider
+   confirmation, losing test legs cancel, and hangup returns the ready agent to
+   `AVAILABLE`.
 2. Command convergence: one click, repeated clicks, concurrent tabs, request
    retry, component remount, and reconnect create one operation receipt and one
    intended provider effect. The UI stays `Connecting` until canonical state
@@ -270,10 +293,10 @@ write.
 
 - production migration workflow receipt;
 - `CRON_SECRET` authorization check and recovery health;
-- refreshed-browser readiness receipt with a selected station, enabled calling,
-  microphone/audio grants, and at least one server-verified ready endpoint;
-- one-browser-per-credential control and low-concurrency limit, or proof of the
-  atomic session lease under concurrent check-in and reconnect;
+- refreshed-browser readiness receipt for the assigned user with enabled
+  calling, microphone/audio grants, and a server-verified ready session;
+- one-browser-per-user control and low-concurrency limit, or proof of the atomic
+  session lease under concurrent login and reconnect;
 - approved raw-webhook retention/access policy and bounded purge-job receipt;
 - zero unexplained configuration ambiguities for enabled queues and numbers;
 - persisted leg/provider-ID callback-correlation proof without `command_id`;

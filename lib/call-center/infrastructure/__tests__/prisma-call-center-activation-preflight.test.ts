@@ -122,13 +122,16 @@ describe("Prisma call center activation preflight", () => {
       'FROM "practice_membership_location" AS route_endpoint_access',
     );
     expect(incompleteQueueSql).not.toContain('"call_center_agent_session"');
-    expect(incompleteQueueSql).not.toContain('route_endpoint."userId"');
+    expect(incompleteQueueSql).toContain(
+      'route_endpoint."userId" = route_member."userId"',
+    );
 
     const readyEndpointSql = sql.slice(
       sql.indexOf('SELECT COUNT(DISTINCT endpoint."id")'),
     );
     expect(readyEndpointSql).toContain('JOIN "call_center_agent_session" AS session');
     expect(readyEndpointSql).toContain('WHERE endpoint."id" =');
+    expect(readyEndpointSql).toContain('endpoint."userId" = session."userId"');
   });
 
   it("rejects missing or invalid aggregate results", async () => {

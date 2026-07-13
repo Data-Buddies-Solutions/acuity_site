@@ -70,9 +70,9 @@ export function canonicalClaimIdempotencyKey(callId: string, agentSessionId: str
 export function canonicalTransferIdempotencyKey(
   callId: string,
   sourceLegId: string,
-  targetEndpointId: string,
+  targetUserId: string,
 ) {
-  return `canonical-transfer:${callId}:${sourceLegId}:${targetEndpointId}`;
+  return `canonical-transfer:${callId}:${sourceLegId}:${targetUserId}`;
 }
 
 export function beginCanonicalTake(inFlight: Set<string>, callId: string) {
@@ -155,7 +155,7 @@ export function selectLatestTransferOperation(
   target: {
     callId: string;
     sourceLegId: string;
-    targetEndpointId?: string;
+    targetUserId?: string;
   },
 ) {
   return (
@@ -165,8 +165,7 @@ export function selectLatestTransferOperation(
           operation.callId === target.callId &&
           operation.type === "TRANSFER" &&
           operation.sourceLegId === target.sourceLegId &&
-          (!target.targetEndpointId ||
-            operation.targetEndpointId === target.targetEndpointId),
+          (!target.targetUserId || operation.targetUserId === target.targetUserId),
       )
       .sort((left, right) => {
         const leftRevision = parseRevision(left.operationEventRevision) ?? BigInt(0);
