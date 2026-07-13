@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
-  CirclePause,
+  ChevronDown,
+  ChevronRight,
+  Delete,
   Headphones,
-  PhoneCall,
+  Phone,
   PhoneIncoming,
   PhoneMissed,
   PhoneOff,
@@ -19,7 +20,6 @@ import { PortalSelect } from "@/app/portal/app/PortalFields";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import {
   selectActiveCall,
@@ -64,6 +64,8 @@ type CanonicalActiveWorkspaceProps = {
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string | null;
 };
+
+const keypadDigits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
 function canonicalConnectionState(
   state: ReturnType<typeof useSoftphoneMedia>["connection"],
@@ -162,6 +164,9 @@ function ConnectedCanonicalActiveWorkspace({
   const selectedNumberId = eligibleOutboundNumbers.some(({ id }) => id === numberChoice)
     ? numberChoice
     : (eligibleOutboundNumbers[0]?.id ?? "");
+  const selectedOutboundNumber = eligibleOutboundNumbers.find(
+    ({ id }) => id === selectedNumberId,
+  );
   const state = realtime.state;
   const projectedSession =
     state?.agentSession?.clientInstanceId === clientInstanceId &&
@@ -590,9 +595,17 @@ function ConnectedCanonicalActiveWorkspace({
           : !selectedNumberId
             ? "No outbound caller number is configured."
             : "Enter a patient number to begin.";
+  const canStartOutbound = Boolean(
+    actionsEnabled &&
+    session?.presence === "AVAILABLE" &&
+    session.connectionState === "READY" &&
+    selectedNumberId &&
+    destination.trim() &&
+    !startingOutbound,
+  );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {!actionsEnabled ? (
         <section
           aria-label="Calling unavailable"
@@ -608,142 +621,28 @@ function ConnectedCanonicalActiveWorkspace({
         </section>
       ) : null}
 
-      <section
-        aria-label="Calling status"
-        className="flex flex-col gap-4 rounded-2xl border border-[var(--portal-border)] bg-white px-4 py-3.5 shadow-sm sm:flex-row sm:items-center sm:justify-between"
-      >
-        <div className="flex min-w-0 items-start gap-3">
-          <div
-            className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-              callingReady
-                ? "bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
-                : "bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
-            }`}
-          >
-            {callingReady ? (
-              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            ) : stationPresence === "PAUSED" ? (
-              <CirclePause className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <Headphones className="h-4 w-4" aria-hidden="true" />
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-semibold text-[var(--portal-ink)]">
-                {stationLabel}
-              </p>
-              <PortalBadge
-                className={
-                  state.connection === "CONNECTED"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-800"
-                }
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    state.connection === "CONNECTED" ? "bg-emerald-500" : "bg-amber-500"
-                  }`}
-                />
-                {state.connection === "CONNECTED" ? "Live" : "Reconnecting"}
-              </PortalBadge>
-            </div>
-            <p className="mt-0.5 text-xs leading-relaxed text-[var(--portal-muted)]">
-              {state.connection === "RECONNECTING"
-                ? "Trying to reconnect. New calls may be delayed."
-                : stationDescription}
-            </p>
-          </div>
-        </div>
-
-        {callingReady ? (
-          <PortalSelect
-            aria-label="Calling status"
-            className="sm:min-w-40"
-            disabled={Boolean(session?.currentCallId || session?.offeredCallId)}
-            onChange={(event) =>
-              setPresence(event.target.value as AgentSessionView["presence"])
-            }
-            value={stationPresence}
-            wrapperClassName="sm:w-auto"
-          >
-            {session?.presence === "BUSY" ? (
-              <option value="BUSY">On a call</option>
-            ) : null}
-            <option value="AVAILABLE">Available</option>
-            <option value="PAUSED">Paused</option>
-          </PortalSelect>
-        ) : (
-          <Button
-            className="w-full sm:w-auto"
-            disabled={!agentProfileId || media.setupPending}
-            onClick={() => void media.prepare()}
-            variant="primary"
-          >
-            <Headphones className="h-4 w-4" aria-hidden="true" />
-            {media.setupPending ? "Starting…" : "Start taking calls"}
-          </Button>
-        )}
-      </section>
-
-      {media.error || media.setupError ? (
+      {actionError || media.error || media.setupError ? (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-          {media.error || media.setupError}
+          {actionError || media.error || media.setupError}
         </p>
       ) : null}
 
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <Card className="gap-0 rounded-2xl bg-white py-0 shadow-sm ring-[var(--portal-border)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--portal-border)] px-5 py-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
-                {activeCall ? (
-                  <PhoneCall className="h-4 w-4" aria-hidden="true" />
-                ) : (
-                  <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
-                )}
-              </div>
+      <div className="grid items-start gap-4 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-[var(--portal-ink)]">
-                  {activeCall ? "Current call" : "Incoming calls"}
+                  Live queue
                 </h2>
-                <p className="text-xs text-[var(--portal-muted)]">
-                  {activeCall
-                    ? "The active call stays in focus until it ends."
-                    : `${state.counts.waiting} waiting · ${state.counts.active} active`}
+                <p className="mt-1 text-sm text-[var(--portal-muted)]">
+                  Live callers that need an answer.
                 </p>
               </div>
+              <PortalBadge className="tabular-nums">{incomingCalls.length}</PortalBadge>
             </div>
-            {!activeCall ? (
-              <PortalBadge tone="soft">
-                {state.counts.waiting === 1
-                  ? "1 caller waiting"
-                  : `${state.counts.waiting} callers waiting`}
-              </PortalBadge>
-            ) : null}
-          </div>
 
-          <div className="min-h-[17rem] p-5">
-            {actionError ? (
-              <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                {actionError}
-              </p>
-            ) : null}
-
-            {activeCall ? (
-              <CanonicalActiveCall
-                actionsEnabled={actionsEnabled}
-                call={activeCall}
-                endpointId={agentProfileId}
-                media={media}
-                onTakeTransfer={takeTransfer}
-                onTransfer={transferActiveCall}
-                operations={state.operations}
-                sessionId={session?.id ?? null}
-                transferTargets={state.transferTargets}
-                transferTakeCandidate={transferTakeCandidate}
-              />
-            ) : incomingCalls.length ? (
+            {incomingCalls.length ? (
               <ul className="space-y-3">
                 {incomingCalls.map((call) => {
                   const match = session
@@ -768,154 +667,225 @@ function ConnectedCanonicalActiveWorkspace({
 
                   return (
                     <li
-                      className="flex flex-col gap-4 rounded-xl border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex flex-col gap-3 border-b border-[var(--portal-border)] py-3 first:mt-2 last:border-b-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
                       key={call.id}
                     >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[var(--portal-accent)] shadow-sm">
-                          <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
-                            {call.callerName || phone}
-                          </p>
-                          <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
-                            {call.callerName ? `${phone} · ` : ""}
-                            {operation?.status === "FAILED"
-                              ? "Could not answer. Try again."
-                              : connecting
-                                ? "Connecting…"
-                                : match
-                                  ? "Ringing now"
-                                  : "Preparing this call"}
-                          </p>
-                        </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
+                          {call.callerName || phone}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--portal-muted)]">
+                          {call.callerName ? `${phone} · ` : ""}
+                          {operation?.status === "FAILED"
+                            ? "Could not answer. Try again."
+                            : connecting
+                              ? "Connecting…"
+                              : match
+                                ? "Ringing"
+                                : "Preparing"}
+                        </p>
                       </div>
                       <Button
-                        className="w-full sm:w-auto"
+                        className="w-fit"
                         disabled={
                           !actionsEnabled || !session || !match || Boolean(connecting)
                         }
                         onClick={() => void takeCall(call)}
+                        size="sm"
                         variant="primary"
                       >
-                        {connecting ? "Connecting…" : "Answer"}
+                        {connecting ? "Taking" : "Take"}
                       </Button>
                     </li>
                   );
                 })}
               </ul>
             ) : (
-              <div className="flex min-h-[13rem] flex-col items-center justify-center text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
-                  <PhoneIncoming className="h-5 w-5" aria-hidden="true" />
-                </div>
-                <p className="mt-4 text-sm font-semibold text-[var(--portal-ink)]">
-                  Ready for incoming calls
-                </p>
-                <p className="mt-1 max-w-xs text-sm leading-relaxed text-[var(--portal-muted)]">
-                  New calls will appear here when a patient needs the front desk.
-                </p>
+              <div className="mt-4 rounded-lg border border-dashed border-[var(--portal-border-strong)] px-3 py-4 text-center text-sm text-[var(--portal-muted)]">
+                No callers waiting.
               </div>
             )}
-          </div>
-        </Card>
+          </section>
 
-        <Card className="gap-0 rounded-2xl bg-white py-0 shadow-sm ring-[var(--portal-border)]">
-          <div className="border-b border-[var(--portal-border)] px-5 py-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]">
-                <PhoneOutgoing className="h-4 w-4" aria-hidden="true" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-[var(--portal-ink)]">
-                  Call a patient
-                </h2>
-                <p className="text-xs text-[var(--portal-muted)]">
-                  Start an outbound call.
-                </p>
-              </div>
+          <CanonicalActivity
+            actionsEnabled={actionsEnabled}
+            calls={state.calls}
+            onResolve={(call) => void saveDisposition(call, "RESOLVED")}
+            recentCalls={recentCalls}
+            submittingDisposition={submittingDisposition}
+            tasks={state.tasks}
+          />
+        </div>
+
+        <div className="scroll-mt-4 space-y-3" id="softphone">
+          <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
+                Station console
+              </h2>
+              <PortalBadge
+                className={
+                  state.connection === "CONNECTED"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-800"
+                }
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    state.connection === "CONNECTED" ? "bg-emerald-500" : "bg-amber-500"
+                  }`}
+                />
+                {state.connection === "CONNECTED" ? "Live" : "Reconnecting"}
+              </PortalBadge>
             </div>
-          </div>
 
-          <div className="space-y-4 p-5">
-            <label className="block">
-              <span className="text-xs font-medium text-[var(--portal-muted)]">
-                Patient number
-              </span>
-              <Input
-                className="mt-1.5 h-11 text-base"
-                inputMode="tel"
-                onChange={(event) => setDestination(event.target.value)}
-                placeholder="(555) 555-0123"
-                type="tel"
-                value={destination}
-              />
-            </label>
+            {callingReady ? (
+              <div className="mt-3 grid grid-cols-2 gap-1.5">
+                {(["AVAILABLE", "PAUSED"] as const).map((option) => (
+                  <Button
+                    aria-pressed={stationPresence === option}
+                    disabled={Boolean(session?.currentCallId || session?.offeredCallId)}
+                    key={option}
+                    onClick={() => setPresence(option)}
+                    size="sm"
+                    variant={stationPresence === option ? "primary" : "secondary"}
+                  >
+                    {option === "AVAILABLE" ? "Available" : "Paused"}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <Button
+                className="mt-3 w-full"
+                disabled={!agentProfileId || media.setupPending}
+                onClick={() => void media.prepare()}
+                size="sm"
+                variant="secondary"
+              >
+                <Headphones className="h-4 w-4" aria-hidden="true" />
+                {media.setupPending ? "Enabling" : "Enable calling"}
+              </Button>
+            )}
+            <p className="mt-2 text-xs leading-relaxed text-[var(--portal-muted)]">
+              {state.connection === "RECONNECTING"
+                ? "Trying to reconnect. New calls may be delayed."
+                : `${stationLabel}. ${stationDescription}`}
+            </p>
+          </section>
 
-            {eligibleOutboundNumbers.length > 1 ? (
-              <label className="block">
-                <span className="text-xs font-medium text-[var(--portal-muted)]">
-                  Calling from
-                </span>
+          {eligibleOutboundNumbers.length > 1 ? (
+            <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--portal-ink)]">
+                Outbound number
                 <PortalSelect
-                  className="mt-1.5"
                   disabled={!eligibleOutboundNumbers.length}
                   onChange={(event) => setNumberChoice(event.target.value)}
                   value={selectedNumberId}
                 >
                   {eligibleOutboundNumbers.map((number) => (
                     <option key={number.id} value={number.id}>
-                      {number.label} · {formatPhone(number.phoneNumber)}
+                      {number.label} - {formatPhone(number.phoneNumber)}
                     </option>
                   ))}
                 </PortalSelect>
               </label>
-            ) : eligibleOutboundNumbers[0] ? (
-              <div className="rounded-xl bg-[var(--portal-panel-soft)] px-3 py-2.5">
-                <p className="text-[11px] font-medium text-[var(--portal-muted)]">
-                  Calling from
+            </section>
+          ) : null}
+
+          <section className="rounded-lg border border-[var(--portal-border)] bg-white shadow-[0_14px_40px_rgba(16,39,44,0.04)]">
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--portal-border)] px-4 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--portal-muted)]">
+                  Softphone
                 </p>
-                <p className="mt-0.5 truncate text-sm font-medium text-[var(--portal-ink)]">
-                  {eligibleOutboundNumbers[0].label} ·{" "}
-                  {formatPhone(eligibleOutboundNumbers[0].phoneNumber)}
+                <p className="mt-1 text-sm font-medium text-[var(--portal-ink)]">
+                  {selectedOutboundNumber
+                    ? formatPhone(selectedOutboundNumber.phoneNumber)
+                    : "No caller number"}
                 </p>
               </div>
-            ) : null}
+              <PortalBadge
+                className={
+                  activeCall
+                    ? "border-[var(--portal-accent)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
+                    : callingReady
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
+                }
+              >
+                {activeCall ? "On call" : callingReady ? "Ready" : "Setup needed"}
+              </PortalBadge>
+            </div>
 
-            <Button
-              className="w-full"
-              disabled={
-                startingOutbound ||
-                !actionsEnabled ||
-                !session ||
-                session.presence !== "AVAILABLE" ||
-                session.connectionState !== "READY" ||
-                !selectedNumberId ||
-                !destination.trim()
-              }
-              onClick={() => void startOutbound()}
-              variant="primary"
-            >
-              <PhoneOutgoing className="h-4 w-4" aria-hidden="true" />
-              {startingOutbound ? "Starting…" : "Call patient"}
-            </Button>
-            <p className="text-xs leading-relaxed text-[var(--portal-muted)]">
-              {outboundHelp}
-            </p>
-          </div>
-          <audio ref={media.remoteAudioRef} autoPlay className="hidden" />
-        </Card>
+            <div className="space-y-4 p-4">
+              {activeCall ? (
+                <CanonicalActiveCall
+                  actionsEnabled={actionsEnabled}
+                  call={activeCall}
+                  endpointId={agentProfileId}
+                  media={media}
+                  onTakeTransfer={takeTransfer}
+                  onTransfer={transferActiveCall}
+                  operations={state.operations}
+                  sessionId={session?.id ?? null}
+                  transferTargets={state.transferTargets}
+                  transferTakeCandidate={transferTakeCandidate}
+                />
+              ) : (
+                <>
+                  <div className="flex gap-2">
+                    <Input
+                      aria-label="Phone number"
+                      className="h-10 min-w-0 flex-1 text-sm font-medium"
+                      inputMode="tel"
+                      onChange={(event) => setDestination(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && canStartOutbound) {
+                          void startOutbound();
+                        }
+                      }}
+                      placeholder="Phone number"
+                      type="tel"
+                      value={destination}
+                    />
+                    <Button
+                      aria-label="Clear number"
+                      disabled={!destination}
+                      onClick={() => setDestination("")}
+                      variant="secondary"
+                    >
+                      <Delete className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      disabled={!canStartOutbound}
+                      onClick={() => void startOutbound()}
+                      variant="primary"
+                    >
+                      <Phone className="h-4 w-4" aria-hidden="true" />
+                      {startingOutbound ? "Calling" : "Call"}
+                    </Button>
+                  </div>
+                  <div className="grid max-w-60 grid-cols-3 gap-2">
+                    {keypadDigits.map((digit) => (
+                      <Button
+                        key={digit}
+                        onClick={() => setDestination((current) => current + digit)}
+                        variant="secondary"
+                      >
+                        {digit}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-xs leading-relaxed text-[var(--portal-muted)]">
+                    {outboundHelp}
+                  </p>
+                </>
+              )}
+              <audio ref={media.remoteAudioRef} autoPlay className="hidden" playsInline />
+            </div>
+          </section>
+        </div>
       </div>
-
-      <CanonicalActivity
-        actionsEnabled={actionsEnabled}
-        calls={state.calls}
-        onResolve={(call) => void saveDisposition(call, "RESOLVED")}
-        recentCalls={recentCalls}
-        submittingDisposition={submittingDisposition}
-        tasks={state.tasks}
-      />
     </div>
   );
 }
@@ -968,25 +938,16 @@ function CanonicalActiveCall({
   const phone = formatPhone(callPhone(call));
 
   return (
-    <div className="rounded-2xl bg-[#19203a] p-5 text-white shadow-[0_18px_50px_rgba(25,32,58,0.14)]">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
-            <PhoneCall className="h-4 w-4" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <PortalBadge className="border-white/15 bg-white/10 text-white">
-              {call.status === "CONNECTED" || call.status === "WRAP_UP"
-                ? "Connected"
-                : "Calling"}
-            </PortalBadge>
-            <p className="mt-3 truncate text-xl font-semibold text-white">
-              {call.callerName || phone}
-            </p>
-            {call.callerName ? (
-              <p className="mt-1 text-sm text-white/60">{phone}</p>
-            ) : null}
-          </div>
+    <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
+            {call.callerName || phone}
+          </p>
+          <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--portal-muted)]">
+            {call.direction === "OUTBOUND" ? "Outbound" : "Patient call"}
+            {call.callerName ? ` · ${phone}` : ""}
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -997,6 +958,7 @@ function CanonicalActiveCall({
                 !["RINGING", "CONNECTING"].includes(targetTransfer.observation.state)
               }
               onClick={() => void onTakeTransfer()}
+              size="sm"
               variant="primary"
             >
               Take transfer
@@ -1005,18 +967,19 @@ function CanonicalActiveCall({
           <Button
             disabled={!actionsEnabled || !canEnd}
             onClick={() => match && media.hangup(match.observation.mediaLegId)}
-            variant="destructive"
+            size="sm"
+            variant="secondary"
           >
             <PhoneOff className="h-4 w-4" aria-hidden="true" />
-            End call
+            End
           </Button>
         </div>
       </div>
 
       {source ? (
-        <div className="mt-5 border-t border-white/12 pt-5">
-          <label className="block text-xs font-medium text-white/65">
-            Transfer to
+        <div className="mt-4 flex flex-col gap-2 rounded-md border border-[var(--portal-border)] bg-white p-3">
+          <label className="block text-xs font-medium text-[var(--portal-muted)]">
+            Transfer station
             <PortalSelect
               className="mt-1.5"
               disabled={!actionsEnabled || transferTargets.length === 0}
@@ -1031,9 +994,9 @@ function CanonicalActiveCall({
             </PortalSelect>
           </label>
           <Button
-            className="mt-3"
             disabled={!actionsEnabled || !selectedTargetId || Boolean(transferOperation)}
             onClick={() => void onTransfer(call, selectedTargetId)}
+            size="sm"
             variant="secondary"
           >
             {transferOperation?.status === "FAILED"
@@ -1044,20 +1007,22 @@ function CanonicalActiveCall({
           </Button>
           {transferOperation ? (
             <p
-              className={`mt-2 text-xs ${transferOperation.status === "FAILED" ? "text-red-200" : "text-white/55"}`}
+              className={`text-xs ${transferOperation.status === "FAILED" ? "text-[var(--portal-danger)]" : "text-[var(--portal-muted)]"}`}
             >
               {transferOperation.status === "FAILED"
                 ? "The transfer could not be completed. Try again."
                 : `Transfer ${transferOperation.status.toLowerCase()}`}
             </p>
           ) : transferTargets.length === 0 ? (
-            <p className="mt-2 text-xs text-white/55">
+            <p className="text-xs text-[var(--portal-muted)]">
               No other staff member is available for transfer.
             </p>
           ) : null}
         </div>
       ) : targetTransfer ? (
-        <p className="mt-4 text-xs text-white/60">A transferred call is ringing now.</p>
+        <p className="mt-3 text-xs text-[var(--portal-muted)]">
+          A transferred call is ringing now.
+        </p>
       ) : null}
     </div>
   );
@@ -1078,146 +1043,177 @@ function CanonicalActivity({
   submittingDisposition: string | null;
   tasks: TaskView[];
 }) {
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+
   return (
-    <Card className="gap-0 rounded-2xl bg-white py-0 shadow-sm ring-[var(--portal-border)]">
-      <Tabs className="gap-0" defaultValue={tasks.length ? "follow-up" : "recent"}>
-        <div className="flex flex-col gap-4 border-b border-[var(--portal-border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-[var(--portal-ink)]">Activity</h2>
-            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
-              Work that needs attention, followed by recent calls.
-            </p>
-          </div>
-          <TabsList className="h-9" variant="default">
-            <TabsTrigger className="px-3" value="follow-up">
-              Follow-up
-              {tasks.length ? (
-                <span className="rounded-full bg-[var(--portal-accent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
-                  {tasks.length}
+    <>
+      <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
+        <header className="border-b border-[var(--portal-border)] px-4 py-3">
+          <button
+            aria-expanded={actionsOpen}
+            className="flex w-full min-w-0 items-center gap-2 text-left"
+            onClick={() => setActionsOpen((current) => !current)}
+            type="button"
+          >
+            {actionsOpen ? (
+              <ChevronDown
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+              />
+            ) : (
+              <ChevronRight
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+              />
+            )}
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-[var(--portal-ink)]">
+                  Needs action
                 </span>
-              ) : null}
-            </TabsTrigger>
-            <TabsTrigger className="px-3" value="recent">
-              Recent calls
-            </TabsTrigger>
-          </TabsList>
-        </div>
+                {tasks.length ? (
+                  <PortalBadge className="px-2 py-0.5 tabular-nums">
+                    {tasks.length}
+                  </PortalBadge>
+                ) : null}
+              </span>
+              <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
+                Missed calls, voicemails, and notes that still need a response.
+              </span>
+            </span>
+          </button>
+        </header>
 
-        <TabsContent className="m-0" value="follow-up">
-          {tasks.length ? (
-            <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
-              {tasks.map((task) => {
-                const TaskIcon = task.kind === "VOICEMAIL" ? Voicemail : PhoneMissed;
-                const call = task.callId
-                  ? calls.find(({ id }) => id === task.callId)
-                  : null;
+        {!actionsOpen ? null : tasks.length ? (
+          <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
+            {tasks.map((task) => {
+              const TaskIcon = task.kind === "VOICEMAIL" ? Voicemail : PhoneMissed;
+              const call = task.callId
+                ? calls.find(({ id }) => id === task.callId)
+                : null;
 
-                return (
-                  <li
-                    className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
-                    key={task.id}
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
-                        <TaskIcon className="h-4 w-4" aria-hidden="true" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
-                          {followUpLabel(task.kind)}
-                        </p>
-                        <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
-                          {task.callerPhone
-                            ? formatPhone(task.callerPhone)
-                            : "Patient call"}
-                          {` · ${formatRelativeTime(task.createdAt)}`}
-                        </p>
-                      </div>
+              return (
+                <li
+                  className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
+                  key={task.id}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
+                      <TaskIcon className="h-4 w-4" aria-hidden="true" />
                     </div>
-                    {call ? (
-                      <Button
-                        className="w-full sm:w-auto"
-                        disabled={
-                          !actionsEnabled || submittingDisposition === task.callId
-                        }
-                        onClick={() => onResolve(call)}
-                        size="sm"
-                        variant="secondary"
-                      >
-                        {submittingDisposition === task.callId ? "Saving…" : "Mark done"}
-                      </Button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <ActivityEmptyState
-              description="New missed calls and voicemails will appear here."
-              title="You’re caught up"
-            />
-          )}
-        </TabsContent>
-
-        <TabsContent className="m-0" value="recent">
-          {recentCalls.length ? (
-            <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
-              {recentCalls.map((call) => {
-                const DirectionIcon =
-                  call.direction === "OUTBOUND" ? PhoneOutgoing : PhoneIncoming;
-                const phone = formatPhone(callPhone(call));
-
-                return (
-                  <li
-                    className="flex items-center justify-between gap-4 px-5 py-3.5"
-                    key={call.id}
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]">
-                        <DirectionIcon className="h-4 w-4" aria-hidden="true" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
-                          {call.callerName || phone}
-                        </p>
-                        <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
-                          {call.callerName ? `${phone} · ` : ""}
-                          {call.direction === "OUTBOUND" ? "Outbound" : "Inbound"}
-                          {` · ${formatRelativeTime(call.endedAt || call.receivedAt)}`}
-                        </p>
-                      </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
+                        {followUpLabel(task.kind)}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
+                        {task.callerPhone
+                          ? formatPhone(task.callerPhone)
+                          : "Patient call"}
+                        {` · ${formatRelativeTime(task.createdAt)}`}
+                      </p>
                     </div>
-                    <PortalBadge className={callStatusClassName(call.status)}>
-                      {callStatusLabel(call.status)}
-                    </PortalBadge>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <ActivityEmptyState
-              description="Completed calls will appear here."
-              title="No recent calls"
-            />
-          )}
-        </TabsContent>
-      </Tabs>
-    </Card>
-  );
-}
+                  </div>
+                  {call ? (
+                    <Button
+                      className="w-fit"
+                      disabled={!actionsEnabled || submittingDisposition === task.callId}
+                      onClick={() => onResolve(call)}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      {submittingDisposition === task.callId ? "Saving…" : "Mark done"}
+                    </Button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
+            No items need action.
+          </div>
+        )}
+      </section>
 
-function ActivityEmptyState({
-  description,
-  title,
-}: {
-  description: string;
-  title: string;
-}) {
-  return (
-    <div className="flex min-h-40 flex-col items-center justify-center px-5 py-8 text-center">
-      <CheckCircle2 className="h-5 w-5 text-[var(--portal-accent)]" aria-hidden="true" />
-      <p className="mt-3 text-sm font-medium text-[var(--portal-ink)]">{title}</p>
-      <p className="mt-1 text-xs text-[var(--portal-muted)]">{description}</p>
-    </div>
+      <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
+        <header className="border-b border-[var(--portal-border)] px-4 py-3">
+          <button
+            aria-expanded={connectionsOpen}
+            className="flex w-full min-w-0 items-center gap-2 text-left"
+            onClick={() => setConnectionsOpen((current) => !current)}
+            type="button"
+          >
+            {connectionsOpen ? (
+              <ChevronDown
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+              />
+            ) : (
+              <ChevronRight
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+              />
+            )}
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-[var(--portal-ink)]">
+                  Connections
+                </span>
+                {recentCalls.length ? (
+                  <PortalBadge className="px-2 py-0.5 tabular-nums">
+                    {recentCalls.length}
+                  </PortalBadge>
+                ) : null}
+              </span>
+              <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
+                Connected inbound and outbound calls.
+              </span>
+            </span>
+          </button>
+        </header>
+
+        {!connectionsOpen ? null : recentCalls.length ? (
+          <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
+            {recentCalls.map((call) => {
+              const DirectionIcon =
+                call.direction === "OUTBOUND" ? PhoneOutgoing : PhoneIncoming;
+              const phone = formatPhone(callPhone(call));
+
+              return (
+                <li
+                  className="flex items-center justify-between gap-4 px-5 py-3.5"
+                  key={call.id}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]">
+                      <DirectionIcon className="h-4 w-4" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
+                        {call.callerName || phone}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
+                        {call.callerName ? `${phone} · ` : ""}
+                        {call.direction === "OUTBOUND" ? "Outbound" : "Inbound"}
+                        {` · ${formatRelativeTime(call.endedAt || call.receivedAt)}`}
+                      </p>
+                    </div>
+                  </div>
+                  <PortalBadge className={callStatusClassName(call.status)}>
+                    {callStatusLabel(call.status)}
+                  </PortalBadge>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
+            No connected calls yet.
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 
