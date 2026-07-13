@@ -12,6 +12,10 @@ import {
   directHandoffToken,
   directHandoffTokenHash,
 } from "@/lib/call-center/infrastructure/direct-handoff-token";
+import {
+  directHandoffSipUri,
+  redactDirectHandoffToken,
+} from "@/lib/call-center/infrastructure/direct-handoff-uri";
 
 const occurredAt = new Date("2026-07-12T12:00:00.000Z");
 const activation = (enabled: boolean) => () => ({ enabled });
@@ -21,7 +25,6 @@ function event({
   callLegId = "provider-leg-1",
   callSessionId = "provider-session-1",
   clientState,
-  customHeaders,
   direction = "incoming",
   effectOwner = null,
   eventId = "event-1",
@@ -34,7 +37,6 @@ function event({
   callLegId?: string | null;
   callSessionId?: string | null;
   clientState?: Record<string, unknown>;
-  customHeaders?: Record<string, string>;
   direction?: "incoming" | "outgoing";
   effectOwner?: TelnyxEventOwner | null;
   eventId?: string;
@@ -43,43 +45,30 @@ function event({
   payloadClientState?: string;
   to?: string;
 } = {}): ProviderWebhookRecord {
-  const directToken = Object.entries(customHeaders ?? {}).find(
-    ([name]) => name.toLowerCase() === "x-acuity-handoff-token",
-  )?.[1];
-  const storedHeaders = customHeaders
-    ? Object.fromEntries(
-        Object.entries(customHeaders).map(([name, value]) => [
-          name,
-          name.toLowerCase() === "x-acuity-handoff-token" ? "[REDACTED]" : value,
-        ]),
-      )
-    : undefined;
+  const sanitized = redactDirectHandoffToken({
+    ...(callControlId ? { call_control_id: callControlId } : {}),
+    ...(callLegId ? { call_leg_id: callLegId } : {}),
+    ...(callSessionId ? { call_session_id: callSessionId } : {}),
+    ...(clientState
+      ? { client_state: Buffer.from(JSON.stringify(clientState)).toString("base64") }
+      : payloadClientState
+        ? { client_state: payloadClientState }
+        : {}),
+    direction,
+    from,
+    to,
+  });
   const body = {
     data: {
       event_type: eventType,
       id: eventId,
       occurred_at: occurredAt.toISOString(),
-      payload: {
-        ...(callControlId ? { call_control_id: callControlId } : {}),
-        ...(callLegId ? { call_leg_id: callLegId } : {}),
-        ...(callSessionId ? { call_session_id: callSessionId } : {}),
-        ...(clientState
-          ? {
-              client_state: Buffer.from(JSON.stringify(clientState)).toString("base64"),
-            }
-          : payloadClientState
-            ? { client_state: payloadClientState }
-            : {}),
-        ...(storedHeaders ? { custom_headers: storedHeaders } : {}),
-        direction,
-        from,
-        to,
-      },
+      payload: sanitized.payload,
     },
   };
   return {
     attemptCount: 1,
-    directHandoffTokenHash: directToken ? directHandoffTokenHash(directToken) : null,
+    directHandoffTokenHash: sanitized.tokenHash,
     effectOwner,
     errorCode: null,
     eventType,
@@ -262,7 +251,8 @@ function database({
       },
     },
     callCenterHandoff: {
-      findUnique: async () => handoff,
+      findUnique: async ({ where }: { where: { tokenHash: string } }) =>
+        handoff?.tokenHash === where.tokenHash ? handoff : null,
       update: async ({ data }: { data: Record<string, unknown> }) => {
         if (!handoff) throw new Error("missing test handoff");
         Object.assign(handoff, data);
@@ -369,11 +359,10 @@ describe("Telnyx event effect owner", () => {
     await expect(
       resolveTelnyxEventOwner(
         event({
-          customHeaders: {
-            "X-Acuity-Handoff-Id": "handoff-1",
-            "X-Acuity-Handoff-Token": token,
-          },
-          to: "sip:acuity-ingress@sip.telnyx.com",
+          to: directHandoffSipUri(
+            "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+            token,
+          ),
         }),
         db.prisma,
         activation(false),
@@ -400,12 +389,11 @@ describe("Telnyx event effect owner", () => {
           callControlId: "control-2",
           callLegId: "provider-leg-2",
           callSessionId: "provider-session-2",
-          customHeaders: {
-            "X-Acuity-Handoff-Id": "handoff-1",
-            "X-Acuity-Handoff-Token": token,
-          },
           eventId: "duplicate-provider-session",
-          to: "sip:acuity-ingress@sip.telnyx.com",
+          to: directHandoffSipUri(
+            "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+            token,
+          ),
         }),
         replayDb.prisma,
         activation(false),
@@ -423,6 +411,23 @@ describe("Telnyx event effect owner", () => {
     await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
       code: "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE",
     });
+    expect(db.created).toHaveLength(0);
+  });
+
+  it("does not admit an unknown URI token through configured-number fallback", async () => {
+    const db = database();
+    await expect(
+      resolveTelnyxEventOwner(
+        event({
+          to: directHandoffSipUri(
+            "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+            "b".repeat(43),
+          ),
+        }),
+        db.prisma,
+        activation(true),
+      ),
+    ).rejects.toMatchObject({ code: "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID" });
     expect(db.created).toHaveLength(0);
   });
 

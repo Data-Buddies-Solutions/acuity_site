@@ -6,6 +6,7 @@ import {
   reserveDirectHandoff,
   type DirectHandoffDatabase,
 } from "@/lib/call-center/infrastructure/prisma-direct-handoff-store";
+import { directHandoffTokenHash } from "@/lib/call-center/infrastructure/direct-handoff-token";
 
 const now = new Date("2026-07-13T20:00:00.000Z");
 const expiresAt = new Date("2026-07-13T20:00:30.000Z");
@@ -79,13 +80,28 @@ describe("Prisma direct handoff reservation", () => {
     const state = fixture();
     const result = await reserveDirectHandoff(
       input,
-      { expiresAt, now, secret: "secret-1" },
+      {
+        baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+        expiresAt,
+        now,
+        secret: "secret-1",
+      },
       state.database,
     );
 
     expect(result.replayed).toBe(false);
     expect(state.numberQueries[0]).toMatchObject({ practiceId: "practice-1" });
-    expect(result.sipHeaders["X-Acuity-Handoff-Token"]).toBeString();
+    expect(result.sipUri).toMatch(
+      /^sip:acuity-handoff~ah1~[A-Za-z0-9_-]{43}@abitacallcenter\.sip\.telnyx\.com$/,
+    );
+    expect(Object.keys(result.sipHeaders).sort()).toEqual([
+      "X-Acuity-Handoff-Id",
+      "X-Acuity-Handoff-Token",
+    ]);
+    expect(result.sipHeaders["X-Acuity-Handoff-Id"]).toBe(result.handoffId);
+    const token = result.sipHeaders["X-Acuity-Handoff-Token"]!;
+    expect(token).toBeString();
+    expect(result.sipUri).toContain(`~ah1~${token}@`);
     expect(state.handoffs[0]).toMatchObject({
       callerPhone: "+17865550100",
       numberId: "number-1",
@@ -95,21 +111,30 @@ describe("Prisma direct handoff reservation", () => {
       sourceSystem: "ABITA",
       status: "ISSUED",
     });
-    expect(state.handoffs[0]?.tokenHash).not.toBe(
-      result.sipHeaders["X-Acuity-Handoff-Token"],
-    );
+    expect(state.handoffs[0]?.tokenHash).toBe(directHandoffTokenHash(token));
+    expect(result.sipUri).not.toContain(String(state.handoffs[0]?.tokenHash));
   });
 
   it("replays the same live token without creating a second row", async () => {
     const state = fixture();
     const first = await reserveDirectHandoff(
       input,
-      { expiresAt, now, secret: "secret-1" },
+      {
+        baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+        expiresAt,
+        now,
+        secret: "secret-1",
+      },
       state.database,
     );
     const replay = await reserveDirectHandoff(
       input,
-      { expiresAt, now, secret: "secret-1" },
+      {
+        baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+        expiresAt,
+        now,
+        secret: "secret-1",
+      },
       state.database,
     );
 
@@ -121,13 +146,23 @@ describe("Prisma direct handoff reservation", () => {
     const state = fixture();
     await reserveDirectHandoff(
       input,
-      { expiresAt, now, secret: "secret-1" },
+      {
+        baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+        expiresAt,
+        now,
+        secret: "secret-1",
+      },
       state.database,
     );
     await expect(
       reserveDirectHandoff(
         { ...input, callerPhone: "+17865550101" },
-        { expiresAt, now, secret: "secret-1" },
+        {
+          baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+          expiresAt,
+          now,
+          secret: "secret-1",
+        },
         state.database,
       ),
     ).rejects.toBeInstanceOf(DirectHandoffReservationError);
@@ -137,13 +172,19 @@ describe("Prisma direct handoff reservation", () => {
     const state = fixture();
     await reserveDirectHandoff(
       input,
-      { expiresAt, now, secret: "secret-1" },
+      {
+        baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+        expiresAt,
+        now,
+        secret: "secret-1",
+      },
       state.database,
     );
     await expect(
       reserveDirectHandoff(
         input,
         {
+          baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
           expiresAt,
           now: new Date("2026-07-13T20:00:31.000Z"),
           secret: "secret-1",

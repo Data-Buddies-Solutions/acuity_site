@@ -1701,7 +1701,8 @@ customer-specific branching.
 
 Status: default-off implementation in progress. Activation remains blocked on
 the migration-first rollout, Phases 4B/5B prerequisites, and one Telnyx/LiveKit
-contract canary proving that REFER headers reach the Acuity SIP ingress webhook.
+contract canary proving that the tokenized Request-URI user reaches the Acuity
+SIP ingress webhook.
 
 This phase removes the unnecessary public-phone-number hop from voice-agent
 handoffs without giving `abita_agent` ownership of Acuity routing.
@@ -1750,8 +1751,8 @@ customer-specific routing branch belongs in the API or domain model.
 2. Acuity resolves the configured number from the original route phone and owns
    queue selection, readiness, endpoint offers, Take, no-answer behavior,
    voicemail, failover, and reporting.
-3. The API returns one configured application SIP URI plus signed one-time
-   headers. It never exposes a reusable user credential or selects a user.
+3. The API returns one application SIP URI with an opaque one-time token in its
+   user part. It never exposes a reusable user credential or selects a user.
 4. A short-lived handoff row owns only the interval between API issuance and
    authenticated SIP ingress. It does not reserve an agent before media exists.
 5. The canonical `Call` and `CallLeg` remain the only owners of logical outcome
@@ -1795,7 +1796,7 @@ Required constraints:
 - unique `(sourceSystem, sourceCallId)` so one upstream call cannot be admitted
   into two practices;
 - token stored only as a hash and accepted once; the durable webhook inbox also
-  replaces the raw header with its hash before persistence;
+  redacts the URI token and stores only its hash before persistence;
 - `ISSUED` has no provider session or canonical call;
 - `INGRESS_SEEN` binds exactly one provider session and canonical call;
 - bounded expiry measured in seconds, not an open-ended assignment; and
@@ -1832,14 +1833,18 @@ Accepted response:
 {
   "type": "DIRECT",
   "handoffId": "handoff-id",
-  "sipUri": "sip:acuity-ingress@sip.telnyx.com",
+  "sipUri": "sip:acuity-ingress~ah1~<one-time-token>@sip.telnyx.com",
   "expiresAt": "2026-07-10T12:00:30Z",
   "sipHeaders": {
     "X-Acuity-Handoff-Id": "handoff-id",
-    "X-Acuity-Handoff-Token": "one-time-token"
+    "X-Acuity-Handoff-Token": "<one-time-token>"
   }
 }
 ```
+
+`sipHeaders` remains temporarily for the deployed Abita response parser. Acuity
+does not read or trust those headers at ingress; only the URI token hash can
+consume the reservation.
 
 The API authenticates the source, tenant-scopes through the configured number,
 validates the number/queue relationship under locks, and creates the handoff in
@@ -1851,10 +1856,12 @@ changed input or a changed idempotency key for the same source call returns
 
 1. `abita_agent` requests a handoff before moving media.
 2. Acuity resolves the existing enabled number and queue, records an `ISSUED`
-   handoff, and returns the application SIP URI plus one-time signed headers.
-3. `abita_agent` calls LiveKit `transferSipParticipant` with the returned URI
-   and signed headers.
-4. The signed Telnyx webhook validates and consumes the token, atomically binds
+   handoff, and returns the application SIP URI with its one-time token.
+3. `abita_agent` passes the returned URI unchanged to LiveKit
+   `transferSipParticipant`. It may also pass the compatibility headers, but
+   Acuity does not use them for correlation.
+4. Acuity hashes and redacts the token from Telnyx's webhook `to` field before
+   persistence, validates and consumes it, and atomically binds
    one provider session, creates the canonical customer call/leg, freezes
    `effectOwner = CANONICAL`, and marks `INGRESS_SEEN`.
 5. The existing canonical router offers the call to ready users. Live Queue is
@@ -1870,13 +1877,31 @@ LiveKit RPC failover, records REFER as started before awaiting its ambiguous
 result, and never changes routes after an ownership conflict. The legacy phone
 path keeps its existing retry behavior while direct handoff is unconfigured.
 
+The provider boundary is intentionally limited to documented fields:
+
+- LiveKit accepts a SIP URI as `TransferSIPParticipant.transfer_to`:
+  <https://docs.livekit.io/reference/telephony/sip-api/#transfersipparticipant>.
+- LiveKit SIP passes that value unchanged into the REFER `Refer-To` header:
+  <https://github.com/livekit/sip/blob/d5d1e09bbe826baaae9c335d8f42523192c7ce29/pkg/sip/service.go#L368-L374>
+  and
+  <https://github.com/livekit/sip/blob/d5d1e09bbe826baaae9c335d8f42523192c7ce29/pkg/sip/protocol.go#L294-L296>.
+- Telnyx defines Voice API webhook `to` as the called party number or SIP URI:
+  <https://developers.telnyx.com/docs/voice/programmable-voice/voice-api-webhooks>.
+- RFC 3261 permits the marker and base64url characters in the SIP URI user part:
+  <https://www.rfc-editor.org/rfc/rfc3261.html#section-25.1>.
+
+No custom REFER header is part of the correlation contract.
+The 2026-07-13 provider canary showed that arbitrary `X-Acuity-*` REFER headers
+did not survive into the destination INVITE or Telnyx webhooks.
+
 ### Rollout and rollback
 
 1. Merge and apply the additive handoff migration before behavior code reads it.
 2. Deploy the API, ingress binding, and Abita client default-off.
 3. Configure one Acuity-controlled Telnyx SIP application URI and enable SIP URI
-   calling. Prove header propagation, signed webhook delivery, provider IDs, and
-   invalid-token rejection with one canary.
+   calling. Prove the tokenized URI user in the first destination webhook,
+   provider IDs, durable token redaction, and invalid-token rejection with one
+   canary.
 4. Enable one global direct-handoff switch for all configured numbers; do not
    add an optical-only branch or per-user URI.
 5. Run answer, no-answer, transfer failure, API timeout, duplicate request,
@@ -1906,6 +1931,6 @@ Phase 7 is complete only when:
   behavior;
 - direct-SIP and public-number paths produce the same canonical call outcome;
 - global rollback is rehearsed;
-- provider evidence proves REFER header propagation and gateway webhook
+- provider evidence proves tokenized URI-user propagation and gateway webhook
   correlation; and
 - the 618 public-number hop is removed only after the observation gate closes.

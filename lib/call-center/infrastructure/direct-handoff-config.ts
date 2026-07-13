@@ -1,4 +1,5 @@
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
+import { directHandoffSipUri } from "@/lib/call-center/infrastructure/direct-handoff-uri";
 
 const ENABLED_ENV = "CALL_CENTER_DIRECT_HANDOFF_ENABLED";
 const PRACTICE_ENV = "CALL_CENTER_HANDOFF_ABITA_PRACTICE_ID";
@@ -30,10 +31,9 @@ function enabledValue(value: string | undefined) {
 
 function sipUri(value: string | undefined) {
   const uri = value?.trim() ?? "";
-  if (!/^sip:[^\s@]+@[^\s@]+$/i.test(uri)) {
-    throw new InvalidDirectHandoffConfigError();
-  }
-  if (uri.slice(4, uri.indexOf("@")).includes(":")) {
+  try {
+    directHandoffSipUri(uri, "a".repeat(43));
+  } catch {
     throw new InvalidDirectHandoffConfigError();
   }
   return uri;

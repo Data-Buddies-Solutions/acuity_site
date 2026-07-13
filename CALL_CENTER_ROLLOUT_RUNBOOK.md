@@ -276,22 +276,29 @@ URI; never use a user's SIP credential URI.
 
 1. In Acuity, set a dedicated `CALL_CENTER_HANDOFF_ABITA_SECRET`, its fixed
    `CALL_CENTER_HANDOFF_ABITA_PRACTICE_ID` tenant boundary, and the
-   `CALL_CENTER_DIRECT_HANDOFF_SIP_URI`. Leave
+   `CALL_CENTER_DIRECT_HANDOFF_SIP_URI` base application URI in Vercel. Acuity
+   appends the one-time token to the SIP user; do not put a token or credential
+   in the configured value. No new Vercel variable is required. Leave
    `CALL_CENTER_DIRECT_HANDOFF_ENABLED=false` for the first deploy.
 2. In Abita, set the paired handoff API URL and secret. Keep the explicit
    pre-REFER phone fallback enabled during the canary. An absent API
    configuration preserves the existing number path.
 3. Enable Telnyx SIP URI calling for the Acuity application connection. Trace
-   one controlled REFER and prove both handoff headers reach the signed Telnyx
-   webhook before any browser endpoint rings.
-4. Set `CALL_CENTER_DIRECT_HANDOFF_ENABLED=true`, redeploy Acuity, and place
-   controlled calls against every configured Abita route phone. Verify Live
-   Queue ring, Take/bridge, duplicate Take, reconnect, no-ready voicemail,
-   terminal state, one canonical call, and one provider session per token.
-5. Treat an API timeout before REFER as safe to fall back. Ownership conflicts,
+   one approved controlled REFER and prove the first destination webhook `to`
+   contains the tokenized SIP user, the durable inbox contains only its hash,
+   and an invalid token is rejected before any browser endpoint rings.
+4. Only with explicit production approval, set
+   `CALL_CENTER_DIRECT_HANDOFF_ENABLED=true`, redeploy Acuity, and place one
+   controlled call. Verify `ISSUED -> INGRESS_SEEN`, one canonical call, one
+   provider session, Live Queue ring, Take/bridge, and terminal state. Set the
+   switch false immediately if ingress does not correlate.
+5. After that single-call gate passes, test every configured Abita route phone,
+   duplicate Take, reconnect, and no-ready voicemail. Queue and number routing
+   continue to come from the issued database snapshot, not from the SIP URI.
+6. Treat an API timeout before REFER as safe to fall back. Ownership conflicts,
    REFER timeouts, and transport failures fail closed and never issue a second
    transfer.
-6. After the observation window is clean, remove the 618 fallback target and
+7. After the observation window is clean, remove the 618 fallback target and
    its ownership. Ordinary patient-facing numbers remain unchanged.
 
 Phase 7 rollback is two default-off changes: set the Acuity direct-handoff
