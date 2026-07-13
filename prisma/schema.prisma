@@ -19,6 +19,7 @@ model User {
   callCenterNotes            CallCenterNote[]
   callCenterPresence         CallCenterPresence[]
   callCenterQueueMemberships CallCenterQueueMember[]
+  callCenterEndpoints        CallCenterEndpoint[]
   callCenterAgentSessions    CallCenterAgentSession[]
   assignedCallCenterTasks    CallCenterTask[]         @relation("CallCenterTaskAssignee")
   resolvedCallCenterTasks    CallCenterTask[]         @relation("CallCenterTaskResolver")
@@ -1094,6 +1095,7 @@ model CallCenterQueueMember {
 model CallCenterEndpoint {
   id                   String                   @id @default(cuid())
   practiceId           String
+  userId               String?
   locationId           String?
   label                String
   providerCredentialId String?                  @unique
@@ -1102,11 +1104,13 @@ model CallCenterEndpoint {
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
   practice             Practice                 @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  user                 User?                    @relation(fields: [userId], references: [id], onDelete: Restrict)
   location             PracticeLocation?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
   agentSessions        CallCenterAgentSession[]
   callLegs             CallCenterCallLeg[]
 
   @@unique([practiceId, label])
+  @@unique([practiceId, userId])
   @@index([practiceId, enabled])
   @@index([practiceId, locationId, enabled])
   @@index([locationId])
@@ -1123,6 +1127,7 @@ model CallCenterAgentSession {
   connectionState  CallCenterAgentConnectionState @default(CONNECTING)
   microphoneReady  Boolean                        @default(false)
   audioReady       Boolean                        @default(false)
+  offeredCallId    String?
   currentCallId    String?
   readyAt          DateTime?
   lastHeartbeatAt  DateTime                       @default(now())
@@ -1133,6 +1138,7 @@ model CallCenterAgentSession {
   practice         Practice                       @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   user             User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
   endpoint         CallCenterEndpoint             @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  offeredCall      CallCenterCall?                @relation("CallCenterOfferedCall", fields: [offeredCallId], references: [id], onDelete: SetNull)
   currentCall      CallCenterCall?                @relation("CallCenterCurrentCall", fields: [currentCallId], references: [id], onDelete: SetNull)
   callLegs         CallCenterCallLeg[]
 
@@ -1140,6 +1146,7 @@ model CallCenterAgentSession {
   @@index([practiceId, userId, presence])
   @@index([practiceId, presence, connectionState, lastHeartbeatAt, leaseExpiresAt])
   @@index([userId])
+  @@index([offeredCallId])
   @@index([currentCallId])
   @@map("call_center_agent_session")
 }
@@ -1173,6 +1180,7 @@ model CallCenterCall {
   number                CallCenterNumber         @relation(fields: [numberId], references: [id], onDelete: Restrict)
   winningLeg            CallCenterCallLeg?       @relation("CallCenterWinningLeg", fields: [winningLegId], references: [id], onDelete: SetNull)
   legs                  CallCenterCallLeg[]      @relation("CallCenterCallLegs")
+  offeredAgentSessions  CallCenterAgentSession[] @relation("CallCenterOfferedCall")
   activeAgentSessions   CallCenterAgentSession[] @relation("CallCenterCurrentCall")
   tasks                 CallCenterTask[]
   commands              CallCenterCommand[]
