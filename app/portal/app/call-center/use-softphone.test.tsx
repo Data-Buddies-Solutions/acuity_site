@@ -263,4 +263,49 @@ describe("useSoftphoneMedia canonical credentials", () => {
       },
     ]);
   });
+
+  it("reports an empty token failure without exposing a JSON parser error", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(null, { status: 503 }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        credentialMode: "CANONICAL",
+        enabled: true,
+        stationSeatId: "endpoint-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.connection).toBe("FAILED"));
+    expect(result.current.error).toBe("Unable to connect Telnyx (503)");
+    expect(result.current.error).not.toContain("JSON");
+    expect(clients).toHaveLength(0);
+  });
+
+  it("shows the API explanation when a station lease is rejected", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        { error: "Selected call center station is already active in another browser" },
+        { status: 409 },
+      ),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        credentialMode: "CANONICAL",
+        enabled: true,
+        stationSeatId: "endpoint-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.connection).toBe("FAILED"));
+    expect(result.current.error).toBe(
+      "Selected call center station is already active in another browser",
+    );
+  });
 });
