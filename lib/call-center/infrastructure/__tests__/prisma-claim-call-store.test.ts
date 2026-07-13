@@ -88,12 +88,16 @@ function fakeDatabase({
     userId: "user-1",
   };
   const transaction = {
+    $executeRaw: async () => {
+      operations.push("receipt.lock");
+      return 1;
+    },
     $queryRaw: async (query: { strings: readonly string[] }) => {
       const sql = query.strings.join("");
       const table = ["call", "queue", "endpoint", "agent_session"].find((name) =>
         sql.includes(`call_center_${name}`),
       );
-      operations.push(table ? `${table}.lock` : "receipt.lock");
+      if (table) operations.push(`${table}.lock`);
       return [];
     },
     callCenterAgentSession: {

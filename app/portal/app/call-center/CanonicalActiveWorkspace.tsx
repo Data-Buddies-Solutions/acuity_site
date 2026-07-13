@@ -553,17 +553,17 @@ function ConnectedCanonicalActiveWorkspace({
 
   return (
     <div className="space-y-4">
-      <section
-        aria-label="Canonical activation blockers"
-        className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
-      >
-        <p className="font-semibold">Global activation blockers</p>
-        <p className="mt-1">
-          {actionsEnabled
-            ? "Keep global activation off until the automated activation preflight passes."
-            : "Rollback is active. Existing canonical calls remain visible, but new canonical actions are blocked."}
-        </p>
-      </section>
+      {!actionsEnabled ? (
+        <section
+          aria-label="Canonical rollback status"
+          className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+        >
+          <p className="font-semibold">Call center rollback is active</p>
+          <p className="mt-1">
+            Existing canonical calls remain visible, but new canonical actions are blocked.
+          </p>
+        </section>
+      ) : null}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">

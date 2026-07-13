@@ -11,10 +11,10 @@ describe("Prisma durable operation receipts", () => {
     const operations: string[] = [];
     let lockKey: unknown;
     const transaction = {
-      $queryRaw: async (query: { values: unknown[] }) => {
+      $executeRaw: async (query: { values: unknown[] }) => {
         operations.push("receipt.lock");
         [lockKey] = query.values;
-        return [{ pg_advisory_xact_lock: null }];
+        return 1;
       },
       callCenterEvent: {
         create: async ({ data }: { data: Record<string, unknown> }) => {
