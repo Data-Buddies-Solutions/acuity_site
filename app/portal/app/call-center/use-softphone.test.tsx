@@ -33,6 +33,10 @@ class FakeTelnyxClient {
     this.disconnectCount += 1;
   }
 
+  off(event: string) {
+    this.handlers.delete(event);
+  }
+
   newCall() {
     throw new Error("Not used in this test");
   }
@@ -134,6 +138,7 @@ describe("useLegacySoftphoneMedia", () => {
 
     unmount();
     expect(clients[0]?.disconnectCount).toBe(1);
+    expect(clients[0]?.handlers.size).toBe(0);
   });
 
   it("observes active media without attaching until the leg is explicitly selected", async () => {

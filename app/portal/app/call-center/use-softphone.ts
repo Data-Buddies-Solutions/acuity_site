@@ -46,6 +46,15 @@ type SoftphoneMediaOptions = {
 };
 
 type LegacyObserver = (call: LegacySoftphoneCall) => void;
+const TELNYX_CLIENT_EVENTS = [
+  "telnyx.error",
+  "telnyx.notification",
+  "telnyx.ready",
+  "telnyx.rtc.mediaError",
+  "telnyx.rtc.peerConnectionFailureError",
+  "telnyx.socket.close",
+  "telnyx.warning",
+] as const;
 
 async function readTokenResponse(response: Response): Promise<TelnyxTokenResponse> {
   const text = await response.text().catch(() => "");
@@ -473,7 +482,9 @@ function useSoftphoneMediaEngine({
         current.filter(({ connectionId: id }) => id !== adapterConnectionId),
       );
       detachAudio();
-      clientRef.current?.disconnect();
+      const client = clientRef.current;
+      for (const event of TELNYX_CLIENT_EVENTS) client?.off(event);
+      client?.disconnect();
       clientRef.current = null;
     };
   }, [
