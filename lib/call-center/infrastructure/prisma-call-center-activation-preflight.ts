@@ -237,6 +237,10 @@ export class PrismaCallCenterActivationPreflightStore implements CallCenterActiv
         (
           SELECT COUNT(*) FROM "provider_webhook_event" AS event
           WHERE event."effectOwner" IS NULL
+            AND NOT (
+              event."processingStatus" = CAST('IGNORED' AS "ProviderWebhookProcessingStatus")
+              AND event."canonicalProjectionStatus" = CAST('IGNORED' AS "ProviderWebhookProcessingStatus")
+            )
         ) AS "unresolvedOwnershipCount",
         (
           SELECT COUNT(*) FROM "call_center_command" AS command

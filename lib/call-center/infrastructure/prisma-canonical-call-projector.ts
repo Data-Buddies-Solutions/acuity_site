@@ -51,6 +51,31 @@ export type CanonicalProjectionResult = {
 
 type CallCenterEffectOwner = "CANONICAL" | "LEGACY";
 
+export function directHandoffLifecycleProjection(callStatus: string, projectedAt: Date) {
+  if (callStatus === "CONNECTED" || callStatus === "COMPLETED") {
+    return {
+      data: {
+        connectedAt: projectedAt,
+        failedAt: null,
+        failureCode: null,
+        status: "CONNECTED" as const,
+      },
+      fromStatus: ["FAILED", "INGRESS_SEEN"] as Array<"FAILED" | "INGRESS_SEEN">,
+    };
+  }
+  if (["ABANDONED", "FAILED", "VOICEMAIL"].includes(callStatus)) {
+    return {
+      data: {
+        failedAt: projectedAt,
+        failureCode: `CALL_${callStatus}`,
+        status: "FAILED" as const,
+      },
+      fromStatus: ["INGRESS_SEEN"] as Array<"INGRESS_SEEN">,
+    };
+  }
+  return null;
+}
+
 export function shouldPlanCanonicalInboundRouting(input: {
   direction: "INBOUND" | "OUTBOUND" | null;
   effectOwner: CallCenterEffectOwner;
@@ -1239,6 +1264,16 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         },
         resolvedFact.occurredAt,
       );
+      const handoffProjection = directHandoffLifecycleProjection(
+        call.status,
+        projectedAt,
+      );
+      if (handoffProjection) {
+        await tx.callCenterHandoff.updateMany({
+          data: handoffProjection.data,
+          where: { callId: call.id, status: { in: handoffProjection.fromStatus } },
+        });
+      }
 
       await completeProjectionCheckpoint(tx, event, projectedAt);
 

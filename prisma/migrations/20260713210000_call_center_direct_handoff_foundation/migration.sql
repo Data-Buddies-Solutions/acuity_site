@@ -8,6 +8,16 @@ CREATE TYPE "CallCenterHandoffStatus" AS ENUM (
   'FAILED'
 );
 
+ALTER TABLE "provider_webhook_event"
+ADD COLUMN "directHandoffTokenHash" VARCHAR(64);
+
+ALTER TABLE "provider_webhook_event"
+ADD CONSTRAINT "provider_webhook_event_direct_handoff_token_hash_check"
+CHECK (
+  "directHandoffTokenHash" IS NULL
+  OR "directHandoffTokenHash" ~ '^[0-9a-f]{64}$'
+);
+
 CREATE TABLE "call_center_handoff" (
   "id" TEXT NOT NULL,
   "practiceId" TEXT NOT NULL,
@@ -45,8 +55,8 @@ ON "call_center_handoff"("providerCallSessionId");
 CREATE UNIQUE INDEX "call_center_handoff_practiceId_sourceSystem_idempotencyKey_key"
 ON "call_center_handoff"("practiceId", "sourceSystem", "idempotencyKey");
 
-CREATE UNIQUE INDEX "call_center_handoff_practiceId_sourceSystem_sourceCallId_key"
-ON "call_center_handoff"("practiceId", "sourceSystem", "sourceCallId");
+CREATE UNIQUE INDEX "call_center_handoff_sourceSystem_sourceCallId_key"
+ON "call_center_handoff"("sourceSystem", "sourceCallId");
 
 CREATE INDEX "call_center_handoff_status_expiresAt_idx"
 ON "call_center_handoff"("status", "expiresAt");

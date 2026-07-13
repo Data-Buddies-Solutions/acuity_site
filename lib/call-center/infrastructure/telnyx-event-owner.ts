@@ -1,5 +1,7 @@
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
+import { directHandoffIdentity } from "@/lib/call-center/infrastructure/direct-handoff-headers";
+import { matchesDirectHandoffTokenHash } from "@/lib/call-center/infrastructure/direct-handoff-token";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
@@ -12,6 +14,7 @@ type OwnerTransaction = Pick<
   | "$queryRaw"
   | "callCenterCall"
   | "callCenterEvent"
+  | "callCenterHandoff"
   | "callCenterCallLeg"
   | "callCenterNumber"
   | "providerWebhookEvent"
@@ -30,6 +33,7 @@ type RawIdentity = {
   canonicalOutboundPracticeId: string | null;
   canonicalOutboundToken: string | null;
   direction: "INBOUND" | "OUTBOUND" | null;
+  directHandoff: { handoffId: string; tokenHash: string } | null;
   fromPhone: string;
   occurredAt: Date;
   providerCallControlId: string | null;
@@ -111,6 +115,21 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
   if (Boolean(canonicalCallId) !== Boolean(canonicalLegId)) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_CANONICAL_IDENTITY_INCOMPLETE");
   }
+  let directHandoff: RawIdentity["directHandoff"];
+  try {
+    const identity = directHandoffIdentity(payload);
+    if (Boolean(identity) !== Boolean(event.directHandoffTokenHash)) {
+      throw new Error("DIRECT_HANDOFF_IDENTITY_INVALID");
+    }
+    directHandoff = identity
+      ? {
+          handoffId: identity.handoffId,
+          tokenHash: event.directHandoffTokenHash!,
+        }
+      : null;
+  } catch {
+    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_IDENTITY_INVALID");
+  }
 
   return {
     callerName: text(payload.caller_id_name) || null,
@@ -119,6 +138,7 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
     canonicalOutboundPracticeId,
     canonicalOutboundToken,
     direction: direction(payload.direction),
+    directHandoff,
     fromPhone: normalizePhone(text(payload.from)),
     occurredAt:
       optionalDate(data?.occurred_at) ??
@@ -129,6 +149,108 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
     providerCallSessionId: text(payload.call_session_id) || null,
     toPhone: normalizePhone(text(payload.to)),
   };
+}
+
+async function persistDirectHandoffOwner(
+  tx: OwnerTransaction,
+  raw: RawIdentity,
+  receivedAt: Date,
+) {
+  const identity = raw.directHandoff;
+  if (!identity) return null;
+  if (raw.direction !== "INBOUND" || !raw.providerCallSessionId) {
+    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID");
+  }
+
+  await tx.$queryRaw(
+    Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "id" = ${identity.handoffId} FOR UPDATE`,
+  );
+  let handoff = await tx.callCenterHandoff.findUnique({
+    include: {
+      number: { include: { practicePhoneNumber: true } },
+      queue: true,
+    },
+    where: { id: identity.handoffId },
+  });
+  if (!handoff || !matchesDirectHandoffTokenHash(identity.tokenHash, handoff.tokenHash)) {
+    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_TOKEN_INVALID");
+  }
+  if (
+    handoff.status === "INGRESS_SEEN" &&
+    handoff.providerCallSessionId === raw.providerCallSessionId &&
+    handoff.callId
+  ) {
+    return "CANONICAL" as const;
+  }
+  if (handoff.status !== "ISSUED" || handoff.expiresAt <= receivedAt) {
+    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE");
+  }
+
+  await tx.$queryRaw(
+    Prisma.sql`SELECT "id" FROM "practice" WHERE "id" = ${handoff.practiceId} FOR SHARE`,
+  );
+  await tx.$queryRaw(
+    Prisma.sql`SELECT "id" FROM "practice_phone_number" WHERE "id" = ${handoff.number.practicePhoneNumberId} FOR SHARE`,
+  );
+  await tx.$queryRaw(
+    Prisma.sql`SELECT "id" FROM "call_center_number" WHERE "id" = ${handoff.numberId} FOR SHARE`,
+  );
+  await tx.$queryRaw(
+    Prisma.sql`SELECT "id" FROM "call_center_queue" WHERE "id" = ${handoff.queueId} FOR SHARE`,
+  );
+  handoff = await tx.callCenterHandoff.findUnique({
+    include: {
+      number: { include: { practicePhoneNumber: true } },
+      queue: true,
+    },
+    where: { id: identity.handoffId },
+  });
+  if (!handoff) {
+    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");
+  }
+  // ISSUED already authorized the route. Locks protect its tenant boundary;
+  // later configuration edits must not reroute or strand an in-flight REFER.
+  if (
+    handoff.number.practiceId !== handoff.practiceId ||
+    handoff.number.practicePhoneNumber.practiceId !== handoff.practiceId ||
+    handoff.queue.practiceId !== handoff.practiceId
+  ) {
+    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");
+  }
+
+  const call = await tx.callCenterCall.create({
+    data: {
+      direction: "INBOUND",
+      effectOwner: "CANONICAL",
+      fromPhone: handoff.callerPhone,
+      legs: {
+        create: {
+          kind: "CUSTOMER",
+          providerCallControlId: raw.providerCallControlId,
+          providerCallLegId: raw.providerCallLegId,
+          providerCallSessionId: raw.providerCallSessionId,
+          startedAt: raw.occurredAt,
+        },
+      },
+      numberId: handoff.numberId,
+      practiceId: handoff.practiceId,
+      providerCallSessionId: raw.providerCallSessionId,
+      queueId: handoff.queueId,
+      receivedAt: raw.occurredAt,
+      toPhone: handoff.number.practicePhoneNumber.phoneNumber,
+    },
+    select: { id: true },
+  });
+  await tx.callCenterHandoff.update({
+    data: {
+      callId: call.id,
+      ingressSeenAt: receivedAt,
+      providerCallSessionId: raw.providerCallSessionId,
+      status: "INGRESS_SEEN",
+    },
+    where: { id: handoff.id },
+  });
+  return "CANONICAL" as const;
 }
 
 async function resolveTrustedOutboundIdentity(tx: OwnerTransaction, raw: RawIdentity) {
@@ -188,6 +310,19 @@ async function storedSessionOwner(
   providerCallSessionId: string | null,
 ) {
   if (!providerCallSessionId) return event.effectOwner;
+  const rejected = await tx.providerWebhookEvent.findFirst({
+    select: { errorCode: true },
+    where: {
+      errorCode: { startsWith: "TELNYX_DIRECT_HANDOFF_" },
+      id: { not: event.id },
+      processingStatus: "IGNORED",
+      provider: "TELNYX",
+      providerCallSessionId,
+    },
+  });
+  if (rejected) {
+    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE");
+  }
   const rows = await tx.providerWebhookEvent.findMany({
     distinct: ["effectOwner"],
     orderBy: { receivedAt: "asc" },
@@ -504,6 +639,7 @@ export async function resolveTelnyxEventOwner(
     const existingOwner = assertSameOwner([storedOwner, legOwner, callOwner]);
     const effectOwner =
       existingOwner ??
+      (await persistDirectHandoffOwner(ownerTx, raw, raw.occurredAt)) ??
       (await persistInboundOwner(ownerTx, raw, activationConfig().enabled)) ??
       "LEGACY";
 

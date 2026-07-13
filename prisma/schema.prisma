@@ -1232,7 +1232,7 @@ model CallCenterHandoff {
   call                  CallCenterCall?         @relation(fields: [callId], references: [id], onDelete: SetNull)
 
   @@unique([practiceId, sourceSystem, idempotencyKey])
-  @@unique([practiceId, sourceSystem, sourceCallId])
+  @@unique([sourceSystem, sourceCallId])
   @@index([status, expiresAt])
   @@index([queueId])
   @@map("call_center_handoff")
@@ -1306,6 +1306,7 @@ model ProviderWebhookEvent {
   eventType                        String
   effectOwner                      CallCenterEffectOwner?          @default(LEGACY)
   providerCallSessionId            String?
+  directHandoffTokenHash           String?                         @db.VarChar(64)
   occurredAt                       DateTime?
   receivedAt                       DateTime                        @default(now())
   processingStatus                 ProviderWebhookProcessingStatus @default(RECEIVED)

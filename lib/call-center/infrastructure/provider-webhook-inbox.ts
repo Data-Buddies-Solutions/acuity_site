@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
+import { redactDirectHandoffToken } from "./direct-handoff-headers";
 import type { TelnyxVoiceWebhookEnvelope } from "./telnyx-voice-envelope";
 
 export type ProviderWebhookStatus =
@@ -9,6 +10,7 @@ export type ProviderWebhookStatus =
 
 export type ProviderWebhookRecord = {
   attemptCount: number;
+  directHandoffTokenHash: string | null;
   effectOwner: "CANONICAL" | "LEGACY" | null;
   errorCode: string | null;
   eventType: string;
@@ -34,7 +36,8 @@ export type ProviderWebhookInboxStore = {
   }): Promise<ProviderWebhookRecord | null>;
   complete(input: {
     attemptCount: number;
-    effectOwner: "CANONICAL" | "LEGACY";
+    effectOwner: "CANONICAL" | "LEGACY" | null;
+    errorCode?: string;
     eventId: string;
     now: Date;
     status: "IGNORED" | "PROCESSED";
@@ -215,6 +218,7 @@ export function createProviderWebhookInbox(
 
 const selectedFields = {
   attemptCount: true,
+  directHandoffTokenHash: true,
   effectOwner: true,
   errorCode: true,
   eventType: true,
@@ -230,6 +234,34 @@ const selectedFields = {
 
 function jsonInput(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
+}
+
+export function sanitizedProviderWebhookBody(body: unknown) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { body, tokenHash: null };
+  }
+  const root = body as Record<string, unknown>;
+  const data = root.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { body, tokenHash: null };
+  }
+  const payload = (data as Record<string, unknown>).payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { body, tokenHash: null };
+  }
+
+  const sanitized = redactDirectHandoffToken(payload as Record<string, unknown>);
+  if (!sanitized.tokenHash) return { body, tokenHash: null };
+  return {
+    body: {
+      ...root,
+      data: {
+        ...(data as Record<string, unknown>),
+        payload: sanitized.payload,
+      },
+    },
+    tokenHash: sanitized.tokenHash,
+  };
 }
 
 function providerCallSessionId(body: unknown) {
@@ -320,10 +352,16 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
       where: { id: eventId },
     });
   },
-  async complete({ attemptCount, effectOwner, eventId, now, status }) {
+  async complete({ attemptCount, effectOwner, errorCode, eventId, now, status }) {
     const completed = await prisma.providerWebhookEvent.updateMany({
       data: {
-        errorCode: null,
+        ...(effectOwner === null
+          ? {
+              canonicalProjectedAt: now,
+              canonicalProjectionStatus: "IGNORED" as const,
+            }
+          : {}),
+        errorCode: errorCode ?? null,
         nextAttemptAt: null,
         processedAt: now,
         processingStatus: status,
@@ -378,13 +416,15 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
     });
   },
   async receive(envelope) {
+    const sanitized = sanitizedProviderWebhookBody(envelope.body);
     await prisma.providerWebhookEvent.createMany({
       data: [
         {
+          directHandoffTokenHash: sanitized.tokenHash,
           effectOwner: null,
           eventType: envelope.eventType,
           occurredAt: envelope.occurredAt,
-          payload: jsonInput(envelope.body),
+          payload: jsonInput(sanitized.body),
           provider: "TELNYX",
           providerCallSessionId: providerCallSessionId(envelope.body),
           providerEventId: envelope.providerEventId,

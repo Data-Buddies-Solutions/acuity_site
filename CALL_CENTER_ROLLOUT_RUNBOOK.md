@@ -268,6 +268,37 @@ coverage, migration state, callback ownership, and zero stale `SENT`,
 dead-letter, or ambiguous command/event counts. The live synthetic gates run
 immediately after activation with global rollback available.
 
+## Phase 7 direct handoff canary
+
+Keep this slice default-off until #118/#119 and the additive direct-handoff
+migration are deployed. Configure one Acuity-controlled Telnyx SIP application
+URI; never use a user's SIP credential URI.
+
+1. In Acuity, set a dedicated `CALL_CENTER_HANDOFF_ABITA_SECRET`, its fixed
+   `CALL_CENTER_HANDOFF_ABITA_PRACTICE_ID` tenant boundary, and the
+   `CALL_CENTER_DIRECT_HANDOFF_SIP_URI`. Leave
+   `CALL_CENTER_DIRECT_HANDOFF_ENABLED=false` for the first deploy.
+2. In Abita, set the paired handoff API URL and secret. Keep the explicit
+   pre-REFER phone fallback enabled during the canary. An absent API
+   configuration preserves the existing number path.
+3. Enable Telnyx SIP URI calling for the Acuity application connection. Trace
+   one controlled REFER and prove both handoff headers reach the signed Telnyx
+   webhook before any browser endpoint rings.
+4. Set `CALL_CENTER_DIRECT_HANDOFF_ENABLED=true`, redeploy Acuity, and place
+   controlled calls against every configured Abita route phone. Verify Live
+   Queue ring, Take/bridge, duplicate Take, reconnect, no-ready voicemail,
+   terminal state, one canonical call, and one provider session per token.
+5. Treat an API timeout before REFER as safe to fall back. Ownership conflicts,
+   REFER timeouts, and transport failures fail closed and never issue a second
+   transfer.
+6. After the observation window is clean, remove the 618 fallback target and
+   its ownership. Ordinary patient-facing numbers remain unchanged.
+
+Phase 7 rollback is two default-off changes: set the Acuity direct-handoff
+switch false and remove the Abita handoff API configuration. Already-issued
+tokens remain valid only for their 30-second lease; already-bound calls retain
+their immutable canonical owner.
+
 ## Rollback
 
 1. Set `CALL_CENTER_CANONICAL_ACTIVATION_ENABLED=false` and redeploy. This sends

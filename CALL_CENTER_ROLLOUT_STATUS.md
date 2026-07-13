@@ -219,33 +219,38 @@ endpoints, and seven memberships.
 
 ## Phase status
 
-| Phase | Scope                                                                    | Code status                                  | Production status                     |
-| ----- | ------------------------------------------------------------------------ | -------------------------------------------- | ------------------------------------- |
-| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89             | #89 synthetic gate pending            |
-| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | #90/#104; lock/dead-letter follow-up pending | Rolled back off pending fix           |
-| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100-#102 merged          | Bootstrap applied and replay verified |
-| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92/#97; out-of-scope repair pending         | Projection rolled back off            |
-| 4A    | Canonical routing, commands, and immutable effect ownership              | #103/#111-#113 merged                        | No commands; all queues stay LEGACY   |
-| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #111 merged                                  | Legacy UI remains authoritative       |
-| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; #118/#119 in review             | Deployed off after rollback           |
-| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                                  | Blocked until observation closes      |
-| 7     | API-mediated direct SIP handoff from trusted voice agents                | Specified and deliberately deferred          | Public-number handoff remains         |
+| Phase | Scope                                                                    | Code status                                     | Production status                     |
+| ----- | ------------------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------- |
+| 0     | Ringing, readiness, trusted ingress, voicemail safety, Live Queue Take   | Merged in #84, #86, #87, and #89                | #89 synthetic gate pending            |
+| 1     | Durable provider inbox, retries, recovery, dead letters, retention       | #90/#104; lock/dead-letter follow-up pending    | Rolled back off pending fix           |
+| 2     | Generic queues, numbers, endpoints, memberships, protected configuration | PRs #91, #93, #95, #100-#102 merged             | Bootstrap applied and replay verified |
+| 3     | Canonical calls, legs, tasks, events, and state-transition foundations   | #92/#97; out-of-scope repair pending            | Projection rolled back off            |
+| 4A    | Canonical routing, commands, and immutable effect ownership              | #103/#111-#113 merged                           | No commands; all queues stay LEGACY   |
+| 5A    | Canonical snapshot, ordered SSE, reducer, and media adapter              | #111 merged                                     | Legacy UI remains authoritative       |
+| 4B/5B | Global routing and frontend cutover for all configured numbers           | #115 merged; #118/#119 in review                | Deployed off after rollback           |
+| 6A/6B | Delete legacy application code, then drop legacy schema                  | Not started                                     | Blocked until observation closes      |
+| 7     | API-mediated direct SIP handoff from trusted voice agents                | Migration/API/Abita client prepared default-off | Provider canary and rollout pending   |
 
 ## Release sequence
 
-| Release                  | Contents                                                     | Current state                   | Exit gate                                                         |
-| ------------------------ | ------------------------------------------------------------ | ------------------------------- | ----------------------------------------------------------------- |
-| Expand migration         | Additive Phase 1-3 schema                                    | PR #81 merged                   | Closed by migration recovery                                      |
-| Migration recovery       | Retry-safe backfill and guarded recovery workflow            | PR #83 merged; production clean | Complete                                                          |
-| Shared ringing/readiness | Automatic station ringing and explicit readiness             | PR #84 merged and deployed      | Included in current observation gate                              |
-| Trusted ingress          | Keep internal station legs out of the patient queue          | PR #86 merged and deployed      | Cross-profile synthetic call gate                                 |
-| Live Queue ownership     | One pre-answer UI and station-leg reuse                      | PR #87 merged and deployed      | Coordination gate failed on duplicate Take burst                  |
-| Take replay safety       | Reuse the owned live attempt and type losing/terminal races  | PR #89 merged                   | Normal, transfer, remount, and reconnect gates                    |
-| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule | #90/#104 merged and deployed    | Empty aggregate report; live receipt pending                      |
-| Canonical foundations    | Generic configuration and passive canonical calls            | #91-#93, #95, #97, #100-#102    | Enabled passively; observation gate remains                       |
-| Coordinated call control | Commands, SSE, reducer, media adapter, and effect ownership  | #103/#111-#113 merged to `main` | Build active operations/media/actions for every configured number |
-| User-owned calling       | One profile and one active browser per authenticated user    | #118/#119 in review             | Apply migrations, assign users, preflight, controlled calls       |
-| Direct SIP handoff       | API claim plus short-lived queue-bound SIP transfer          | Phase 7 specified; deferred     | Phases 0-6 complete and provider contract tests proven            |
+| Release                  | Contents                                                      | Current state                       | Exit gate                                                         |
+| ------------------------ | ------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| Expand migration         | Additive Phase 1-3 schema                                     | PR #81 merged                       | Closed by migration recovery                                      |
+| Migration recovery       | Retry-safe backfill and guarded recovery workflow             | PR #83 merged; production clean     | Complete                                                          |
+| Shared ringing/readiness | Automatic station ringing and explicit readiness              | PR #84 merged and deployed          | Included in current observation gate                              |
+| Trusted ingress          | Keep internal station legs out of the patient queue           | PR #86 merged and deployed          | Cross-profile synthetic call gate                                 |
+| Live Queue ownership     | One pre-answer UI and station-leg reuse                       | PR #87 merged and deployed          | Coordination gate failed on duplicate Take burst                  |
+| Take replay safety       | Reuse the owned live attempt and type losing/terminal races   | PR #89 merged                       | Normal, transfer, remount, and reconnect gates                    |
+| Durable ingress          | Inbox, retry recovery, retention, and authenticated schedule  | #90/#104 merged and deployed        | Empty aggregate report; live receipt pending                      |
+| Canonical foundations    | Generic configuration and passive canonical calls             | #91-#93, #95, #97, #100-#102        | Enabled passively; observation gate remains                       |
+| Coordinated call control | Commands, SSE, reducer, media adapter, and effect ownership   | #103/#111-#113 merged to `main`     | Build active operations/media/actions for every configured number |
+| User-owned calling       | One profile and one active browser per authenticated user     | #118/#119 in review                 | Apply migrations, assign users, preflight, controlled calls       |
+| Direct SIP handoff       | Signed API issuance plus Acuity-owned SIP application ingress | Default-off implementation prepared | Migration applied and provider contract canary proven             |
+
+The prepared Phase 7 slice pins the Abita credential to one practice, hashes
+the one-time token before durable inbox persistence, terminalizes rejected
+ingress, recovers stale issuances in bounded batches, and repairs successful
+handoff outcomes under bridge/hangup callback reordering.
 
 ## Validation receipt
 
@@ -339,9 +344,11 @@ happen after the global observation window.
 - Run transfer ringing and Take from the target user's browser.
 - Run duplicate-event, out-of-order, reconnect, and global rollback tests across
   every configured phone number immediately after activation.
-- Do not begin Phase 7 direct SIP work until Phases 1-6 are active, legacy
-  routing is deleted, and LiveKit/Telnyx transfer-failure semantics are covered
-  by provider contract tests.
+- Keep Phase 7 default-off until #118/#119 and the handoff migration are
+  deployed, then prove LiveKit REFER header propagation, Telnyx SIP application
+  ingress, duplicate-session rejection, and ambiguous transfer behavior with a
+  provider canary. Legacy deletion is not required to deploy the default-off
+  slice and does not begin as part of Phase 7 activation.
 
 Update this file after every PR merge, production migration, synthetic-call
 gate, queue-mode change, rollback, or material blocker.
