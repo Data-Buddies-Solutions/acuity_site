@@ -1,6 +1,6 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { mock, describe, it, expect } from "bun:test";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, mock } from "bun:test";
 import * as matchers from "@testing-library/jest-dom/matchers";
 
 import Header from "../Header";
@@ -23,31 +23,25 @@ mock.module("next/link", () => ({
   ),
 }));
 
-describe("Header mobile navigation overlay", () => {
-  it("renders opaque backgrounds when the hamburger menu is opened", () => {
+describe("Header mobile navigation", () => {
+  it("opens an accessible sheet with the simplified navigation", () => {
     render(<Header />);
 
-    const toggleButton = screen.getByLabelText("Toggle navigation");
-    fireEvent.click(toggleButton);
+    fireEvent.click(screen.getByLabelText("Open navigation"));
 
-    const closeButton = screen.getByLabelText("Close navigation");
-    const overlay = closeButton.closest(".fixed");
-    expect(overlay).not.toBeNull();
-    expect(overlay).toHaveClass("bg-[#fbfaf7]");
-    expect(overlay).not.toHaveClass("bg-background/95");
-
-    const mobileNav = screen
-      .getAllByRole("navigation")
-      .find((nav) => nav.classList.contains("space-y-6"));
-    expect(mobileNav).toBeDefined();
-
-    const sheet = mobileNav?.closest("div");
-    expect(sheet).not.toBeNull();
-    expect(sheet).toHaveClass("bg-[#fbfaf7]");
-    expect(sheet).toHaveClass("min-h-full");
-
-    const mobileLink = screen.getAllByRole("link", { name: "About" }).at(-1);
-    expect(mobileLink).toBeDefined();
-    expect(mobileLink).toHaveClass("text-2xl");
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("bg-[#fbfaf7]");
+    expect(within(dialog).getByRole("link", { name: "Product" })).toHaveAttribute(
+      "href",
+      "/#product",
+    );
+    expect(within(dialog).getByRole("link", { name: "Proof" })).toHaveAttribute(
+      "href",
+      "/#proof",
+    );
+    expect(within(dialog).getByRole("link", { name: "Practice Portal" })).toHaveAttribute(
+      "href",
+      "/portal",
+    );
   });
 });

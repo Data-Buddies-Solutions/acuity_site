@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ComponentType } from "react";
+import { useEffect, useState, useSyncExternalStore, type ComponentType } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -11,6 +11,7 @@ import {
   FolderOpen,
   LayoutDashboard,
   MessageSquareText,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   PhoneCall,
@@ -20,6 +21,16 @@ import {
 import Logo from "@/app/components/VisionOpsLogo";
 import { PracticeBrandLogo } from "@/app/portal/app/PracticeBrandLogo";
 import { PortalSignOutButton } from "@/app/portal/PortalSignOutButton";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import type { PracticeBranding } from "@/lib/practice-branding";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +39,19 @@ type NavItem = {
   icon: ComponentType<{ className?: string }>;
   label: string;
 };
+
+type NavAttention = number | "new" | undefined;
+
+const BOOKING_SEEN_EVENT = "acuity:booking-seen";
+
+function subscribeToBookingSeen(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(BOOKING_SEEN_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(BOOKING_SEEN_EVENT, onStoreChange);
+  };
+}
 
 const setupNavItems = [
   { href: "/portal/app/onboarding", icon: ClipboardList, label: "Onboarding" },
@@ -40,7 +64,7 @@ const livePrimaryNavItems = [
   {
     href: "/portal/app/two-way-texting",
     icon: MessageSquareText,
-    label: "Two-way Texting",
+    label: "Texting",
   },
   { href: "/portal/app/tasking", icon: ClipboardList, label: "Tasks" },
 ] satisfies NavItem[];
@@ -59,18 +83,34 @@ function isCurrentPath(pathname: string, href: string) {
 }
 
 function SidebarLink({
+  attention,
   href,
   icon: Icon,
   isCollapsed = false,
   isIndented = false,
   label,
   pathname,
-}: NavItem & { isCollapsed?: boolean; isIndented?: boolean; pathname: string }) {
+}: NavItem & {
+  attention?: NavAttention;
+  isCollapsed?: boolean;
+  isIndented?: boolean;
+  pathname: string;
+}) {
   const isActive = isCurrentPath(pathname, href);
+  const attentionLabel =
+    attention === "new"
+      ? "new booking"
+      : typeof attention === "number"
+        ? `${attention} outstanding ${attention === 1 ? "task" : "tasks"}`
+        : null;
 
   return (
     <Link
-      aria-label={isCollapsed ? label : undefined}
+      aria-label={
+        isCollapsed || attentionLabel
+          ? `${label}${attentionLabel ? `, ${attentionLabel}` : ""}`
+          : undefined
+      }
       className={cn(
         "group relative inline-flex h-11 items-center rounded-xl text-sm font-medium transition",
         isCollapsed ? "w-11 justify-center px-0" : "min-w-fit gap-3 px-3 xl:w-full",
@@ -83,6 +123,21 @@ function SidebarLink({
     >
       <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
       <span className={cn(isCollapsed ? "sr-only" : "truncate")}>{label}</span>
+      {attention ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "inline-flex items-center justify-center bg-[var(--portal-danger)] font-mono font-semibold tabular-nums text-white",
+            isCollapsed
+              ? "absolute right-1.5 top-1.5 min-h-3.5 min-w-3.5 rounded-full px-1 text-[9px] leading-none ring-2 ring-white"
+              : attention === "new"
+                ? "ml-auto h-5 rounded-full px-2 text-[10px]"
+                : "ml-auto h-5 min-w-5 rounded-full px-1.5 text-[10px]",
+          )}
+        >
+          {attention === "new" ? (isCollapsed ? "" : "New") : Math.min(attention, 99)}
+        </span>
+      ) : null}
       {isCollapsed ? (
         <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-lg bg-[#151a24] px-3 py-1.5 text-sm font-medium text-white opacity-0 shadow-[0_10px_30px_rgba(16,24,40,0.18)] transition group-hover:opacity-100 group-focus-visible:opacity-100">
           <span
@@ -96,15 +151,135 @@ function SidebarLink({
   );
 }
 
+function MobileDockLink({
+  attention,
+  href,
+  icon: Icon,
+  label,
+  pathname,
+}: NavItem & { attention?: NavAttention; pathname: string }) {
+  const isActive = isCurrentPath(pathname, href);
+
+  return (
+    <Link
+      aria-label={
+        attention === "new"
+          ? `${label}, new booking`
+          : typeof attention === "number"
+            ? `${label}, ${attention} outstanding ${attention === 1 ? "task" : "tasks"}`
+            : label
+      }
+      className={cn(
+        "relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition",
+        isActive
+          ? "bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
+          : "text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
+      )}
+      href={href}
+    >
+      <span className="relative">
+        <Icon className="size-5" aria-hidden="true" />
+        {attention ? (
+          <span
+            aria-hidden="true"
+            className="absolute -right-2.5 -top-1.5 inline-flex min-h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--portal-danger)] px-1 font-mono text-[9px] font-semibold leading-none text-white ring-2 ring-white"
+          >
+            {attention === "new" ? "" : Math.min(attention, 99)}
+          </span>
+        ) : null}
+      </span>
+      <span className="max-w-full truncate">{label}</span>
+    </Link>
+  );
+}
+
+function MobileMoreMenu({
+  accountName,
+  pathname,
+  practiceBranding,
+  userEmail,
+}: {
+  accountName: string;
+  pathname: string;
+  practiceBranding: PracticeBranding;
+  userEmail?: string;
+}) {
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <button
+          aria-label="More portal navigation"
+          className="inline-flex size-10 items-center justify-center rounded-xl border border-[var(--portal-border)] text-[var(--portal-muted)] transition hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]/30 md:hidden"
+          type="button"
+        >
+          <MoreHorizontal className="size-5" aria-hidden="true" />
+        </button>
+      </SheetTrigger>
+      <SheetContent className="portal-platform" side="bottom">
+        <SheetHeader className="pr-12">
+          <SheetTitle>More</SheetTitle>
+          <SheetDescription>Practice resources and account controls.</SheetDescription>
+        </SheetHeader>
+        <div className="px-5">
+          <div className="flex min-w-0 items-center gap-3 rounded-xl bg-[var(--portal-panel-soft)] p-3">
+            <PracticeBrandLogo
+              branding={practiceBranding}
+              className="size-10 shrink-0 rounded-full p-1"
+              practiceName={accountName}
+              variant="mark"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
+                {accountName}
+              </p>
+              {userEmail ? (
+                <p className="truncate text-xs text-[var(--portal-muted)]">{userEmail}</p>
+              ) : null}
+            </div>
+          </div>
+          <nav aria-label="Practice resources" className="mt-4 grid gap-1">
+            {liveDocumentNavItems.map(({ href, icon: Icon, label }) => {
+              const isActive = isCurrentPath(pathname, href);
+              return (
+                <SheetClose asChild key={href}>
+                  <Link
+                    className={cn(
+                      "flex h-12 items-center gap-3 rounded-xl px-3 text-sm font-medium",
+                      isActive
+                        ? "bg-[var(--portal-accent)] text-white hover:text-white"
+                        : "text-[var(--portal-ink-soft)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
+                    )}
+                    href={href}
+                  >
+                    <Icon className="size-[18px]" aria-hidden="true" />
+                    {label}
+                  </Link>
+                </SheetClose>
+              );
+            })}
+          </nav>
+        </div>
+        <SheetFooter>
+          <PortalSignOutButton className="w-full justify-center border-[var(--portal-border)] bg-white text-[var(--portal-ink-soft)] shadow-none hover:bg-[var(--portal-panel)]" />
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export default function PortalWorkspaceShell({
   children,
   isLive,
+  latestBookingAt,
+  outstandingTaskCount,
   practiceBranding,
   practiceName,
   userEmail,
 }: Readonly<{
   children: React.ReactNode;
   isLive: boolean;
+  latestBookingAt: string | null;
+  outstandingTaskCount: number;
   practiceBranding: PracticeBranding;
   practiceName?: string;
   userEmail?: string;
@@ -121,6 +296,49 @@ export default function PortalWorkspaceShell({
   const isSidebarCollapsed = !isSidebarExpanded;
   const isPreparing = pathname.startsWith("/portal/app/preparing");
   const isFocusedSetup = pathname.startsWith("/portal/app/onboarding") || isPreparing;
+  const bookingSeenKey = `acuity.portal.booking-seen:${userEmail ?? accountName}`;
+  const hasNewBooking = useSyncExternalStore(
+    subscribeToBookingSeen,
+    () => {
+      if (!latestBookingAt || isCurrentPath(pathname, "/portal/app/bookings")) {
+        return false;
+      }
+      const latestTimestamp = Date.parse(latestBookingAt);
+      const seenBookingAt = window.localStorage.getItem(bookingSeenKey);
+      const seenTimestamp = seenBookingAt ? Date.parse(seenBookingAt) : Number.NaN;
+      return (
+        Number.isFinite(latestTimestamp) &&
+        Number.isFinite(seenTimestamp) &&
+        latestTimestamp > seenTimestamp
+      );
+    },
+    () => false,
+  );
+
+  useEffect(() => {
+    if (!latestBookingAt) return;
+
+    const latestTimestamp = Date.parse(latestBookingAt);
+    if (!Number.isFinite(latestTimestamp)) return;
+
+    const seenBookingAt = window.localStorage.getItem(bookingSeenKey);
+    const seenTimestamp = seenBookingAt ? Date.parse(seenBookingAt) : Number.NaN;
+    if (
+      isCurrentPath(pathname, "/portal/app/bookings") ||
+      !Number.isFinite(seenTimestamp)
+    ) {
+      window.localStorage.setItem(bookingSeenKey, latestBookingAt);
+      window.dispatchEvent(new Event(BOOKING_SEEN_EVENT));
+    }
+  }, [bookingSeenKey, latestBookingAt, pathname]);
+
+  function attentionForItem(item: NavItem): NavAttention {
+    if (item.href === "/portal/app/bookings" && hasNewBooking) return "new";
+    if (item.href === "/portal/app/tasking" && outstandingTaskCount > 0) {
+      return outstandingTaskCount;
+    }
+    return undefined;
+  }
 
   if (isPreparing) {
     return <>{children}</>;
@@ -159,11 +377,24 @@ export default function PortalWorkspaceShell({
   return (
     <section className="portal-platform min-h-screen bg-[#fbfbfd] text-[#171a22]">
       <header className="sticky top-0 z-40 border-b border-[#e6e9f0] bg-white/95 backdrop-blur">
-        <div className="flex h-[68px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-4">
+        <div className="flex h-[68px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 xl:pl-0">
+          <div className="flex min-w-0 items-center">
+            <button
+              type="button"
+              aria-label={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+              className="hidden h-[68px] w-[68px] shrink-0 items-center justify-center border-r border-[#e6e9f0] text-[#4f5b6b] transition hover:bg-[#f5f7fb] hover:text-[#1f2937] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#536a91]/30 xl:inline-flex"
+              onClick={() => setIsSidebarExpanded((current) => !current)}
+            >
+              {isSidebarExpanded ? (
+                <PanelLeftClose className="h-[22px] w-[22px]" aria-hidden="true" />
+              ) : (
+                <PanelLeftOpen className="h-[22px] w-[22px]" aria-hidden="true" />
+              )}
+            </button>
+
             <Link
               href="/"
-              className="flex min-w-0 items-center gap-3 text-[#19203a] hover:text-[#19203a]"
+              className="flex min-w-0 items-center gap-3 text-[#19203a] hover:text-[#19203a] xl:ml-6"
               aria-label="Acuity Health home"
             >
               <Logo />
@@ -172,7 +403,7 @@ export default function PortalWorkspaceShell({
               </span>
             </Link>
 
-            <span className="hidden h-7 items-center border-l border-[#e6e9f0] pl-4 text-sm font-medium text-[#6b7280] md:flex">
+            <span className="ml-4 hidden h-7 items-center border-l border-[#e6e9f0] pl-4 text-sm font-medium text-[#6b7280] md:flex">
               Practice Portal
             </span>
           </div>
@@ -194,13 +425,28 @@ export default function PortalWorkspaceShell({
                 ) : null}
               </div>
             </div>
-            <PortalSignOutButton className="border-[#d8dde8] bg-white text-[#344054] shadow-none hover:bg-[#f5f7fb]" />
+            {isLive ? (
+              <MobileMoreMenu
+                accountName={accountName}
+                pathname={pathname}
+                practiceBranding={practiceBranding}
+                userEmail={userEmail}
+              />
+            ) : null}
+            <div className="hidden md:block">
+              <PortalSignOutButton className="border-[#d8dde8] bg-white text-[#344054] shadow-none hover:bg-[#f5f7fb]" />
+            </div>
           </div>
         </div>
 
-        <nav className="flex gap-2 overflow-x-auto border-t border-[#edf0f5] px-4 py-3 xl:hidden">
+        <nav className="hidden gap-2 overflow-x-auto border-t border-[#edf0f5] px-4 py-3 md:flex xl:hidden">
           {navItems.map((item) => (
-            <SidebarLink key={item.href} {...item} pathname={pathname} />
+            <SidebarLink
+              attention={attentionForItem(item)}
+              key={item.href}
+              {...item}
+              pathname={pathname}
+            />
           ))}
           {isLive
             ? liveDocumentNavItems.map((item) => (
@@ -217,31 +463,6 @@ export default function PortalWorkspaceShell({
             isSidebarExpanded ? "w-[272px]" : "w-[68px]",
           )}
         >
-          <div
-            className={cn(
-              "flex h-[68px] shrink-0 items-center border-b border-[#e6e9f0]",
-              isSidebarCollapsed ? "justify-center" : "justify-between px-3",
-            )}
-          >
-            {isSidebarCollapsed ? null : (
-              <span className="truncate text-sm font-semibold tracking-normal text-[#19203a]">
-                Navigation
-              </span>
-            )}
-            <button
-              type="button"
-              aria-label={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#4f5b6b] transition hover:bg-[#f5f7fb] hover:text-[#1f2937]"
-              onClick={() => setIsSidebarExpanded((current) => !current)}
-            >
-              {isSidebarExpanded ? (
-                <PanelLeftClose className="h-[22px] w-[22px]" aria-hidden="true" />
-              ) : (
-                <PanelLeftOpen className="h-[22px] w-[22px]" aria-hidden="true" />
-              )}
-            </button>
-          </div>
-
           <nav
             className={cn(
               "flex flex-col gap-1 py-3",
@@ -250,6 +471,7 @@ export default function PortalWorkspaceShell({
           >
             {navItems.map((item) => (
               <SidebarLink
+                attention={attentionForItem(item)}
                 key={item.href}
                 {...item}
                 isCollapsed={isSidebarCollapsed}
@@ -356,10 +578,26 @@ export default function PortalWorkspaceShell({
           </div>
         </aside>
 
-        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-10 lg:py-7">
+        <main className="mx-auto w-full max-w-7xl px-4 pb-24 pt-6 sm:px-6 md:pb-6 lg:px-10 lg:py-7">
           {children}
         </main>
       </div>
+
+      {isLive ? (
+        <nav
+          aria-label="Portal"
+          className="fixed inset-x-0 bottom-0 z-40 flex gap-1 border-t border-[var(--portal-border)] bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(16,24,40,0.06)] backdrop-blur md:hidden"
+        >
+          {livePrimaryNavItems.map((item) => (
+            <MobileDockLink
+              attention={attentionForItem(item)}
+              key={item.href}
+              {...item}
+              pathname={pathname}
+            />
+          ))}
+        </nav>
+      ) : null}
     </section>
   );
 }

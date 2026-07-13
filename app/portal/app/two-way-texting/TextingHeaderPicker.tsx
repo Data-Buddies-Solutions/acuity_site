@@ -23,7 +23,7 @@ export default function TextingHeaderPicker({
     <label className="block w-full min-w-fit sm:w-auto">
       <span className="sr-only">Texting location</span>
       <PortalSelect
-        className="h-12 min-w-64 rounded-xl border-[var(--portal-border-strong)] px-3 font-semibold"
+        className="h-10 min-w-52 rounded-lg border-[var(--portal-border)] px-3 font-medium"
         wrapperClassName="block"
         onChange={(event) => {
           if (event.target.value === selectedId) {

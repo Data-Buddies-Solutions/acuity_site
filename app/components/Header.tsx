@@ -1,194 +1,210 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ChevronDown, Menu, X } from "lucide-react";
+import { ChevronDown, Menu } from "lucide-react";
+
 import { Button } from "./ui/button";
-import { cn } from "@/lib/utils";
 import BookCallButton from "./BookCallButton";
 import Logo from "./VisionOpsLogo";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { specialtyPages } from "@/app/specialties/pages";
-
-const navLinks = [
-  { href: "/#offers", label: "Solutions" },
-  { href: "/about", label: "About" },
-  { href: "/insights", label: "Insights" },
-  { href: "/press", label: "Press" },
-  { href: "/faq", label: "FAQ" },
-];
 
 const specialtyLinks = specialtyPages.map((page) => ({
   href: `/${page.slug}`,
   label: page.navLabel,
 }));
 
+const resourceLinks = [
+  { href: "/insights", label: "Insights" },
+  { href: "/press", label: "Press" },
+  { href: "/faq", label: "FAQ" },
+];
+
 export default function Header() {
-  const [isMobileNavOpen, setMobileNavOpen] = useState(false);
-  const [isScrolled, setIsScrolled] = useState(false);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 10);
-    };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
   return (
-    <>
-      <header
-        className={cn(
-          "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
-          isScrolled ? "px-8 md:px-32 lg:px-48 pt-2" : "px-4 pt-6",
-        )}
-      >
-        <div
-          className={cn(
-            "mx-auto flex max-w-screen-xl items-center justify-between rounded-[6px] border border-[#e1e5eb] bg-[#fbfaf7]/94 backdrop-blur-md shadow-sm transition-all duration-300",
-            isScrolled ? "px-4 py-1.5" : "px-5 py-3 md:px-8",
-          )}
+    <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 md:px-6">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between rounded-[6px] border border-[#e1e5eb] bg-[#fbfaf7]/95 px-4 shadow-sm backdrop-blur-md md:px-5">
+        <Link
+          aria-label="Acuity Health home"
+          className="flex shrink-0 items-center gap-2 text-[#101820]"
+          href="/"
         >
-          {/* Logo */}
+          <Logo />
+          <span className="text-sm font-semibold tracking-tight">Acuity Health</span>
+        </Link>
+
+        <nav
+          className="hidden items-center gap-8 lg:flex"
+          aria-label="Primary navigation"
+        >
+          <HeaderLink href="/#product">Product</HeaderLink>
+          <HeaderMenu label="Specialties" links={specialtyLinks} />
+          <HeaderLink href="/#proof">Proof</HeaderLink>
+          <HeaderMenu label="Resources" links={resourceLinks} />
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-3">
           <Link
-            href="/"
-            className="flex items-center gap-2 shrink-0"
-            aria-label="Acuity Health home"
+            className="hidden text-sm font-medium text-[#586372] transition-colors hover:text-[#101820] md:inline-flex"
+            href="/portal"
           >
-            <Logo />
-            <span className="text-sm font-semibold tracking-tight text-[#101820]">
-              Acuity Health
-            </span>
+            Practice Portal
           </Link>
+          <BookCallButton
+            className="hidden h-9 rounded-[4px] bg-[#172033] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#22304a] sm:inline-flex"
+            iconVariant="none"
+            size="sm"
+          >
+            Book a demo
+          </BookCallButton>
 
-          {/* Desktop nav - centered with even spacing */}
-          <nav className="hidden md:flex items-center justify-center flex-1">
-            <div className="flex items-center gap-10">
-              <Link
-                href={navLinks[0].href}
-                className="text-sm font-normal text-[#586372] transition-colors hover:text-[#101820]"
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button
+                aria-label="Open navigation"
+                className="size-10 rounded-[4px] border-[#e1e5eb] bg-white text-[#101820] shadow-sm lg:hidden"
+                size="icon"
+                variant="outline"
               >
-                {navLinks[0].label}
-              </Link>
+                <Menu className="size-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent
+              className="w-[min(94vw,24rem)] gap-0 bg-[#fbfaf7] p-0 text-[#101820]"
+              side="right"
+            >
+              <SheetHeader className="border-b border-[#e1e5eb] px-6 py-5">
+                <SheetTitle className="flex items-center gap-2 text-[#101820]">
+                  <Logo />
+                  Acuity Health
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  Navigate the Acuity Health website
+                </SheetDescription>
+              </SheetHeader>
 
-              <div className="group relative">
-                <button
-                  type="button"
-                  aria-haspopup="true"
-                  className="flex items-center gap-1 text-sm font-normal text-[#586372] transition-colors hover:text-[#101820]"
-                >
-                  Specialties
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
-                <div className="invisible absolute left-1/2 top-full z-50 w-56 -translate-x-1/2 pt-3 opacity-0 transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                  <div className="overflow-hidden rounded-[6px] border border-[#e1e5eb] bg-[#fbfaf7] p-1 shadow-lg">
-                    {specialtyLinks.map(({ href, label }) => (
-                      <Link
-                        key={href}
-                        href={href}
-                        className="block rounded-[4px] px-3 py-2 text-sm text-[#586372] transition-colors hover:bg-white hover:text-[#101820]"
-                      >
-                        {label}
-                      </Link>
-                    ))}
-                  </div>
+              <nav
+                className="flex flex-1 flex-col overflow-y-auto px-6 py-8"
+                aria-label="Mobile navigation"
+              >
+                <div className="space-y-5">
+                  <MobileLink href="/#product">Product</MobileLink>
+                  <MobileLink href="/#proof">Proof</MobileLink>
                 </div>
-              </div>
 
-              {navLinks.slice(1).map(({ href, label }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className="text-sm font-normal text-[#586372] transition-colors hover:text-[#101820]"
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-          </nav>
+                <MobileGroup label="Specialties" links={specialtyLinks} />
+                <MobileGroup label="Resources" links={resourceLinks} />
 
-          {/* CTA */}
-          <div className="flex items-center gap-2 shrink-0">
-            <BookCallButton
-              variant="secondary"
-              size="sm"
-              iconVariant="none"
-              className="marketing-cta hidden rounded-[4px] border-[#d4dae3] bg-white px-3.5 text-[11px] font-medium tracking-[0.11em] text-[#172033] shadow-sm hover:bg-[#f7f8fb] md:inline-flex"
-            >
-              Book a Demo
-            </BookCallButton>
-
-            <Button
-              variant="default"
-              size="sm"
-              className="marketing-cta hidden rounded-[4px] bg-[#172033] px-3.5 text-[11px] font-medium tracking-[0.11em] hover:bg-[#22304a] md:inline-flex"
-              asChild
-            >
-              <Link href="/portal">Practice Portal</Link>
-            </Button>
-
-            {/* Mobile menu button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-10 w-10 rounded-[4px] border border-[#e1e5eb] bg-white text-[#101820] shadow-sm md:hidden"
-              onClick={() => setMobileNavOpen(!isMobileNavOpen)}
-              aria-label="Toggle navigation"
-            >
-              {isMobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </Button>
-          </div>
-        </div>
-
-        {/* Mobile nav - fullscreen overlay */}
-        {isMobileNavOpen && (
-          <div className="fixed inset-0 z-40 bg-[#fbfaf7] md:hidden">
-            <div className="flex min-h-full flex-col items-center justify-center gap-8 bg-[#fbfaf7] px-6 py-8">
-              <button
-                type="button"
-                onClick={() => setMobileNavOpen(false)}
-                className="absolute right-6 top-6 flex h-10 w-10 items-center justify-center rounded-[4px] border border-[#e1e5eb] bg-white text-[#101820] shadow-sm"
-                aria-label="Close navigation"
-              >
-                <X className="h-5 w-5" />
-              </button>
-              <nav className="flex flex-col items-center space-y-6">
-                {[navLinks[0], ...specialtyLinks, ...navLinks.slice(1)].map(
-                  ({ href, label }) => (
+                <div className="mt-auto space-y-4 border-t border-[#e1e5eb] pt-6">
+                  <SheetClose asChild>
                     <Link
-                      key={href}
-                      href={href}
-                      className="text-2xl font-normal text-[#101820]/80 transition-colors hover:text-[#101820]"
-                      onClick={() => setMobileNavOpen(false)}
+                      className="block text-center text-sm font-medium text-[#586372] hover:text-[#101820]"
+                      href="/portal"
                     >
-                      {label}
-                    </Link>
-                  ),
-                )}
-                <div className="mt-4 flex w-full max-w-xs flex-col gap-3">
-                  <BookCallButton
-                    variant="secondary"
-                    size="lg"
-                    iconVariant="none"
-                    className="marketing-cta w-full rounded-[4px] border-[#d4dae3] bg-white text-[12px] tracking-[0.11em] text-[#172033] shadow-sm hover:bg-[#f7f8fb]"
-                  >
-                    Book a Demo
-                  </BookCallButton>
-                  <Button
-                    variant="default"
-                    size="lg"
-                    className="marketing-cta w-full rounded-[4px] bg-[#172033] text-[12px] tracking-[0.11em] hover:bg-[#22304a]"
-                    asChild
-                  >
-                    <Link href="/portal" onClick={() => setMobileNavOpen(false)}>
                       Practice Portal
                     </Link>
-                  </Button>
+                  </SheetClose>
+                  <BookCallButton
+                    className="h-11 w-full rounded-[4px] bg-[#172033] text-sm font-semibold text-white hover:bg-[#22304a]"
+                    iconVariant="none"
+                    size="default"
+                  >
+                    Book a demo
+                  </BookCallButton>
                 </div>
               </nav>
-            </div>
-          </div>
-        )}
-      </header>
-    </>
+            </SheetContent>
+          </Sheet>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function HeaderLink({ children, href }: { children: React.ReactNode; href: string }) {
+  return (
+    <Link
+      className="text-sm font-medium text-[#586372] transition-colors hover:text-[#101820]"
+      href={href}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function HeaderMenu({
+  label,
+  links,
+}: {
+  label: string;
+  links: readonly { href: string; label: string }[];
+}) {
+  return (
+    <div className="group relative">
+      <button
+        aria-haspopup="true"
+        className="flex items-center gap-1 text-sm font-medium text-[#586372] transition-colors hover:text-[#101820] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#536a91]/40"
+        type="button"
+      >
+        {label}
+        <ChevronDown className="size-3.5" />
+      </button>
+      <div className="invisible absolute left-1/2 top-full z-50 w-56 -translate-x-1/2 pt-3 opacity-0 transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+        <div className="overflow-hidden rounded-[6px] border border-[#e1e5eb] bg-[#fbfaf7] p-1 shadow-lg">
+          {links.map((link) => (
+            <Link
+              className="block rounded-[4px] px-3 py-2 text-sm text-[#586372] transition-colors hover:bg-white hover:text-[#101820]"
+              href={link.href}
+              key={link.href}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MobileLink({ children, href }: { children: React.ReactNode; href: string }) {
+  return (
+    <SheetClose asChild>
+      <Link className="block text-2xl font-medium text-[#101820]" href={href}>
+        {children}
+      </Link>
+    </SheetClose>
+  );
+}
+
+function MobileGroup({
+  label,
+  links,
+}: {
+  label: string;
+  links: readonly { href: string; label: string }[];
+}) {
+  return (
+    <div className="mt-9">
+      <p className="marketing-label text-[10px] font-medium tracking-[0.16em] text-[#8a94a6]">
+        {label}
+      </p>
+      <div className="mt-4 space-y-3">
+        {links.map((link) => (
+          <SheetClose asChild key={link.href}>
+            <Link className="block text-base font-medium text-[#586372]" href={link.href}>
+              {link.label}
+            </Link>
+          </SheetClose>
+        ))}
+      </div>
+    </div>
   );
 }

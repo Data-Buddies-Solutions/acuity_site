@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Check, ChevronRight, Play, RotateCcw, X } from "lucide-react";
 
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
+import { PortalQuerySelect } from "@/app/portal/app/PortalQuerySelect";
 import { PracticePageHeader } from "@/app/portal/app/PracticePageHeader";
 import { updateAgentTaskStatus } from "@/app/portal/app/tasking/actions";
 import { Button } from "@/components/ui/button";
@@ -11,7 +13,6 @@ import {
   parsePortalTaskCategory,
   parsePortalTaskOffice,
   parsePortalTaskPriority,
-  parsePortalTaskStatus,
   portalTaskCategories,
   type PortalTask,
   type PortalTaskCategoryFilter,
@@ -22,6 +23,7 @@ import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
+type TaskView = "active" | "completed" | "dismissed";
 
 const categoryLabels = {
   appointments: "Appointments",
@@ -36,59 +38,56 @@ const priorityLabels = {
   normal: "Normal",
 } as const;
 
-const statusLabels = {
-  all: "All",
-  closed_no_action: "Closed",
-  done: "Done",
-  in_progress: "In progress",
-  open: "Open",
-} as const;
-
-const statusOptions = [
-  { label: "Open", value: "open" },
-  { label: "In progress", value: "in_progress" },
-  { label: "Done", value: "done" },
-  { label: "Closed", value: "closed_no_action" },
-] as const;
-
 const priorityOptions = [
-  { label: "All", value: "all" },
+  { label: "All priorities", value: "" },
   { label: "High priority", value: "high_priority" },
   { label: "Normal", value: "normal" },
   { label: "Non-urgent", value: "non_urgent" },
 ] as const satisfies ReadonlyArray<{
   label: string;
-  value: PortalTaskPriorityFilter;
+  value: "" | Exclude<PortalTaskPriorityFilter, "all">;
 }>;
 
-const statusFilterOptions = [
-  { label: "Open", value: "open" },
-  { label: "All", value: "all" },
-  { label: "In progress", value: "in_progress" },
-  { label: "Done", value: "done" },
-  { label: "Closed", value: "closed_no_action" },
-] as const satisfies ReadonlyArray<{
-  label: string;
-  value: PortalTaskStatusFilter;
-}>;
+const viewOptions = [
+  { label: "Active", value: "active" },
+  { label: "Completed", value: "completed" },
+  { label: "Dismissed", value: "dismissed" },
+] as const satisfies ReadonlyArray<{ label: string; value: TaskView }>;
+
+const priorityRank = {
+  high_priority: 0,
+  normal: 1,
+  non_urgent: 2,
+} as const;
+
+function parseView(value: string | string[] | undefined): TaskView {
+  return value === "completed" || value === "dismissed" ? value : "active";
+}
+
+function statusesForView(view: TaskView): PortalTaskStatusFilter[] {
+  if (view === "completed") return ["done"];
+  if (view === "dismissed") return ["closed_no_action"];
+  return ["open", "in_progress"];
+}
 
 function taskingHref({
   category,
   office,
   priority,
-  status,
+  view,
 }: {
   category: PortalTaskCategoryFilter;
   office: string | null;
   priority: PortalTaskPriorityFilter;
-  status: PortalTaskStatusFilter;
+  view: TaskView;
 }) {
   const params = new URLSearchParams();
-  params.set("status", status);
+  if (view !== "active") params.set("view", view);
   if (category !== "all") params.set("category", category);
   if (priority !== "all") params.set("priority", priority);
   if (office) params.set("office", office);
-  return `/portal/app/tasking?${params.toString()}`;
+  const query = params.toString();
+  return `/portal/app/tasking${query ? `?${query}` : ""}`;
 }
 
 function formatPhone(phone: string) {
@@ -99,7 +98,7 @@ function formatPhone(phone: string) {
   if (digits.length === 10) {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
-  return phone || "-";
+  return phone || "—";
 }
 
 const taskDateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -110,166 +109,143 @@ const taskDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
 });
 
-function formatTaskDate(date: Date) {
-  return taskDateFormatter.format(date);
-}
-
-function OfficeFilterNav({
-  category,
-  office,
-  offices,
-  priority,
-  status,
-}: {
-  category: PortalTaskCategoryFilter;
-  office: string | null;
-  offices: Array<{ id: string; label: string }>;
-  priority: PortalTaskPriorityFilter;
-  status: PortalTaskStatusFilter;
-}) {
-  if (offices.length <= 1) return null;
-
-  const items = [{ id: null, label: "All offices" }, ...offices];
-  const selectedLabel = items.find((item) => item.id === office)?.label ?? "All offices";
-
-  return (
-    <section className="flex max-w-full flex-col gap-1.5">
-      <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
-        Office: <span className="text-[#536a91]">{selectedLabel}</span>
-      </p>
-      <nav
-        aria-label="Task office"
-        className="flex max-w-full gap-2 overflow-x-auto pb-1"
-      >
-        {items.map((item) => {
-          const isActive = item.id === office;
-          return (
-            <Link
-              key={item.id ?? "all"}
-              aria-current={isActive ? "page" : undefined}
-              className={cn(
-                "min-w-fit rounded-lg border px-3 py-2 text-sm font-medium transition",
-                isActive
-                  ? "!border-[#536a91] !bg-[#536a91] !text-white shadow-sm hover:!text-white"
-                  : "border-[var(--portal-border)] bg-white text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
-              )}
-              href={taskingHref({
-                category,
-                office: item.id,
-                priority,
-                status,
-              })}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-    </section>
+function formatTaskAge(createdAt: Date) {
+  const elapsedMinutes = Math.max(
+    0,
+    Math.floor((Date.now() - createdAt.getTime()) / 60_000),
   );
+  if (elapsedMinutes < 1) return "just now";
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
+  const hours = Math.floor(elapsedMinutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
-function TaskStatusForm({ task }: { task: PortalTask }) {
+function TaskActionForm({ task }: { task: PortalTask }) {
+  const isActive = task.status === "open" || task.status === "in_progress";
+  const nextStatus = task.status === "open" ? "in_progress" : "done";
+  const primaryLabel = task.status === "open" ? "Start" : "Complete";
+  const PrimaryIcon = task.status === "open" ? Play : Check;
+
+  if (!isActive) {
+    return (
+      <form action={updateAgentTaskStatus}>
+        <input name="taskId" type="hidden" value={task.id} />
+        <Button name="status" size="sm" value="open" variant="outline">
+          <RotateCcw />
+          Reopen
+        </Button>
+      </form>
+    );
+  }
+
   return (
-    <form action={updateAgentTaskStatus} className="flex items-center gap-2">
+    <form action={updateAgentTaskStatus} className="flex items-center gap-1.5">
       <input name="taskId" type="hidden" value={task.id} />
-      <select
-        aria-label="Task status"
-        className="h-9 rounded-lg border border-[var(--portal-border)] bg-white px-2 text-sm font-medium text-[var(--portal-ink)] outline-none focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
-        defaultValue={task.status}
+      <Button
+        aria-label={`Dismiss ${task.summary}`}
+        className="text-[var(--portal-muted)]"
         name="status"
+        size="icon"
+        title="Dismiss"
+        value="closed_no_action"
+        variant="ghost"
       >
-        {statusOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      <Button size="compact" type="submit" variant="secondary">
-        Update
+        <X />
+      </Button>
+      <Button name="status" size="sm" value={nextStatus} variant="primary">
+        <PrimaryIcon />
+        {primaryLabel}
       </Button>
     </form>
   );
 }
 
 function TaskRow({ task }: { task: PortalTask }) {
-  return (
-    <article className="rounded-lg border border-[var(--portal-border)] bg-white p-4 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <PortalBadge tone={task.priority === "high_priority" ? "accent" : "neutral"}>
-              {priorityLabels[task.priority]}
-            </PortalBadge>
-            <PortalBadge tone="soft">{statusLabels[task.status]}</PortalBadge>
-            <span className="text-xs font-medium text-[var(--portal-muted)]">
-              {formatTaskDate(task.createdAt)}
-            </span>
-          </div>
-          <h3 className="text-base font-semibold leading-snug text-[var(--portal-ink)]">
-            {task.summary}
-          </h3>
-          <p className="text-sm text-[var(--portal-muted)]">
-            {task.patientLabel} · {formatPhone(task.callerPhone)} · {task.locationLabel}
-          </p>
-        </div>
-        <TaskStatusForm task={task} />
-      </div>
-      <details className="mt-3 rounded-lg bg-[var(--portal-panel)] px-3 py-2">
-        <summary className="cursor-pointer text-sm font-semibold text-[var(--portal-ink-soft)]">
-          Details
-        </summary>
-        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--portal-muted)]">
-          {task.message}
-        </p>
-        {task.callHref ? (
-          <Link
-            className="mt-3 inline-flex text-sm font-semibold text-[#536a91] hover:text-[#324568]"
-            href={task.callHref}
-          >
-            Open linked call
-          </Link>
-        ) : null}
-        <Link
-          className="ml-0 mt-3 inline-flex text-sm font-semibold text-[#536a91] hover:text-[#324568] sm:ml-4"
-          href={task.historyHref}
-        >
-          Number history
-        </Link>
-      </details>
-    </article>
-  );
-}
+  const patientIsPhone = task.patientLabel === task.callerPhone;
+  const isActive = task.status === "open" || task.status === "in_progress";
 
-function TaskBucket({
-  category,
-  tasks,
-}: {
-  category: (typeof portalTaskCategories)[number];
-  tasks: PortalTask[];
-}) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-3 border-b border-[var(--portal-border)] pb-2">
-        <h2 className="text-lg font-semibold text-[var(--portal-ink)]">
-          {categoryLabels[category]}
+    <article className="relative grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-y-4 left-0 w-1 rounded-r-full",
+          task.priority === "high_priority"
+            ? "bg-[var(--portal-danger)]"
+            : task.priority === "normal"
+              ? "bg-[var(--portal-accent)]"
+              : "bg-[var(--portal-border-strong)]",
+        )}
+      />
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <PortalBadge tone={task.priority === "high_priority" ? "accent" : "neutral"}>
+            {priorityLabels[task.priority]}
+          </PortalBadge>
+          <PortalBadge tone="soft">{categoryLabels[task.category]}</PortalBadge>
+          {task.status === "in_progress" ? (
+            <PortalBadge tone="accent">In progress</PortalBadge>
+          ) : null}
+          <span className="text-xs text-[var(--portal-muted)]">
+            {isActive
+              ? `Waiting ${formatTaskAge(task.createdAt)}`
+              : taskDateFormatter.format(task.createdAt)}
+          </span>
+        </div>
+        <h2 className="mt-2 text-base font-semibold leading-snug text-[var(--portal-ink)]">
+          {task.summary}
         </h2>
-        <PortalBadge tone={tasks.length > 0 ? "accent" : "neutral"}>
-          {tasks.length}
-        </PortalBadge>
+        <p className="mt-1 text-sm text-[var(--portal-muted)]">
+          <span className="font-medium text-[var(--portal-ink-soft)]">
+            {task.patientLabel}
+          </span>
+          {!patientIsPhone ? (
+            <>
+              <span aria-hidden="true"> · </span>
+              <span className="whitespace-nowrap font-mono text-xs tabular-nums">
+                {formatPhone(task.callerPhone)}
+              </span>
+            </>
+          ) : null}
+          <span aria-hidden="true"> · </span>
+          {task.locationLabel}
+        </p>
+        <details className="group mt-3">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-[var(--portal-accent)] hover:text-[var(--portal-accent-hover)]">
+            Details
+            <ChevronRight
+              className="size-4 transition group-open:rotate-90"
+              aria-hidden="true"
+            />
+          </summary>
+          <div className="mt-3 max-w-3xl border-l-2 border-[var(--portal-border)] pl-3">
+            <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--portal-muted)]">
+              {task.message}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-4">
+              {task.callHref ? (
+                <Link
+                  className="text-sm font-medium text-[var(--portal-accent)]"
+                  href={task.callHref}
+                >
+                  Open linked call
+                </Link>
+              ) : null}
+              <Link
+                className="text-sm font-medium text-[var(--portal-accent)]"
+                href={task.historyHref}
+              >
+                Number history
+              </Link>
+            </div>
+          </div>
+        </details>
       </div>
-      {tasks.length > 0 ? (
-        <div className="space-y-3">
-          {tasks.map((task) => (
-            <TaskRow key={task.id} task={task} />
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-lg border border-dashed border-[var(--portal-border)] bg-white px-4 py-8 text-sm font-medium text-[var(--portal-muted)]">
-          No {categoryLabels[category].toLowerCase()} tasks.
-        </div>
-      )}
-    </section>
+      <div className="flex justify-end lg:pt-1">
+        <TaskActionForm task={task} />
+      </div>
+    </article>
   );
 }
 
@@ -279,112 +255,157 @@ export default async function PortalTasksPage({
   searchParams?: SearchParamsInput;
 }) {
   const portalState = await getPortalWorkspaceState();
-
-  if (!portalState.launched) {
-    redirect("/portal/app/onboarding");
-  }
+  if (!portalState.launched) redirect("/portal/app/onboarding");
 
   const params = searchParams ? await searchParams : {};
-  const status = parsePortalTaskStatus(params.status);
+  const view = parseView(params.view);
   const category = parsePortalTaskCategory(params.category);
   const priority = parsePortalTaskPriority(params.priority);
   const office = parsePortalTaskOffice(params.office);
-  const result = await getPortalTasks({ category, office, priority, status });
+  const results = await Promise.all(
+    statusesForView(view).map((status) =>
+      getPortalTasks({ category, office, priority, status }),
+    ),
+  );
+  const result = results[0];
 
-  if (!result) {
-    redirect("/portal");
-  }
+  if (!result || results.some((item) => !item)) redirect("/portal");
 
-  const renderedCategories =
-    result.category === "all" ? portalTaskCategories : [result.category];
+  const tasks = portalTaskCategories
+    .flatMap((category) =>
+      results.flatMap((item) => item?.tasksByCategory[category] ?? []),
+    )
+    .sort((left, right) => {
+      const priorityDifference =
+        priorityRank[left.priority] - priorityRank[right.priority];
+      return priorityDifference || left.createdAt.getTime() - right.createdAt.getTime();
+    });
+  const viewLabel =
+    viewOptions.find((option) => option.value === view)?.label ?? "Active";
+  const hasAppliedQueueFilters = category !== "all" || priority !== "all";
+  const showQueueFilters = tasks.length > 0 || hasAppliedQueueFilters;
+  const headerMeta = tasks.length
+    ? `${tasks.length} ${viewLabel.toLowerCase()} ${tasks.length === 1 ? "task" : "tasks"}`
+    : view === "active"
+      ? "No outstanding tasks"
+      : `No ${viewLabel.toLowerCase()} tasks`;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-5">
       <PracticePageHeader
         branding={result.branding}
-        logoMeta={`${result.totalOpenTasks} open`}
+        logoMeta={headerMeta}
         practiceName={result.practiceName}
         showLogo={false}
+        size="compact"
         title="Tasks"
       >
-        <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
-          <OfficeFilterNav
-            category={result.category}
-            office={result.selectedLocationId}
-            offices={result.locations}
-            priority={result.priority}
-            status={result.status}
+        {result.locations.length > 1 ? (
+          <PortalQuerySelect
+            ariaLabel="Office"
+            options={[
+              { label: "All offices", value: "" },
+              ...result.locations.map((item) => ({ label: item.label, value: item.id })),
+            ]}
+            param="office"
+            value={result.selectedLocationId ?? ""}
           />
-          <div className="grid w-full gap-2 sm:grid-cols-3 lg:w-auto">
-            <LinkSegmentedControl
-              activeClassName="bg-[var(--portal-accent)] text-white hover:text-white"
-              ariaLabel="Task status"
-              className="max-w-full overflow-x-auto border border-[var(--portal-border)] bg-white"
-              inactiveClassName="text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
-              itemClassName="min-w-fit flex-1 px-3 py-1.5 text-center text-sm"
-              items={statusFilterOptions.map((option) => ({
-                href: taskingHref({
-                  category: result.category,
-                  office: result.selectedLocationId,
-                  priority: result.priority,
-                  status: option.value,
-                }),
-                label: option.label,
-                value: option.value,
-              }))}
-              value={result.status}
-            />
-            <LinkSegmentedControl
-              activeClassName="bg-[var(--portal-accent)] text-white hover:text-white"
-              ariaLabel="Task category"
-              className="max-w-full overflow-x-auto border border-[var(--portal-border)] bg-white"
-              inactiveClassName="text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
-              itemClassName="min-w-fit flex-1 px-3 py-1.5 text-center text-sm"
-              items={[
-                { label: "All", value: "all" as const },
+        ) : null}
+      </PracticePageHeader>
+
+      <section className="flex flex-col gap-3 border-y border-[var(--portal-border)] py-3 lg:flex-row lg:items-center lg:justify-between">
+        <LinkSegmentedControl
+          activeClassName="bg-[var(--portal-accent)] text-white hover:text-white"
+          ariaLabel="Task status"
+          className="w-full border border-[var(--portal-border)] bg-white sm:w-fit"
+          inactiveClassName="text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
+          itemClassName="flex-1 px-4 sm:min-w-24"
+          items={viewOptions.map((option) => ({
+            href: taskingHref({
+              category: result.category,
+              office: result.selectedLocationId,
+              priority: result.priority,
+              view: option.value,
+            }),
+            label: option.label,
+            value: option.value,
+          }))}
+          value={view}
+        />
+        {showQueueFilters ? (
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <PortalQuerySelect
+              ariaLabel="Category"
+              options={[
+                { label: "All categories", value: "" },
                 ...portalTaskCategories.map((item) => ({
                   label: categoryLabels[item],
                   value: item,
                 })),
-              ].map((option) => ({
-                href: taskingHref({
-                  category: option.value,
-                  office: result.selectedLocationId,
-                  priority: result.priority,
-                  status: result.status,
-                }),
-                label: option.label,
-                value: option.value,
-              }))}
-              value={result.category}
+              ]}
+              param="category"
+              value={result.category === "all" ? "" : result.category}
             />
-            <LinkSegmentedControl
-              activeClassName="bg-[var(--portal-accent)] text-white hover:text-white"
-              ariaLabel="Task priority"
-              className="max-w-full overflow-x-auto border border-[var(--portal-border)] bg-white"
-              inactiveClassName="text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
-              itemClassName="min-w-fit flex-1 px-3 py-1.5 text-center text-sm"
-              items={priorityOptions.map((option) => ({
-                href: taskingHref({
-                  category: result.category,
-                  office: result.selectedLocationId,
-                  priority: option.value,
-                  status: result.status,
-                }),
-                label: option.label,
-                value: option.value,
-              }))}
-              value={result.priority}
+            <PortalQuerySelect
+              ariaLabel="Priority"
+              options={[...priorityOptions]}
+              param="priority"
+              value={result.priority === "all" ? "" : result.priority}
             />
           </div>
-        </div>
-      </PracticePageHeader>
+        ) : null}
+      </section>
 
-      <div className="space-y-8">
-        {renderedCategories.map((item) => (
-          <TaskBucket key={item} category={item} tasks={result.tasksByCategory[item]} />
-        ))}
-      </div>
+      <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
+        <header className="flex items-center justify-between border-b border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-4 py-3 sm:px-5">
+          <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
+            {viewLabel} queue
+          </h2>
+          {tasks.length ? (
+            <span className="font-mono text-xs font-semibold tabular-nums text-[var(--portal-muted)]">
+              {tasks.length}
+            </span>
+          ) : null}
+        </header>
+        {tasks.length ? (
+          <div className="divide-y divide-[var(--portal-border)]">
+            {tasks.map((task) => (
+              <TaskRow key={task.id} task={task} />
+            ))}
+          </div>
+        ) : (
+          <div className="px-5 py-14 text-center">
+            {view === "active" ? (
+              <span className="mx-auto mb-4 inline-flex size-10 items-center justify-center rounded-full bg-[var(--portal-live-soft)] text-[var(--portal-live)]">
+                <Check className="size-5" aria-hidden="true" />
+              </span>
+            ) : null}
+            <p className="text-sm font-semibold text-[var(--portal-ink)]">
+              {view === "active"
+                ? "You’re caught up"
+                : `No ${viewLabel.toLowerCase()} tasks`}
+            </p>
+            <p className="mt-1 text-sm text-[var(--portal-muted)]">
+              {view === "active"
+                ? "There are no active staff follow-ups right now."
+                : "Try another office or filter."}
+            </p>
+            {view === "active" ? (
+              <Link
+                className="mt-4 inline-flex text-sm font-medium text-[var(--portal-accent)]"
+                href={taskingHref({
+                  category: "all",
+                  office: result.selectedLocationId,
+                  priority: "all",
+                  view: "completed",
+                })}
+              >
+                Review completed tasks
+              </Link>
+            ) : null}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

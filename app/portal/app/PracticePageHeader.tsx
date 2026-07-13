@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { PracticeBrandLogo } from "@/app/portal/app/PracticeBrandLogo";
 import type { PracticeBranding } from "@/lib/practice-branding";
+import { cn } from "@/lib/utils";
 
 export function PracticePageHeader({
   children,
@@ -9,6 +10,7 @@ export function PracticePageHeader({
   logoMeta,
   practiceName,
   showLogo = true,
+  size = "default",
   title,
   branding,
 }: {
@@ -18,6 +20,7 @@ export function PracticePageHeader({
   logoMeta?: string;
   practiceName: string;
   showLogo?: boolean;
+  size?: "compact" | "default";
   title: string;
 }) {
   if (!showLogo) {
@@ -29,7 +32,12 @@ export function PracticePageHeader({
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="break-words text-4xl font-semibold leading-tight tracking-normal text-[#151a24] md:text-5xl">
+          <h1
+            className={cn(
+              "break-words font-semibold leading-tight tracking-normal text-[#151a24]",
+              size === "compact" ? "text-3xl md:text-[2rem]" : "text-4xl md:text-5xl",
+            )}
+          >
             {title}
           </h1>
           {logoMeta ? (
@@ -58,7 +66,12 @@ export function PracticePageHeader({
                 {eyebrow}
               </p>
             ) : null}
-            <h1 className="break-words text-4xl font-semibold leading-tight tracking-normal text-[#151a24] md:text-5xl">
+            <h1
+              className={cn(
+                "break-words font-semibold leading-tight tracking-normal text-[#151a24]",
+                size === "compact" ? "text-3xl md:text-[2rem]" : "text-4xl md:text-5xl",
+              )}
+            >
               {title}
             </h1>
           </div>

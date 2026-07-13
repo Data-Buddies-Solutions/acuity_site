@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCheck,
   Circle,
   Loader2,
   Lock,
   MessageSquareText,
+  MoreHorizontal,
   Plus,
-  RefreshCw,
   Search,
   Send,
   Trash2,
@@ -17,6 +18,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { EASTERN_TIME_ZONE } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -190,7 +193,15 @@ function EmptyThread() {
   );
 }
 
-function MessageBubble({ message }: { message: MessageItem }) {
+function MessageBubble({
+  message,
+  onRetry,
+  retrying,
+}: {
+  message: MessageItem;
+  onRetry: (body: string) => void;
+  retrying: boolean;
+}) {
   const outbound = message.direction === "OUTBOUND";
   const failed = message.status === "FAILED";
 
@@ -231,6 +242,16 @@ function MessageBubble({ message }: { message: MessageItem }) {
         </div>
         {failed && message.errorDetail ? (
           <p className="mt-2 text-xs leading-5 text-[#8a1f1f]">{message.errorDetail}</p>
+        ) : null}
+        {failed && outbound ? (
+          <button
+            className="mt-2 text-xs font-semibold text-[#8a1f1f] underline underline-offset-2 disabled:opacity-50"
+            disabled={retrying}
+            onClick={() => onRetry(message.body)}
+            type="button"
+          >
+            Retry
+          </button>
         ) : null}
       </div>
     </div>
@@ -279,23 +300,13 @@ function ConversationRow({
           {conversation.lastMessageDirection === "OUTBOUND" ? "You: " : ""}
           {conversation.lastMessagePreview || "No message body"}
         </span>
-        <span className="mt-2 flex items-center gap-2">
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-              conversation.status === "OPEN"
-                ? "bg-[#edf4ff] text-[#536a91]"
-                : "bg-[#f2f4f7] text-[var(--portal-muted)]",
-            )}
-          >
-            {conversationStatusLabel(conversation.status)}
-          </span>
-          {conversation.optedOut ? (
+        {conversation.optedOut ? (
+          <span className="mt-2 flex items-center gap-2">
             <span className="rounded-full bg-[#fff1f1] px-2 py-0.5 text-[11px] font-semibold text-[#8a1f1f]">
               Opted out
             </span>
-          ) : null}
-        </span>
+          </span>
+        ) : null}
       </span>
     </button>
   );
@@ -451,6 +462,7 @@ function DraftConversationThread({
   error,
   onBodyChange,
   onCancel,
+  onBack,
   onPhoneChange,
   onSubmit,
   phone,
@@ -460,6 +472,7 @@ function DraftConversationThread({
   error: string | null;
   onBodyChange: (value: string) => void;
   onCancel: () => void;
+  onBack: () => void;
   onPhoneChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   phone: string;
@@ -470,37 +483,48 @@ function DraftConversationThread({
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--portal-panel-soft)]">
       <header className="border-b border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-          <div className="min-w-0">
-            <label className="sr-only" htmlFor="new-sms-phone">
-              Patient mobile
-            </label>
-            <div className="grid max-w-md grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b border-[var(--portal-border-strong)] pb-1.5 transition focus-within:border-[#536a91]">
-              <span className="text-sm font-semibold text-[var(--portal-muted-soft)]">
-                To
-              </span>
-              <input
-                autoComplete="tel"
-                className="h-7 w-full min-w-0 bg-transparent text-sm font-semibold text-[var(--portal-ink)] outline-none placeholder:font-medium placeholder:text-[var(--portal-muted-soft)]"
-                disabled={sending}
-                id="new-sms-phone"
-                inputMode="tel"
-                onChange={(event) => onPhoneChange(event.target.value)}
-                placeholder="Patient mobile"
-                type="tel"
-                value={phone}
-              />
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
           <Button
-            aria-label="Close new text"
-            className="h-9 w-9 border-[var(--portal-border)] bg-white p-0 text-[var(--portal-muted)] hover:bg-[var(--portal-panel)]"
-            onClick={onCancel}
-            type="button"
-            variant="secondary"
+            aria-label="Back to conversations"
+            className="md:hidden"
+            onClick={onBack}
+            size="icon"
+            variant="ghost"
           >
-            <X className="h-4 w-4" aria-hidden="true" />
+            <ArrowLeft />
           </Button>
+          <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className="min-w-0">
+              <label className="sr-only" htmlFor="new-sms-phone">
+                Patient mobile
+              </label>
+              <div className="grid max-w-md grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b border-[var(--portal-border-strong)] pb-1.5 transition focus-within:border-[#536a91]">
+                <span className="text-sm font-semibold text-[var(--portal-muted-soft)]">
+                  To
+                </span>
+                <input
+                  autoComplete="tel"
+                  className="h-7 w-full min-w-0 bg-transparent text-sm font-semibold text-[var(--portal-ink)] outline-none placeholder:font-medium placeholder:text-[var(--portal-muted-soft)]"
+                  disabled={sending}
+                  id="new-sms-phone"
+                  inputMode="tel"
+                  onChange={(event) => onPhoneChange(event.target.value)}
+                  placeholder="Patient mobile"
+                  type="tel"
+                  value={phone}
+                />
+              </div>
+            </div>
+            <Button
+              aria-label="Close new text"
+              className="h-9 w-9 border-[var(--portal-border)] bg-white p-0 text-[var(--portal-muted)] hover:bg-[var(--portal-panel)]"
+              onClick={onCancel}
+              type="button"
+              variant="secondary"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -596,15 +620,17 @@ export default function TwoWayTextingWorkspace({
   const [newPatientPhone, setNewPatientPhone] = useState("");
   const [newDraft, setNewDraft] = useState("");
   const [composing, setComposing] = useState(false);
+  const [mobileThreadOpen, setMobileThreadOpen] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [startingOutbound, setStartingOutbound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const filterRef = useRef(initialFilter);
   const initialConversationIdRef = useRef(initialConversation?.id ?? "");
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const searchMountedRef = useRef(false);
 
   const filteredConversations = useMemo(() => {
@@ -620,15 +646,26 @@ export default function TwoWayTextingWorkspace({
     [inbox.conversations, selectedId],
   );
 
+  const filterCounts = useMemo(
+    () => ({
+      CLOSED: inbox.conversations.filter((item) => item.status === "CLOSED").length,
+      OPEN: inbox.conversations.filter((item) => item.status === "OPEN").length,
+      UNREAD: inbox.conversations.filter((item) => item.unread).length,
+    }),
+    [inbox.conversations],
+  );
+
   const selectConversation = useCallback((id: string) => {
     setComposing(false);
     setError(null);
     setSelectedId(id);
+    setMobileThreadOpen(true);
   }, []);
 
   const selectFilter = useCallback(
     (nextFilter: ConversationFilter) => {
       setFilter(nextFilter);
+      setMobileThreadOpen(false);
       setSelectedId((currentId) => {
         const currentConversation = inbox.conversations.find(
           (item) => item.id === currentId,
@@ -662,43 +699,32 @@ export default function TwoWayTextingWorkspace({
     return query ? `?${query}` : "";
   }, [inbox.selectedInboxId, searchQuery]);
 
-  const refreshInbox = useCallback(
-    async ({ quiet = false } = {}) => {
-      if (!quiet) {
-        setRefreshing(true);
+  const refreshInbox = useCallback(async () => {
+    try {
+      const next = await fetch(
+        `/api/portal/sms/conversations${conversationListQuery()}`,
+        {
+          cache: "no-store",
+        },
+      ).then((response) => readJson<InboxState>(response));
+      setInbox(next);
+      setError(null);
+
+      const fallbackSelectedId =
+        firstConversationIdForFilter(next.conversations, filterRef.current) ?? "";
+
+      if (selectedId && !next.conversations.some((item) => item.id === selectedId)) {
+        setSelectedId(fallbackSelectedId);
+        setConversation(null);
+      } else if (!selectedId && fallbackSelectedId) {
+        setSelectedId(fallbackSelectedId);
       }
-
-      try {
-        const next = await fetch(
-          `/api/portal/sms/conversations${conversationListQuery()}`,
-          {
-            cache: "no-store",
-          },
-        ).then((response) => readJson<InboxState>(response));
-        setInbox(next);
-        setError(null);
-
-        const fallbackSelectedId =
-          firstConversationIdForFilter(next.conversations, filterRef.current) ?? "";
-
-        if (selectedId && !next.conversations.some((item) => item.id === selectedId)) {
-          setSelectedId(fallbackSelectedId);
-          setConversation(null);
-        } else if (!selectedId && fallbackSelectedId) {
-          setSelectedId(fallbackSelectedId);
-        }
-      } catch (refreshError) {
-        setError(
-          refreshError instanceof Error
-            ? refreshError.message
-            : "Failed to refresh inbox",
-        );
-      } finally {
-        setRefreshing(false);
-      }
-    },
-    [conversationListQuery, selectedId],
-  );
+    } catch (refreshError) {
+      setError(
+        refreshError instanceof Error ? refreshError.message : "Failed to refresh inbox",
+      );
+    }
+  }, [conversationListQuery, selectedId]);
 
   const refreshConversation = useCallback(
     async ({ quiet = false } = {}) => {
@@ -790,7 +816,7 @@ export default function TwoWayTextingWorkspace({
     }
 
     const handle = setTimeout(() => {
-      void refreshInbox({ quiet: true });
+      void refreshInbox();
     }, 300);
 
     return () => clearTimeout(handle);
@@ -799,7 +825,7 @@ export default function TwoWayTextingWorkspace({
   useEffect(() => {
     const poll = setInterval(() => {
       if (document.visibilityState === "visible") {
-        void refreshInbox({ quiet: true });
+        void refreshInbox();
         void refreshConversation({ quiet: true });
       }
     }, 5_000);
@@ -810,7 +836,7 @@ export default function TwoWayTextingWorkspace({
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void refreshInbox({ quiet: true });
+        void refreshInbox();
         void refreshConversation({ quiet: true });
       }
     };
@@ -819,32 +845,79 @@ export default function TwoWayTextingWorkspace({
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [refreshConversation, refreshInbox]);
 
-  const handleSend = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  useEffect(() => {
+    if (!conversation?.messages.length) return;
+    const frame = requestAnimationFrame(() => {
+      const messagePane = messagesScrollRef.current;
+      if (messagePane) {
+        messagePane.scrollTop = messagePane.scrollHeight;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [conversation?.id, conversation?.messages.length]);
 
-    if (!conversation || !draft.trim()) {
-      return;
-    }
+  useEffect(() => {
+    if (!statusNotice) return;
+    const timeout = window.setTimeout(() => setStatusNotice(null), 6_000);
+    return () => window.clearTimeout(timeout);
+  }, [statusNotice]);
+
+  const sendMessage = async (body: string) => {
+    const messageBody = body.trim();
+    if (!conversation || !messageBody || sending) return;
+
+    const conversationId = conversation.id;
+    const optimisticId = `optimistic-${Date.now()}`;
+    const optimisticMessage: MessageItem = {
+      body: messageBody,
+      createdAt: new Date().toISOString(),
+      direction: "OUTBOUND",
+      errorDetail: null,
+      id: optimisticId,
+      sentByName: null,
+      status: "SENDING",
+    };
 
     setSending(true);
     setError(null);
+    setDraft("");
+    setConversation((current) =>
+      current?.id === conversationId
+        ? { ...current, messages: [...current.messages, optimisticMessage] }
+        : current,
+    );
 
     try {
-      await fetch(`/api/portal/sms/conversations/${conversation.id}/messages`, {
-        body: JSON.stringify({ body: draft }),
+      await fetch(`/api/portal/sms/conversations/${conversationId}/messages`, {
+        body: JSON.stringify({ body: messageBody }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       }).then((response) => readJson<{ ok: boolean }>(response));
-      setDraft("");
-      await Promise.all([
-        refreshInbox({ quiet: true }),
-        refreshConversation({ quiet: true }),
-      ]);
+      await Promise.all([refreshInbox(), refreshConversation({ quiet: true })]);
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Failed to send reply");
+      const detail =
+        sendError instanceof Error ? sendError.message : "Failed to send reply";
+      setError(detail);
+      setConversation((current) =>
+        current?.id === conversationId
+          ? {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.id === optimisticId
+                  ? { ...message, errorDetail: detail, status: "FAILED" }
+                  : message,
+              ),
+            }
+          : current,
+      );
     } finally {
       setSending(false);
     }
+  };
+
+  const handleSend = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await sendMessage(draft);
   };
 
   const handleStartOutbound = async (event: FormEvent<HTMLFormElement>) => {
@@ -904,19 +977,76 @@ export default function TwoWayTextingWorkspace({
       return;
     }
 
+    const currentConversation = conversation;
+
     try {
-      await fetch(`/api/portal/sms/conversations/${conversation.id}`, {
+      await fetch(`/api/portal/sms/conversations/${currentConversation.id}`, {
         body: JSON.stringify({ status }),
         headers: { "Content-Type": "application/json" },
         method: "PATCH",
       }).then((response) => readJson<{ ok: boolean }>(response));
-      await Promise.all([
-        refreshInbox({ quiet: true }),
-        refreshConversation({ quiet: true }),
-      ]);
+      const nextInbox = await fetch(
+        `/api/portal/sms/conversations${conversationListQuery()}`,
+        { cache: "no-store" },
+      ).then((response) => readJson<InboxState>(response));
+      setInbox(nextInbox);
+
+      const stillVisible = nextInbox.conversations.find(
+        (item) =>
+          item.id === currentConversation.id && conversationMatchesFilter(item, filter),
+      );
+      const nextId =
+        stillVisible?.id ??
+        firstConversationIdForFilter(nextInbox.conversations, filter) ??
+        "";
+
+      if (nextId === currentConversation.id) {
+        await refreshConversation({ quiet: true });
+      } else {
+        setSelectedId(nextId);
+        setConversation(null);
+        setMobileThreadOpen(Boolean(nextId));
+      }
+
+      if (status === "CLOSED") {
+        setStatusNotice(currentConversation.id);
+      }
     } catch (statusError) {
       setError(
         statusError instanceof Error ? statusError.message : "Failed to update status",
+      );
+    }
+  };
+
+  const handleUndoDone = async () => {
+    if (!statusNotice) return;
+
+    const conversationId = statusNotice;
+    setError(null);
+    try {
+      await fetch(`/api/portal/sms/conversations/${conversationId}`, {
+        body: JSON.stringify({ status: "OPEN" }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      }).then((response) => readJson<{ ok: boolean }>(response));
+
+      const [nextInbox, nextConversation] = await Promise.all([
+        fetch(`/api/portal/sms/conversations${conversationListQuery()}`, {
+          cache: "no-store",
+        }).then((response) => readJson<InboxState>(response)),
+        fetch(`/api/portal/sms/conversations/${conversationId}`, {
+          cache: "no-store",
+        }).then((response) => readJson<ConversationDetail>(response)),
+      ]);
+      setInbox(nextInbox);
+      setFilter("OPEN");
+      setSelectedId(conversationId);
+      setConversation(nextConversation);
+      setMobileThreadOpen(true);
+      setStatusNotice(null);
+    } catch (statusError) {
+      setError(
+        statusError instanceof Error ? statusError.message : "Failed to reopen thread",
       );
     }
   };
@@ -979,81 +1109,92 @@ export default function TwoWayTextingWorkspace({
   }
 
   return (
-    <section className="grid h-[calc(100vh-190px)] min-h-[560px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-[var(--portal-border-strong)] bg-white shadow-sm">
-      <div className="border-b border-[var(--portal-border)] bg-white px-4 py-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="grid gap-1.5">
-            <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
-              Status
-            </p>
-            <div className="inline-flex w-full rounded-lg border border-[var(--portal-border)] bg-white p-1 sm:w-fit">
-              {[
-                ["OPEN", "Open"],
-                ["UNREAD", "Unread"],
-                ["CLOSED", "Done"],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={cn(
-                    "flex-1 rounded-md px-4 py-1.5 text-center text-sm font-medium transition sm:min-w-24",
-                    filter === value
-                      ? "!bg-[#536a91] !text-white shadow-sm hover:!text-white"
-                      : "text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
-                  )}
-                  onClick={() => selectFilter(value as ConversationFilter)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              className="h-10 bg-[#536a91] text-white hover:bg-[#435879]"
-              onClick={() => {
-                setComposing(true);
-                setSelectedId("");
-                setConversation(null);
-                setDeleteConfirmOpen(false);
-                setError(null);
-              }}
-              size="sm"
-              type="button"
-              variant="primary"
-            >
-              <Plus className="h-4 w-4" />
-              New text
-            </Button>
-            <Button
-              className="h-10 border-[var(--portal-border)] bg-white text-[var(--portal-ink)] hover:bg-[var(--portal-panel)]"
-              disabled={refreshing}
-              onClick={() => {
-                void refreshInbox();
-                void refreshConversation();
-              }}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-              Refresh
-            </Button>
-          </div>
+    <section className="relative h-[calc(100dvh-13rem)] min-h-[560px] overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm lg:h-full lg:min-h-0">
+      {statusNotice ? (
+        <div
+          className="absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-[var(--portal-ink)] px-4 py-3 text-sm text-white shadow-lg"
+          role="status"
+        >
+          <span className="whitespace-nowrap">Conversation marked done</span>
+          <button
+            className="font-semibold text-white underline underline-offset-2"
+            onClick={() => void handleUndoDone()}
+            type="button"
+          >
+            Undo
+          </button>
         </div>
-      </div>
-
-      <div className="grid h-full min-h-0 overflow-hidden md:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b border-[var(--portal-border)] md:border-b-0 md:border-r">
+      ) : null}
+      <div className="grid h-full min-h-0 overflow-hidden md:grid-cols-[330px_minmax(0,1fr)]">
+        <aside
+          className={cn(
+            "h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b border-[var(--portal-border)] md:grid md:border-b-0 md:border-r",
+            mobileThreadOpen ? "hidden" : "grid",
+          )}
+        >
           <div className="border-b border-[var(--portal-border)] px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+              <p className="text-sm font-semibold text-[var(--portal-ink)]">
                 Conversations
               </p>
-              <span className="rounded-full bg-[#edf4ff] px-2.5 py-1 text-xs font-semibold text-[#536a91]">
-                {inbox.unreadCount} unread
-              </span>
+              <Button
+                onClick={() => {
+                  setComposing(true);
+                  setSelectedId("");
+                  setConversation(null);
+                  setDeleteConfirmOpen(false);
+                  setError(null);
+                  setMobileThreadOpen(true);
+                }}
+                size="compact"
+                variant="primary"
+              >
+                <Plus />
+                New text
+              </Button>
             </div>
+            <SegmentedControl
+              aria-label="Conversation status"
+              className="mt-3 w-full border border-[var(--portal-border)] bg-[var(--portal-panel-soft)]"
+              itemClassName="flex-1 px-2"
+              items={[
+                {
+                  label: (
+                    <span className="inline-flex items-center gap-1.5">
+                      Open
+                      <span className="font-mono text-[11px] tabular-nums opacity-70">
+                        {filterCounts.OPEN}
+                      </span>
+                    </span>
+                  ),
+                  value: "OPEN",
+                },
+                {
+                  label: (
+                    <span className="inline-flex items-center gap-1.5">
+                      Unread
+                      <span className="font-mono text-[11px] tabular-nums opacity-70">
+                        {filterCounts.UNREAD}
+                      </span>
+                    </span>
+                  ),
+                  value: "UNREAD",
+                },
+                {
+                  label: (
+                    <span className="inline-flex items-center gap-1.5">
+                      Done
+                      <span className="font-mono text-[11px] tabular-nums opacity-70">
+                        {filterCounts.CLOSED}
+                      </span>
+                    </span>
+                  ),
+                  value: "CLOSED",
+                },
+              ]}
+              onValueChange={(value) => selectFilter(value as ConversationFilter)}
+              value={filter}
+            />
             <label className="sr-only" htmlFor="sms-conversation-search">
               Search by phone number
             </label>
@@ -1062,8 +1203,8 @@ export default function TwoWayTextingWorkspace({
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--portal-muted-soft)]"
                 aria-hidden="true"
               />
-              <input
-                className="h-11 w-full rounded-xl border border-[var(--portal-border-strong)] bg-white px-9 text-sm text-[var(--portal-ink)] shadow-sm outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
+              <Input
+                className="h-10 border-[var(--portal-border)] px-9"
                 id="sms-conversation-search"
                 inputMode="tel"
                 onChange={(event) => setSearchQuery(event.target.value)}
@@ -1114,193 +1255,227 @@ export default function TwoWayTextingWorkspace({
           </div>
         </aside>
 
-        {composing ? (
-          <DraftConversationThread
-            body={newDraft}
-            error={error}
-            onBodyChange={setNewDraft}
-            onCancel={() => {
-              setComposing(false);
-              setError(null);
-            }}
-            onPhoneChange={setNewPatientPhone}
-            onSubmit={handleStartOutbound}
-            phone={newPatientPhone}
-            sending={startingOutbound}
-          />
-        ) : selectedConversation ? (
-          <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--portal-panel-soft)]">
-            {error ? (
-              <div
-                className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]"
-                role="alert"
-              >
-                {error}
-              </div>
-            ) : null}
-            <header className="border-b border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
-                    Text thread
-                  </p>
-                  <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
-                    <p className="truncate text-base font-semibold text-[var(--portal-ink)] md:text-lg">
-                      {selectedConversation.patientPhoneNumberDisplay}
-                    </p>
-                    <span
-                      className={cn(
-                        "rounded-full px-2.5 py-1 text-xs font-semibold",
-                        selectedConversation.status === "OPEN"
-                          ? "bg-[#edf4ff] text-[#536a91]"
-                          : "bg-[#f2f4f7] text-[var(--portal-muted)]",
-                      )}
-                    >
-                      {conversationStatusLabel(selectedConversation.status)}
-                    </span>
-                  </div>
+        <div
+          className={cn("h-full min-h-0 md:block", mobileThreadOpen ? "block" : "hidden")}
+        >
+          {composing ? (
+            <DraftConversationThread
+              body={newDraft}
+              error={error}
+              onBodyChange={setNewDraft}
+              onCancel={() => {
+                setComposing(false);
+                setError(null);
+                setMobileThreadOpen(false);
+              }}
+              onBack={() => setMobileThreadOpen(false)}
+              onPhoneChange={setNewPatientPhone}
+              onSubmit={handleStartOutbound}
+              phone={newPatientPhone}
+              sending={startingOutbound}
+            />
+          ) : selectedConversation ? (
+            <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--portal-panel-soft)]">
+              {error ? (
+                <div
+                  className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]"
+                  role="alert"
+                >
+                  {error}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {selectedConversation.status === "CLOSED" ? (
+              ) : null}
+              <header className="relative border-b border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
+                <Button
+                  aria-label="Back to conversations"
+                  className="absolute left-2 top-3 md:hidden"
+                  onClick={() => setMobileThreadOpen(false)}
+                  size="icon"
+                  variant="ghost"
+                >
+                  <ArrowLeft />
+                </Button>
+                <div className="flex flex-col gap-2 pl-10 sm:flex-row sm:items-center sm:justify-between md:pl-0">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
+                      Text thread
+                    </p>
+                    <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
+                      <p className="truncate text-base font-semibold text-[var(--portal-ink)] md:text-lg">
+                        {selectedConversation.patientPhoneNumberDisplay}
+                      </p>
+                      <span
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-xs font-semibold",
+                          selectedConversation.status === "OPEN"
+                            ? "bg-[#edf4ff] text-[#536a91]"
+                            : "bg-[#f2f4f7] text-[var(--portal-muted)]",
+                        )}
+                      >
+                        {conversationStatusLabel(selectedConversation.status)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedConversation.status === "CLOSED" ? (
+                      <details className="relative">
+                        <summary
+                          aria-label="Conversation actions"
+                          className="flex size-9 cursor-pointer list-none items-center justify-center rounded-lg text-[var(--portal-muted)] transition hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
+                        >
+                          <MoreHorizontal className="size-4" aria-hidden="true" />
+                        </summary>
+                        <div className="absolute right-0 top-10 z-20 w-48 rounded-lg border border-[var(--portal-border)] bg-white p-1 shadow-lg">
+                          <button
+                            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--portal-danger)] hover:bg-[var(--portal-danger-soft)]"
+                            disabled={deleting}
+                            onClick={() => setDeleteConfirmOpen(true)}
+                            type="button"
+                          >
+                            {deleting ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-4" />
+                            )}
+                            Delete permanently
+                          </button>
+                        </div>
+                      </details>
+                    ) : null}
                     <Button
-                      className="border-[#ffd6d6] bg-white text-[#8a1f1f] hover:bg-[#fff7f7]"
-                      disabled={deleting}
-                      onClick={() => setDeleteConfirmOpen(true)}
+                      className="border-[var(--portal-border)] bg-white text-[var(--portal-ink)] hover:bg-[var(--portal-panel)]"
+                      onClick={() =>
+                        void handleStatus(
+                          selectedConversation.status === "OPEN" ? "CLOSED" : "OPEN",
+                        )
+                      }
                       size="sm"
                       type="button"
                       variant="secondary"
                     >
-                      {deleting ? (
+                      <CheckCheck className="h-4 w-4" />
+                      {selectedConversation.status === "OPEN" ? "Mark done" : "Reopen"}
+                    </Button>
+                  </div>
+                </div>
+              </header>
+
+              <div
+                ref={messagesScrollRef}
+                className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5"
+              >
+                {loadingThread ? (
+                  <div className="grid min-h-[360px] place-items-center text-[var(--portal-muted)]">
+                    <Loader2 className="h-6 w-6 animate-spin" aria-label="Loading" />
+                  </div>
+                ) : conversation?.messages.length ? (
+                  <div className="space-y-2.5">
+                    {conversation.messages.map((message) => (
+                      <MessageBubble
+                        key={message.id}
+                        message={message}
+                        onRetry={(body) => void sendMessage(body)}
+                        retrying={sending}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid min-h-[360px] place-items-center text-sm text-[var(--portal-muted)]">
+                    No messages loaded.
+                  </div>
+                )}
+              </div>
+
+              <footer className="border-t border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
+                {conversation?.optedOut ? (
+                  <div className="mb-3 flex items-center gap-2 rounded-lg bg-[var(--portal-danger-soft)] px-3 py-2 text-sm text-[var(--portal-danger)]">
+                    <Lock className="h-4 w-4" aria-hidden="true" />
+                    This patient opted out. Replies are blocked.
+                  </div>
+                ) : null}
+                <form onSubmit={handleSend}>
+                  <label className="sr-only" htmlFor="sms-reply">
+                    Reply
+                  </label>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                    <textarea
+                      className="max-h-32 min-h-11 resize-y rounded-xl border border-[var(--portal-border-strong)] bg-white px-3 py-2.5 text-sm leading-5 text-[var(--portal-ink)] shadow-sm outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
+                      disabled={sending || Boolean(conversation?.optedOut)}
+                      id="sms-reply"
+                      maxLength={1000}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          event.currentTarget.form?.requestSubmit();
+                        }
+                      }}
+                      onChange={(event) => setDraft(event.target.value)}
+                      placeholder="Write a reply..."
+                      rows={1}
+                      value={draft}
+                    />
+                    <Button
+                      className="h-11 bg-[#536a91] px-4 text-white hover:bg-[#435879]"
+                      disabled={
+                        sending || !draft.trim() || Boolean(conversation?.optedOut)
+                      }
+                      size="sm"
+                      type="submit"
+                      variant="primary"
+                    >
+                      {sending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        <Trash2 className="h-4 w-4" />
+                        <Send className="h-4 w-4" />
                       )}
-                      Delete permanently
+                      Send
                     </Button>
-                  ) : null}
-                  <Button
-                    className="border-[var(--portal-border)] bg-white text-[var(--portal-ink)] hover:bg-[var(--portal-panel)]"
-                    onClick={() =>
-                      void handleStatus(
-                        selectedConversation.status === "OPEN" ? "CLOSED" : "OPEN",
-                      )
-                    }
-                    size="sm"
-                    type="button"
-                    variant="secondary"
-                  >
-                    <CheckCheck className="h-4 w-4" />
-                    {selectedConversation.status === "OPEN" ? "Mark done" : "Reopen"}
-                  </Button>
-                </div>
-              </div>
-            </header>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">
-              {loadingThread ? (
-                <div className="grid min-h-[360px] place-items-center text-[var(--portal-muted)]">
-                  <Loader2 className="h-6 w-6 animate-spin" aria-label="Loading" />
-                </div>
-              ) : conversation?.messages.length ? (
-                <div className="space-y-2.5">
-                  {conversation.messages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
-                  ))}
-                </div>
-              ) : (
-                <div className="grid min-h-[360px] place-items-center text-sm text-[var(--portal-muted)]">
-                  No messages loaded.
-                </div>
-              )}
-            </div>
-
-            <footer className="border-t border-[var(--portal-border)] bg-white px-4 py-3 md:px-5">
-              {conversation?.optedOut ? (
-                <div className="mb-3 flex items-center gap-2 rounded-lg bg-[var(--portal-danger-soft)] px-3 py-2 text-sm text-[var(--portal-danger)]">
-                  <Lock className="h-4 w-4" aria-hidden="true" />
-                  This patient opted out. Replies are blocked.
+                  </div>
+                  <div className="mt-1 flex justify-end text-[11px] font-medium text-[var(--portal-muted-soft)]">
+                    {draft.length}/1000
+                  </div>
+                </form>
+              </footer>
+              {deleteConfirmOpen ? (
+                <DeleteConversationDialog
+                  deleting={deleting}
+                  onCancel={() => setDeleteConfirmOpen(false)}
+                  onDelete={() => void handleDelete()}
+                  phoneNumber={selectedConversation.patientPhoneNumberDisplay}
+                />
+              ) : null}
+            </main>
+          ) : (
+            <main className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
+              {error ? (
+                <div
+                  className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]"
+                  role="alert"
+                >
+                  {error}
                 </div>
               ) : null}
-              <form onSubmit={handleSend}>
-                <label className="sr-only" htmlFor="sms-reply">
-                  Reply
-                </label>
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-                  <textarea
-                    className="max-h-32 min-h-11 resize-y rounded-xl border border-[var(--portal-border-strong)] bg-white px-3 py-2.5 text-sm leading-5 text-[var(--portal-ink)] shadow-sm outline-none transition placeholder:text-[var(--portal-muted-soft)] focus:border-[#536a91] focus:ring-2 focus:ring-[#536a91]/15"
-                    disabled={sending || Boolean(conversation?.optedOut)}
-                    id="sms-reply"
-                    maxLength={1000}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        event.currentTarget.form?.requestSubmit();
-                      }
-                    }}
-                    onChange={(event) => setDraft(event.target.value)}
-                    placeholder="Write a reply..."
-                    rows={1}
-                    value={draft}
-                  />
-                  <Button
-                    className="h-11 bg-[#536a91] px-4 text-white hover:bg-[#435879]"
-                    disabled={sending || !draft.trim() || Boolean(conversation?.optedOut)}
-                    size="sm"
-                    type="submit"
-                    variant="primary"
-                  >
-                    {sending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                    Send
-                  </Button>
-                </div>
-                <div className="mt-1 flex justify-end text-[11px] font-medium text-[var(--portal-muted-soft)]">
-                  {draft.length}/1000
-                </div>
-              </form>
-            </footer>
-            {deleteConfirmOpen ? (
-              <DeleteConversationDialog
-                deleting={deleting}
-                onCancel={() => setDeleteConfirmOpen(false)}
-                onDelete={() => void handleDelete()}
-                phoneNumber={selectedConversation.patientPhoneNumberDisplay}
-              />
-            ) : null}
-          </main>
-        ) : (
-          <main className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
-            {error ? (
-              <div
-                className="border-b border-[#ffd6d6] bg-[var(--portal-danger-soft)] px-4 py-2 text-sm text-[var(--portal-danger)]"
-                role="alert"
-              >
-                {error}
+              <div className="relative min-h-0 flex-1">
+                <EmptyThread />
+                <Button
+                  className="absolute left-1/2 top-[calc(50%+5rem)] -translate-x-1/2 bg-[#536a91] text-white hover:bg-[#435879]"
+                  onClick={() => {
+                    setComposing(true);
+                    setSelectedId("");
+                    setConversation(null);
+                    setDeleteConfirmOpen(false);
+                    setError(null);
+                    setMobileThreadOpen(true);
+                  }}
+                  type="button"
+                  variant="primary"
+                >
+                  <Plus className="h-4 w-4" />
+                  New text
+                </Button>
               </div>
-            ) : null}
-            <div className="relative min-h-0 flex-1">
-              <EmptyThread />
-              <Button
-                className="absolute left-1/2 top-[calc(50%+5rem)] -translate-x-1/2 bg-[#536a91] text-white hover:bg-[#435879]"
-                onClick={() => {
-                  setComposing(true);
-                  setSelectedId("");
-                  setConversation(null);
-                  setDeleteConfirmOpen(false);
-                  setError(null);
-                }}
-                type="button"
-                variant="primary"
-              >
-                <Plus className="h-4 w-4" />
-                New text
-              </Button>
-            </div>
-          </main>
-        )}
+            </main>
+          )}
+        </div>
       </div>
     </section>
   );

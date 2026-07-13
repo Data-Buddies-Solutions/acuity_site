@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { PortalQuerySelect } from "@/app/portal/app/PortalQuerySelect";
 import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import {
   getPortalOverviewMetrics,
@@ -8,29 +8,20 @@ import {
   type PortalOverviewRange,
 } from "@/lib/portal-overview";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
-import { cn } from "@/lib/utils";
 
 import { PracticePageHeader } from "../PracticePageHeader";
 import CallVolumeChart from "./CallVolumeChart";
-import MetricCard from "./MetricCard";
 import StaffTimeSavedCard from "./StaffTimeSavedCard";
 
 const rangeOptions = [
-  { label: "24 Hours", value: "24h" },
-  { label: "7 Days", value: "7d" },
-  { label: "30 Days", value: "30d" },
-  { label: "All Time", value: "all" },
+  { label: "24h", value: "24h" },
+  { label: "7d", value: "7d" },
+  { label: "30d", value: "30d" },
+  { label: "All", value: "all" },
 ] as const satisfies ReadonlyArray<{
   label: string;
   value: PortalOverviewRange;
 }>;
-
-const previousLabel: Record<PortalOverviewRange, string> = {
-  "24h": "vs prior day",
-  "30d": "vs last month",
-  "7d": "vs last week",
-  all: "",
-};
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 
@@ -53,147 +44,20 @@ function overviewHref({
   range: PortalOverviewRange;
 }) {
   const params = new URLSearchParams();
-
   params.set("range", range);
-
-  if (office) {
-    params.set("office", office);
-  }
-
+  if (office) params.set("office", office);
   return `/portal/app/overview?${params.toString()}`;
-}
-
-function OfficeFilterNav({
-  offices,
-  range,
-  selectedOfficeId,
-}: {
-  offices: Array<{ id: string; label: string }>;
-  range: PortalOverviewRange;
-  selectedOfficeId: string | null;
-}) {
-  if (offices.length <= 1) {
-    return null;
-  }
-
-  const items = [{ id: null, label: "All Offices" }, ...offices];
-  const selectedOfficeLabel =
-    items.find((item) => item.id === selectedOfficeId)?.label ?? "All Offices";
-
-  return (
-    <section className="flex max-w-full flex-col gap-1.5 lg:items-end">
-      <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
-        Office: <span className="text-[#536a91]">{selectedOfficeLabel}</span>
-      </p>
-      <nav
-        aria-label="Overview office"
-        className="flex max-w-full gap-2 overflow-x-auto pb-1"
-      >
-        {items.map((item) => {
-          const isActive = item.id === selectedOfficeId;
-
-          return (
-            <Link
-              key={item.id ?? "all"}
-              aria-current={isActive ? "page" : undefined}
-              className={cn(
-                "inline-flex h-10 min-w-fit items-center rounded-xl border px-4 text-sm font-medium transition",
-                isActive
-                  ? "!border-[#536a91] !bg-[#536a91] !text-white shadow-sm hover:!text-white"
-                  : "border-[var(--portal-border)] bg-white text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
-              )}
-              href={overviewHref({ office: item.id, range })}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-    </section>
-  );
 }
 
 function formatInteger(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
-function formatHoursMinutes(seconds: number) {
-  const totalMinutes = Math.max(0, Math.round(seconds / 60));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours <= 0) {
-    return `${minutes}m`;
-  }
-
-  return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
-}
-
-function formatCallDuration(seconds: number) {
-  const rounded = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(rounded / 60);
-  const remainingSeconds = rounded % 60;
-  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
-}
-
-function formatRate(value: number) {
+function formatPercentage(value: number) {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
     style: "percent",
   }).format(value);
-}
-
-function BookingCategoryBreakdown({
-  summary,
-}: {
-  summary: PortalBookingCategorySummary;
-}) {
-  if (summary.total === 0) {
-    return null;
-  }
-
-  const rows = [
-    {
-      followLabel: "Follow-up",
-      label: "Medical",
-      value: summary.medical,
-    },
-    {
-      followLabel: "Follow-up",
-      label: "Routine vision",
-      value: summary.routineVision,
-    },
-  ].filter((row) => row.value.total > 0);
-
-  return (
-    <div className="space-y-2 border-t border-[#e5e8ef] pt-3">
-      {rows.map((row) => (
-        <div key={row.label} className="space-y-1">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="font-medium text-[#344054]">{row.label}</span>
-            <span className="font-semibold tabular-nums text-[#151a24]">
-              {formatInteger(row.value.total)}
-            </span>
-          </div>
-          <p className="text-xs leading-5 text-[#7b8494]">
-            New {formatInteger(row.value.newPatient)} / {row.followLabel}{" "}
-            {formatInteger(row.value.followUpOrExisting)}
-            {row.value.unknownVisitType > 0
-              ? ` / Unknown ${formatInteger(row.value.unknownVisitType)}`
-              : ""}
-          </p>
-        </div>
-      ))}
-      {summary.unknown.total > 0 ? (
-        <div className="flex items-center justify-between gap-3 border-t border-[#eef1f6] pt-2 text-xs text-[#7b8494]">
-          <span>Unclassified</span>
-          <span className="font-medium tabular-nums">
-            {formatInteger(summary.unknown.total)}
-          </span>
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function formatTodayLabel() {
@@ -206,64 +70,68 @@ function formatTodayLabel() {
   }).format(new Date());
 }
 
-function rangeNarrative(range: PortalOverviewRange) {
-  if (range === "24h") return "in the last 24 hours";
-  if (range === "7d") return "in the last 7 days";
-  if (range === "30d") return "in the last 30 days";
-  return "since launch";
-}
-
-function buildDelta(current: number, previous: number) {
-  if (previous <= 0) {
-    return null;
-  }
-  const diff = current - previous;
-  const ratio = diff / previous;
-  return {
-    direction:
-      diff === 0 ? ("flat" as const) : diff > 0 ? ("up" as const) : ("down" as const),
-    label: `${Math.round(Math.abs(ratio) * 100)}%`,
-  };
-}
-
-function pluralize(value: number, singular: string, plural = `${singular}s`) {
-  return value === 1 ? singular : plural;
-}
-
-function OverviewBrief({
-  bookedAppointments,
-  callsHandled,
-  frontDeskTimeCovered,
-  range,
-  selectedOfficeLabel,
-  transferredCalls,
+function Metric({
+  children,
+  label,
+  value,
 }: {
-  bookedAppointments: number;
-  callsHandled: number;
-  frontDeskTimeCovered: number;
-  range: PortalOverviewRange;
-  selectedOfficeLabel: string | null;
-  transferredCalls: number;
+  children?: React.ReactNode;
+  label: string;
+  value: string;
 }) {
-  const scope = selectedOfficeLabel ? ` for ${selectedOfficeLabel}` : "";
+  return (
+    <div className="flex min-w-0 flex-col px-5 py-4 lg:px-6">
+      <p className="text-sm font-medium text-[var(--portal-muted)]">{label}</p>
+      <p className="mt-1.5 font-mono text-[1.75rem] font-semibold leading-none tabular-nums text-[var(--portal-ink)]">
+        {value}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function BookingMixBar({ summary }: { summary: PortalBookingCategorySummary }) {
+  if (summary.total === 0) {
+    return (
+      <p className="mt-2 text-xs text-[var(--portal-muted-soft)]">No bookings yet</p>
+    );
+  }
+
+  const medicalWidth = (summary.medical.total / summary.total) * 100;
+  const routineWidth = (summary.routineVision.total / summary.total) * 100;
+  const unknownWidth = (summary.unknown.total / summary.total) * 100;
 
   return (
-    <section className="rounded-xl border border-[#cfd5e2] bg-white px-5 py-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.04)] transition duration-150 hover:border-[#b9c4dd] hover:shadow-[0_2px_4px_rgba(16,24,40,0.06),0_16px_34px_rgba(16,24,40,0.08)] md:px-6">
-      <p className="text-sm font-medium tracking-normal text-[#8a94a6]">
-        Operating Brief
-      </p>
-      <p className="mt-2 max-w-4xl text-2xl font-semibold leading-snug tracking-normal text-[#151a24] md:text-3xl">
-        Acuity handled {formatInteger(callsHandled)} patient{" "}
-        {pluralize(callsHandled, "call")}
-        {scope} {rangeNarrative(range)}.
-      </p>
-      <p className="mt-2 max-w-3xl text-base leading-7 text-[#667085]">
-        {formatInteger(bookedAppointments)} {pluralize(bookedAppointments, "appointment")}{" "}
-        booked, {formatInteger(transferredCalls)} {pluralize(transferredCalls, "call")}{" "}
-        sent to staff, and {formatHoursMinutes(frontDeskTimeCovered)} of front desk time
-        covered.
-      </p>
-    </section>
+    <div className="mt-3">
+      <div
+        aria-label={`${summary.medical.total} medical and ${summary.routineVision.total} routine vision appointments`}
+        className="flex h-2 overflow-hidden rounded-full bg-[var(--portal-panel)]"
+        role="img"
+      >
+        {medicalWidth > 0 ? (
+          <span
+            className="bg-[var(--portal-accent)]"
+            style={{ width: `${medicalWidth}%` }}
+          />
+        ) : null}
+        {routineWidth > 0 ? (
+          <span className="bg-[#9aa9c3]" style={{ width: `${routineWidth}%` }} />
+        ) : null}
+        {unknownWidth > 0 ? (
+          <span className="bg-[#d8dde8]" style={{ width: `${unknownWidth}%` }} />
+        ) : null}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--portal-muted)]">
+        <span>
+          <span className="mr-1.5 inline-block size-2 rounded-full bg-[var(--portal-accent)]" />
+          Medical {formatInteger(summary.medical.total)}
+        </span>
+        <span>
+          <span className="mr-1.5 inline-block size-2 rounded-full bg-[#9aa9c3]" />
+          Vision {formatInteger(summary.routineVision.total)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -274,112 +142,83 @@ export default async function PortalOverviewPage({
 }) {
   const portalState = await getPortalWorkspaceState();
 
-  if (!portalState.launched) {
-    redirect("/portal/app/onboarding");
-  }
+  if (!portalState.launched) redirect("/portal/app/onboarding");
 
   const params = searchParams ? await searchParams : {};
   const range = parseRange(params.range);
   const office = parseOffice(params.office);
   const metrics = await getPortalOverviewMetrics(range, office);
 
-  if (!metrics) {
-    redirect("/portal");
-  }
-
-  const callsDelta =
-    metrics.range === "all"
-      ? null
-      : buildDelta(metrics.totalCalls, metrics.previousTotalCalls);
-  const periodNote = previousLabel[range];
+  if (!metrics) redirect("/portal");
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:h-[calc(100dvh-8rem)]">
       <PracticePageHeader
         branding={metrics.branding}
-        logoMeta={formatTodayLabel()}
+        eyebrow={formatTodayLabel()}
         practiceName={metrics.practiceName}
         showLogo={false}
+        size="compact"
         title="Overview"
       >
-        <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
-          <OfficeFilterNav
-            offices={metrics.officeFilters}
-            range={metrics.range}
-            selectedOfficeId={metrics.selectedOfficeId}
-          />
-          <section className="flex max-w-full flex-col gap-1.5 lg:items-end">
-            <p className="text-xs font-semibold uppercase tracking-normal text-[var(--portal-muted-soft)]">
-              Date range
-            </p>
-            <LinkSegmentedControl
-              activeClassName="bg-[var(--portal-accent)] text-white hover:text-white"
-              ariaLabel="Overview range"
-              className="h-10 w-full max-w-full border border-[var(--portal-border)] bg-white sm:w-fit"
-              inactiveClassName="text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
-              itemClassName="flex flex-1 px-4 text-sm sm:min-w-24"
-              items={rangeOptions.map((option) => ({
-                href: overviewHref({
-                  office: metrics.selectedOfficeId,
-                  range: option.value,
-                }),
-                label: option.label,
-                value: option.value,
-              }))}
-              value={metrics.range}
+        <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+          {metrics.officeFilters.length > 1 ? (
+            <PortalQuerySelect
+              ariaLabel="Office"
+              options={[
+                { label: "All offices", value: "" },
+                ...metrics.officeFilters.map((item) => ({
+                  label: item.label,
+                  value: item.id,
+                })),
+              ]}
+              param="office"
+              value={metrics.selectedOfficeId ?? ""}
             />
-          </section>
+          ) : null}
+          <LinkSegmentedControl
+            activeClassName="bg-[var(--portal-accent)] text-white hover:text-white"
+            ariaLabel="Overview range"
+            className="h-10 w-full border border-[var(--portal-border)] bg-white sm:w-fit"
+            inactiveClassName="text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]"
+            itemClassName="flex-1 px-3 sm:min-w-14"
+            items={rangeOptions.map((option) => ({
+              href: overviewHref({
+                office: metrics.selectedOfficeId,
+                range: option.value,
+              }),
+              label: option.label,
+              value: option.value,
+            }))}
+            value={metrics.range}
+          />
         </div>
       </PracticePageHeader>
 
-      <OverviewBrief
-        bookedAppointments={metrics.appointmentActions.booked}
-        callsHandled={metrics.totalCalls}
-        frontDeskTimeCovered={metrics.staffTimeSaved.totalSeconds}
-        range={metrics.range}
-        selectedOfficeLabel={metrics.selectedOfficeLabel}
-        transferredCalls={metrics.transferredCalls}
-      />
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          delta={
-            callsDelta
-              ? {
-                  direction: callsDelta.direction,
-                  label: `${callsDelta.label} ${periodNote}`,
-                }
-              : null
-          }
-          label="Patient Calls Handled"
-          value={formatInteger(metrics.totalCalls)}
-        />
-        <MetricCard
-          label="Appointments Booked"
+      <section
+        aria-label="Key performance metrics"
+        className="grid overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm sm:grid-cols-3 sm:divide-x sm:divide-[var(--portal-border)]"
+      >
+        <Metric label="Calls handled" value={formatInteger(metrics.totalCalls)} />
+        <Metric
+          label="Appointments booked"
           value={formatInteger(metrics.appointmentActions.booked)}
         >
-          <BookingCategoryBreakdown summary={metrics.bookingCategories} />
-        </MetricCard>
-        <MetricCard
-          label="Sent to Staff"
-          note={`${formatRate(metrics.transferRate)} of calls`}
-          value={formatInteger(metrics.transferredCalls)}
-        />
-        <MetricCard
-          label="Average Call Duration"
-          note={`${formatInteger(metrics.totalCallMinutes)} total minutes handled`}
-          value={formatCallDuration(metrics.averageCallDurationSec)}
-        />
+          <BookingMixBar summary={metrics.bookingCategories} />
+        </Metric>
+        <Metric label="Sent to staff" value={formatPercentage(metrics.transferRate)} />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <CallVolumeChart points={metrics.callVolume} />
+      <section className="grid min-h-[310px] flex-1 overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm lg:min-h-0 lg:grid-cols-3">
+        <div className="min-h-0 lg:col-span-2">
+          <CallVolumeChart
+            points={metrics.callVolume}
+            totalMinutes={formatInteger(metrics.totalCallMinutes)}
+          />
         </div>
-        <StaffTimeSavedCard
-          buckets={metrics.staffTimeSaved.buckets}
-          totalSeconds={metrics.staffTimeSaved.totalSeconds}
-        />
+        <div className="border-t border-[var(--portal-border)] lg:border-l lg:border-t-0">
+          <StaffTimeSavedCard buckets={metrics.staffTimeSaved.buckets} />
+        </div>
       </section>
     </div>
   );
