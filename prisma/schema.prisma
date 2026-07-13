@@ -273,6 +273,14 @@ enum CallCenterCallStatus {
   FAILED
 }
 
+enum CallCenterHandoffStatus {
+  ISSUED
+  INGRESS_SEEN
+  CONNECTED
+  EXPIRED
+  FAILED
+}
+
 enum CallCenterLegKind {
   CUSTOMER
   AGENT
@@ -441,6 +449,7 @@ model Practice {
   callCenterTasks          CallCenterTask[]
   callCenterEvents         CallCenterEvent[]
   callCenterCommands       CallCenterCommand[]
+  callCenterHandoffs       CallCenterHandoff[]
   costLineItems            UsageCostLineItem[]
   adminAlerts              AdminAlert[]
   insuranceCrosswalk       PracticeInsuranceCrosswalk?
@@ -1034,6 +1043,7 @@ model CallCenterQueue {
   inboundNumbers    CallCenterNumber[]
   members           CallCenterQueueMember[]
   calls             CallCenterCall[]
+  handoffs          CallCenterHandoff[]
 
   @@unique([practiceId, name])
   @@index([practiceId, enabled])
@@ -1069,6 +1079,7 @@ model CallCenterNumber {
   inboundQueue          CallCenterQueue?            @relation(fields: [inboundQueueId], references: [id], onDelete: SetNull)
   defaultForSettings    PracticeCallCenterSettings?
   calls                 CallCenterCall[]
+  handoffs              CallCenterHandoff[]
 
   @@index([practiceId, enabled])
   @@index([inboundQueueId, inboundEnabled, enabled])
@@ -1185,12 +1196,46 @@ model CallCenterCall {
   tasks                 CallCenterTask[]
   commands              CallCenterCommand[]
   voicemail             CallCenterVoicemail?
+  handoff               CallCenterHandoff?
 
   @@index([practiceId, status, receivedAt])
   @@index([practiceId, queueId, status, receivedAt])
   @@index([direction, effectOwner, status, deadlineAt])
   @@index([numberId])
   @@map("call_center_call")
+}
+
+model CallCenterHandoff {
+  id                    String                  @id @default(cuid())
+  practiceId            String
+  queueId               String
+  numberId              String
+  callId                String?                 @unique
+  sourceSystem          String
+  sourceCallId          String
+  idempotencyKey        String
+  requestFingerprint    String
+  tokenHash             String                  @unique
+  callerPhone           String
+  status                CallCenterHandoffStatus @default(ISSUED)
+  providerCallSessionId String?                 @unique
+  expiresAt             DateTime
+  ingressSeenAt         DateTime?
+  connectedAt           DateTime?
+  failedAt              DateTime?
+  failureCode           String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  practice              Practice                @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  queue                 CallCenterQueue         @relation(fields: [queueId], references: [id], onDelete: Restrict)
+  number                CallCenterNumber        @relation(fields: [numberId], references: [id], onDelete: Restrict)
+  call                  CallCenterCall?         @relation(fields: [callId], references: [id], onDelete: SetNull)
+
+  @@unique([practiceId, sourceSystem, idempotencyKey])
+  @@unique([sourceSystem, sourceCallId])
+  @@index([status, expiresAt])
+  @@index([queueId])
+  @@map("call_center_handoff")
 }
 
 model CallCenterCallLeg {
@@ -1261,6 +1306,7 @@ model ProviderWebhookEvent {
   eventType                        String
   effectOwner                      CallCenterEffectOwner?          @default(LEGACY)
   providerCallSessionId            String?
+  directHandoffTokenHash           String?                         @db.VarChar(64)
   occurredAt                       DateTime?
   receivedAt                       DateTime                        @default(now())
   processingStatus                 ProviderWebhookProcessingStatus @default(RECEIVED)
