@@ -2,9 +2,13 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import type { CallView } from "@/lib/call-center/realtime-contract";
+import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
-import { CanonicalActiveCall } from "./CanonicalActiveWorkspace";
+import {
+  CallReadinessControl,
+  CanonicalActiveCall,
+  resolveCallReadinessState,
+} from "./CanonicalActiveWorkspace";
 import type { useSoftphoneMedia } from "./use-softphone";
 
 afterEach(cleanup);
@@ -37,6 +41,100 @@ function connectedCall(direction: CallView["direction"]): CallView {
     winningLegId: "agent-leg-1",
   };
 }
+
+function readySession(update: Partial<AgentSessionView> = {}): AgentSessionView {
+  return {
+    audioReady: true,
+    clientInstanceId: "browser-1",
+    connectionState: "READY",
+    currentCallId: null,
+    endpointId: "endpoint-1",
+    id: "session-1",
+    leaseExpiresAt: "2026-07-14T12:01:00.000Z",
+    microphoneReady: true,
+    offeredCallId: null,
+    presence: "AVAILABLE",
+    stateVersion: 1,
+    ...update,
+  };
+}
+
+describe("call readiness", () => {
+  it("exposes one Ready / Not ready switch", () => {
+    const onChange = mock(() => {});
+    const view = render(
+      <CallReadinessControl disabled={false} onChange={onChange} state="NOT_READY" />,
+    );
+
+    const control = screen.getByRole("switch", { name: "Call readiness" });
+    expect(control.textContent).toContain("Not ready");
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(control);
+    expect(onChange).toHaveBeenCalledWith(true);
+
+    view.rerender(
+      <CallReadinessControl disabled={false} onChange={onChange} state="READY" />,
+    );
+    expect(control.textContent).toContain("Ready");
+    expect(control.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(control);
+    expect(onChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("reports Ready only when every canonical readiness invariant passes", () => {
+    expect(
+      resolveCallReadinessState({
+        call: null,
+        desiredReady: true,
+        error: null,
+        session: readySession(),
+      }),
+    ).toBe("READY");
+    expect(
+      resolveCallReadinessState({
+        call: null,
+        desiredReady: true,
+        error: null,
+        session: readySession({ microphoneReady: false, presence: "PAUSED" }),
+      }),
+    ).toBe("STARTING");
+    expect(
+      resolveCallReadinessState({
+        call: null,
+        desiredReady: true,
+        error: "Microphone permission is required.",
+        session: readySession({ microphoneReady: false, presence: "PAUSED" }),
+      }),
+    ).toBe("NOT_READY");
+  });
+
+  it("temporarily replaces readiness with incoming, connecting, and active call states", () => {
+    expect(
+      resolveCallReadinessState({
+        call: { direction: "INBOUND", status: "RINGING" },
+        desiredReady: true,
+        error: null,
+        session: readySession({ offeredCallId: "call-1" }),
+      }),
+    ).toBe("INCOMING");
+    expect(
+      resolveCallReadinessState({
+        call: { direction: "OUTBOUND", status: "QUEUED" },
+        desiredReady: true,
+        error: null,
+        session: readySession({ offeredCallId: "call-1" }),
+      }),
+    ).toBe("CONNECTING");
+    expect(
+      resolveCallReadinessState({
+        call: { direction: "INBOUND", status: "CONNECTED" },
+        desiredReady: true,
+        error: null,
+        session: readySession({ currentCallId: "call-1", presence: "BUSY" }),
+      }),
+    ).toBe("ON_CALL");
+  });
+});
 
 function mediaControls(
   state: "ACTIVE" | "HELD" = "ACTIVE",
