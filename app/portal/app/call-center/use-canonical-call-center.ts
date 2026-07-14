@@ -286,6 +286,10 @@ export function useCanonicalCallCenter({
           { signal: controller.signal },
         );
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            loadedIdentityRef.current = null;
+            dispatch({ type: "access-changed" });
+          }
           throw new Error(`Failed to load call center (${response.status})`);
         }
 

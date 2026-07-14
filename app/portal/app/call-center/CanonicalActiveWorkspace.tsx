@@ -596,7 +596,7 @@ function ConnectedCanonicalActiveWorkspace({
     session,
   ]);
 
-  if (realtime.error) {
+  if (realtime.error && !state) {
     return (
       <CanonicalUnavailable message="We could not connect to the call center. Refresh to try again." />
     );
@@ -651,6 +651,23 @@ function ConnectedCanonicalActiveWorkspace({
 
   return (
     <div className="space-y-4">
+      {realtime.error ? (
+        <section
+          className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+          role="alert"
+        >
+          <div>
+            <p className="font-medium">Call center updates are unavailable.</p>
+            <p className="mt-0.5 text-amber-900/75">
+              Existing call controls remain available. Retry to resume live updates.
+            </p>
+          </div>
+          <Button onClick={refreshSnapshot} size="sm" variant="secondary">
+            Retry
+          </Button>
+        </section>
+      ) : null}
+
       {!actionsEnabled ? (
         <section
           aria-label="Calling unavailable"

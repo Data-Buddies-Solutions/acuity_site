@@ -191,6 +191,52 @@ describe("useCanonicalCallCenter", () => {
     expect(result.current.state?.connection).toBe("CONNECTED");
   });
 
+  it("keeps the current workspace after a transient same-session failure", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      if (requestCount === 1) return Response.json(snapshot("10"));
+      if (requestCount === 2) return new Response(null, { status: 503 });
+      return Response.json(snapshot("30"));
+    }) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
+    );
+
+    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
+
+    act(() => result.current.refetch());
+    await waitFor(() => expect(result.current.error?.message).toContain("503"));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.state?.revision).toBe("10");
+    expect(result.current.state?.connection).toBe("RECONNECTING");
+
+    act(() => result.current.refetch());
+    await waitFor(() => expect(result.current.state?.revision).toBe("30"));
+    expect(result.current.error).toBeNull();
+    expect(result.current.state?.connection).toBe("CONNECTED");
+  });
+
+  it("fails closed when a same-session snapshot loses authorization", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? Response.json(snapshot("10"))
+        : new Response(null, { status: 403 });
+    }) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
+    );
+
+    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
+
+    act(() => result.current.refetch());
+    await waitFor(() => expect(result.current.error?.message).toContain("403"));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.state).toBeNull();
+  });
+
   it("clears the current workspace when access changes", async () => {
     let finishRefetch: ((response: Response) => void) | null = null;
     let requestCount = 0;
