@@ -13,7 +13,8 @@ const bodySchema = z
   .object({
     clientInstanceId: z.string().trim().min(1).max(200),
     destination: z.string().trim().min(1).max(40),
-    expectedSessionStateVersion: z.number().int().nonnegative(),
+    // Accept the retired field while already-loaded clients age out.
+    expectedSessionStateVersion: z.number().int().nonnegative().optional(),
     numberId: z.string().trim().min(1).max(200),
     queueId: z.string().trim().min(1).max(200),
   })
@@ -42,8 +43,11 @@ export function createStartOutboundCallHandler({
       const actor = await getActor();
       const body = await parseJsonBody(request, bodySchema);
       const input: StartOutboundCallInput = {
-        ...body,
+        clientInstanceId: body.clientInstanceId,
+        destination: body.destination,
         idempotencyKey: idempotencyKey(request),
+        numberId: body.numberId,
+        queueId: body.queueId,
       };
       const receipt = await start(prismaStartOutboundCallStore, actor, input);
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 201 });
