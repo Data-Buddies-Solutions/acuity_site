@@ -24,6 +24,7 @@ type HookState = {
 };
 
 type Action =
+  | { type: "access-changed" }
   | { type: "connected" }
   | { type: "cursor"; revision: string }
   | { type: "failed"; error: Error }
@@ -43,6 +44,8 @@ const initialState: HookState = {
 
 function reducer(current: HookState, action: Action): HookState {
   switch (action.type) {
+    case "access-changed":
+      return { ...current, error: null, loading: true, state: null };
     case "loading":
       return {
         ...current,
@@ -264,7 +267,12 @@ export function useCanonicalCallCenter({
 
     const reset = (reason: CallCenterResetReason) => {
       if (!active) return;
-      dispatch({ type: "reset", reason });
+      if (reason === "ACCESS_CHANGED") {
+        loadedIdentityRef.current = null;
+        dispatch({ type: "access-changed" });
+      } else {
+        dispatch({ type: "reset", reason });
+      }
       source?.close();
       source = null;
       dispatch({ type: "refetch" });
