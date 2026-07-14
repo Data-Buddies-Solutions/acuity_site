@@ -9,6 +9,7 @@ import {
   canonicalTransferIdempotencyKey,
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
+  isCanonicalClaimConflict,
   operationShouldAnswerMedia,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
@@ -179,6 +180,24 @@ describe("canonical active call center correlation", () => {
     expect(canonicalClaimIdempotencyKey("call-1", "session-1")).toBe(
       "canonical-claim:call-1:session-1",
     );
+  });
+
+  it("recognizes only the stable already-claimed response", async () => {
+    expect(
+      await isCanonicalClaimConflict(
+        Response.json({ code: "CALL_ALREADY_CLAIMED" }, { status: 409 }),
+      ),
+    ).toBe(true);
+    expect(
+      await isCanonicalClaimConflict(
+        Response.json({ error: "Conflict" }, { status: 409 }),
+      ),
+    ).toBe(false);
+    expect(
+      await isCanonicalClaimConflict(
+        Response.json({ code: "CALL_ALREADY_CLAIMED" }, { status: 500 }),
+      ),
+    ).toBe(false);
   });
 
   it("uses one stable transfer key across source retries and remounts", () => {

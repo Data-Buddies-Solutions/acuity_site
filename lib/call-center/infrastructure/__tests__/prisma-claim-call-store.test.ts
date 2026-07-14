@@ -27,6 +27,7 @@ const input: ClaimCallInput = {
 function fakeDatabase({
   callLocationId = "location-1" as string | null,
   callStatus = "QUEUED" as "COMPLETED" | "QUEUED" | "RINGING",
+  claimedBySessionId = null as string | null,
   endpointLocationId = "location-1" as string | null,
   effectOwner = "CANONICAL" as "CANONICAL" | "LEGACY",
   existing = false,
@@ -41,6 +42,16 @@ function fakeDatabase({
 } = {}) {
   const operations: string[] = [];
   const receipts = new Map<string, Record<string, unknown>>();
+  let claimedEvent: { data: unknown } | null = claimedBySessionId
+    ? {
+        data: {
+          agentSessionId: claimedBySessionId,
+          endpointId: "endpoint-2",
+          legId: "leg-winner",
+          providerCommandId: "command-winner",
+        },
+      }
+    : null;
   const queue = {
     enabled: true,
     id: "queue-1",
@@ -102,9 +113,11 @@ function fakeDatabase({
     },
     callCenterAgentSession: {
       findFirst: async () => session,
-      update: async () => {
+      findUnique: async () => session,
+      update: async ({ data }: { data: Record<string, unknown> }) => {
         operations.push("session.update");
-        session.offeredCallId = "call-1";
+        session.offeredCallId =
+          data.offeredCallId === null ? null : (data.offeredCallId as string);
         session.stateVersion += 1;
         return { stateVersion: session.stateVersion };
       },
@@ -160,11 +173,21 @@ function fakeDatabase({
         expect(JSON.stringify(data)).not.toContain("seat-1");
         return { id: "command-1" };
       },
+      findUnique: async () => ({
+        callId: "call-1",
+        id: "command-winner",
+        legId: "leg-winner",
+        nextAttemptAt: null,
+        practiceId: "practice-1",
+        status: "SENT",
+        type: "DIAL_AGENT",
+      }),
     },
     callCenterEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const receipt = data.type === "CALL_CLAIM_REQUESTED";
         operations.push(receipt ? "receipt.create" : `event.create:${data.type}`);
+        if (data.type === "CALL_CLAIMED") claimedEvent = { data: data.data };
         const event = {
           actorUserId: data.actorUserId,
           aggregateId: data.aggregateId,
@@ -181,8 +204,13 @@ function fakeDatabase({
       }: {
         where: Record<string, Record<string, string>>;
       }) => {
+        const key = where.practiceId_type_idempotencyKey;
+        if (key.type === "CALL_CLAIMED") {
+          operations.push("claim.find");
+          return claimedEvent;
+        }
         operations.push("receipt.find");
-        return receipts.get(where.practiceId_type_idempotencyKey.idempotencyKey) ?? null;
+        return receipts.get(key.idempotencyKey) ?? null;
       },
     },
     callCenterQueue: {
@@ -220,11 +248,12 @@ describe("Prisma canonical manual claim", () => {
       "queue.lock",
       "endpoint.lock",
       "agent_session.lock",
+      "claim.find",
       "leg.create",
       "command.create",
       "session.update",
       "call.update",
-      "event.create:CALL_CLAIM_STARTED",
+      "event.create:CALL_CLAIMED",
       "event.create:AGENT_SESSION_CALL_OFFERED",
       "receipt.create",
     ]);
@@ -246,6 +275,33 @@ describe("Prisma canonical manual claim", () => {
     await expect(claimCall(fake.store, actor, input, now)).resolves.toMatchObject({
       legId: "leg-existing",
       providerCommandId: "command-existing",
+    });
+    expect(fake.operations).not.toContain("command.create");
+  });
+
+  it("releases a losing offer without creating or reusing a provider command", async () => {
+    const fake = fakeDatabase({ claimedBySessionId: "session-2", existing: true });
+
+    await expect(claimCall(fake.store, actor, input, now)).resolves.toMatchObject({
+      agentSessionId: "session-1",
+      legId: null,
+      providerCommandId: null,
+      status: "ALREADY_CLAIMED",
+    });
+    expect(fake.operations).toContain("event.create:AGENT_SESSION_CALL_RELEASED");
+    expect(fake.operations).not.toContain("command.create");
+  });
+
+  it("returns the same loser outcome after a provider callback finishes the call", async () => {
+    const fake = fakeDatabase({
+      callStatus: "COMPLETED",
+      claimedBySessionId: "session-2",
+      existing: true,
+      winningLegId: "leg-winner",
+    });
+
+    await expect(claimCall(fake.store, actor, input, now)).resolves.toMatchObject({
+      status: "ALREADY_CLAIMED",
     });
     expect(fake.operations).not.toContain("command.create");
   });

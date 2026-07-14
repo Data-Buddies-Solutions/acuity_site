@@ -54,6 +54,16 @@ export function createClaimCallHandler({
         idempotencyKey: idempotencyKey(request),
       };
       const receipt = await claim(prismaClaimCallStore, actor, input);
+      if (receipt.status === "ALREADY_CLAIMED") {
+        return NextResponse.json(
+          {
+            ...receipt,
+            code: "CALL_ALREADY_CLAIMED",
+            error: "Call was already claimed",
+          },
+          { status: 409 },
+        );
+      }
       if (receipt.status === "PENDING") {
         scheduleCommand?.(receipt.providerCommandId);
       }
