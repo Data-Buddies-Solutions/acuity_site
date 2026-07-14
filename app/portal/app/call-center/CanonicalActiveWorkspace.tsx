@@ -149,6 +149,7 @@ function ConnectedCanonicalActiveWorkspace({
   queueId: string;
 }) {
   const realtime = useCanonicalCallCenter({ clientInstanceId, queueId });
+  const refreshSnapshot = realtime.refetch;
   const [presence, setPresence] = useState<AgentSessionView["presence"]>("AVAILABLE");
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
@@ -273,6 +274,11 @@ function ConnectedCanonicalActiveWorkspace({
   const activeCall =
     transferTakeCandidate?.call ??
     selectCanonicalAgentActiveCall(state?.calls ?? [], session);
+
+  useEffect(() => {
+    if (activeCall?.status === "CONNECTED") refreshSnapshot();
+  }, [activeCall?.id, activeCall?.status, refreshSnapshot]);
+
   const recentCalls = useMemo(
     () =>
       state?.calls.filter(({ status }) =>
@@ -423,8 +429,18 @@ function ConnectedCanonicalActiveWorkspace({
             method: "POST",
           },
         );
+        const body = (await response.json().catch(() => null)) as {
+          detail?: unknown;
+          error?: unknown;
+        } | null;
         if (!response.ok) {
-          throw new Error("We could not transfer this call. Try again.");
+          throw new Error(
+            typeof body?.detail === "string"
+              ? body.detail
+              : typeof body?.error === "string"
+                ? body.error
+                : "We could not transfer this call. Try again.",
+          );
         }
       } catch (error) {
         setActionError(

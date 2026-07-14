@@ -8,11 +8,42 @@ import {
   serializeAgentSession,
   serializeCall,
   serializeOperation,
+  serializeReadyTransferTargets,
 } from "../realtime-queries";
 
 const now = new Date("2026-07-11T12:00:00.000Z");
 
 describe("canonical realtime serializers", () => {
+  it("offers only staff with exactly one ready transfer session", () => {
+    expect(
+      serializeReadyTransferTargets([
+        {
+          user: {
+            callCenterEndpoints: [{ agentSessions: [{ id: "session-1" }] }],
+            id: "ready-user",
+            name: "Ready",
+          },
+        },
+        {
+          user: {
+            callCenterEndpoints: [{ agentSessions: [] }],
+            id: "offline-user",
+            name: "Offline",
+          },
+        },
+        {
+          user: {
+            callCenterEndpoints: [
+              { agentSessions: [{ id: "session-2" }, { id: "session-3" }] },
+            ],
+            id: "ambiguous-user",
+            name: "Ambiguous",
+          },
+        },
+      ]),
+    ).toEqual([{ name: "Ready", userId: "ready-user" }]);
+  });
+
   it("binds the local session projection to this browser instance", () => {
     expect(
       localAgentSessionWhere(

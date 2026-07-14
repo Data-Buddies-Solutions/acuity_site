@@ -377,6 +377,8 @@ async function loadProviderCommandClaim(
         true,
       );
     }
+    let transferSource: { id: string; providerCallControlId: string | null } | null =
+      null;
     if (args.replacesLegId) {
       if (
         command.call.status !== "CONNECTED" ||
@@ -391,7 +393,7 @@ async function loadProviderCommandClaim(
         );
       }
       const source = await tx.callCenterCallLeg.findFirst({
-        select: { id: true },
+        select: { id: true, providerCallControlId: true },
         where: {
           callId: command.callId,
           id: args.replacesLegId,
@@ -408,6 +410,7 @@ async function loadProviderCommandClaim(
           true,
         );
       }
+      transferSource = source;
     }
     const endpoint = leg.endpoint;
     const session = leg.agentSession;
@@ -520,21 +523,25 @@ async function loadProviderCommandClaim(
         true,
       );
     }
-    const customerLegs = await tx.callCenterCallLeg.findMany({
-      orderBy: { startedAt: "asc" },
-      select: { providerCallControlId: true },
-      take: 2,
-      where: {
-        callId: command.callId,
-        kind: "CUSTOMER",
-        providerCallControlId: { not: null },
-      },
-    });
-    if (customerLegs.length !== 1 || !customerLegs[0]?.providerCallControlId) {
+    const linkedLeg =
+      args.replacesLegId && command.call.direction === "OUTBOUND"
+        ? transferSource
+        : await tx.callCenterCallLeg.findFirst({
+            orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+            select: { providerCallControlId: true },
+            where: {
+              callId: command.callId,
+              kind: "CUSTOMER",
+              providerCallControlId: { not: null },
+              status: { in: ["ANSWERED", "BRIDGED"] },
+            },
+          });
+    const linkTo = linkedLeg?.providerCallControlId;
+    if (!linkTo) {
       return rejectProviderCommandClaim(
         tx,
         command,
-        "COMMAND_CUSTOMER_LEG_AMBIGUOUS",
+        "COMMAND_LINK_LEG_UNAVAILABLE",
         input.now,
         true,
       );
@@ -562,7 +569,7 @@ async function loadProviderCommandClaim(
         provider: {
           connectionId,
           from,
-          linkTo: customerLegs[0].providerCallControlId,
+          linkTo,
           sipUri: sipUri(endpoint.sipUsername.trim()),
           timeoutSeconds: command.call.queue.ringTimeoutSec,
         },
