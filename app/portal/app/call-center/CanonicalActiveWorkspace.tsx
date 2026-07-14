@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -61,6 +62,7 @@ import { useSoftphoneMedia } from "./use-softphone";
 type CanonicalActiveWorkspaceProps = {
   actionsEnabled: boolean;
   enabled: boolean;
+  historyHref: string;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string | null;
 };
@@ -79,6 +81,7 @@ function canonicalConnectionState(
 export function CanonicalActiveWorkspace({
   actionsEnabled,
   enabled,
+  historyHref,
   outboundNumbers,
   queueId,
 }: CanonicalActiveWorkspaceProps) {
@@ -125,6 +128,7 @@ export function CanonicalActiveWorkspace({
     <ConnectedCanonicalActiveWorkspace
       clientInstanceId={client.clientInstanceId}
       actionsEnabled={actionsEnabled}
+      historyHref={historyHref}
       outboundNumbers={outboundNumbers}
       queueId={queueId}
     />
@@ -134,11 +138,13 @@ export function CanonicalActiveWorkspace({
 function ConnectedCanonicalActiveWorkspace({
   actionsEnabled,
   clientInstanceId,
+  historyHref,
   outboundNumbers,
   queueId,
 }: {
   actionsEnabled: boolean;
   clientInstanceId: string;
+  historyHref: string;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string;
 }) {
@@ -710,6 +716,7 @@ function ConnectedCanonicalActiveWorkspace({
           <CanonicalActivity
             actionsEnabled={actionsEnabled}
             calls={state.calls}
+            historyHref={historyHref}
             onResolve={(call) => void saveDisposition(call, "RESOLVED")}
             recentCalls={recentCalls}
             submittingDisposition={submittingDisposition}
@@ -1031,6 +1038,7 @@ function CanonicalActiveCall({
 function CanonicalActivity({
   actionsEnabled,
   calls,
+  historyHref,
   onResolve,
   recentCalls,
   submittingDisposition,
@@ -1038,6 +1046,7 @@ function CanonicalActivity({
 }: {
   actionsEnabled: boolean;
   calls: CallView[];
+  historyHref: string;
   onResolve: (call: CallView) => void;
   recentCalls: CallView[];
   submittingDisposition: string | null;
@@ -1137,10 +1146,10 @@ function CanonicalActivity({
       </section>
 
       <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
-        <header className="border-b border-[var(--portal-border)] px-4 py-3">
+        <header className="flex items-center gap-3 border-b border-[var(--portal-border)] px-4 py-3">
           <button
             aria-expanded={connectionsOpen}
-            className="flex w-full min-w-0 items-center gap-2 text-left"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
             onClick={() => setConnectionsOpen((current) => !current)}
             type="button"
           >
@@ -1158,7 +1167,7 @@ function CanonicalActivity({
             <span className="min-w-0">
               <span className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-[var(--portal-ink)]">
-                  Connections
+                  Recent calls
                 </span>
                 {recentCalls.length ? (
                   <PortalBadge className="px-2 py-0.5 tabular-nums">
@@ -1167,10 +1176,16 @@ function CanonicalActivity({
                 ) : null}
               </span>
               <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
-                Connected inbound and outbound calls.
+                Inbound and outbound call outcomes.
               </span>
             </span>
           </button>
+          <Link
+            className="shrink-0 text-xs font-semibold text-[var(--portal-accent)] hover:underline"
+            href={historyHref}
+          >
+            View all
+          </Link>
         </header>
 
         {!connectionsOpen ? null : recentCalls.length ? (
@@ -1178,7 +1193,11 @@ function CanonicalActivity({
             {recentCalls.map((call) => {
               const DirectionIcon =
                 call.direction === "OUTBOUND" ? PhoneOutgoing : PhoneIncoming;
-              const phone = formatPhone(callPhone(call));
+              const patientPhone = callPhone(call);
+              const phone = formatPhone(patientPhone);
+              const callerHref = patientPhone
+                ? `/portal/app/call-center/callers/${encodeURIComponent(patientPhone)}`
+                : null;
 
               return (
                 <li
@@ -1190,9 +1209,18 @@ function CanonicalActivity({
                       <DirectionIcon className="h-4 w-4" aria-hidden="true" />
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
-                        {call.callerName || phone}
-                      </p>
+                      {callerHref ? (
+                        <Link
+                          className="block truncate text-sm font-medium text-[var(--portal-accent)] underline-offset-2 hover:underline"
+                          href={callerHref}
+                        >
+                          {call.callerName || phone}
+                        </Link>
+                      ) : (
+                        <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
+                          {call.callerName || phone}
+                        </p>
+                      )}
                       <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
                         {call.callerName ? `${phone} · ` : ""}
                         {call.direction === "OUTBOUND" ? "Outbound" : "Inbound"}
@@ -1209,7 +1237,7 @@ function CanonicalActivity({
           </ul>
         ) : (
           <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
-            No connected calls yet.
+            No recent calls yet.
           </div>
         )}
       </section>

@@ -798,6 +798,7 @@ export type PortalCallQueueItem = {
 
 export type PortalRecentCallItem = {
   answeredBy: string | null;
+  connected: boolean;
   direction: CallCenterSessionDirection;
   durationSec: number | null;
   fromPhone: string | null;
@@ -819,6 +820,7 @@ export type PortalCallCenterHistoryTotals = {
 };
 
 export type PortalCallCenterHistoryRange = "24h" | "7d" | "all";
+export type PortalCallCenterHistoryView = "all" | "connections";
 
 export type PortalCallerTimelineItem = {
   body: string | null;
@@ -1262,15 +1264,16 @@ export function getPortalCallCenterLocationState(
 export function buildPortalHistorySessionWhere({
   practiceId,
   sessionFilter,
+  view = "connections",
 }: {
   practiceId: string;
   sessionFilter: Prisma.CallCenterSessionWhereInput;
+  view?: PortalCallCenterHistoryView;
 }): Prisma.CallCenterSessionWhereInput {
-  return {
+  const patientCallWhere = {
     AND: [
       sessionFilter,
       buildPortalPatientSessionWhere(),
-      portalConnectedCallSignalWhere(),
       {
         OR: [
           {
@@ -1291,6 +1294,14 @@ export function buildPortalHistorySessionWhere({
       },
     ],
     practiceId,
+  } satisfies Prisma.CallCenterSessionWhereInput;
+
+  if (view === "all") {
+    return patientCallWhere;
+  }
+
+  return {
+    AND: [patientCallWhere, portalConnectedCallSignalWhere()],
     status: "COMPLETED",
   };
 }
@@ -1502,6 +1513,7 @@ function portalRecentCallFromSession(
 
   return {
     answeredBy,
+    connected: hasPortalConnectedCallSignal(session),
     direction: session.direction,
     durationSec: callDurationSec(session),
     fromPhone: session.fromPhone,
@@ -2225,6 +2237,7 @@ export async function getPortalCallCenterHistoryData(options?: {
   page?: number;
   pageSize?: number;
   range?: PortalCallCenterHistoryRange;
+  view?: PortalCallCenterHistoryView;
 }) {
   const context = await getCurrentPracticeCallCenterContext();
 
@@ -2235,13 +2248,24 @@ export async function getPortalCallCenterHistoryData(options?: {
   const page = Math.max(1, Math.round(options?.page ?? 1));
   const pageSize = Math.min(100, Math.max(25, Math.round(options?.pageSize ?? 100)));
   const range = options?.range ?? "24h";
+  const view = options?.view ?? "connections";
   const { practice } = context;
   const sessionFilter = buildCallCenterPatientSessionScopeWhere(context, null);
-  const baseHistorySessionWhere = buildPortalHistorySessionWhere({
-    practiceId: practice.id,
-    sessionFilter,
-  });
-  const historySessionWhere = applyPortalCallHistoryRange(baseHistorySessionWhere, range);
+  const connectedSessionWhere = applyPortalCallHistoryRange(
+    buildPortalHistorySessionWhere({
+      practiceId: practice.id,
+      sessionFilter,
+    }),
+    range,
+  );
+  const historySessionWhere = applyPortalCallHistoryRange(
+    buildPortalHistorySessionWhere({
+      practiceId: practice.id,
+      sessionFilter,
+      view,
+    }),
+    range,
+  );
   const outboundDialedSessionWhere = applyPortalCallHistoryRange(
     buildPortalOutboundDialedSessionWhere({
       practiceId: practice.id,
@@ -2258,12 +2282,12 @@ export async function getPortalCallCenterHistoryData(options?: {
     }),
     prisma.callCenterSession.count({
       where: {
-        AND: [historySessionWhere, { direction: CallCenterSessionDirection.INBOUND }],
+        AND: [connectedSessionWhere, { direction: CallCenterSessionDirection.INBOUND }],
       },
     }),
     prisma.callCenterSession.count({
       where: {
-        AND: [historySessionWhere, { direction: CallCenterSessionDirection.OUTBOUND }],
+        AND: [connectedSessionWhere, { direction: CallCenterSessionDirection.OUTBOUND }],
       },
     }),
     prisma.callCenterSession.count({

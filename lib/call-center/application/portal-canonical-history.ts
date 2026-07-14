@@ -11,6 +11,7 @@ import {
   type PortalCallActivityItem,
   type PortalCallCenterHistoryRange,
   type PortalCallCenterHistoryTotals,
+  type PortalCallCenterHistoryView,
   type PortalCallerTimeline,
   type PortalCallerTimelineItem,
   type PortalNeedsActionGroup,
@@ -74,11 +75,26 @@ function rangeCutoff(range: PortalCallCenterHistoryRange, now: Date) {
   return null;
 }
 
-const historyStatuses = ["CONNECTED", "WRAP_UP", "COMPLETED"] as const;
+const connectedHistoryStatuses = ["CONNECTED", "WRAP_UP", "COMPLETED"] as const;
 
 function legacyStatus(status: CallCenterCallStatus) {
-  if (status === "CONNECTED") return CallCenterSessionStatus.ACTIVE;
-  return CallCenterSessionStatus.COMPLETED;
+  switch (status) {
+    case "RECEIVED":
+    case "QUEUED":
+    case "RINGING":
+      return CallCenterSessionStatus.RINGING;
+    case "CONNECTED":
+    case "WRAP_UP":
+      return CallCenterSessionStatus.ACTIVE;
+    case "COMPLETED":
+      return CallCenterSessionStatus.COMPLETED;
+    case "VOICEMAIL":
+      return CallCenterSessionStatus.VOICEMAIL;
+    case "ABANDONED":
+      return CallCenterSessionStatus.MISSED;
+    case "FAILED":
+      return CallCenterSessionStatus.FAILED;
+  }
 }
 
 function callDurationSec(call: {
@@ -98,6 +114,7 @@ export async function readCanonicalCallCenterHistory(
     page?: number;
     pageSize?: number;
     range?: PortalCallCenterHistoryRange;
+    view?: PortalCallCenterHistoryView;
   } = {},
   {
     database = prisma,
@@ -109,17 +126,21 @@ export async function readCanonicalCallCenterHistory(
   const page = Math.max(1, Math.round(options.page ?? 1));
   const pageSize = Math.min(100, Math.max(25, Math.round(options.pageSize ?? 100)));
   const range = options.range ?? "24h";
+  const view = options.view ?? "connections";
   const cutoff = rangeCutoff(range, options.now ?? new Date());
-  const callWhere: Prisma.CallCenterCallWhereInput = {
+  const accessWhere: Prisma.CallCenterCallWhereInput = {
     ...canonicalCallAccessWhere(context),
-    answeredAt: { not: null },
-    status: { in: [...historyStatuses] },
     ...(cutoff ? { receivedAt: { gte: cutoff } } : {}),
   };
+  const connectedWhere: Prisma.CallCenterCallWhereInput = {
+    ...accessWhere,
+    answeredAt: { not: null },
+    status: { in: [...connectedHistoryStatuses] },
+  };
+  const callWhere = view === "all" ? accessWhere : connectedWhere;
   const outboundAttemptWhere: Prisma.CallCenterCallWhereInput = {
-    ...canonicalCallAccessWhere(context),
+    ...accessWhere,
     direction: "OUTBOUND",
-    ...(cutoff ? { receivedAt: { gte: cutoff } } : {}),
   };
   const [calls, totalCalls, inboundCalls, outboundCalls, outboundDialedCalls] =
     await Promise.all([
@@ -150,10 +171,10 @@ export async function readCanonicalCallCenterHistory(
       }),
       database.callCenterCall.count({ where: callWhere }),
       database.callCenterCall.count({
-        where: { ...callWhere, answeredAt: { not: null }, direction: "INBOUND" },
+        where: { ...connectedWhere, direction: "INBOUND" },
       }),
       database.callCenterCall.count({
-        where: { ...callWhere, answeredAt: { not: null }, direction: "OUTBOUND" },
+        where: { ...connectedWhere, direction: "OUTBOUND" },
       }),
       database.callCenterCall.count({
         where: outboundAttemptWhere,
@@ -164,6 +185,11 @@ export async function readCanonicalCallCenterHistory(
     branding: getPracticeBranding(context.practice),
     calls: calls.map((call): PortalRecentCallItem => ({
       answeredBy: call.winningLeg?.endpoint?.label ?? null,
+      connected:
+        call.answeredAt !== null &&
+        connectedHistoryStatuses.includes(
+          call.status as (typeof connectedHistoryStatuses)[number],
+        ),
       direction:
         call.direction === "OUTBOUND"
           ? CallCenterSessionDirection.OUTBOUND
@@ -466,7 +492,7 @@ export async function readCanonicalCallerTimeline(
     NOT: {
       tasks: { some: { kind: { in: ["MISSED_CALL", "VOICEMAIL"] } } },
     },
-    status: { in: [...historyStatuses] },
+    status: { in: [...connectedHistoryStatuses] },
     ...(cutoff ? { receivedAt: { gte: cutoff } } : {}),
   };
   const taskWhere: Prisma.CallCenterTaskWhereInput = {

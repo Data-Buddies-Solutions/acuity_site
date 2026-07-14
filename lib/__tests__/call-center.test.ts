@@ -1062,6 +1062,21 @@ describe("portal patient call session filtering", () => {
     expect(serialized).not.toContain("VOICEMAIL");
   });
 
+  it("keeps every patient-call outcome in all-call history", () => {
+    const where = buildPortalHistorySessionWhere({
+      practiceId: "practice-1",
+      sessionFilter: {},
+      view: "all",
+    }) as { status?: unknown };
+    const serialized = JSON.stringify(where);
+
+    expect(where.status).toBeUndefined();
+    expect(serialized).not.toContain("ANSWERED");
+    expect(serialized).not.toContain("BRIDGED");
+    expect(serialized).toContain("fromPhone");
+    expect(serialized).toContain("toPhone");
+  });
+
   it("keeps missing metadata paths out of the Prisma patient-session scope", () => {
     expect(buildPortalPatientSessionWhere()).toEqual({
       NOT: {

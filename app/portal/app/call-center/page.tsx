@@ -139,6 +139,7 @@ export default async function PortalCallCenterPage({
         <CanonicalActiveWorkspace
           actionsEnabled={canonicalActivation}
           enabled={enabled}
+          historyHref={historyHref}
           outboundNumbers={canonicalWorkspace?.outboundNumbers ?? []}
           queueId={canonicalWorkspace?.queueId ?? null}
         />
