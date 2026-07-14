@@ -16,6 +16,7 @@ const input = {
   legacyVoicemailWhere: { locationId: "location-1" },
   now: new Date("2026-07-12T20:00:00.000Z"),
   phoneVariants: ["+15555550123", "15555550123"],
+  queueId: "queue-1",
 };
 
 describe("mixed caller-thread resolution", () => {
@@ -77,8 +78,20 @@ describe("mixed caller-thread resolution", () => {
           practicePhoneNumber: { locationId: { in: ["location-1"] } },
         },
         practiceId: "practice-1",
+        queueId: "queue-1",
       },
-      callerPhone: { in: input.phoneVariants },
+      OR: [
+        { callerPhone: { in: input.phoneVariants } },
+        {
+          call: {
+            effectOwner: "CANONICAL",
+            fromPhone: { in: input.phoneVariants },
+            practiceId: "practice-1",
+            queueId: "queue-1",
+          },
+          callerPhone: null,
+        },
+      ],
       practiceId: "practice-1",
       status: "OPEN",
     });

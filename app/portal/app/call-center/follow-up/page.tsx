@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getPortalCallCenterData } from "@/lib/call-center";
 import { readCombinedNeedsAction } from "@/lib/call-center/application/portal-combined-call-center-reads";
+import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import LocationPicker from "../LocationPicker";
@@ -32,6 +33,7 @@ export default async function PortalCallCenterFollowUpPage({
   const selectedLocationId = Array.isArray(params.office)
     ? params.office[0]
     : params.office;
+  const requestedQueueId = Array.isArray(params.queue) ? params.queue[0] : params.queue;
   const page = parseFollowUpPage(
     Array.isArray(params.page) ? params.page[0] : params.page,
   );
@@ -51,6 +53,27 @@ export default async function PortalCallCenterFollowUpPage({
     : data.selectedLocation?.locationId
       ? [data.selectedLocation.locationId]
       : [];
+  const selectedOfficeId = data.selectedLocation?.id ?? selectedLocationId;
+  const canonicalWorkspace = requestedQueueId
+    ? await readPortalCanonicalWorkspace(
+        selectedCanonicalLocationIds,
+        true,
+        requestedQueueId,
+      )
+    : null;
+  const invalidRequestedQueue = Boolean(
+    requestedQueueId && canonicalWorkspace?.queueId !== requestedQueueId,
+  );
+  if (invalidRequestedQueue && canonicalWorkspace) {
+    redirect(
+      followUpHref({
+        office: selectedOfficeId,
+        page,
+        queue: canonicalWorkspace.queueId,
+      }),
+    );
+  }
+  const selectedQueueId = invalidRequestedQueue ? undefined : requestedQueueId;
   const combinedNeedsAction = await readCombinedNeedsAction(
     {
       legacyGroups: data.needsAction,
@@ -59,8 +82,10 @@ export default async function PortalCallCenterFollowUpPage({
       locationIds: selectedCanonicalLocationIds,
       page,
       pageSize: FOLLOW_UP_PAGE_SIZE,
+      queueId: selectedQueueId,
     },
     {
+      ...(invalidRequestedQueue ? { readCanonical: async () => null } : {}),
       readLegacy: async (legacyPage, pageSize) => {
         const result = await getPortalCallCenterData({
           excludeCanonicalLinkedActivity: true,
@@ -79,10 +104,15 @@ export default async function PortalCallCenterFollowUpPage({
   const threads = combinedNeedsAction.groups;
   const totalThreads = combinedNeedsAction.total;
   const totalPages = Math.max(1, Math.ceil(totalThreads / FOLLOW_UP_PAGE_SIZE));
-  const selectedOfficeId = data.selectedLocation?.id ?? selectedLocationId;
 
   if (totalThreads > 0 && page > totalPages) {
-    redirect(followUpHref({ office: selectedOfficeId, page: totalPages }));
+    redirect(
+      followUpHref({
+        office: selectedOfficeId,
+        page: totalPages,
+        queue: selectedQueueId,
+      }),
+    );
   }
 
   return (
@@ -103,7 +133,7 @@ export default async function PortalCallCenterFollowUpPage({
             />
           ) : null}
           <Button asChild variant="secondary">
-            <Link href={commandCenterHref(selectedOfficeId)}>
+            <Link href={commandCenterHref(selectedOfficeId, selectedQueueId)}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Command center
             </Link>
@@ -114,6 +144,7 @@ export default async function PortalCallCenterFollowUpPage({
       <FollowUpCommandCenter
         office={selectedOfficeId}
         page={page}
+        queue={selectedQueueId}
         threads={threads}
         totalPages={totalPages}
         totalThreads={totalThreads}
@@ -122,17 +153,31 @@ export default async function PortalCallCenterFollowUpPage({
   );
 }
 
-function commandCenterHref(office?: string) {
-  return office
-    ? `/portal/app/call-center?office=${encodeURIComponent(office)}`
-    : "/portal/app/call-center";
+function commandCenterHref(office?: string, queue?: string) {
+  const params = new URLSearchParams();
+  if (office) params.set("office", office);
+  if (queue) params.set("queue", queue);
+  const query = params.toString();
+  return `/portal/app/call-center${query ? `?${query}` : ""}`;
 }
 
-function followUpHref({ office, page }: { office?: string; page: number }) {
+function followUpHref({
+  office,
+  page,
+  queue,
+}: {
+  office?: string;
+  page: number;
+  queue?: string;
+}) {
   const params = new URLSearchParams();
 
   if (office) {
     params.set("office", office);
+  }
+
+  if (queue) {
+    params.set("queue", queue);
   }
 
   if (page > 1) {

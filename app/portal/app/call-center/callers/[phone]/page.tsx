@@ -24,7 +24,10 @@ import { readCombinedCallerTimeline } from "@/lib/call-center/application/portal
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
 
-import { resolveNeedsActionGroupAction, saveCallCenterNoteAction } from "../../actions";
+import {
+  resolveNeedsActionGroupAction,
+  saveCallCenterNoteFormAction,
+} from "../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -526,7 +529,7 @@ function OutcomePanel({ office, phone }: { office?: string; phone: string }) {
     <Card className="border-[var(--portal-border)] bg-white p-4 shadow-sm">
       <CardContent className="p-0">
         <form
-          action={saveCallCenterNoteAction}
+          action={saveCallCenterNoteFormAction}
           className="grid w-full gap-2 sm:grid-cols-[minmax(180px,220px)_1fr_auto]"
         >
           {office ? <input type="hidden" name="office" value={office} /> : null}

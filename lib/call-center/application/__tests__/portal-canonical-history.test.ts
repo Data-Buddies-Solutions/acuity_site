@@ -168,46 +168,93 @@ describe("canonical portal history", () => {
 
   it("paginates open canonical tasks by caller thread", async () => {
     const groupQueries: Array<Record<string, unknown>> = [];
+    const taskQueries: Array<Record<string, unknown>> = [];
     const database = {
       callCenterTask: {
-        findMany: async () => [
-          {
-            call: {
-              callerName: "Patient",
-              fromPhone: "+15555550333",
-              number: {
-                practicePhoneNumber: { location: { name: "Optical" } },
+        findMany: async (input: Record<string, unknown>) => {
+          taskQueries.push(input);
+          if ("select" in input) {
+            return [
+              {
+                call: { fromPhone: "+15555550333" },
+                createdAt: new Date("2026-07-12T18:55:00.000Z"),
+                id: "legacy-missed-task",
               },
-              voicemail: { durationSec: 12, recordingId: "recording-1" },
+            ];
+          }
+          const call = {
+            callerName: "Patient",
+            fromPhone: "+15555550333",
+            number: {
+              practicePhoneNumber: { location: { name: "Optical" } },
             },
-            callerPhone: "+15555550333",
-            createdAt: new Date("2026-07-12T19:00:00.000Z"),
-            id: "task-3",
-            kind: "VOICEMAIL",
-          },
-        ],
+            voicemail: { durationSec: 12, recordingId: "recording-1" },
+          };
+          return [
+            {
+              call,
+              callerPhone: "+15555550333",
+              createdAt: new Date("2026-07-12T19:00:00.000Z"),
+              id: "task-3",
+              kind: "VOICEMAIL",
+            },
+            {
+              call: { ...call, voicemail: null },
+              callerPhone: null,
+              createdAt: new Date("2026-07-12T18:55:00.000Z"),
+              id: "legacy-missed-task",
+              kind: "MISSED_CALL",
+            },
+          ];
+        },
         groupBy: async (input: Record<string, unknown>) => {
           groupQueries.push(input);
-          if ("take" in input) {
-            return [{ callerPhone: "+15555550333", _max: { createdAt: new Date() } }];
-          }
           return [
-            { callerPhone: "+15555550111" },
-            { callerPhone: "+15555550222" },
-            { callerPhone: "+15555550333" },
+            {
+              _max: { createdAt: new Date("2026-07-12T21:00:00.000Z") },
+              callerPhone: "+15555550111",
+            },
+            {
+              _max: { createdAt: new Date("2026-07-12T20:00:00.000Z") },
+              callerPhone: "+15555550222",
+            },
+            {
+              _max: { createdAt: new Date("2026-07-12T19:00:00.000Z") },
+              callerPhone: "+15555550333",
+            },
+            {
+              _max: { createdAt: new Date("2026-07-12T18:58:00.000Z") },
+              callerPhone: "(555) 555-0333",
+            },
           ];
         },
       },
     };
     const result = await readCanonicalNeedsAction(
-      { locationIds: ["location-1"], page: 2, pageSize: 2 },
+      { locationIds: ["location-1"], page: 2, pageSize: 2, queueId: "queue-1" },
       {
         database: database as never,
         getContext: async () => context as never,
       },
     );
 
-    expect(groupQueries[1]).toMatchObject({ skip: 2, take: 2 });
+    expect(groupQueries).toHaveLength(1);
+    expect(groupQueries[0]).toMatchObject({ where: { call: { queueId: "queue-1" } } });
+    expect(taskQueries[0]).toMatchObject({
+      where: { call: { queueId: "queue-1" }, callerPhone: null },
+    });
+    expect(taskQueries[1]).toMatchObject({
+      where: {
+        OR: [
+          {
+            callerPhone: {
+              in: expect.arrayContaining(["+15555550333", "(555) 555-0333"]),
+            },
+          },
+          { id: { in: ["legacy-missed-task"] } },
+        ],
+      },
+    });
     expect(result).toMatchObject({
       groups: [
         {
@@ -216,6 +263,7 @@ describe("canonical portal history", () => {
           latestKind: "voicemail",
           latestVoicemailDurationSec: 12,
           latestVoicemailRecordingId: "recording-1",
+          missedCount: 1,
           voicemailCount: 1,
         },
       ],
@@ -334,7 +382,16 @@ describe("canonical portal history", () => {
             practicePhoneNumber: { locationId: { in: ["location-1"] } },
           },
         },
-        callerPhone: { in: expect.arrayContaining(["+15555550123"]) },
+        OR: [
+          { callerPhone: { in: expect.arrayContaining(["+15555550123"]) } },
+          {
+            call: {
+              effectOwner: "CANONICAL",
+              fromPhone: { in: expect.arrayContaining(["+15555550123"]) },
+            },
+            callerPhone: null,
+          },
+        ],
         createdAt: { gte: new Date("2026-07-11T20:00:00.000Z") },
         practiceId: "practice-1",
       },

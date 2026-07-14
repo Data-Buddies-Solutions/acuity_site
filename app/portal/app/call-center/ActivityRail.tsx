@@ -110,6 +110,7 @@ export default function ActivityRail({
   needsAction,
   office,
   onCallback,
+  queueId,
   stationLabel,
   stationSeatId,
   totals,
@@ -118,6 +119,7 @@ export default function ActivityRail({
   needsAction: PortalNeedsActionGroup[];
   office?: string | null;
   onCallback: (number: string) => void;
+  queueId?: string;
   stationLabel?: string | null;
   stationSeatId?: string | null;
   totals: PortalCallCenterTotals;
@@ -295,6 +297,9 @@ export default function ActivityRail({
                           />
                         ) : null}
                         <input type="hidden" name="phone" value={group.fromPhone ?? ""} />
+                        {queueId ? (
+                          <input type="hidden" name="queue" value={queueId} />
+                        ) : null}
                         <Button
                           aria-label="Mark resolved"
                           className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"

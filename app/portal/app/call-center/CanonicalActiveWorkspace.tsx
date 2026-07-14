@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -27,6 +28,7 @@ import { PortalSelect } from "@/app/portal/app/PortalFields";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import type { PortalCallCenterTotals, PortalNeedsActionGroup } from "@/lib/call-center";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import {
@@ -66,6 +68,7 @@ import {
   selectLatestClaimOperation,
   selectLatestTransferOperation,
 } from "./canonical-active-call-center";
+import ActivityRail from "./ActivityRail";
 import {
   type CanonicalAgentConnectionState,
   useCanonicalAgentSession,
@@ -76,9 +79,15 @@ import { useSoftphoneMedia } from "./use-softphone";
 type CanonicalActiveWorkspaceProps = {
   actionsEnabled: boolean;
   enabled: boolean;
+  eventLocationId?: string | null;
+  followUpHref: string;
   historyHref: string;
+  initialDialNumber?: string | null;
+  needsAction: PortalNeedsActionGroup[];
+  office?: string | null;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string | null;
+  totals: PortalCallCenterTotals;
 };
 
 const keypadDigits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
@@ -158,9 +167,15 @@ function canonicalConnectionState(
 export function CanonicalActiveWorkspace({
   actionsEnabled,
   enabled,
+  eventLocationId,
+  followUpHref,
   historyHref,
+  initialDialNumber,
+  needsAction,
+  office,
   outboundNumbers,
   queueId,
+  totals,
 }: CanonicalActiveWorkspaceProps) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
   const [identityError, setIdentityError] = useState(false);
@@ -205,9 +220,15 @@ export function CanonicalActiveWorkspace({
     <ConnectedCanonicalActiveWorkspace
       clientInstanceId={client.clientInstanceId}
       actionsEnabled={actionsEnabled}
+      eventLocationId={eventLocationId}
+      followUpHref={followUpHref}
       historyHref={historyHref}
+      initialDialNumber={initialDialNumber}
+      needsAction={needsAction}
+      office={office}
       outboundNumbers={outboundNumbers}
       queueId={queueId}
+      totals={totals}
     />
   );
 }
@@ -215,20 +236,33 @@ export function CanonicalActiveWorkspace({
 function ConnectedCanonicalActiveWorkspace({
   actionsEnabled,
   clientInstanceId,
+  eventLocationId,
+  followUpHref,
   historyHref,
+  initialDialNumber,
+  needsAction,
+  office,
   outboundNumbers,
   queueId,
+  totals,
 }: {
   actionsEnabled: boolean;
   clientInstanceId: string;
+  eventLocationId?: string | null;
+  followUpHref: string;
   historyHref: string;
+  initialDialNumber?: string | null;
+  needsAction: PortalNeedsActionGroup[];
+  office?: string | null;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string;
+  totals: PortalCallCenterTotals;
 }) {
+  const router = useRouter();
   const realtime = useCanonicalCallCenter({ clientInstanceId, queueId });
   const refreshSnapshot = realtime.refetch;
   const [actionError, setActionError] = useState<string | null>(null);
-  const [destination, setDestination] = useState("");
+  const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [numberChoice, setNumberChoice] = useState("");
   const [startingOutbound, setStartingOutbound] = useState(false);
   const [submittingDisposition, setSubmittingDisposition] = useState<string | null>(null);
@@ -242,6 +276,11 @@ function ConnectedCanonicalActiveWorkspace({
   const answeredMediaRef = useRef(new Set<string>());
   const outboundMediaLegsRef = useRef(new Set<string>());
   const outboundStartingRef = useRef(false);
+  const taskSignalRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (initialDialNumber) setDestination(initialDialNumber);
+  }, [initialDialNumber]);
   const agentProfileId = realtime.state?.agentProfile?.id ?? "";
   const shouldConnect = Boolean(agentProfileId && actionsEnabled);
   const eligibleOutboundNumbers = outboundNumbers;
@@ -252,6 +291,12 @@ function ConnectedCanonicalActiveWorkspace({
     ({ id }) => id === selectedNumberId,
   );
   const state = realtime.state;
+  const taskSignal = state
+    ? `${state.counts.openTasks}:${state.tasks
+        .map(({ id, status }) => `${id}:${status}`)
+        .sort()
+        .join("|")}`
+    : undefined;
   const projectedSession =
     state?.agentSession?.clientInstanceId === clientInstanceId &&
     state.agentSession.endpointId === agentProfileId
@@ -296,6 +341,34 @@ function ConnectedCanonicalActiveWorkspace({
     observations: mediaObservations,
   } = media;
   const { start: startCanonicalSession, stop: stopCanonicalSession } = canonicalSession;
+
+  useEffect(() => {
+    if (taskSignal === undefined) return;
+    if (taskSignalRef.current === null) {
+      taskSignalRef.current = taskSignal;
+      router.refresh();
+      return;
+    }
+    if (taskSignalRef.current !== taskSignal) {
+      taskSignalRef.current = taskSignal;
+      router.refresh();
+    }
+  }, [router, taskSignal]);
+
+  useEffect(() => {
+    if (!actionsEnabled) return;
+    const query =
+      eventLocationId === undefined
+        ? ""
+        : `?locationId=${encodeURIComponent(eventLocationId ?? "__NULL__")}`;
+    const source = new EventSource(`/api/portal/call-center/events${query}`);
+    const refresh = () => router.refresh();
+    source.addEventListener("refresh", refresh);
+    return () => {
+      source.removeEventListener("refresh", refresh);
+      source.close();
+    };
+  }, [actionsEnabled, eventLocationId, router]);
 
   useEffect(() => {
     const next = {
@@ -793,11 +866,17 @@ function ConnectedCanonicalActiveWorkspace({
           <CanonicalActivity
             actionsEnabled={actionsEnabled}
             calls={state.calls}
+            followUpHref={followUpHref}
             historyHref={historyHref}
+            needsAction={needsAction}
+            office={office}
+            onCallback={setDestination}
             onResolve={(call) => void saveDisposition(call, "RESOLVED")}
+            queueId={queueId}
             recentCalls={recentCalls}
             submittingDisposition={submittingDisposition}
             tasks={state.tasks}
+            totals={totals}
           />
         </div>
 
@@ -1273,112 +1352,139 @@ export function CanonicalActiveCall({
 function CanonicalActivity({
   actionsEnabled,
   calls,
+  followUpHref,
   historyHref,
+  needsAction,
+  office,
+  onCallback,
   onResolve,
+  queueId,
   recentCalls,
   submittingDisposition,
   tasks,
+  totals,
 }: {
   actionsEnabled: boolean;
   calls: CallView[];
+  followUpHref: string;
   historyHref: string;
+  needsAction: PortalNeedsActionGroup[];
+  office?: string | null;
+  onCallback: (phone: string) => void;
   onResolve: (call: CallView) => void;
+  queueId: string;
   recentCalls: CallView[];
   submittingDisposition: string | null;
   tasks: TaskView[];
+  totals: PortalCallCenterTotals;
 }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   return (
     <>
-      <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
-        <header className="border-b border-[var(--portal-border)] px-4 py-3">
-          <button
-            aria-expanded={actionsOpen}
-            className="flex w-full min-w-0 items-center gap-2 text-left"
-            onClick={() => setActionsOpen((current) => !current)}
-            type="button"
-          >
-            {actionsOpen ? (
-              <ChevronDown
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
-              />
-            ) : (
-              <ChevronRight
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
-              />
-            )}
-            <span className="min-w-0">
-              <span className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[var(--portal-ink)]">
-                  Needs action
-                </span>
-                {tasks.length ? (
-                  <PortalBadge className="px-2 py-0.5 tabular-nums">
-                    {tasks.length}
-                  </PortalBadge>
-                ) : null}
-              </span>
-              <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
-                Missed calls, voicemails, and notes that still need a response.
-              </span>
-            </span>
-          </button>
-        </header>
+      {actionsEnabled ? (
+        <ActivityRail
+          followUpHref={followUpHref}
+          needsAction={needsAction}
+          office={office}
+          onCallback={onCallback}
+          queueId={queueId}
+          totals={totals}
+        />
+      ) : null}
 
-        {!actionsOpen ? null : tasks.length ? (
-          <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
-            {tasks.map((task) => {
-              const TaskIcon = task.kind === "VOICEMAIL" ? Voicemail : PhoneMissed;
-              const call = task.callId
-                ? calls.find(({ id }) => id === task.callId)
-                : null;
-
-              return (
-                <li
-                  className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
-                  key={task.id}
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
-                      <TaskIcon className="h-4 w-4" aria-hidden="true" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
-                        {followUpLabel(task.kind)}
-                      </p>
-                      <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
-                        {task.callerPhone
-                          ? formatPhone(task.callerPhone)
-                          : "Patient call"}
-                        {` · ${formatRelativeTime(task.createdAt)}`}
-                      </p>
-                    </div>
-                  </div>
-                  {call ? (
-                    <Button
-                      className="w-fit"
-                      disabled={!actionsEnabled || submittingDisposition === task.callId}
-                      onClick={() => onResolve(call)}
-                      size="sm"
-                      variant="secondary"
-                    >
-                      {submittingDisposition === task.callId ? "Saving…" : "Mark done"}
-                    </Button>
+      {!actionsEnabled ? (
+        <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
+          <header className="border-b border-[var(--portal-border)] px-4 py-3">
+            <button
+              aria-expanded={actionsOpen}
+              className="flex w-full min-w-0 items-center gap-2 text-left"
+              onClick={() => setActionsOpen((current) => !current)}
+              type="button"
+            >
+              {actionsOpen ? (
+                <ChevronDown
+                  aria-hidden="true"
+                  className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+                />
+              ) : (
+                <ChevronRight
+                  aria-hidden="true"
+                  className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+                />
+              )}
+              <span className="min-w-0">
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-[var(--portal-ink)]">
+                    Needs action
+                  </span>
+                  {tasks.length ? (
+                    <PortalBadge className="px-2 py-0.5 tabular-nums">
+                      {tasks.length}
+                    </PortalBadge>
                   ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
-            No items need action.
-          </div>
-        )}
-      </section>
+                </span>
+                <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
+                  Missed calls, voicemails, and notes that still need a response.
+                </span>
+              </span>
+            </button>
+          </header>
+
+          {!actionsOpen ? null : tasks.length ? (
+            <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
+              {tasks.map((task) => {
+                const TaskIcon = task.kind === "VOICEMAIL" ? Voicemail : PhoneMissed;
+                const call = task.callId
+                  ? calls.find(({ id }) => id === task.callId)
+                  : null;
+
+                return (
+                  <li
+                    className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
+                    key={task.id}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
+                        <TaskIcon className="h-4 w-4" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
+                          {followUpLabel(task.kind)}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
+                          {task.callerPhone
+                            ? formatPhone(task.callerPhone)
+                            : "Patient call"}
+                          {` · ${formatRelativeTime(task.createdAt)}`}
+                        </p>
+                      </div>
+                    </div>
+                    {call ? (
+                      <Button
+                        className="w-fit"
+                        disabled={
+                          !actionsEnabled || submittingDisposition === task.callId
+                        }
+                        onClick={() => onResolve(call)}
+                        size="sm"
+                        variant="secondary"
+                      >
+                        {submittingDisposition === task.callId ? "Saving…" : "Mark done"}
+                      </Button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
+              No items need action.
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
         <header className="flex items-center gap-3 border-b border-[var(--portal-border)] px-4 py-3">

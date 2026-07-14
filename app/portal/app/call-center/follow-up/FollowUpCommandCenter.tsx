@@ -22,6 +22,7 @@ import { resolveNeedsActionGroupAction } from "../actions";
 type FollowUpCommandCenterProps = {
   office?: string;
   page: number;
+  queue?: string;
   threads: PortalNeedsActionGroup[];
   totalPages: number;
   totalThreads: number;
@@ -30,6 +31,7 @@ type FollowUpCommandCenterProps = {
 export default function FollowUpCommandCenter({
   office,
   page,
+  queue,
   threads,
   totalPages,
   totalThreads,
@@ -56,7 +58,12 @@ export default function FollowUpCommandCenter({
             <PortalBadge>
               {totalThreads} {totalThreads === 1 ? "thread" : "threads"}
             </PortalBadge>
-            <PaginationControls office={office} page={page} totalPages={totalPages} />
+            <PaginationControls
+              office={office}
+              page={page}
+              queue={queue}
+              totalPages={totalPages}
+            />
           </div>
         </header>
 
@@ -69,6 +76,7 @@ export default function FollowUpCommandCenter({
                 key={group.id}
                 office={office}
                 onSelect={() => setSelectedId(group.id)}
+                queue={queue}
               />
             ))}
           </ul>
@@ -79,7 +87,7 @@ export default function FollowUpCommandCenter({
         )}
       </div>
 
-      <FollowUpWorkPanel office={office} thread={selectedThread} />
+      <FollowUpWorkPanel office={office} queue={queue} thread={selectedThread} />
     </section>
   );
 }
@@ -89,11 +97,13 @@ function FollowUpQueueRow({
   isSelected,
   office,
   onSelect,
+  queue,
 }: {
   group: PortalNeedsActionGroup;
   isSelected: boolean;
   office?: string;
   onSelect: () => void;
+  queue?: string;
 }) {
   const { Icon, iconClassName } = followUpIcon(group);
   const title = group.callerName || formatPhone(group.fromPhone);
@@ -102,7 +112,7 @@ function FollowUpQueueRow({
   const duration = formatDuration(group.latestVoicemailDurationSec);
   const numberHref = callerHistoryHref(group.fromPhone, office);
   const callHref = group.fromPhone
-    ? commandCenterCallHref(group.fromPhone, office)
+    ? commandCenterCallHref(group.fromPhone, office, queue)
     : null;
 
   return (
@@ -179,7 +189,7 @@ function FollowUpQueueRow({
               <Phone className="h-4 w-4" aria-hidden="true" />
             </Button>
           )}
-          <ResolveIconButton office={office} phone={group.fromPhone} />
+          <ResolveIconButton office={office} phone={group.fromPhone} queue={queue} />
         </div>
       </div>
     </li>
@@ -188,9 +198,11 @@ function FollowUpQueueRow({
 
 function FollowUpWorkPanel({
   office,
+  queue,
   thread,
 }: {
   office?: string;
+  queue?: string;
   thread: PortalNeedsActionGroup | null;
 }) {
   if (!thread) {
@@ -206,7 +218,7 @@ function FollowUpWorkPanel({
   const phoneLabel = thread.callerName ? formatPhone(thread.fromPhone) : null;
   const summary = formatGroupSummary(thread) || "Needs action";
   const callHref = thread.fromPhone
-    ? commandCenterCallHref(thread.fromPhone, office)
+    ? commandCenterCallHref(thread.fromPhone, office, queue)
     : null;
   const numberHref = callerHistoryHref(thread.fromPhone, office);
 
@@ -244,7 +256,7 @@ function FollowUpWorkPanel({
                 </Link>
               </Button>
             ) : null}
-            <ResolveTextButton office={office} phone={thread.fromPhone} />
+            <ResolveTextButton office={office} phone={thread.fromPhone} queue={queue} />
             {numberHref ? (
               <Link
                 className="text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
@@ -292,11 +304,20 @@ function ThreadMetric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ResolveIconButton({ office, phone }: { office?: string; phone: string | null }) {
+function ResolveIconButton({
+  office,
+  phone,
+  queue,
+}: {
+  office?: string;
+  phone: string | null;
+  queue?: string;
+}) {
   return (
     <form action={resolveNeedsActionGroupAction}>
       {office ? <input type="hidden" name="office" value={office} /> : null}
       <input type="hidden" name="phone" value={phone ?? ""} />
+      {queue ? <input type="hidden" name="queue" value={queue} /> : null}
       <Button
         aria-label="Mark resolved"
         className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
@@ -312,11 +333,20 @@ function ResolveIconButton({ office, phone }: { office?: string; phone: string |
   );
 }
 
-function ResolveTextButton({ office, phone }: { office?: string; phone: string | null }) {
+function ResolveTextButton({
+  office,
+  phone,
+  queue,
+}: {
+  office?: string;
+  phone: string | null;
+  queue?: string;
+}) {
   return (
     <form action={resolveNeedsActionGroupAction}>
       {office ? <input type="hidden" name="office" value={office} /> : null}
       <input type="hidden" name="phone" value={phone ?? ""} />
+      {queue ? <input type="hidden" name="queue" value={queue} /> : null}
       <Button
         className="w-fit"
         disabled={!phone}
@@ -334,10 +364,12 @@ function ResolveTextButton({ office, phone }: { office?: string; phone: string |
 function PaginationControls({
   office,
   page,
+  queue,
   totalPages,
 }: {
   office?: string;
   page: number;
+  queue?: string;
   totalPages: number;
 }) {
   const hasPrevious = page > 1;
@@ -355,7 +387,7 @@ function PaginationControls({
         >
           <Link
             aria-label="Previous page"
-            href={followUpHref({ office, page: page - 1 })}
+            href={followUpHref({ office, page: page - 1, queue })}
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </Link>
@@ -383,7 +415,10 @@ function PaginationControls({
           title="Next page"
           variant="secondary"
         >
-          <Link aria-label="Next page" href={followUpHref({ office, page: page + 1 })}>
+          <Link
+            aria-label="Next page"
+            href={followUpHref({ office, page: page + 1, queue })}
+          >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Button>
@@ -449,11 +484,15 @@ function callerHistoryHref(phone: string | null, office?: string) {
   }`;
 }
 
-function commandCenterCallHref(phone: string, office?: string) {
+function commandCenterCallHref(phone: string, office?: string, queue?: string) {
   const params = new URLSearchParams();
 
   if (office) {
     params.set("office", office);
+  }
+
+  if (queue) {
+    params.set("queue", queue);
   }
 
   params.set("call", phone);
@@ -461,11 +500,23 @@ function commandCenterCallHref(phone: string, office?: string) {
   return `/portal/app/call-center?${params.toString()}#softphone`;
 }
 
-function followUpHref({ office, page }: { office?: string; page: number }) {
+function followUpHref({
+  office,
+  page,
+  queue,
+}: {
+  office?: string;
+  page: number;
+  queue?: string;
+}) {
   const params = new URLSearchParams();
 
   if (office) {
     params.set("office", office);
+  }
+
+  if (queue) {
+    params.set("queue", queue);
   }
 
   if (page > 1) {

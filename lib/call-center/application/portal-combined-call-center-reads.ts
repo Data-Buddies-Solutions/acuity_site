@@ -199,12 +199,24 @@ function mergeNeedsActionGroup(
   right: PortalNeedsActionGroup,
 ) {
   const latest = right.lastActivityAt > left.lastActivityAt ? right : left;
+  const latestVoicemail =
+    right.latestVoicemailAt &&
+    (!left.latestVoicemailAt || right.latestVoicemailAt > left.latestVoicemailAt)
+      ? right
+      : left.latestVoicemailAt
+        ? left
+        : right.latestVoicemailRecordingId
+          ? right
+          : left;
   return {
     ...latest,
     callbackNeededCount: left.callbackNeededCount + right.callbackNeededCount,
     eventCount: left.eventCount + right.eventCount,
     followUpRequiredCount: left.followUpRequiredCount + right.followUpRequiredCount,
     locationNames: [...new Set([...left.locationNames, ...right.locationNames])],
+    latestVoicemailAt: latestVoicemail.latestVoicemailAt ?? null,
+    latestVoicemailDurationSec: latestVoicemail.latestVoicemailDurationSec,
+    latestVoicemailRecordingId: latestVoicemail.latestVoicemailRecordingId,
     missedCount: left.missedCount + right.missedCount,
     noteCount: left.noteCount + right.noteCount,
     recordIds: [...new Set([...(left.recordIds ?? []), ...(right.recordIds ?? [])])],
@@ -239,6 +251,7 @@ export async function readCombinedNeedsAction(
     locationIds: string[];
     page: number;
     pageSize: number;
+    queueId?: string;
   },
   {
     readCanonical = readCanonicalNeedsAction,
@@ -254,6 +267,7 @@ export async function readCombinedNeedsAction(
     locationIds: options.locationIds,
     page: 1,
     pageSize: 100,
+    queueId: options.queueId,
   });
   const [legacy, canonical] = await Promise.all([
     collectPagePrefix(
@@ -272,6 +286,7 @@ export async function readCombinedNeedsAction(
               locationIds: options.locationIds,
               page,
               pageSize,
+              queueId: options.queueId,
             });
       return { items: result?.groups ?? [], total: result?.total ?? 0 };
     }, prefixSize),

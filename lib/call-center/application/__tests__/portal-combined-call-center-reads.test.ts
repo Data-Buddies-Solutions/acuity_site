@@ -280,6 +280,7 @@ describe("combined call-center reads", () => {
         locationIds: ["location-1"],
         page: 2,
         pageSize: 1,
+        queueId: "queue-1",
       },
       {
         readCanonical: async () => ({
@@ -291,5 +292,64 @@ describe("combined call-center reads", () => {
     );
     expect(result.groups.map(({ id }) => id)).toEqual(["needs-action:+15555550222"]);
     expect(result.total).toBe(2);
+  });
+
+  it("keeps repeated canonical voicemail events in one caller thread", () => {
+    const first = {
+      ...group(
+        "needs-action:+15555550111",
+        "2026-07-12T12:00:00.000Z",
+        "canonical-voicemail-1",
+      ),
+      latestKind: "voicemail" as const,
+      missedCount: 0,
+      voicemailCount: 1,
+    };
+    const second = {
+      ...first,
+      eventCount: 2,
+      lastActivityAt: new Date("2026-07-12T12:05:00.000Z"),
+      recordIds: ["canonical-voicemail-2", "canonical-voicemail-3"],
+      voicemailCount: 2,
+    };
+
+    expect(mergeNeedsActionGroups([first, second])[0]).toMatchObject({
+      eventCount: 3,
+      recordIds: [
+        "canonical-voicemail-1",
+        "canonical-voicemail-2",
+        "canonical-voicemail-3",
+      ],
+      voicemailCount: 3,
+    });
+  });
+
+  it("preserves an older canonical voicemail when newer legacy activity is missed", () => {
+    const voicemail = {
+      ...group(
+        "needs-action:+15555550111",
+        "2026-07-12T12:00:00.000Z",
+        "canonical-voicemail-1",
+      ),
+      latestKind: "voicemail" as const,
+      latestVoicemailAt: new Date("2026-07-12T12:00:00.000Z"),
+      latestVoicemailDurationSec: 12,
+      latestVoicemailRecordingId: "recording-1",
+      missedCount: 0,
+      voicemailCount: 1,
+    };
+    const missed = group(
+      "needs-action:+15555550111",
+      "2026-07-12T12:05:00.000Z",
+      "legacy-missed-1",
+    );
+
+    expect(mergeNeedsActionGroups([voicemail, missed])[0]).toMatchObject({
+      latestKind: "missed",
+      latestVoicemailAt: new Date("2026-07-12T12:00:00.000Z"),
+      latestVoicemailDurationSec: 12,
+      latestVoicemailRecordingId: "recording-1",
+      voicemailCount: 1,
+    });
   });
 });

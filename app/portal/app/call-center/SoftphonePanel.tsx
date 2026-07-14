@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import {
   Delete,
@@ -32,6 +33,7 @@ import {
   operatorErrorCopy,
   type CallCenterAction,
 } from "./call-center-errors";
+import { isCurrentCallOutcome, submitCallOutcome } from "./call-outcome";
 import { sanitizeCallCenterDebugDetails } from "./call-center-debug";
 import {
   hasLocalProviderCallLeg,
@@ -336,6 +338,8 @@ const SoftphonePanel = forwardRef<
   const [selectedTransferSeatId, setSelectedTransferSeatId] = useState("");
   const [transferPending, setTransferPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [outcomeError, setOutcomeError] = useState<string | null>(null);
+  const [outcomeSaving, startOutcomeTransition] = useTransition();
   const [answeringCallIds, setAnsweringCallIds] = useState<Set<string>>(() => new Set());
   const [, setAnsweringRingKeys] = useState<Set<string>>(() => new Set());
   const [postCallWrapUp, setPostCallWrapUp] = useState<CompletedCallWrapUp | null>(null);
@@ -344,6 +348,7 @@ const SoftphonePanel = forwardRef<
   const activeCallRef = useRef<TelnyxCall | null>(null);
   const activeCallConnectedRef = useRef(false);
   const activeCallWrapUpRef = useRef<CompletedCallWrapUp | null>(null);
+  const postCallWrapUpRef = useRef<CompletedCallWrapUp | null>(null);
   const dialedNumberRef = useRef("");
   const incomingCallRef = useRef<TelnyxCall | null>(null);
   const queuedCallsRef = useRef<TelnyxCall[]>([]);
@@ -851,6 +856,8 @@ const SoftphonePanel = forwardRef<
         phone: nextWrapUp.phone,
         reason,
       });
+      setOutcomeError(null);
+      postCallWrapUpRef.current = nextWrapUp;
       setPostCallWrapUp(nextWrapUp);
     },
     [debugLog],
@@ -1412,6 +1419,8 @@ const SoftphonePanel = forwardRef<
     });
     activeCallConnectedRef.current = false;
     activeCallWrapUpRef.current = null;
+    postCallWrapUpRef.current = null;
+    setOutcomeError(null);
     setPostCallWrapUp(null);
     setDialedNumber(to);
     setDirection("outbound");
@@ -1806,10 +1815,37 @@ const SoftphonePanel = forwardRef<
             </div>
 
             <form
-              action={saveCallCenterNoteAction}
               className="mt-3 grid gap-2"
               key={postCallWrapUp.token}
-              onSubmit={() => setPostCallWrapUp(null)}
+              onSubmit={(event) => {
+                event.preventDefault();
+                const formData = new FormData(event.currentTarget);
+                const submittedToken = postCallWrapUp.token;
+                setOutcomeError(null);
+                startOutcomeTransition(async () => {
+                  const result = await submitCallOutcome(
+                    saveCallCenterNoteAction,
+                    formData,
+                  );
+                  if (result.ok) {
+                    if (
+                      isCurrentCallOutcome(
+                        submittedToken,
+                        postCallWrapUpRef.current?.token,
+                      )
+                    ) {
+                      postCallWrapUpRef.current = null;
+                      setPostCallWrapUp((current) =>
+                        current?.token === submittedToken ? null : current,
+                      );
+                    }
+                  } else if (
+                    isCurrentCallOutcome(submittedToken, postCallWrapUpRef.current?.token)
+                  ) {
+                    setOutcomeError(result.error);
+                  }
+                });
+              }}
             >
               {office ? <input name="office" type="hidden" value={office} /> : null}
               <input name="phone" type="hidden" value={postCallWrapUp.phone} />
@@ -1846,9 +1882,19 @@ const SoftphonePanel = forwardRef<
                   rows={2}
                 />
               </label>
+              {outcomeError ? (
+                <p aria-live="polite" className="text-xs font-medium text-red-600">
+                  {outcomeError}
+                </p>
+              ) : null}
               <div className="flex flex-wrap justify-end gap-2">
                 <Button
-                  onClick={() => setPostCallWrapUp(null)}
+                  disabled={outcomeSaving}
+                  onClick={() => {
+                    postCallWrapUpRef.current = null;
+                    setOutcomeError(null);
+                    setPostCallWrapUp(null);
+                  }}
                   size="sm"
                   type="button"
                   variant="ghost"
@@ -1857,11 +1903,12 @@ const SoftphonePanel = forwardRef<
                 </Button>
                 <Button
                   className="h-8 px-3 text-xs"
+                  disabled={outcomeSaving}
                   size="sm"
                   type="submit"
                   variant="primary"
                 >
-                  Save
+                  {outcomeSaving ? "Saving…" : "Save"}
                 </Button>
               </div>
             </form>
