@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { Prisma } from "@/generated/prisma/client";
+import { directHandoffCorrelationLockKey } from "@/lib/call-center/infrastructure/direct-handoff-correlation";
 import {
   directHandoffRequestFingerprint,
   directHandoffToken,
@@ -99,6 +100,9 @@ export async function reserveDirectHandoff(
     const result = await database.$transaction(async (tx) => {
       await tx.$queryRaw(
         Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`DIRECT_HANDOFF:${sourceLockKey}`}, 0))::text AS "lock"`,
+      );
+      await tx.$queryRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${directHandoffCorrelationLockKey(input.callerPhone, input.routePhoneNumber)}, 0))::text AS "lock"`,
       );
 
       const numbers = await tx.callCenterNumber.findMany({
@@ -202,6 +206,22 @@ export async function reserveDirectHandoff(
           return { terminalError: true as const };
         }
         return response(handoff, options.baseSipUri, options.secret, true);
+      }
+
+      const liveCorrelation = await tx.callCenterHandoff.findFirst({
+        select: { id: true },
+        where: {
+          callerPhone: input.callerPhone,
+          expiresAt: { gt: options.now },
+          numberId: number.id,
+          status: { in: ["ISSUED", "INGRESS_SEEN", "CONNECTED", "FAILED"] },
+        },
+      });
+      if (liveCorrelation) {
+        throw new DirectHandoffReservationError(
+          "Direct handoff caller and route are already in use",
+          409,
+        );
       }
 
       const id = randomUUID();

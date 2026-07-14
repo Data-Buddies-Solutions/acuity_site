@@ -101,6 +101,7 @@ type PersistedLeg = {
 type TestHandoff = {
   callId: string | null;
   callerPhone: string;
+  createdAt: Date;
   expiresAt: Date;
   id: string;
   number: {
@@ -116,14 +117,44 @@ type TestHandoff = {
   providerCallSessionId: string | null;
   queue: { enabled: boolean; practiceId: string };
   queueId: string;
-  status: "ISSUED" | "INGRESS_SEEN";
+  status: "CONNECTED" | "FAILED" | "INGRESS_SEEN" | "ISSUED";
   tokenHash: string;
 };
+
+function strippedHandoff(overrides: Partial<TestHandoff> = {}): TestHandoff {
+  return {
+    callId: null,
+    callerPhone: "+17865550100",
+    createdAt: new Date("2026-07-12T11:59:30.000Z"),
+    expiresAt: new Date("2026-07-12T12:01:00.000Z"),
+    id: "handoff-1",
+    number: {
+      enabled: false,
+      inboundEnabled: false,
+      inboundQueueId: "queue-1",
+      practiceId: "practice-1",
+      practicePhoneNumber: {
+        phoneNumber: "+17864657479",
+        practiceId: "practice-1",
+      },
+      practicePhoneNumberId: "phone-1",
+    },
+    numberId: "number-1",
+    practiceId: "practice-1",
+    providerCallSessionId: null,
+    queue: { enabled: false, practiceId: "practice-1" },
+    queueId: "queue-1",
+    status: "ISSUED",
+    tokenHash: "token-hash-1",
+    ...overrides,
+  };
+}
 
 type TestDatabaseOptions = {
   calls?: PersistedCall[];
   eventOwners?: TelnyxEventOwner[];
   handoff?: TestHandoff | null;
+  handoffCandidates?: TestHandoff[];
   legs?: PersistedLeg[];
   number?: {
     id: string;
@@ -150,6 +181,7 @@ function database({
   calls = [],
   eventOwners = [],
   handoff = null,
+  handoffCandidates,
   legs = [],
   number = {
     id: "number-1",
@@ -170,6 +202,7 @@ function database({
   const created: Array<Record<string, unknown>> = [];
   const queries: string[] = [];
   let configuredNumber = number;
+  const handoffs = handoffCandidates ?? (handoff ? [handoff] : []);
   const queryText = (query: unknown) =>
     Array.isArray((query as { strings?: string[] })?.strings)
       ? ((query as { strings: string[] }).strings ?? []).join(" ")
@@ -251,12 +284,39 @@ function database({
       },
     },
     callCenterHandoff: {
-      findUnique: async ({ where }: { where: { tokenHash: string } }) =>
-        handoff?.tokenHash === where.tokenHash ? handoff : null,
-      update: async ({ data }: { data: Record<string, unknown> }) => {
-        if (!handoff) throw new Error("missing test handoff");
-        Object.assign(handoff, data);
-        return handoff;
+      findMany: async ({ where }: { where: Record<string, unknown> }) => {
+        const expiresAt = where.expiresAt as { gt: Date };
+        const createdAt = where.createdAt as { lte: Date };
+        const status = where.status as { in: TestHandoff["status"][] };
+        return handoffs
+          .filter(
+            (candidate) =>
+              candidate.callerPhone === where.callerPhone &&
+              candidate.number.practicePhoneNumber.phoneNumber === "+17864657479" &&
+              candidate.createdAt <= createdAt.lte &&
+              candidate.expiresAt > expiresAt.gt &&
+              status.in.includes(candidate.status),
+          )
+          .slice(0, 2)
+          .map(({ id }) => ({ id }));
+      },
+      findUnique: async ({ where }: { where: { id?: string; tokenHash?: string } }) =>
+        handoffs.find(
+          (candidate) =>
+            (where.id && candidate.id === where.id) ||
+            (where.tokenHash && candidate.tokenHash === where.tokenHash),
+        ) ?? null,
+      update: async ({
+        data,
+        where,
+      }: {
+        data: Record<string, unknown>;
+        where: { id: string };
+      }) => {
+        const selected = handoffs.find((candidate) => candidate.id === where.id);
+        if (!selected) throw new Error("missing test handoff");
+        Object.assign(selected, data);
+        return selected;
       },
     },
     callCenterNumber: {
@@ -366,6 +426,7 @@ describe("Telnyx event effect owner", () => {
     const handoff: TestHandoff = {
       callId: null,
       callerPhone: "+17865550100",
+      createdAt: new Date("2026-07-12T11:59:30.000Z"),
       expiresAt: new Date("2026-07-12T12:01:00.000Z"),
       id: "handoff-1",
       number: {
@@ -436,6 +497,66 @@ describe("Telnyx event effect owner", () => {
     });
     expect(db.created).toHaveLength(1);
     expect(replayDb.created).toHaveLength(0);
+  });
+
+  it("correlates the production Telnyx REFER shape without SIP markers", async () => {
+    const handoff = strippedHandoff();
+    const db = database({ handoff });
+
+    await expect(
+      resolveTelnyxEventOwner(event(), db.prisma, activation(false)),
+    ).resolves.toBe("CANONICAL");
+
+    expect(db.created).toHaveLength(1);
+    expect(db.created[0]).toMatchObject({
+      effectOwner: "CANONICAL",
+      fromPhone: "+17865550100",
+      numberId: "number-1",
+      providerCallSessionId: "provider-session-1",
+      queueId: "queue-1",
+      toPhone: "+17864657479",
+    });
+    expect(handoff).toMatchObject({
+      callId: "created-call",
+      providerCallSessionId: "provider-session-1",
+      status: "INGRESS_SEEN",
+    });
+  });
+
+  it("fails closed when a stripped REFER could match two reservations", async () => {
+    const base = strippedHandoff();
+    const db = database({
+      handoffCandidates: [
+        base,
+        {
+          ...base,
+          createdAt: new Date("2026-07-12T11:59:31.000Z"),
+          id: "handoff-2",
+          tokenHash: "token-hash-2",
+        },
+      ],
+    });
+
+    await expect(
+      resolveTelnyxEventOwner(event(), db.prisma, activation(true)),
+    ).rejects.toMatchObject({
+      code: "TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS",
+    });
+    expect(db.created).toHaveLength(0);
+  });
+
+  it("rejects a second provider session for a consumed stripped REFER", async () => {
+    const consumed = strippedHandoff({
+      callId: "created-call",
+      providerCallSessionId: "first-provider-session",
+      status: "CONNECTED",
+    });
+    const db = database({ handoff: consumed });
+
+    await expect(
+      resolveTelnyxEventOwner(event(), db.prisma, activation(true)),
+    ).rejects.toMatchObject({ code: "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE" });
+    expect(db.created).toHaveLength(0);
   });
 
   it("keeps every callback for a rejected direct session terminal", async () => {
