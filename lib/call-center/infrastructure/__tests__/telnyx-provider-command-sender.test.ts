@@ -232,4 +232,32 @@ describe("Telnyx provider command sender", () => {
       }),
     ).rejects.toMatchObject({ name: "TelnyxError", status: 422 });
   });
+
+  it("continues when ringback already stopped", async () => {
+    for (const status of [404, 422]) {
+      const sender = createTelnyxProviderCommandSender({
+        answer: async () => new Response(null, { status: 204 }),
+        dial: async () => ({}),
+        hangup: async () => new Response(null, { status: 204 }),
+        playbackStart: async () => new Response(null, { status: 204 }),
+        playbackStop: async () => new Response(null, { status }),
+        recordStart: async () => new Response(null, { status: 204 }),
+        ringbackContent: () => "ringback",
+        speak: async () => new Response(null, { status: 204 }),
+      });
+
+      await expect(
+        sender.send({
+          arguments: {},
+          callId: "call-1",
+          commandId: "command-1",
+          idempotencyKey: "stop-ringback-1",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+          provider: { callControlId: "customer-control-1" },
+          type: "STOP_PLAYBACK",
+        }),
+      ).resolves.toBeUndefined();
+    }
+  });
 });
