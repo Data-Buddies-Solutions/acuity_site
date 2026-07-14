@@ -74,6 +74,10 @@ import {
   useCanonicalAgentSession,
 } from "./use-canonical-agent-session";
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
+import {
+  selectIncomingRingtoneOffer,
+  useIncomingCallRingtone,
+} from "./use-incoming-call-ringtone";
 import { useSoftphoneMedia } from "./use-softphone";
 
 type CanonicalActiveWorkspaceProps = {
@@ -415,6 +419,23 @@ function ConnectedCanonicalActiveWorkspace({
     state,
   ]);
   const incomingCalls = useMemo(() => (state ? selectIncomingCalls(state) : []), [state]);
+  const ringtoneOfferId = state
+    ? selectIncomingRingtoneOffer({
+        calls: state.calls,
+        connection: state.connection,
+        operations: state.operations,
+        queueId,
+        session: session
+          ? {
+              ...session,
+              audioReady: media.soundReady,
+              connectionState: media.connection === "READY" ? "READY" : "DISCONNECTED",
+              microphoneReady: media.microphoneReady,
+            }
+          : null,
+      })
+    : null;
+  const ringtone = useIncomingCallRingtone(ringtoneOfferId);
   const transferTakeCandidate =
     state && session
       ? selectCanonicalTransferTakeCandidate(
@@ -780,6 +801,18 @@ function ConnectedCanonicalActiveWorkspace({
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
           {actionError}
         </p>
+      ) : null}
+
+      {ringtone.blocked ? (
+        <section
+          className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+          role="status"
+        >
+          <p>Incoming call waiting. Turn on sound to hear the ringtone.</p>
+          <Button onClick={ringtone.retry} size="sm" variant="secondary">
+            Turn on sound
+          </Button>
+        </section>
       ) : null}
 
       <div className="grid items-start gap-4 lg:grid-cols-3">
