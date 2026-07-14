@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
+import { directHandoffCorrelationLockKey } from "@/lib/call-center/infrastructure/direct-handoff-correlation";
 import { hasDirectHandoffIdentity } from "@/lib/call-center/infrastructure/direct-handoff-uri";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
@@ -152,23 +153,70 @@ async function persistDirectHandoffOwner(
   receivedAt: Date,
 ) {
   const identity = raw.directHandoff;
-  if (!identity) return null;
-  if (raw.direction !== "INBOUND" || !raw.providerCallSessionId) {
+  if (raw.direction !== "INBOUND") {
+    if (identity) {
+      throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID");
+    }
+    return null;
+  }
+  if (!raw.providerCallSessionId) {
+    if (!identity) return null;
     throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID");
   }
 
-  await tx.$queryRaw(
-    Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "tokenHash" = ${identity.tokenHash} FOR UPDATE`,
-  );
+  let handoffId: string | null = null;
+  if (identity) {
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "tokenHash" = ${identity.tokenHash} FOR UPDATE`,
+    );
+    const identified = await tx.callCenterHandoff.findUnique({
+      select: { id: true },
+      where: { tokenHash: identity.tokenHash },
+    });
+    if (!identified) {
+      throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_TOKEN_INVALID");
+    }
+    handoffId = identified.id;
+  } else {
+    if (!raw.fromPhone || !raw.toPhone) return null;
+    await tx.$queryRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${directHandoffCorrelationLockKey(raw.fromPhone, raw.toPhone)}, 0))::text AS "lock"`,
+    );
+    const candidates = await tx.callCenterHandoff.findMany({
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+      take: 2,
+      where: {
+        callerPhone: raw.fromPhone,
+        createdAt: { lte: receivedAt },
+        expiresAt: { gt: receivedAt },
+        number: {
+          practicePhoneNumber: {
+            phoneNumber: { in: phoneLookupVariants(raw.toPhone) },
+          },
+        },
+        status: { in: ["ISSUED", "INGRESS_SEEN", "CONNECTED", "FAILED"] },
+      },
+    });
+    if (candidates.length > 1) {
+      throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS");
+    }
+    handoffId = candidates[0]?.id ?? null;
+    if (!handoffId) return null;
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "id" = ${handoffId} FOR UPDATE`,
+    );
+  }
+
   let handoff = await tx.callCenterHandoff.findUnique({
     include: {
       number: { include: { practicePhoneNumber: true } },
       queue: true,
     },
-    where: { tokenHash: identity.tokenHash },
+    where: { id: handoffId },
   });
   if (!handoff) {
-    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_TOKEN_INVALID");
+    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_NOT_FOUND");
   }
   if (
     handoff.status === "INGRESS_SEEN" &&
@@ -198,7 +246,7 @@ async function persistDirectHandoffOwner(
       number: { include: { practicePhoneNumber: true } },
       queue: true,
     },
-    where: { tokenHash: identity.tokenHash },
+    where: { id: handoffId },
   });
   if (!handoff) {
     throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");

@@ -345,6 +345,33 @@ describe("Telnyx voice event processor", () => {
     expect(failed).toHaveLength(0);
   });
 
+  it("terminates ambiguous stripped handoff correlation without retries", async () => {
+    const { completed, failed, inbox } = setup();
+    const ownerError = new TelnyxEventOwnerError(
+      "TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS",
+    );
+    const process = createTelnyxVoiceEventProcessor({
+      clock: () => now,
+      inbox,
+      projectLegacyEvent: async () => ({ ok: true }),
+      resolveOwner: async () => {
+        throw ownerError;
+      },
+    });
+
+    await expect(process(envelope)).resolves.toMatchObject({
+      ignored: true,
+      processingStatus: "IGNORED",
+      reason: "TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS",
+    });
+    expect(completed[0]).toMatchObject({
+      effectOwner: null,
+      errorCode: "TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS",
+      status: "IGNORED",
+    });
+    expect(failed).toHaveLength(0);
+  });
+
   it("separates inbox completion failure from projection failure", async () => {
     const { failed, inbox } = setup();
     inbox.complete = async () => false;

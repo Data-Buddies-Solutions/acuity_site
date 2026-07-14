@@ -42,14 +42,27 @@ function fixture() {
         handoffs.push(row);
         return row;
       },
-      findMany: async ({ where }: { where: Record<string, unknown> }) =>
-        handoffs.filter(
+      findMany: async ({ where }: { where: Record<string, unknown> }) => {
+        const alternatives = where.OR as Array<Record<string, unknown>>;
+        const sourceCallId = alternatives[0]?.sourceCallId;
+        const idempotent = alternatives[1] ?? {};
+        return handoffs.filter(
           (row) =>
             row.sourceSystem === where.sourceSystem &&
-            (row.sourceCallId === input.sourceCallId ||
-              (row.practiceId === number.practiceId &&
-                row.idempotencyKey === input.idempotencyKey)),
-        ),
+            (row.sourceCallId === sourceCallId ||
+              (row.practiceId === idempotent.practiceId &&
+                row.idempotencyKey === idempotent.idempotencyKey)),
+        );
+      },
+      findFirst: async ({ where }: { where: Record<string, unknown> }) =>
+        handoffs.find(
+          (row) =>
+            row.callerPhone === where.callerPhone &&
+            row.numberId === where.numberId &&
+            (where.status as { in: unknown[] }).in.includes(row.status) &&
+            row.expiresAt instanceof Date &&
+            row.expiresAt > (where.expiresAt as { gt: Date }).gt,
+        ) ?? null,
       update: async ({ data, where }: { data: object; where: { id: string } }) => {
         const row = handoffs.find(({ id }) => id === where.id);
         if (!row) throw new Error("missing handoff");
@@ -139,6 +152,38 @@ describe("Prisma direct handoff reservation", () => {
     );
 
     expect(replay).toEqual({ ...first, replayed: true });
+    expect(state.handoffs).toHaveLength(1);
+  });
+
+  it("rejects a second live reservation for the same caller and route", async () => {
+    const state = fixture();
+    await reserveDirectHandoff(
+      input,
+      {
+        baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+        expiresAt,
+        now,
+        secret: "secret-1",
+      },
+      state.database,
+    );
+
+    await expect(
+      reserveDirectHandoff(
+        {
+          ...input,
+          idempotencyKey: "key-2",
+          sourceCallId: "source-2",
+        },
+        {
+          baseSipUri: "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+          expiresAt,
+          now,
+          secret: "secret-1",
+        },
+        state.database,
+      ),
+    ).rejects.toMatchObject({ status: 409 });
     expect(state.handoffs).toHaveLength(1);
   });
 
