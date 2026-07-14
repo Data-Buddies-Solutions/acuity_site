@@ -79,7 +79,6 @@ async function recoverLockedCall(
     select: {
       deadlineAt: true,
       endedAt: true,
-      fromPhone: true,
       id: true,
       legs: {
         select: {
@@ -268,7 +267,6 @@ async function recoverLockedCall(
   });
   await persistCanonicalVoicemailTask(transaction, {
     callId: call.id,
-    callerPhone: call.fromPhone,
     practiceId: call.practiceId,
     sourceEventRevision: event.revision,
   });

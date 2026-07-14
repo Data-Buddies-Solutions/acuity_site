@@ -329,11 +329,13 @@ export async function startTelnyxRecording({
   callControlId,
   clientState,
   commandId,
+  playBeep = false,
   signal,
 }: {
   callControlId: string;
   clientState?: string;
   commandId?: string;
+  playBeep?: boolean;
   signal?: AbortSignal;
 }) {
   const response = await telnyxFetch(`/v2/calls/${callControlId}/actions/record_start`, {
@@ -343,6 +345,7 @@ export async function startTelnyxRecording({
       ...(commandId ? { command_id: commandId } : {}),
       format: "mp3",
       max_length: CANONICAL_VOICEMAIL_RECORDING_MAX_SECONDS,
+      ...(playBeep ? { play_beep: true } : {}),
     }),
     method: "POST",
     signal,

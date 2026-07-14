@@ -36,6 +36,7 @@ function fakeDatabase({ existing = false, mismatch = false } = {}) {
           kind: "VOICEMAIL",
           sourceEventRevision: BigInt(9),
         });
+        expect(create).not.toHaveProperty("callerPhone");
         return { id: "task-1" };
       },
     },
