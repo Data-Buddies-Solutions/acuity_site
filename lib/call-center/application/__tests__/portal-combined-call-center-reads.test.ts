@@ -323,4 +323,33 @@ describe("combined call-center reads", () => {
       voicemailCount: 3,
     });
   });
+
+  it("preserves an older canonical voicemail when newer legacy activity is missed", () => {
+    const voicemail = {
+      ...group(
+        "needs-action:+15555550111",
+        "2026-07-12T12:00:00.000Z",
+        "canonical-voicemail-1",
+      ),
+      latestKind: "voicemail" as const,
+      latestVoicemailAt: new Date("2026-07-12T12:00:00.000Z"),
+      latestVoicemailDurationSec: 12,
+      latestVoicemailRecordingId: "recording-1",
+      missedCount: 0,
+      voicemailCount: 1,
+    };
+    const missed = group(
+      "needs-action:+15555550111",
+      "2026-07-12T12:05:00.000Z",
+      "legacy-missed-1",
+    );
+
+    expect(mergeNeedsActionGroups([voicemail, missed])[0]).toMatchObject({
+      latestKind: "missed",
+      latestVoicemailAt: new Date("2026-07-12T12:00:00.000Z"),
+      latestVoicemailDurationSec: 12,
+      latestVoicemailRecordingId: "recording-1",
+      voicemailCount: 1,
+    });
+  });
 });

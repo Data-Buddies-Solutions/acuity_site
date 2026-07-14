@@ -741,6 +741,7 @@ export type PortalNeedsActionGroup = {
   id: string;
   lastActivityAt: Date;
   latestKind: PortalCallActivityKind;
+  latestVoicemailAt?: Date | null;
   latestVoicemailDurationSec: number | null;
   latestVoicemailRecordingId: string | null;
   locationNames: string[];
@@ -1687,6 +1688,7 @@ export function buildPortalNeedsActionGroups(
       id: portalNeedsActionGroupId(phoneKey),
       lastActivityAt: event.createdAt,
       latestKind: event.kind,
+      latestVoicemailAt: null,
       latestVoicemailDurationSec: null,
       latestVoicemailRecordingId: null,
       locationNames: [],
@@ -1718,7 +1720,11 @@ export function buildPortalNeedsActionGroups(
       next.fromPhone = event.fromPhone;
     }
 
-    if (event.kind === "voicemail" && (!next.latestVoicemailRecordingId || isLatest)) {
+    if (
+      event.kind === "voicemail" &&
+      (!next.latestVoicemailAt || event.createdAt > next.latestVoicemailAt)
+    ) {
+      next.latestVoicemailAt = event.createdAt;
       next.latestVoicemailDurationSec = event.durationSec;
       next.latestVoicemailRecordingId = event.recordingId;
     }

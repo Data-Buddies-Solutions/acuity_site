@@ -20,16 +20,19 @@ import {
   setCallCenterEnabledForCurrentPractice,
 } from "@/lib/call-center";
 import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
-import { resolveCallerThread } from "@/lib/call-center/infrastructure/prisma-resolve-caller-thread";
+import { resolveCallerThreadInTransaction } from "@/lib/call-center/infrastructure/prisma-resolve-caller-thread";
 import { reportCallCenterError } from "@/lib/call-center/operator-error-response";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
+
+import { CALL_OUTCOME_SAVE_ERROR } from "./call-outcome";
 
 const DISPOSITIONS_THAT_CLOSE_THREAD = new Set<CallCenterNoteDisposition>([
   CallCenterNoteDisposition.RESOLVED,
   CallCenterNoteDisposition.WRONG_NUMBER,
   CallCenterNoteDisposition.OTHER,
 ]);
+const CALL_CENTER_MUTATION_ERROR = "Call center action could not be completed";
 
 type CallCenterActionContext = NonNullable<
   Awaited<ReturnType<typeof getCurrentPracticeCallCenterContext>>
@@ -165,9 +168,10 @@ async function inferNoteSource(
   context: CallCenterActionContext,
   phoneVariants: string[],
   scope: CallCenterActionScope,
+  database: Prisma.TransactionClient,
 ) {
   const [missedCall, voicemail, session] = await Promise.all([
-    prisma.callCenterMissedCall.findFirst({
+    database.callCenterMissedCall.findFirst({
       orderBy: [{ createdAt: "desc" }],
       select: {
         createdAt: true,
@@ -183,7 +187,7 @@ async function inferNoteSource(
         ...scope.activityWhere,
       },
     }),
-    prisma.callCenterVoicemail.findFirst({
+    database.callCenterVoicemail.findFirst({
       orderBy: [{ createdAt: "desc" }],
       select: {
         createdAt: true,
@@ -199,7 +203,7 @@ async function inferNoteSource(
         ...scope.activityWhere,
       },
     }),
-    prisma.callCenterSession.findFirst({
+    database.callCenterSession.findFirst({
       orderBy: [{ updatedAt: "desc" }, { startedAt: "desc" }],
       select: {
         answeredAt: true,
@@ -300,24 +304,28 @@ async function closeNeedsActionThread(
   phoneVariants: string[],
   resolvedAt: Date,
   scope: CallCenterActionScope,
+  transaction: Prisma.TransactionClient,
   queueId?: string,
 ) {
-  await resolveCallerThread({
-    actor: {
-      allowedLocationIds: context.allowedLocationIds,
-      hasAllLocationAccess: context.hasAllLocationAccess,
-      practiceId: context.practice.id,
-      userId: context.session.user.id,
+  await resolveCallerThreadInTransaction(
+    {
+      actor: {
+        allowedLocationIds: context.allowedLocationIds,
+        hasAllLocationAccess: context.hasAllLocationAccess,
+        practiceId: context.practice.id,
+        userId: context.session.user.id,
+      },
+      canonicalLocationIds: scope.canonicalLocationIds,
+      disposition,
+      legacyMissedCallWhere: scope.activityWhere,
+      legacyNoteWhere: scope.noteWhere,
+      legacyVoicemailWhere: scope.activityWhere as Prisma.CallCenterVoicemailWhereInput,
+      now: resolvedAt,
+      phoneVariants,
+      queueId,
     },
-    canonicalLocationIds: scope.canonicalLocationIds,
-    disposition,
-    legacyMissedCallWhere: scope.activityWhere,
-    legacyNoteWhere: scope.noteWhere,
-    legacyVoicemailWhere: scope.activityWhere as Prisma.CallCenterVoicemailWhereInput,
-    now: resolvedAt,
-    phoneVariants,
-    queueId,
-  });
+    transaction,
+  );
 }
 
 async function createCallCenterNote({
@@ -330,6 +338,7 @@ async function createCallCenterNote({
   stationLabelSnapshot,
   stationSeatId,
   scope,
+  transaction,
 }: {
   body: string | null;
   context: CallCenterActionContext;
@@ -340,16 +349,18 @@ async function createCallCenterNote({
   scope: CallCenterActionScope;
   stationLabelSnapshot?: string | null;
   stationSeatId?: string | null;
+  transaction: Prisma.TransactionClient;
 }) {
-  const source = await inferNoteSource(context, phoneVariants, scope);
+  const source = await inferNoteSource(context, phoneVariants, scope, transaction);
   const station = await resolveNoteStation({
     context,
+    database: transaction,
     stationLabelSnapshot,
     stationSeatId,
   });
   const userLabel = context.session.user.name || context.session.user.email || null;
 
-  await prisma.callCenterNote.create({
+  await transaction.callCenterNote.create({
     data: {
       body,
       createdByLabel: userLabel,
@@ -370,10 +381,12 @@ async function createCallCenterNote({
 
 async function resolveNoteStation({
   context,
+  database,
   stationLabelSnapshot,
   stationSeatId,
 }: {
   context: CallCenterActionContext;
+  database: Prisma.TransactionClient;
   stationLabelSnapshot?: string | null;
   stationSeatId?: string | null;
 }) {
@@ -387,7 +400,7 @@ async function resolveNoteStation({
     };
   }
 
-  const seat = await prisma.callCenterAgentSeat.findFirst({
+  const seat = await database.callCenterAgentSeat.findFirst({
     select: {
       extension: true,
       id: true,
@@ -530,13 +543,13 @@ export async function resolveNeedsActionGroupAction(formData: FormData) {
   const stationSeatId = String(formData.get("stationSeatId") || "").trim() || null;
 
   if (!context || !phoneVariants.length) {
-    return;
+    throw new Error(CALL_CENTER_MUTATION_ERROR);
   }
 
   const scope = resolveActionScopeFromForm(context, formData);
 
   if (!scope) {
-    return;
+    throw new Error(CALL_CENTER_MUTATION_ERROR);
   }
 
   const requestedQueueId = String(formData.get("queue") || "").trim() || undefined;
@@ -552,29 +565,33 @@ export async function resolveNeedsActionGroupAction(formData: FormData) {
   )
     ? requestedQueueId
     : undefined;
-  if (requestedQueueId && !queueId) return;
+  if (requestedQueueId && !queueId) throw new Error(CALL_CENTER_MUTATION_ERROR);
 
   const resolvedAt = new Date();
 
-  await createCallCenterNote({
-    body: null,
-    context,
-    disposition: CallCenterNoteDisposition.RESOLVED,
-    phone,
-    phoneVariants,
-    resolvedThread: true,
-    scope,
-    stationLabelSnapshot,
-    stationSeatId,
+  await prisma.$transaction(async (transaction) => {
+    await createCallCenterNote({
+      body: null,
+      context,
+      disposition: CallCenterNoteDisposition.RESOLVED,
+      phone,
+      phoneVariants,
+      resolvedThread: true,
+      scope,
+      stationLabelSnapshot,
+      stationSeatId,
+      transaction,
+    });
+    await closeNeedsActionThread(
+      context,
+      CallCenterNoteDisposition.RESOLVED,
+      phoneVariants,
+      resolvedAt,
+      scope,
+      transaction,
+      queueId,
+    );
   });
-  await closeNeedsActionThread(
-    context,
-    CallCenterNoteDisposition.RESOLVED,
-    phoneVariants,
-    resolvedAt,
-    scope,
-    queueId,
-  );
 
   revalidateCallCenterPaths(phone);
 }
@@ -592,32 +609,48 @@ export async function saveCallCenterNoteAction(formData: FormData) {
   const stationSeatId = String(formData.get("stationSeatId") || "").trim() || null;
 
   if (!context || !phoneVariants.length) {
-    return;
+    return { error: CALL_OUTCOME_SAVE_ERROR, ok: false as const };
   }
 
   const scope = resolveActionScopeFromForm(context, formData);
 
   if (!scope) {
-    return;
+    return { error: CALL_OUTCOME_SAVE_ERROR, ok: false as const };
   }
 
   const resolvedThread = DISPOSITIONS_THAT_CLOSE_THREAD.has(disposition);
 
-  await createCallCenterNote({
-    body,
-    context,
-    disposition,
-    phone,
-    phoneVariants,
-    resolvedThread,
-    scope,
-    stationLabelSnapshot,
-    stationSeatId,
+  await prisma.$transaction(async (transaction) => {
+    await createCallCenterNote({
+      body,
+      context,
+      disposition,
+      phone,
+      phoneVariants,
+      resolvedThread,
+      scope,
+      stationLabelSnapshot,
+      stationSeatId,
+      transaction,
+    });
+
+    if (resolvedThread) {
+      await closeNeedsActionThread(
+        context,
+        disposition,
+        phoneVariants,
+        new Date(),
+        scope,
+        transaction,
+      );
+    }
   });
 
-  if (resolvedThread) {
-    await closeNeedsActionThread(context, disposition, phoneVariants, new Date(), scope);
-  }
-
   revalidateCallCenterPaths(phone);
+  return { ok: true as const };
+}
+
+export async function saveCallCenterNoteFormAction(formData: FormData) {
+  const result = await saveCallCenterNoteAction(formData);
+  if (!result.ok) throw new Error(CALL_CENTER_MUTATION_ERROR);
 }

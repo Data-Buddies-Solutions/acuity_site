@@ -199,12 +199,24 @@ function mergeNeedsActionGroup(
   right: PortalNeedsActionGroup,
 ) {
   const latest = right.lastActivityAt > left.lastActivityAt ? right : left;
+  const latestVoicemail =
+    right.latestVoicemailAt &&
+    (!left.latestVoicemailAt || right.latestVoicemailAt > left.latestVoicemailAt)
+      ? right
+      : left.latestVoicemailAt
+        ? left
+        : right.latestVoicemailRecordingId
+          ? right
+          : left;
   return {
     ...latest,
     callbackNeededCount: left.callbackNeededCount + right.callbackNeededCount,
     eventCount: left.eventCount + right.eventCount,
     followUpRequiredCount: left.followUpRequiredCount + right.followUpRequiredCount,
     locationNames: [...new Set([...left.locationNames, ...right.locationNames])],
+    latestVoicemailAt: latestVoicemail.latestVoicemailAt ?? null,
+    latestVoicemailDurationSec: latestVoicemail.latestVoicemailDurationSec,
+    latestVoicemailRecordingId: latestVoicemail.latestVoicemailRecordingId,
     missedCount: left.missedCount + right.missedCount,
     noteCount: left.noteCount + right.noteCount,
     recordIds: [...new Set([...(left.recordIds ?? []), ...(right.recordIds ?? [])])],

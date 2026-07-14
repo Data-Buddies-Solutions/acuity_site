@@ -1,6 +1,8 @@
 export const CALL_OUTCOME_SAVE_ERROR =
   "We couldn't save this outcome. Check the details and try again.";
 
+export type CallOutcomeSaveResult = { ok: true } | { error: string; ok: false };
+
 export function isCurrentCallOutcome(
   submittedToken: number,
   currentToken: number | undefined,
@@ -9,12 +11,11 @@ export function isCurrentCallOutcome(
 }
 
 export async function submitCallOutcome(
-  save: (formData: FormData) => Promise<unknown>,
+  save: (formData: FormData) => Promise<CallOutcomeSaveResult>,
   formData: FormData,
 ) {
   try {
-    await save(formData);
-    return { ok: true as const };
+    return await save(formData);
   } catch {
     return { error: CALL_OUTCOME_SAVE_ERROR, ok: false as const };
   }
