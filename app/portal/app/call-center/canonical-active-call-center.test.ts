@@ -5,7 +5,7 @@ import type { CallView, OperationView } from "@/lib/call-center/realtime-contrac
 import {
   beginCanonicalTransfer,
   beginCanonicalTake,
-  beginCanonicalMediaAnswer,
+  answerCanonicalMediaOnce,
   canonicalClaimIdempotencyKey,
   canonicalTransferAttemptNumber,
   canonicalTransferIdempotencyKey,
@@ -15,7 +15,6 @@ import {
   operationShouldAnswerMedia,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
-  selectCanonicalInboundAlertCall,
   selectCanonicalTransferSource,
   selectCanonicalTransferTakeCandidate,
   selectLatestClaimOperation,
@@ -123,6 +122,7 @@ describe("canonical active call center correlation", () => {
       ...call,
       answeredAt: "2026-07-12T12:00:10.000Z",
       id: "emma-answered",
+      legs: [{ ...call.legs[0]!, status: "BRIDGED" as const }],
       status: "CONNECTED" as const,
       winningLegId: "leg-1",
     };
@@ -136,15 +136,11 @@ describe("canonical active call center correlation", () => {
     expect(
       selectCanonicalAgentActiveCall(queueCalls, {
         currentCallId: null,
+        endpointId: "endpoint-1",
+        id: "session-1",
         offeredCallId: call.id,
       }),
     ).toBeNull();
-    expect(
-      selectCanonicalInboundAlertCall(queueCalls, {
-        currentCallId: null,
-        offeredCallId: call.id,
-      }),
-    ).toEqual(call);
     expect(
       selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [
         providerConnectedBeforeAnswer,
@@ -154,45 +150,46 @@ describe("canonical active call center correlation", () => {
     expect(
       selectCanonicalAgentActiveCall(queueCalls, {
         currentCallId: emmaAnswered.id,
+        endpointId: "endpoint-1",
+        id: "session-1",
         offeredCallId: null,
       }),
     ).toEqual(emmaAnswered);
-    expect(
-      selectCanonicalInboundAlertCall(queueCalls, {
-        currentCallId: emmaAnswered.id,
-        offeredCallId: null,
-      }),
-    ).toBeNull();
 
     expect(
       selectCanonicalAgentActiveCall(queueCalls, {
         currentCallId: null,
+        endpointId: "endpoint-1",
+        id: "session-1",
         offeredCallId: emmaOutbound.id,
       }),
     ).toEqual(emmaOutbound);
-    expect(
-      selectCanonicalInboundAlertCall(queueCalls, {
-        currentCallId: null,
-        offeredCallId: emmaOutbound.id,
-      }),
-    ).toBeNull();
   });
 
-  it("stops inbound alert eligibility on every terminal projection", () => {
-    for (const status of [
-      "COMPLETED",
-      "VOICEMAIL",
-      "ABANDONED",
-      "FAILED",
-      "WRAP_UP",
-    ] as const) {
-      expect(
-        selectCanonicalInboundAlertCall([{ ...call, status }], {
-          currentCallId: null,
-          offeredCallId: call.id,
-        }),
-      ).toBeNull();
-    }
+  it("rejects a connected inbound winner owned by another session", () => {
+    const wrongWinner = {
+      ...call,
+      answeredAt: "2026-07-12T12:00:10.000Z",
+      legs: [
+        {
+          ...call.legs[0]!,
+          agentSessionId: "session-2",
+          endpointId: "endpoint-2",
+          status: "BRIDGED" as const,
+        },
+      ],
+      status: "CONNECTED" as const,
+      winningLegId: "leg-1",
+    };
+
+    expect(
+      selectCanonicalAgentActiveCall([wrongWinner], {
+        currentCallId: wrongWinner.id,
+        endpointId: "endpoint-1",
+        id: "session-1",
+        offeredCallId: null,
+      }),
+    ).toBeNull();
   });
 
   it("reuses one outbound operation key across retries and remounts", () => {
@@ -299,11 +296,28 @@ describe("canonical active call center correlation", () => {
     expect(beginCanonicalTake(inFlight, "call-1")).toBe(true);
   });
 
-  it("answers one provider media leg exactly once", () => {
+  it("answers one provider media leg exactly once and permits a retry after failure", async () => {
     const answering = new Set<string>();
-    expect(beginCanonicalMediaAnswer(answering, "media-1")).toBe(true);
-    expect(beginCanonicalMediaAnswer(answering, "media-1")).toBe(false);
-    expect(beginCanonicalMediaAnswer(answering, "media-2")).toBe(true);
+    let finish!: () => void;
+    const first = answerCanonicalMediaOnce(
+      answering,
+      "media-1",
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    );
+    expect(await answerCanonicalMediaOnce(answering, "media-1", async () => {})).toBe(
+      false,
+    );
+    finish();
+    expect(await first).toBe(true);
+
+    await expect(
+      answerCanonicalMediaOnce(answering, "media-2", async () => {
+        throw new Error("answer failed");
+      }),
+    ).rejects.toThrow("answer failed");
+    expect(await answerCanonicalMediaOnce(answering, "media-2", async () => {})).toBe(
+      true,
+    );
   });
 
   it("blocks concurrent targets for the same source leg", () => {

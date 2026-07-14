@@ -13,26 +13,23 @@ type OutboundOperationStorage = Pick<Storage, "getItem" | "removeItem" | "setIte
 
 export function selectCanonicalAgentActiveCall(
   calls: readonly CallView[],
-  session: Pick<AgentSessionView, "currentCallId" | "offeredCallId"> | null,
+  session: Pick<
+    AgentSessionView,
+    "currentCallId" | "endpointId" | "id" | "offeredCallId"
+  > | null,
 ) {
   const callId = session?.currentCallId ?? session?.offeredCallId;
   const call = callId ? (calls.find(({ id }) => id === callId) ?? null) : null;
   if (call?.direction === "OUTBOUND") return call;
   if (!session?.currentCallId || call?.id !== session.currentCallId) return null;
-  return call?.status === "CONNECTED" && call.answeredAt && call.winningLegId
-    ? call
-    : null;
-}
-
-export function selectCanonicalInboundAlertCall(
-  calls: readonly CallView[],
-  session: Pick<AgentSessionView, "currentCallId" | "offeredCallId"> | null,
-) {
-  const callId = session?.offeredCallId ?? session?.currentCallId;
-  if (!callId || selectCanonicalAgentActiveCall(calls, session)) return null;
-  const call = calls.find(({ id }) => id === callId) ?? null;
-  return call?.direction === "INBOUND" &&
-    !["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED", "WRAP_UP"].includes(call.status)
+  if (call.status !== "CONNECTED" || !call.answeredAt || !call.winningLegId) {
+    return null;
+  }
+  const winningLeg = call.legs.find(({ id }) => id === call.winningLegId);
+  return winningLeg?.kind === "AGENT" &&
+    winningLeg.status === "BRIDGED" &&
+    winningLeg.agentSessionId === session.id &&
+    winningLeg.endpointId === session.endpointId
     ? call
     : null;
 }
@@ -149,10 +146,20 @@ export function beginCanonicalTake(inFlight: Set<string>, callId: string) {
   return true;
 }
 
-export function beginCanonicalMediaAnswer(inFlight: Set<string>, mediaLegId: string) {
+export async function answerCanonicalMediaOnce(
+  inFlight: Set<string>,
+  mediaLegId: string,
+  answer: () => Promise<void>,
+) {
   if (inFlight.has(mediaLegId)) return false;
   inFlight.add(mediaLegId);
-  return true;
+  try {
+    await answer();
+    return true;
+  } catch (error) {
+    inFlight.delete(mediaLegId);
+    throw error;
+  }
 }
 
 export function beginCanonicalTransfer(
