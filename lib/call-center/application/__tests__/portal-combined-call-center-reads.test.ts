@@ -16,6 +16,7 @@ function call(
 ) {
   return {
     answeredBy: null,
+    connected: true,
     direction: "INBOUND" as const,
     durationSec: 30,
     fromPhone: "+15555550123",
@@ -151,7 +152,7 @@ describe("combined call-center reads", () => {
     let legacyReads = 0;
     let canonicalReads = 0;
     const result = await readCombinedCallCenterHistory(
-      { page: 2, pageSize: 2, range: "all" },
+      { page: 2, pageSize: 2, range: "all", view: "all" },
       {
         readCanonical: async () => {
           canonicalReads += 1;
@@ -186,19 +187,19 @@ describe("combined call-center reads", () => {
     for (const _mode of ["ACTIVE", "ROLLBACK"] as const) {
       const reads: string[] = [];
       await readCombinedCallCenterHistory(
-        { page: 1, pageSize: 25, range: "24h" },
+        { page: 1, pageSize: 25, range: "24h", view: "connections" },
         {
-          readCanonical: async () => {
-            reads.push("canonical");
+          readCanonical: async (options) => {
+            reads.push(`canonical:${options?.view ?? "connections"}`);
             return historyResult([]);
           },
-          readLegacy: async () => {
-            reads.push("legacy");
+          readLegacy: async (options) => {
+            reads.push(`legacy:${options?.view ?? "connections"}`);
             return historyResult([]);
           },
         },
       );
-      expect(reads.sort()).toEqual(["canonical", "legacy"]);
+      expect(reads.sort()).toEqual(["canonical:connections", "legacy:connections"]);
     }
   });
 

@@ -76,6 +76,7 @@ describe("canonical portal history", () => {
         page: 2,
         pageSize: 25,
         range: "24h",
+        view: "connections",
       },
       {
         database: database as never,
@@ -99,6 +100,7 @@ describe("canonical portal history", () => {
       calls: [
         {
           answeredBy: "Front desk",
+          connected: true,
           durationSec: 60,
           id: "call-1",
           locationName: "Optical",
@@ -111,6 +113,56 @@ describe("canonical portal history", () => {
         outboundDialedCalls: 2,
         totalCalls: 4,
       },
+    });
+  });
+
+  it("includes unanswered outcomes in all-call history", async () => {
+    let query: Record<string, unknown> | null = null;
+    const database = {
+      callCenterCall: {
+        count: async () => 1,
+        findMany: async (input: Record<string, unknown>) => {
+          query = input;
+          return [
+            {
+              answeredAt: null,
+              direction: "INBOUND",
+              endedAt: new Date("2026-07-12T19:01:05.000Z"),
+              fromPhone: "+15555550123",
+              id: "call-missed",
+              number: {
+                practicePhoneNumber: { location: { name: "Optical" } },
+              },
+              providerCallSessionId: "provider-missed",
+              receivedAt: new Date("2026-07-12T19:00:00.000Z"),
+              status: "ABANDONED",
+              toPhone: "+15555550000",
+              winningLeg: null,
+            },
+          ];
+        },
+      },
+    };
+    const result = await readCanonicalCallCenterHistory(
+      { page: 1, pageSize: 25, range: "all", view: "all" },
+      {
+        database: database as never,
+        getContext: async () => context as never,
+      },
+    );
+
+    expect(query).toMatchObject({
+      where: {
+        effectOwner: "CANONICAL",
+      },
+    });
+    const allCallsWhere = (query as unknown as { where: Record<string, unknown> }).where;
+    expect(allCallsWhere.answeredAt).toBeUndefined();
+    expect(allCallsWhere.status).toBeUndefined();
+    expect(result?.calls[0]).toMatchObject({
+      connected: false,
+      id: "call-missed",
+      status: "MISSED",
     });
   });
 

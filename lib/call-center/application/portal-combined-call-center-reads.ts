@@ -2,6 +2,7 @@ import {
   getPortalCallCenterCallerTimeline,
   getPortalCallCenterHistoryData,
   type PortalCallCenterHistoryRange,
+  type PortalCallCenterHistoryView,
   type PortalCallerTimelineItem,
   type PortalNeedsActionGroup,
   type PortalRecentCallItem,
@@ -70,18 +71,25 @@ function duplicateHistoryCounts(
       call.providerCallSessionId ? [[call.providerCallSessionId, call] as const] : [],
     ),
   );
-  let inbound = 0;
-  let outbound = 0;
+  let inboundConnections = 0;
+  let outboundAttempts = 0;
+  let outboundConnections = 0;
+  let total = 0;
 
   for (const call of legacyCalls) {
     if (!call.providerCallSessionId) continue;
     const duplicate = canonicalByProvider.get(call.providerCallSessionId);
     if (!duplicate) continue;
-    if (duplicate.direction === "OUTBOUND") outbound += 1;
-    else inbound += 1;
+    total += 1;
+    if (duplicate.direction === "OUTBOUND") {
+      outboundAttempts += 1;
+      if (call.connected && duplicate.connected) outboundConnections += 1;
+    } else if (call.connected && duplicate.connected) {
+      inboundConnections += 1;
+    }
   }
 
-  return { inbound, outbound, total: inbound + outbound };
+  return { inboundConnections, outboundAttempts, outboundConnections, total };
 }
 
 type CombinedHistoryDependencies = {
@@ -94,6 +102,7 @@ export async function readCombinedCallCenterHistory(
     page: number;
     pageSize: number;
     range: PortalCallCenterHistoryRange;
+    view: PortalCallCenterHistoryView;
   },
   {
     readCanonical = readCanonicalCallCenterHistory,
@@ -101,8 +110,8 @@ export async function readCombinedCallCenterHistory(
   }: CombinedHistoryDependencies = {},
 ) {
   const [legacyFirst, canonicalFirst] = await Promise.all([
-    readLegacy({ page: 1, pageSize: 100, range: options.range }),
-    readCanonical({ page: 1, pageSize: 100, range: options.range }),
+    readLegacy({ page: 1, pageSize: 100, range: options.range, view: options.view }),
+    readCanonical({ page: 1, pageSize: 100, range: options.range, view: options.view }),
   ]);
   const base = legacyFirst ?? canonicalFirst;
   if (!base) return null;
@@ -112,14 +121,24 @@ export async function readCombinedCallCenterHistory(
       const result =
         page === 1
           ? legacyFirst
-          : await readLegacy({ page, pageSize, range: options.range });
+          : await readLegacy({
+              page,
+              pageSize,
+              range: options.range,
+              view: options.view,
+            });
       return { items: result?.calls ?? [], total: result?.totals.totalCalls ?? 0 };
     }, prefixSize),
     collectPagePrefix(async (page, pageSize) => {
       const result =
         page === 1
           ? canonicalFirst
-          : await readCanonical({ page, pageSize, range: options.range });
+          : await readCanonical({
+              page,
+              pageSize,
+              range: options.range,
+              view: options.view,
+            });
       return { items: result?.calls ?? [], total: result?.totals.totalCalls ?? 0 };
     }, prefixSize),
   ]);
@@ -151,17 +170,21 @@ export async function readCombinedCallCenterHistory(
     totals: {
       inboundCalls: Math.max(
         0,
-        legacyTotals.inboundCalls + canonicalTotals.inboundCalls - duplicates.inbound,
+        legacyTotals.inboundCalls +
+          canonicalTotals.inboundCalls -
+          duplicates.inboundConnections,
       ),
       outboundCalls: Math.max(
         0,
-        legacyTotals.outboundCalls + canonicalTotals.outboundCalls - duplicates.outbound,
+        legacyTotals.outboundCalls +
+          canonicalTotals.outboundCalls -
+          duplicates.outboundConnections,
       ),
       outboundDialedCalls: Math.max(
         0,
         legacyTotals.outboundDialedCalls +
           canonicalTotals.outboundDialedCalls -
-          duplicates.outbound,
+          duplicates.outboundAttempts,
       ),
       totalCalls: Math.max(
         calls.length,

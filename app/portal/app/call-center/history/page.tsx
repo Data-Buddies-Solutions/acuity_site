@@ -14,6 +14,7 @@ import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import {
   type PortalCallCenterHistoryRange,
+  type PortalCallCenterHistoryView,
   type PortalRecentCallItem,
 } from "@/lib/call-center";
 import { readCombinedCallCenterHistory } from "@/lib/call-center/application/portal-combined-call-center-reads";
@@ -45,7 +46,10 @@ export default async function PortalCallCenterHistoryPage({
   const range = parseHistoryRange(
     Array.isArray(params.range) ? params.range[0] : params.range,
   );
-  const historyOptions = { page, pageSize: HISTORY_PAGE_SIZE, range };
+  const view = parseHistoryView(
+    Array.isArray(params.view) ? params.view[0] : params.view,
+  );
+  const historyOptions = { page, pageSize: HISTORY_PAGE_SIZE, range, view };
   const data = await readCombinedCallCenterHistory(historyOptions);
 
   if (!data) {
@@ -55,7 +59,7 @@ export default async function PortalCallCenterHistoryPage({
   const totalPages = Math.max(1, Math.ceil(data.totals.totalCalls / data.pageSize));
 
   if (data.totals.totalCalls > 0 && data.page > totalPages) {
-    redirect(historyHref({ page: totalPages, range: data.range }));
+    redirect(historyHref({ page: totalPages, range: data.range, view }));
   }
 
   return (
@@ -64,7 +68,7 @@ export default async function PortalCallCenterHistoryPage({
         branding={data.branding}
         practiceName={data.practiceName}
         showLogo={false}
-        title="Connections"
+        title="Call history"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Button asChild variant="secondary">
@@ -77,7 +81,10 @@ export default async function PortalCallCenterHistoryPage({
       </PracticePageHeader>
 
       <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryMetric label="Total connections" value={data.totals.totalCalls} />
+        <SummaryMetric
+          label={view === "all" ? "Total calls" : "Total connections"}
+          value={data.totals.totalCalls}
+        />
         <SummaryMetric label="Inbound connected" value={data.totals.inboundCalls} />
         <SummaryMetric label="Outbound connected" value={data.totals.outboundCalls} />
         <SummaryMetric
@@ -87,14 +94,23 @@ export default async function PortalCallCenterHistoryPage({
       </section>
 
       <section className="rounded-xl border border-[var(--portal-border)] bg-white p-3 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-b border-[var(--portal-border)] pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Call type</h2>
+            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
+              {view === "all" ? "Every call outcome." : "Answered calls only."}
+            </p>
+          </div>
+          <HistoryViewTabs range={data.range} selectedView={view} />
+        </div>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Time range</h2>
             <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
               {historyRangeLabel(data.range)}
             </p>
           </div>
-          <HistoryRangeTabs selectedRange={data.range} />
+          <HistoryRangeTabs selectedRange={data.range} view={view} />
         </div>
       </section>
 
@@ -102,18 +118,23 @@ export default async function PortalCallCenterHistoryPage({
         <header className="flex flex-col gap-3 border-b border-[var(--portal-border)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
-              Inbound and outbound connections
+              {view === "all" ? "Inbound and outbound calls" : "Connections"}
             </h2>
             <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
-              Connected call-center calls for the selected range.
+              {view === "all"
+                ? "Completed, missed, voicemail, failed, and active calls."
+                : "Answered call-center calls for the selected range."}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <PortalBadge>{data.totals.totalCalls} connections</PortalBadge>
+            <PortalBadge>
+              {data.totals.totalCalls} {view === "all" ? "calls" : "connections"}
+            </PortalBadge>
             <PaginationControls
               page={data.page}
               range={data.range}
               totalPages={totalPages}
+              view={view}
             />
           </div>
         </header>
@@ -126,7 +147,7 @@ export default async function PortalCallCenterHistoryPage({
           </ul>
         ) : (
           <div className="px-5 py-12 text-center text-sm text-[var(--portal-muted)]">
-            No connected calls yet.
+            {view === "all" ? "No calls yet." : "No connected calls yet."}
           </div>
         )}
       </section>
@@ -134,10 +155,41 @@ export default async function PortalCallCenterHistoryPage({
   );
 }
 
+function HistoryViewTabs({
+  range,
+  selectedView,
+}: {
+  range: PortalCallCenterHistoryRange;
+  selectedView: PortalCallCenterHistoryView;
+}) {
+  const options: Array<{ label: string; value: PortalCallCenterHistoryView }> = [
+    { label: "All calls", value: "all" },
+    { label: "Connections", value: "connections" },
+  ];
+
+  return (
+    <LinkSegmentedControl
+      activeClassName="bg-white text-[var(--portal-ink)]"
+      ariaLabel="Call history type"
+      className="border border-[var(--portal-border)] bg-[var(--portal-panel-soft)]"
+      inactiveClassName="text-[var(--portal-muted)] hover:text-[var(--portal-ink)]"
+      itemClassName="px-3 py-1.5 text-xs font-semibold"
+      items={options.map((option) => ({
+        href: historyHref({ page: 1, range, view: option.value }),
+        label: option.label,
+        value: option.value,
+      }))}
+      value={selectedView}
+    />
+  );
+}
+
 function HistoryRangeTabs({
   selectedRange,
+  view,
 }: {
   selectedRange: PortalCallCenterHistoryRange;
+  view: PortalCallCenterHistoryView;
 }) {
   const options: Array<{ label: string; value: PortalCallCenterHistoryRange }> = [
     { label: "24h", value: "24h" },
@@ -153,7 +205,7 @@ function HistoryRangeTabs({
       inactiveClassName="text-[var(--portal-muted)] hover:text-[var(--portal-ink)]"
       itemClassName="px-3 py-1.5 text-xs font-semibold"
       items={options.map((option) => ({
-        href: historyHref({ page: 1, range: option.value }),
+        href: historyHref({ page: 1, range: option.value, view }),
         label: option.label,
         value: option.value,
       }))}
@@ -166,10 +218,12 @@ function PaginationControls({
   page,
   range,
   totalPages,
+  view,
 }: {
   page: number;
   range: PortalCallCenterHistoryRange;
   totalPages: number;
+  view: PortalCallCenterHistoryView;
 }) {
   const hasPrevious = page > 1;
   const hasNext = page < totalPages;
@@ -184,7 +238,10 @@ function PaginationControls({
           title="Previous page"
           variant="secondary"
         >
-          <Link aria-label="Previous page" href={historyHref({ page: page - 1, range })}>
+          <Link
+            aria-label="Previous page"
+            href={historyHref({ page: page - 1, range, view })}
+          >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Button>
@@ -211,7 +268,10 @@ function PaginationControls({
           title="Next page"
           variant="secondary"
         >
-          <Link aria-label="Next page" href={historyHref({ page: page + 1, range })}>
+          <Link
+            aria-label="Next page"
+            href={historyHref({ page: page + 1, range, view })}
+          >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Button>
@@ -320,14 +380,24 @@ function parseHistoryRange(value: string | undefined): PortalCallCenterHistoryRa
   return "24h";
 }
 
+function parseHistoryView(value: string | undefined): PortalCallCenterHistoryView {
+  return value === "connections" ? "connections" : "all";
+}
+
 function historyHref({
   page,
   range,
+  view,
 }: {
   page: number;
   range: PortalCallCenterHistoryRange;
+  view: PortalCallCenterHistoryView;
 }) {
   const params = new URLSearchParams();
+
+  if (view !== "all") {
+    params.set("view", view);
+  }
 
   if (range !== "24h") {
     params.set("range", range);
@@ -374,7 +444,14 @@ function formatHistoryTime(date: Date) {
 }
 
 function historyStatusLabel(call: PortalRecentCallItem) {
-  return call.direction === "OUTBOUND" ? "Outbound" : "Inbound";
+  const direction = call.direction === "OUTBOUND" ? "Outbound" : "Inbound";
+  const status =
+    call.status === "ACTIVE"
+      ? "Connected"
+      : call.status === "MISSED"
+        ? "Missed"
+        : call.status.charAt(0) + call.status.slice(1).toLowerCase();
+  return `${direction} · ${status}`;
 }
 
 function formatCallDuration(seconds: number | null) {
