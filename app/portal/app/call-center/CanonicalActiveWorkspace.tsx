@@ -198,6 +198,7 @@ function ConnectedCanonicalActiveWorkspace({
   const leasedOfferedCallId = leasedSession?.offeredCallId ?? null;
   const media = useSoftphoneMedia({
     agentSessionId: leasedSessionId,
+    autoPrepare: Boolean(agentProfileId),
     browserSessionId: clientInstanceId,
     credentialMode: "CANONICAL",
     enabled: Boolean(agentProfileId && leasedSession?.endpointId === agentProfileId),

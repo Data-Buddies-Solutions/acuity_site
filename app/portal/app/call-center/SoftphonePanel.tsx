@@ -387,6 +387,7 @@ const SoftphonePanel = forwardRef<
   }, []);
 
   const media = useLegacySoftphoneMedia({
+    autoPrepare: enabled && stationSelected,
     browserSessionId,
     enabled,
     onDebug: debugLog,
