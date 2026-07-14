@@ -106,17 +106,18 @@ export function createTelnyxProviderCommandSender(
             to: command.provider.sipUri,
           });
           return;
-        case "STOP_PLAYBACK":
-          requireSuccessfulResponse(
-            await operations.playbackStop(
-              command.provider.callControlId,
-              command.commandId,
-              undefined,
-              canonicalCommandClientState(command),
-            ),
-            "playback stop",
+        case "STOP_PLAYBACK": {
+          const response = await operations.playbackStop(
+            command.provider.callControlId,
+            command.commandId,
+            undefined,
+            canonicalCommandClientState(command),
           );
+          if (![404, 422].includes(response.status)) {
+            requireSuccessfulResponse(response, "playback stop");
+          }
           return;
+        }
         case "HANGUP_LEG":
           await operations.hangup(
             command.provider.callControlId,
