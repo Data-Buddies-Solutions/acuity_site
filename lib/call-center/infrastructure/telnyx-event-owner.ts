@@ -31,7 +31,7 @@ type RawIdentity = {
   canonicalLegId: string | null;
   canonicalOutboundPracticeId: string | null;
   canonicalOutboundToken: string | null;
-  direction: "INBOUND" | "OUTBOUND" | null;
+  direction: "INBOUND" | "OUTBOUND" | "UNKNOWN" | null;
   directHandoff: { tokenHash: string } | null;
   fromPhone: string;
   occurredAt: Date;
@@ -71,9 +71,10 @@ function text(value: unknown) {
 
 function direction(value: unknown): RawIdentity["direction"] {
   const normalized = text(value).toLowerCase();
+  if (!normalized) return null;
   if (normalized === "incoming" || normalized === "inbound") return "INBOUND";
   if (normalized === "outgoing" || normalized === "outbound") return "OUTBOUND";
-  return null;
+  return "UNKNOWN";
 }
 
 function optionalDate(value: unknown) {
@@ -249,7 +250,10 @@ async function persistDirectHandoffOwner(
 
 async function resolveTrustedOutboundIdentity(tx: OwnerTransaction, raw: RawIdentity) {
   if (!raw.canonicalOutboundToken) return raw;
-  if (raw.direction !== "OUTBOUND" || !raw.canonicalOutboundPracticeId) {
+  if (
+    !raw.canonicalOutboundPracticeId ||
+    (raw.direction !== null && raw.direction !== "OUTBOUND")
+  ) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_OUTBOUND_TOKEN_INVALID");
   }
   const mapping = await tx.callCenterEvent.findUnique({
