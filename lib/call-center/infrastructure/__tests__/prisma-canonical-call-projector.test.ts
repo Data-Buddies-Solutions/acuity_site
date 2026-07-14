@@ -24,6 +24,7 @@ import {
   shouldPlanCanonicalInboundRouting,
   shouldReconcileCanonicalInboundLifecycle,
   sipEndpointIdentityCandidates,
+  terminalSettlementIncludesCustomerLegs,
 } from "../prisma-canonical-call-projector";
 
 const later = new Date("2026-07-11T10:00:05.000Z");
@@ -275,17 +276,34 @@ describe("canonical bridge winner", () => {
   });
 
   it("does not connect an inbound call when the customer bridge arrives first", () => {
-    const call = { direction: "INBOUND" as const, status: "RINGING" as const };
+    const call = {
+      direction: "INBOUND" as const,
+      status: "RINGING" as const,
+      winningLegId: null,
+    };
     const customerBridge = {
       ...fact({ eventType: "call.bridged", legKind: "CUSTOMER" }),
       callObservation: "CONNECTED" as const,
       legKind: "CUSTOMER" as const,
       legObservation: "BRIDGED" as const,
     };
-    expect(canonicalCallObservation(customerBridge, call)).toBeNull();
+    expect(canonicalCallObservation(customerBridge, call, "customer-leg")).toBeNull();
     expect(
       hasCanonicalAgentBridgeEvidence(null, [{ id: "customer-leg", kind: "CUSTOMER" }]),
     ).toBe(false);
+    expect(
+      canonicalCallObservation(
+        {
+          ...customerBridge,
+          callObservation: "RINGING",
+          eventType: "call.answered",
+          legKind: "AGENT",
+          legObservation: "ANSWERED",
+        },
+        call,
+        "agent-leg",
+      ),
+    ).toBe("RINGING");
 
     const agentBridge = {
       ...customerBridge,
@@ -293,7 +311,7 @@ describe("canonical bridge winner", () => {
       canonicalLegId: "agent-leg",
       legKind: "AGENT" as const,
     };
-    expect(canonicalCallObservation(agentBridge, call)).toBe("CONNECTED");
+    expect(canonicalCallObservation(agentBridge, call, "agent-leg")).toBe("CONNECTED");
     expect(
       hasCanonicalAgentBridgeEvidence("agent-leg", [
         { id: "customer-leg", kind: "CUSTOMER" },
@@ -310,10 +328,15 @@ describe("canonical bridge winner", () => {
       legObservation: "ANSWERED" as const,
     };
     expect(
-      canonicalCallObservation(answered, {
-        direction: "OUTBOUND",
-        status: "RINGING",
-      }),
+      canonicalCallObservation(
+        answered,
+        {
+          direction: "OUTBOUND",
+          status: "RINGING",
+          winningLegId: null,
+        },
+        "outbound-leg",
+      ),
     ).toBe("CONNECTED");
     expect(
       canonicalCallObservation(
@@ -323,25 +346,96 @@ describe("canonical bridge winner", () => {
           eventType: "call.hangup",
           legObservation: "ENDED",
         },
-        { direction: "OUTBOUND", status: "CONNECTED" },
+        {
+          direction: "OUTBOUND",
+          status: "CONNECTED",
+          winningLegId: "outbound-leg",
+        },
+        "outbound-leg",
       ),
     ).toBe("COMPLETED");
   });
 
-  it("clears the outbound initiation deadline only after the provider callback", () => {
+  it("ignores a failed transfer target and a late old-source hangup", () => {
+    const hangup = {
+      ...fact({ direction: "OUTBOUND", eventType: "call.hangup", legKind: "AGENT" }),
+      callObservation: null,
+      legKind: "AGENT" as const,
+      legObservation: "ENDED" as const,
+    };
+
+    expect(
+      canonicalCallObservation(
+        hangup,
+        {
+          direction: "OUTBOUND",
+          status: "CONNECTED",
+          winningLegId: "source-leg",
+        },
+        "failed-target-leg",
+      ),
+    ).toBeNull();
+    expect(
+      canonicalCallObservation(
+        hangup,
+        {
+          direction: "OUTBOUND",
+          status: "CONNECTED",
+          winningLegId: "target-leg",
+        },
+        "source-leg",
+      ),
+    ).toBeNull();
+  });
+
+  it("completes a connected call only when its current winner hangs up", () => {
+    const hangup = {
+      ...fact({ direction: "INBOUND", eventType: "call.hangup", legKind: "AGENT" }),
+      callObservation: null,
+      legKind: "AGENT" as const,
+      legObservation: "ENDED" as const,
+    };
+    expect(
+      canonicalCallObservation(
+        hangup,
+        {
+          direction: "INBOUND",
+          status: "CONNECTED",
+          winningLegId: "winner",
+        },
+        "winner",
+      ),
+    ).toBe("COMPLETED");
+  });
+
+  it("settles customer media for closed calls but not active voicemail recording", () => {
+    expect(terminalSettlementIncludesCustomerLegs("COMPLETED")).toBe(true);
+    expect(terminalSettlementIncludesCustomerLegs("ABANDONED")).toBe(true);
+    expect(terminalSettlementIncludesCustomerLegs("FAILED")).toBe(true);
+    expect(terminalSettlementIncludesCustomerLegs("VOICEMAIL")).toBe(false);
+  });
+
+  it("keeps a bounded outbound ring deadline until answer or hangup", () => {
     const deadlineAt = new Date("2026-07-12T20:01:00.000Z");
+    const occurredAt = new Date("2026-07-12T20:00:00.000Z");
     expect(
       projectedCallDeadline(
         { deadlineAt, direction: "OUTBOUND" },
-        { eventType: "call.initiated", occurredAt: deadlineAt },
+        { eventType: "call.initiated", occurredAt },
       ),
-    ).toBeNull();
+    ).toEqual(deadlineAt);
     expect(
       projectedCallDeadline(
         { deadlineAt, direction: "OUTBOUND" },
         { eventType: "call.answered", occurredAt: deadlineAt },
       ),
-    ).toBe(deadlineAt);
+    ).toBeNull();
+    expect(
+      projectedCallDeadline(
+        { deadlineAt, direction: "OUTBOUND" },
+        { eventType: "call.hangup", occurredAt: deadlineAt },
+      ),
+    ).toBeNull();
   });
 
   it("expires recording errors immediately and clears successful voicemail deadlines", () => {

@@ -5,6 +5,7 @@ import {
   type ProviderCommandClaim,
 } from "@/lib/call-center/domain/provider-command";
 import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
+import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
 import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import { failProviderCommandDependents } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 import { prisma } from "@/lib/prisma";
@@ -151,6 +152,7 @@ async function rejectProviderCommandClaim(
         reason: errorCode,
       });
     }
+    await clearSettledTransferDeadline(transaction, command.callId);
   }
   await appendCommandOperationStatus(transaction, {
     attemptCount: command.attemptCount,
@@ -262,7 +264,12 @@ async function loadProviderCommandClaim(
   }
 
   const leg = command.leg;
-  if (!leg || leg.callId !== command.callId || ["ENDED", "FAILED"].includes(leg.status)) {
+  const cleanupHangup = command.type === "HANGUP_LEG";
+  if (
+    !leg ||
+    leg.callId !== command.callId ||
+    (!cleanupHangup && ["ENDED", "FAILED"].includes(leg.status))
+  ) {
     return rejectProviderCommandClaim(
       tx,
       command,
@@ -724,6 +731,7 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
               reason: "DIAL_FAILED",
             });
           }
+          await clearSettledTransferDeadline(transaction, target.callId);
         }
       }
       await appendCommandOperationStatus(transaction, {

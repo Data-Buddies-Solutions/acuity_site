@@ -13,6 +13,7 @@ import {
 } from "@/lib/call-center/domain/active-inbound-lifecycle";
 import { canonicalVoicemailGreetingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
+import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
@@ -32,6 +33,7 @@ const LIFECYCLE_EVENT = "CALL_ACTIVE_LIFECYCLE_RECONCILED";
 const OVERFLOW_EVENT = "CALL_ACTIVE_OVERFLOWED";
 
 type RouteQueueRound = typeof routeActiveInboundCallInTransaction;
+type SettleAgentLegs = typeof settleCanonicalCallLegs;
 type DueCall = { callId: string; practiceId: string };
 
 type LifecycleCall = NonNullable<Awaited<ReturnType<typeof loadLifecycleCall>>>;
@@ -377,6 +379,7 @@ async function reconcileLockedCall(
   input: ActiveInboundReconciliationInput,
   now: Date,
   routeQueueRound: RouteQueueRound,
+  settleAgentLegs: SettleAgentLegs,
 ): Promise<ActiveInboundReconciliationSuccess> {
   const call = await loadLifecycleCall(transaction, input.practiceId, input.callId);
   // CANONICAL ownership is the durable admission decision. Mutable activation
@@ -431,10 +434,33 @@ async function reconcileLockedCall(
   });
 
   const commandIds: string[] = [];
+  const agentLegIds = new Set(
+    call.legs.filter((leg) => leg.kind === "AGENT").map(({ id }) => id),
+  );
+  const releasedAgentLegs = decision.intents.filter(
+    (intent): intent is Extract<ActiveInboundLifecycleIntent, { type: "HANGUP_LEG" }> =>
+      intent.type === "HANGUP_LEG" && agentLegIds.has(intent.legId),
+  );
+  if (releasedAgentLegs.length > 0) {
+    commandIds.push(
+      ...(await settleAgentLegs(transaction, {
+        callId: call.id,
+        hangupIdempotencyKeys: Object.fromEntries(
+          releasedAgentLegs.map((intent) => [intent.legId, intent.idempotencyKey]),
+        ),
+        legIds: releasedAgentLegs.map(({ legId }) => legId),
+        now,
+        reason:
+          decision.disposition === "CONNECTED" ? "NON_WINNING_LEG" : "OFFER_TIMEOUT",
+        terminalLegStatus: decision.disposition === "CONNECTED" ? "ENDED" : "FAILED",
+      })),
+    );
+  }
   const prerequisite = await routingPrerequisite(transaction, call);
   const ringbackCommandId = prerequisite?.startRingbackCommandId ?? null;
   let stopPlaybackCommandId: string | null = null;
   for (const intent of decision.intents) {
+    if (intent.type === "HANGUP_LEG" && agentLegIds.has(intent.legId)) continue;
     const command = await persistCommand(
       transaction,
       call,
@@ -493,6 +519,7 @@ async function reconcileLockedCall(
             { ...input, processedBridgeLegId: null },
             now,
             routeQueueRound,
+            settleAgentLegs,
           );
           return {
             ...fallback,
@@ -511,6 +538,7 @@ export class PrismaActiveInboundLifecycleStore implements ActiveInboundReconcili
     private readonly runTransaction: TransactionRunner = (operation) =>
       prisma.$transaction(operation),
     private readonly routeQueueRound: RouteQueueRound = routeActiveInboundCallInTransaction,
+    private readonly settleAgentLegs: SettleAgentLegs = settleCanonicalCallLegs,
   ) {}
 
   reconcile(input: ActiveInboundReconciliationInput, now: Date) {
@@ -520,6 +548,7 @@ export class PrismaActiveInboundLifecycleStore implements ActiveInboundReconcili
         input,
         now,
         this.routeQueueRound,
+        this.settleAgentLegs,
       );
     });
   }
@@ -582,6 +611,7 @@ export class PrismaActiveInboundLifecycleStore implements ActiveInboundReconcili
             { ...call, processedBridgeLegId: null },
             now,
             this.routeQueueRound,
+            this.settleAgentLegs,
           );
         });
         if (!result) break;
@@ -615,9 +645,10 @@ export async function reconcileActiveInboundCallInTransaction(
   input: ActiveInboundReconciliationInput,
   now: Date,
   routeQueueRound: RouteQueueRound = routeActiveInboundCallInTransaction,
+  settleAgentLegs: SettleAgentLegs = settleCanonicalCallLegs,
 ) {
   await transaction.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "practiceId" = ${input.practiceId} AND "id" = ${input.callId} FOR UPDATE`,
   );
-  return reconcileLockedCall(transaction, input, now, routeQueueRound);
+  return reconcileLockedCall(transaction, input, now, routeQueueRound, settleAgentLegs);
 }

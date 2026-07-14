@@ -48,6 +48,7 @@ import {
   beginCanonicalTake,
   canonicalOutboundIdempotencyKey,
   canonicalClaimIdempotencyKey,
+  canonicalTransferAttemptNumber,
   canonicalTransferIdempotencyKey,
   completeCanonicalOutboundOperation,
   isCanonicalClaimConflict,
@@ -597,6 +598,12 @@ function ConnectedCanonicalActiveWorkspace({
                 call.id,
                 source.id,
                 targetUserId,
+                canonicalTransferAttemptNumber(
+                  call,
+                  state?.operations ?? null,
+                  source.id,
+                  targetUserId,
+                ),
               ),
             },
             method: "POST",
@@ -625,7 +632,7 @@ function ConnectedCanonicalActiveWorkspace({
         transferringRef.current.delete(`${call.id}:${source.id}`);
       }
     },
-    [actionsEnabled, session],
+    [actionsEnabled, session, state?.operations],
   );
 
   const saveDisposition = useCallback(
@@ -1002,6 +1009,7 @@ function ConnectedCanonicalActiveWorkspace({
                 <CanonicalActiveCall
                   actionsEnabled={actionsEnabled}
                   call={activeCall}
+                  clientInstanceId={clientInstanceId}
                   endpointId={agentProfileId}
                   key={activeCall.id}
                   media={media}
@@ -1074,6 +1082,7 @@ function ConnectedCanonicalActiveWorkspace({
 export function CanonicalActiveCall({
   actionsEnabled,
   call,
+  clientInstanceId,
   endpointId,
   media,
   onTakeTransfer,
@@ -1085,6 +1094,7 @@ export function CanonicalActiveCall({
 }: {
   actionsEnabled: boolean;
   call: CallView;
+  clientInstanceId: string;
   endpointId: string;
   media: ReturnType<typeof useSoftphoneMedia>;
   onTakeTransfer: () => Promise<void>;
@@ -1117,16 +1127,29 @@ export function CanonicalActiveCall({
           targetUserId: selectedTargetId,
         })
       : null;
-  const canEnd = Boolean(
-    match && (match.leg.status === "BRIDGED" || match.observation.state === "ACTIVE"),
+  const transferTargetLeg = transferOperation?.targetLegId
+    ? (call.legs.find(({ id }) => id === transferOperation.targetLegId) ?? null)
+    : null;
+  const transferFailed = Boolean(
+    transferOperation &&
+    (transferOperation.status === "FAILED" ||
+      (transferTargetLeg &&
+        ["ENDED", "FAILED"].includes(transferTargetLeg.status) &&
+        call.winningLegId !== transferTargetLeg.id)),
   );
+  const transferPending = Boolean(transferOperation && !transferFailed);
+  const canEnd = Boolean(match);
   const targetTransfer =
     transferTakeCandidate?.call.id === call.id ? transferTakeCandidate : null;
   const phone = formatPhone(callPhone(call));
   const connected = call.status === "CONNECTED" && !targetTransfer;
   const mediaLegId = match?.observation.mediaLegId ?? null;
   const observedHeld = match?.observation.state === "HELD";
-  const controlsEnabled = Boolean(actionsEnabled && canEnd && mediaLegId);
+  const controlsEnabled = Boolean(
+    actionsEnabled &&
+    mediaLegId &&
+    (match?.leg.status === "BRIDGED" || match?.observation.state === "ACTIVE"),
+  );
 
   useEffect(() => {
     setHeld(observedHeld);
@@ -1189,7 +1212,18 @@ export function CanonicalActiveCall({
 
     setControlPending("end");
     try {
-      await media.hangup(mediaLegId);
+      const response = await fetch(
+        `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/end`,
+        {
+          body: JSON.stringify({ clientInstanceId }),
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": `canonical-end:${call.id}:${sessionId}:${match?.leg.id}`,
+          },
+          method: "POST",
+        },
+      );
+      if (!response.ok) throw new Error("We could not end this call. Try again.");
       setControlError(null);
     } catch (error) {
       showControlError(error, "We could not end this call. Try again.");
@@ -1230,23 +1264,23 @@ export function CanonicalActiveCall({
           </PortalSelect>
         </label>
         <Button
-          disabled={!actionsEnabled || !selectedTargetId || Boolean(transferOperation)}
+          disabled={!actionsEnabled || !selectedTargetId || transferPending}
           onClick={() => void onTransfer(call, selectedTargetId)}
           variant="secondary"
         >
           <PhoneForwarded className="h-4 w-4" aria-hidden="true" />
-          {transferOperation?.status === "FAILED"
-            ? "Transfer failed"
-            : transferOperation
+          {transferFailed
+            ? "Retry transfer"
+            : transferPending
               ? "Transferring"
               : "Transfer"}
         </Button>
       </div>
       {transferOperation ? (
         <p
-          className={`mt-2 text-xs ${transferOperation.status === "FAILED" ? "text-[var(--portal-danger)]" : "text-[var(--portal-muted)]"}`}
+          className={`mt-2 text-xs ${transferFailed ? "text-[var(--portal-danger)]" : "text-[var(--portal-muted)]"}`}
         >
-          {transferOperation.status === "FAILED"
+          {transferFailed
             ? "The transfer could not be completed. Try again."
             : `Transfer ${transferOperation.status.toLowerCase()}`}
         </p>
@@ -1377,7 +1411,7 @@ export function CanonicalActiveCall({
           ) : null}
           <Button
             disabled={!actionsEnabled || !canEnd}
-            onClick={() => match && media.hangup(match.observation.mediaLegId)}
+            onClick={() => void endCall()}
             size="sm"
             variant="secondary"
           >

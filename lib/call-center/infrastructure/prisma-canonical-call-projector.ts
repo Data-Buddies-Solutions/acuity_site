@@ -6,6 +6,7 @@ import {
   terminalCallObservation,
 } from "@/lib/call-center/domain/canonical-call-state";
 import { canonicalVoicemailRecordingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
+import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import type { CanonicalProjectionRecord } from "@/lib/call-center/infrastructure/canonical-provider-webhook-inbox";
 import {
   promoteAgentSessionOffer,
@@ -30,6 +31,8 @@ import {
 } from "@/lib/call-center/infrastructure/telnyx-canonical-call-fact";
 import { phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
+
+const OUTBOUND_RING_TIMEOUT_MS = 60_000;
 
 export class CanonicalProjectionError extends Error {
   constructor(readonly code: string) {
@@ -713,6 +716,9 @@ export async function createStartRecordingAfterGreeting(
 }
 
 const terminalCallStatuses = new Set(["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"]);
+export function terminalSettlementIncludesCustomerLegs(status: string) {
+  return status !== "VOICEMAIL";
+}
 const liveAgentLegStatuses = new Set([
   "CREATED",
   "DIALING",
@@ -941,7 +947,9 @@ export function canonicalCallObservation(
   call: {
     direction: "INBOUND" | "OUTBOUND";
     status: Parameters<typeof terminalCallObservation>[0];
+    winningLegId: string | null;
   },
+  processedLegId: string,
 ) {
   if (
     call.direction === "INBOUND" &&
@@ -950,10 +958,18 @@ export function canonicalCallObservation(
   ) {
     return null;
   }
-  if (call.direction === "OUTBOUND" && fact.legKind === "AGENT") {
-    if (fact.eventType === "call.answered") return "CONNECTED" as const;
+  if (fact.legKind === "AGENT") {
+    if (call.direction === "OUTBOUND" && fact.eventType === "call.answered") {
+      return "CONNECTED" as const;
+    }
     if (fact.eventType === "call.hangup") {
-      return terminalCallObservation(call.status);
+      if (call.winningLegId === processedLegId) {
+        return terminalCallObservation(call.status);
+      }
+      if (call.direction === "OUTBOUND" && call.winningLegId === null) {
+        return terminalCallObservation(call.status);
+      }
+      return null;
     }
   }
   return fact.callObservation === "HANGUP"
@@ -965,7 +981,14 @@ export function projectedCallDeadline(
   call: { deadlineAt: Date | null; direction: "INBOUND" | "OUTBOUND" },
   fact: Pick<ResolvedCanonicalTelnyxCallFact, "eventType" | "occurredAt">,
 ) {
-  if (call.direction === "OUTBOUND" && fact.eventType === "call.initiated") return null;
+  if (call.direction === "OUTBOUND") {
+    if (fact.eventType === "call.initiated") {
+      return new Date(fact.occurredAt.getTime() + OUTBOUND_RING_TIMEOUT_MS);
+    }
+    if (fact.eventType === "call.answered" || fact.eventType === "call.hangup") {
+      return null;
+    }
+  }
   if (
     fact.eventType === "call.recording.saved" ||
     fact.eventType === "calls.voicemail.completed"
@@ -1166,6 +1189,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         (leg.status === "ENDED" || leg.status === "FAILED")
       ) {
         await failUnsettledProviderCommandsForLeg(tx, {
+          exceptTypes: ["HANGUP_LEG"],
           legId: leg.id,
           now: resolvedFact.occurredAt,
         });
@@ -1184,7 +1208,8 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         winningLegId,
         bridgedLegs,
       );
-      const observedCall = canonicalCallObservation(resolvedFact, call);
+      const previousWinningLegId = call.winningLegId;
+      const observedCall = canonicalCallObservation(resolvedFact, call, leg.id);
       const nextCall = observedCall
         ? advanceCanonicalCall(call, observedCall, resolvedFact.occurredAt, {
             hasBridgeEvidence,
@@ -1209,7 +1234,10 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         data: {
           answeredAt: nextCall.answeredAt,
           callerName: identity.callerName,
-          deadlineAt: projectedCallDeadline(call, resolvedFact),
+          deadlineAt:
+            previousWinningLegId && winningLegId !== previousWinningLegId
+              ? null
+              : projectedCallDeadline(call, resolvedFact),
           endedAt: nextCall.endedAt,
           firstRingAt: nextCall.firstRingAt,
           fromPhone: identity.fromPhone,
@@ -1227,6 +1255,18 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         where: { id: call.id },
       });
 
+      let commandIds: string[] = [];
+      if (previousWinningLegId && winningLegId !== previousWinningLegId) {
+        commandIds.push(
+          ...(await settleCanonicalCallLegs(tx, {
+            callId: call.id,
+            legIds: [previousWinningLegId],
+            now: resolvedFact.occurredAt,
+            reason: "TRANSFER_COMPLETED",
+          })),
+        );
+      }
+
       const projectionEvent = await tx.callCenterEvent.create({
         data: {
           aggregateId: call.id,
@@ -1243,7 +1283,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           type: resolvedFact.eventType.toUpperCase().replace(/[^A-Z0-9]+/g, "_"),
         },
       });
-      let commandIds: string[] = [];
       if (effectOwner === "CANONICAL" && resolvedFact.eventType === "call.speak.ended") {
         if (resolvedFact.legKind !== "CUSTOMER") {
           throw new CanonicalProjectionError("CANONICAL_CUSTOMER_LEG_NOT_FOUND");
@@ -1326,7 +1365,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           resolvedFact.occurredAt,
         );
         if ("commandIds" in routing) {
-          commandIds = routing.commandIds;
+          commandIds.push(...routing.commandIds);
           initialRoutingHadNoAgents = routing.routed.length === 0;
         }
       }
@@ -1353,6 +1392,16 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         );
         commandIds.push(...lifecycle.commandIds);
         call = await tx.callCenterCall.findUniqueOrThrow({ where: { id: call.id } });
+      }
+      if (effectOwner === "CANONICAL" && terminalCallStatuses.has(call.status)) {
+        commandIds.push(
+          ...(await settleCanonicalCallLegs(tx, {
+            callId: call.id,
+            includeCustomerLegs: terminalSettlementIncludesCustomerLegs(call.status),
+            now: resolvedFact.occurredAt,
+            reason: "CALL_TERMINAL",
+          })),
+        );
       }
       await releaseInactiveCallSessions(
         tx,

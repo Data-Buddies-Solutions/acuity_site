@@ -153,6 +153,29 @@ function fakeDatabase({
         stateVersion: 6,
       };
     },
+    async (_transaction, input) => {
+      const released = call.legs.filter(
+        (leg) => leg.kind === "AGENT" && input.legIds?.includes(leg.id),
+      );
+      for (const leg of released) {
+        leg.status = input.terminalLegStatus ?? "ENDED";
+        const idempotencyKey =
+          input.hangupIdempotencyKeys?.[leg.id] ??
+          `settle:${input.callId}:hangup:${leg.id}`;
+        const key = `HANGUP_LEG:${idempotencyKey}`;
+        const command = commands.get(key) ?? {
+          id: `command-${commands.size + 1}`,
+          idempotencyKey,
+          legId: leg.id,
+          type: "HANGUP_LEG",
+        };
+        commands.set(key, command);
+      }
+      operations.push(`agent.settle:${released.map(({ id }) => id).join(",")}`);
+      return released.map(({ id }) =>
+        String([...commands.values()].find((command) => command.legId === id)?.id),
+      );
+    },
   );
   return { call, commands, operations, routed, store, tasks };
 }
@@ -181,14 +204,17 @@ describe("Prisma ACTIVE inbound lifecycle", () => {
     expect(result.decision?.winningLegId).toBe("winner");
     expect(fake.call.deadlineAt).toBeNull();
     expect(fake.call.winningLegId).toBe("winner");
-    expect([...fake.commands.values()]).toEqual([
-      expect.objectContaining({
-        dependsOnCommandId: "initial-ringback",
-        legId: "customer-leg",
-        type: "STOP_PLAYBACK",
-      }),
-      expect.objectContaining({ legId: "late-bridge", type: "HANGUP_LEG" }),
-    ]);
+    expect([...fake.commands.values()]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dependsOnCommandId: "initial-ringback",
+          legId: "customer-leg",
+          type: "STOP_PLAYBACK",
+        }),
+        expect.objectContaining({ legId: "late-bridge", type: "HANGUP_LEG" }),
+      ]),
+    );
+    expect(fake.call.legs.find(({ id }) => id === "late-bridge")?.status).toBe("ENDED");
     expect(fake.operations.some((operation) => operation.includes("agent_session"))).toBe(
       false,
     );
