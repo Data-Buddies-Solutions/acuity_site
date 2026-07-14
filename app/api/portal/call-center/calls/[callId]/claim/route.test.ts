@@ -205,8 +205,10 @@ describe("canonical claim route", () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({
-      code: "CALL_ALREADY_CLAIMED",
-      status: "ALREADY_CLAIMED",
+      error: {
+        code: "CALL_ALREADY_CLAIMED",
+        retryable: false,
+      },
     });
     expect(scheduled).toEqual([]);
   });

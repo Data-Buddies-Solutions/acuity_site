@@ -2,17 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { CallCenterPresenceStatus } from "@/generated/prisma/client";
-import {
-  parseJsonBody,
-  requirePortalCallCenterContext,
-  withApiHandler,
-} from "@/lib/api/handler";
+import { parseJsonBody, requirePortalCallCenterContext } from "@/lib/api/handler";
 import { buildCallCenterSeatAccessWhere } from "@/lib/call-center";
 import {
   canWriteLegacyPresence,
   isLegacyPresenceReadyForCalls,
 } from "@/lib/call-center/legacy-presence";
 import { prisma } from "@/lib/prisma";
+import {
+  CallCenterOperatorError,
+  withCallCenterApiHandler,
+} from "@/lib/call-center/operator-error-response";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +41,7 @@ const presenceSchema = z
     }
   });
 
-export const POST = withApiHandler(
+export const POST = withCallCenterApiHandler(
   async (request: NextRequest) => {
     const context = await requirePortalCallCenterContext();
 
@@ -65,10 +65,7 @@ export const POST = withApiHandler(
     });
 
     if (!seat) {
-      return NextResponse.json(
-        { error: "Call center station not found" },
-        { status: 404 },
-      );
+      throw new CallCenterOperatorError("CALL_CENTER_STATION_NOT_FOUND", 404);
     }
 
     const presence = await prisma.callCenterPresence.upsert({
@@ -105,7 +102,8 @@ export const POST = withApiHandler(
     return NextResponse.json({ ok: true, presence });
   },
   {
-    errorMessage: "Failed to update presence",
+    errorCode: "TEMPORARY_SERVICE_FAILURE",
     logLabel: "[portal-call-center] Failed to update presence",
+    retryable: true,
   },
 );

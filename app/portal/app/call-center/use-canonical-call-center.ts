@@ -16,6 +16,8 @@ import {
 } from "@/lib/call-center/realtime-contract";
 import { parseRevision } from "@/lib/call-center/realtime";
 
+import { callCenterResponse } from "./call-center-errors";
+
 type HookState = {
   error: Error | null;
   loading: boolean;
@@ -290,10 +292,8 @@ export function useCanonicalCallCenter({
             loadedIdentityRef.current = null;
             dispatch({ type: "access-changed" });
           }
-          throw new Error(`Failed to load call center (${response.status})`);
         }
-
-        const data: unknown = await response.json();
+        const data: unknown = await callCenterResponse(response);
         if (!isSnapshot(data, queueId)) {
           throw new Error("Call center returned an incompatible snapshot");
         }

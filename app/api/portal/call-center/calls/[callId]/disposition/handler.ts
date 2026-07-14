@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { ApiError, parseJsonBody, withApiHandler } from "@/lib/api/handler";
+import { ApiError, parseJsonBody } from "@/lib/api/handler";
 import { dispositionCall } from "@/lib/call-center/application/disposition-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { prismaDispositionCallStore } from "@/lib/call-center/infrastructure/prisma-disposition-call-store";
+import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z
   .object({
@@ -29,7 +30,7 @@ export function createDispositionHandler({
   getActor: () => Promise<QueueAccessActor>;
   save?: typeof dispositionCall;
 }) {
-  return withApiHandler(
+  return withCallCenterApiHandler(
     async (request: Request, context: Context) => {
       const callId = (await context.params).callId.trim();
       const key = request.headers.get("Idempotency-Key")?.trim();
@@ -44,8 +45,9 @@ export function createDispositionHandler({
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 202 });
     },
     {
-      errorMessage: "Failed to save canonical disposition",
+      errorCode: "TEMPORARY_SERVICE_FAILURE",
       logLabel: "[portal-call-center] disposition failed",
+      retryable: true,
     },
   );
 }

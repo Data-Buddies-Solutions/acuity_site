@@ -330,7 +330,16 @@ describe("useCanonicalAgentSession", () => {
 
   it("surfaces acquisition failures without creating a session", async () => {
     globalThis.fetch = mock(async () =>
-      Response.json({ error: "Endpoint is already leased" }, { status: 409 }),
+      Response.json(
+        {
+          error: {
+            code: "CALL_CENTER_STATION_IN_USE",
+            referenceId: "ABC123",
+            retryable: false,
+          },
+        },
+        { status: 409 },
+      ),
     ) as unknown as typeof fetch;
     const { result } = renderHook(() =>
       useCanonicalAgentSession({
@@ -343,7 +352,9 @@ describe("useCanonicalAgentSession", () => {
     );
 
     await act(() => result.current.start());
-    expect(result.current.error).toBe("Endpoint is already leased");
+    expect(result.current.error).toBe(
+      "This calling station is open in another browser. Close it there or use another station. Reference: ABC123.",
+    );
     expect(result.current.session).toBeNull();
   });
 });

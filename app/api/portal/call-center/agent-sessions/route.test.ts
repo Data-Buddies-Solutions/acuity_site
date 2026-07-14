@@ -71,7 +71,13 @@ describe("canonical agent-session route", () => {
     );
 
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    expect(await response.json()).toEqual({
+      error: {
+        code: "AUTH_REQUIRED",
+        referenceId: expect.stringMatching(/^[A-Z0-9]{6}$/),
+        retryable: false,
+      },
+    });
   });
 
   it("returns the committed lease without provider credentials", async () => {

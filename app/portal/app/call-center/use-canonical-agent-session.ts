@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 
+import { callCenterResponse, operatorErrorCopy } from "./call-center-errors";
+
 export type CanonicalAgentConnectionState = "CLOSED" | "CONNECTING" | "ERROR" | "READY";
 
 export type CanonicalAgentSessionOptions = {
@@ -42,22 +44,12 @@ export function canonicalHeartbeatPresence(
   return session.currentCallId || session.offeredCallId ? session.presence : requested;
 }
 
-function message(error: unknown) {
-  return error instanceof Error ? error.message : "Call center session failed";
+function message(error: unknown, action: "connect" | "readiness") {
+  return operatorErrorCopy(error, action).message;
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
-  const body = (await response.json().catch(() => null)) as
-    (T & { error?: unknown }) | null;
-
-  if (!response.ok) {
-    throw new Error(
-      typeof body?.error === "string" ? body.error : "Call center session failed",
-    );
-  }
-
-  if (!body) throw new Error("Call center session returned an invalid response");
-  return body;
+  return callCenterResponse<T>(response);
 }
 
 export function useCanonicalAgentSession({
@@ -135,7 +127,7 @@ export function useCanonicalAgentSession({
           !active.stopping &&
           active.session.stateVersion === requestedStateVersion
         ) {
-          setError(message(requestError));
+          setError(message(requestError, "readiness"));
         }
       })
       .finally(() => {
@@ -289,7 +281,7 @@ export function useCanonicalAgentSession({
         setSession(acquired.session);
         patchReadiness();
       } catch (startError) {
-        if (mountedRef.current) setError(message(startError));
+        if (mountedRef.current) setError(message(startError, "connect"));
       }
     })().finally(() => {
       if (startPromiseRef.current === pending) startPromiseRef.current = null;

@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { CallCenterNoteDisposition } from "@/generated/prisma/client";
-import { requirePortalCallCenterContext, withApiHandler } from "@/lib/api/handler";
+import { requirePortalCallCenterContext } from "@/lib/api/handler";
 import {
   buildCallCenterActivityScopeWhere,
   buildCallCenterNoteScopeWhere,
   buildCallCenterPatientSessionScopeWhere,
   buildCallCenterQueueScopeWhere,
 } from "@/lib/call-center";
+import {
+  CallCenterOperatorError,
+  reportCallCenterError,
+  withCallCenterApiHandler,
+} from "@/lib/call-center/operator-error-response";
 import { canAccessPortalLocation } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
@@ -135,7 +140,7 @@ async function getCallCenterStateVersion({
   });
 }
 
-const legacyGET = withApiHandler(
+const legacyGET = withCallCenterApiHandler(
   async (request: NextRequest) => {
     const context = await requirePortalCallCenterContext();
 
@@ -144,7 +149,7 @@ const legacyGET = withApiHandler(
     const locationId =
       locationParam === NULL_LOCATION ? null : locationParam?.trim() || undefined;
     if (locationId !== undefined && !canAccessPortalLocation(context, locationId)) {
-      return NextResponse.json({ error: "Location not found" }, { status: 404 });
+      throw new CallCenterOperatorError("ACCESS_DENIED", 404);
     }
 
     const explicitLocationScope = locationId === undefined ? null : { locationId };
@@ -228,10 +233,12 @@ const legacyGET = withApiHandler(
               send("ping", { at: new Date().toISOString() });
             }
           } catch (error) {
-            send("error", {
-              message:
-                error instanceof Error ? error.message : "call_center_stream_failed",
+            const failure = reportCallCenterError(error, request, {
+              errorCode: "TEMPORARY_SERVICE_FAILURE",
+              logLabel: "legacy event stream poll failed",
+              retryable: true,
             });
+            send("error", failure.envelope.error);
           }
         }, STREAM_POLL_MS);
 
@@ -246,12 +253,13 @@ const legacyGET = withApiHandler(
     });
   },
   {
-    errorMessage: "Failed to stream call center events",
+    errorCode: "TEMPORARY_SERVICE_FAILURE",
     logLabel: "[portal-call-center] Failed to stream call center events",
+    retryable: true,
   },
 );
 
-const canonicalGET = withApiHandler(
+const canonicalGET = withCallCenterApiHandler(
   createCanonicalEventsHandler({
     getActor: async () => {
       const context = await requirePortalCallCenterContext();
@@ -264,8 +272,9 @@ const canonicalGET = withApiHandler(
     },
   }),
   {
-    errorMessage: "Failed to stream canonical call center events",
+    errorCode: "TEMPORARY_SERVICE_FAILURE",
     logLabel: "[portal-call-center] Failed to stream canonical events",
+    retryable: true,
   },
 );
 

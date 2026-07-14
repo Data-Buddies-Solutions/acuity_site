@@ -77,13 +77,12 @@ describe("canonical call center snapshot route", () => {
         throw new QueueAccessError();
       },
     });
-    const response = await GET(
-      new Request(
-        "https://example.test/api/portal/call-center/snapshot?queueId=q2&clientInstanceId=tab-1",
+    await expect(
+      GET(
+        new Request(
+          "https://example.test/api/portal/call-center/snapshot?queueId=q2&clientInstanceId=tab-1",
+        ),
       ),
-    );
-
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: "Call center queue not found" });
+    ).rejects.toBeInstanceOf(QueueAccessError);
   });
 });

@@ -13,6 +13,7 @@ import {
   resumePlan,
   revisionString,
 } from "@/lib/call-center/realtime";
+import { CallCenterOperatorError } from "@/lib/call-center/operator-error-response";
 
 const HEARTBEAT_MS = 10_000;
 const POLL_MS = 1_000;
@@ -69,21 +70,14 @@ export function createCanonicalEventsHandler({
     const url = new URL(request.url);
     const queueId = url.searchParams.get("queueId")?.trim();
     const clientInstanceId = url.searchParams.get("clientInstanceId")?.trim();
-    if (!queueId) return new Response("queueId is required", { status: 400 });
+    if (!queueId) throw new CallCenterOperatorError("INVALID_REQUEST", 400);
     if (!clientInstanceId || clientInstanceId.length > 200) {
-      return new Response("clientInstanceId is required", { status: 400 });
+      throw new CallCenterOperatorError("INVALID_REQUEST", 400);
     }
 
     const actor = await getActor();
     const initialAccessKey = queueAccessKey(actor);
-    try {
-      await resolveAccess(actor, queueId);
-    } catch (error) {
-      if (error instanceof QueueAccessError) {
-        return Response.json({ error: error.message }, { status: error.status });
-      }
-      throw error;
-    }
+    await resolveAccess(actor, queueId);
 
     const bounds = await readBounds();
     const requested = requestedRevision(

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { ApiError, parseJsonBody, withApiHandler } from "@/lib/api/handler";
+import { ApiError, parseJsonBody } from "@/lib/api/handler";
 import {
   authorizeAgentSessionCredential,
   type AgentSessionCredentialActor,
@@ -9,6 +9,7 @@ import {
 import { prismaAgentSessionCredentialStore } from "@/lib/call-center/infrastructure/prisma-agent-session-credential-store";
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { createTelnyxLoginToken } from "@/lib/telnyx";
+import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z
   .object({
@@ -34,7 +35,7 @@ export function createCanonicalAgentSessionTokenHandler({
   getActivation = resolveCallCenterActivationConfig,
   getActor,
 }: Dependencies) {
-  return withApiHandler(
+  return withCallCenterApiHandler(
     async (request: Request, context: RouteContext) => {
       const actor = await getActor();
       const parameters = paramsSchema.safeParse(await context.params);
@@ -55,8 +56,9 @@ export function createCanonicalAgentSessionTokenHandler({
       return NextResponse.json({ agentLabel: credential.agentLabel, token });
     },
     {
-      errorMessage: "Failed to create canonical Telnyx token",
+      errorCode: "PROVIDER_UNAVAILABLE",
       logLabel: "[portal-call-center] Failed to create canonical Telnyx token",
+      retryable: true,
     },
   );
 }

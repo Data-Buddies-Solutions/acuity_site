@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import {
   selectIncomingCalls,
   type AgentSessionView,
@@ -42,6 +43,12 @@ import {
   claimCallCenterClientInstance,
   type CallCenterClientInstance,
 } from "./call-center-client-instance";
+import {
+  callCenterResponse,
+  localCallCenterError,
+  operatorErrorCopy,
+  type CallCenterAction,
+} from "./call-center-errors";
 import { setCallCenterCurrentCallGuard } from "./call-center-current-call-guard";
 import {
   beginCanonicalTransfer,
@@ -51,7 +58,6 @@ import {
   canonicalTransferAttemptNumber,
   canonicalTransferIdempotencyKey,
   completeCanonicalOutboundOperation,
-  isCanonicalClaimConflict,
   operationShouldAnswerMedia,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
@@ -76,6 +82,10 @@ type CanonicalActiveWorkspaceProps = {
 };
 
 const keypadDigits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+
+function errorMessage(error: unknown, action: CallCenterAction) {
+  return operatorErrorCopy(error, action).message;
+}
 
 type CallReadinessState =
   "CONNECTING" | "INCOMING" | "NOT_READY" | "ON_CALL" | "READY" | "STARTING";
@@ -494,8 +504,8 @@ function ConnectedCanonicalActiveWorkspace({
         legId: match.leg.id,
       });
       if (!operationShouldAnswerMedia(operation)) continue;
-      void answerMedia(match.observation.mediaLegId).catch(() => {
-        setActionError("The matching browser media leg could not be answered.");
+      void answerMedia(match.observation.mediaLegId).catch((error) => {
+        setActionError(errorMessage(error, "take"));
       });
     }
   }, [answerMedia, incomingCalls, mediaObservations, session, state]);
@@ -532,22 +542,15 @@ function ConnectedCanonicalActiveWorkspace({
             method: "POST",
           },
         );
-        if (!response.ok) {
-          if (await isCanonicalClaimConflict(response)) {
-            setCallCenterCurrentCallGuard(null);
-            refreshSnapshot();
-            return;
-          }
-          throw new Error("We could not answer this call. Try again.");
-        }
+        await callCenterResponse(response);
         await answerMedia(match.observation.mediaLegId);
       } catch (error) {
-        setCallCenterCurrentCallGuard(session.currentCallId);
-        setActionError(
-          error instanceof Error
-            ? error.message
-            : "We could not answer this call. Try again.",
-        );
+        const alreadyClaimed =
+          error instanceof CallCenterRequestError &&
+          error.operatorError.code === "CALL_ALREADY_CLAIMED";
+        setCallCenterCurrentCallGuard(alreadyClaimed ? null : session.currentCallId);
+        if (alreadyClaimed) refreshSnapshot();
+        setActionError(errorMessage(error, "take"));
       } finally {
         takingRef.current.delete(call.id);
       }
@@ -568,11 +571,7 @@ function ConnectedCanonicalActiveWorkspace({
     try {
       await answerMedia(transferTakeCandidate.observation.mediaLegId);
     } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : "We could not answer this transfer. Try again.",
-      );
+      setActionError(errorMessage(error, "take"));
     }
   }, [actionsEnabled, answerMedia, transferTakeCandidate]);
 
@@ -581,7 +580,9 @@ function ConnectedCanonicalActiveWorkspace({
       if (!actionsEnabled || !session) return;
       const source = selectCanonicalTransferSource(call, session);
       if (!source) {
-        setActionError("The connected source leg is unavailable for transfer.");
+        setActionError(
+          errorMessage(localCallCenterError("CALL_NOT_CONNECTED", false), "transfer"),
+        );
         return;
       }
       if (!beginCanonicalTransfer(transferringRef.current, call.id, source.id)) return;
@@ -609,25 +610,9 @@ function ConnectedCanonicalActiveWorkspace({
             method: "POST",
           },
         );
-        const body = (await response.json().catch(() => null)) as {
-          detail?: unknown;
-          error?: unknown;
-        } | null;
-        if (!response.ok) {
-          throw new Error(
-            typeof body?.detail === "string"
-              ? body.detail
-              : typeof body?.error === "string"
-                ? body.error
-                : "We could not transfer this call. Try again.",
-          );
-        }
+        await callCenterResponse(response);
       } catch (error) {
-        setActionError(
-          error instanceof Error
-            ? error.message
-            : "We could not transfer this call. Try again.",
-        );
+        setActionError(errorMessage(error, "transfer"));
       } finally {
         transferringRef.current.delete(`${call.id}:${source.id}`);
       }
@@ -658,13 +643,9 @@ function ConnectedCanonicalActiveWorkspace({
             method: "POST",
           },
         );
-        if (!response.ok) throw new Error("We could not mark this follow-up done.");
+        await callCenterResponse(response);
       } catch (error) {
-        setActionError(
-          error instanceof Error
-            ? error.message
-            : "We could not mark this follow-up done.",
-        );
+        setActionError(errorMessage(error, "save"));
       } finally {
         setSubmittingDisposition(null);
       }
@@ -710,27 +691,19 @@ function ConnectedCanonicalActiveWorkspace({
         },
         method: "POST",
       });
-      const body = (await response.json().catch(() => null)) as {
+      const body = await callCenterResponse<{
         callId?: unknown;
         clientState?: unknown;
-        error?: unknown;
         from?: unknown;
         to?: unknown;
-      } | null;
-      if (!response.ok) {
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : "We could not start this call. Check the number and try again.",
-        );
-      }
+      }>(response);
       if (
         typeof body?.callId !== "string" ||
         typeof body?.clientState !== "string" ||
         typeof body.from !== "string" ||
         typeof body.to !== "string"
       ) {
-        throw new Error("We could not start this call. Check the number and try again.");
+        throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
       setCallCenterCurrentCallGuard(body.callId);
       const mediaLegId = dialMediaLeg({
@@ -742,11 +715,7 @@ function ConnectedCanonicalActiveWorkspace({
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : "We could not start this call. Check the number and try again.",
-      );
+      setActionError(errorMessage(error, "outbound"));
     } finally {
       outboundStartingRef.current = false;
       setStartingOutbound(false);
@@ -762,9 +731,7 @@ function ConnectedCanonicalActiveWorkspace({
   ]);
 
   if (realtime.error && !state) {
-    return (
-      <CanonicalUnavailable message="We could not connect to the call center. Refresh to try again." />
-    );
+    return <CanonicalUnavailable message={errorMessage(realtime.error, "connect")} />;
   }
   if (realtime.loading || !state) {
     return <CanonicalUnavailable message="Connecting to the call center…" />;
@@ -809,7 +776,7 @@ function ConnectedCanonicalActiveWorkspace({
           <div>
             <p className="font-medium">Call center updates are unavailable.</p>
             <p className="mt-0.5 text-amber-900/75">
-              Existing call controls remain available. Retry to resume live updates.
+              {errorMessage(realtime.error, "connect")}
             </p>
           </div>
           <Button onClick={refreshSnapshot} size="sm" variant="secondary">
@@ -1172,8 +1139,8 @@ export function CanonicalActiveCall({
     return () => window.clearInterval(timer);
   }, [call.answeredAt, connected]);
 
-  const showControlError = (error: unknown, fallback: string) => {
-    setControlError(error instanceof Error ? error.message : fallback);
+  const showControlError = (error: unknown, action: CallCenterAction) => {
+    setControlError(errorMessage(error, action));
   };
 
   const toggleMute = () => {
@@ -1184,7 +1151,7 @@ export function CanonicalActiveCall({
       setMuted((current) => !current);
       setControlError(null);
     } catch (error) {
-      showControlError(error, "We could not update mute. Try again.");
+      showControlError(error, "mute");
     }
   };
 
@@ -1196,12 +1163,12 @@ export function CanonicalActiveCall({
     try {
       const updated = await media.hold(mediaLegId, requestedHeld);
       if (updated === false) {
-        throw new Error("We could not update hold. Try again.");
+        throw localCallCenterError("PROVIDER_UNAVAILABLE");
       }
       setHeld(requestedHeld);
       setControlError(null);
     } catch (error) {
-      showControlError(error, "We could not update hold. Try again.");
+      showControlError(error, "hold");
     } finally {
       setControlPending(null);
     }
@@ -1223,10 +1190,10 @@ export function CanonicalActiveCall({
           method: "POST",
         },
       );
-      if (!response.ok) throw new Error("We could not end this call. Try again.");
+      await callCenterResponse(response);
       setControlError(null);
     } catch (error) {
-      showControlError(error, "We could not end this call. Try again.");
+      showControlError(error, "end");
       setControlPending(null);
     }
   };
@@ -1238,7 +1205,7 @@ export function CanonicalActiveCall({
       media.sendDtmf(mediaLegId, digit);
       setControlError(null);
     } catch (error) {
-      showControlError(error, "We could not send that keypad tone. Try again.");
+      showControlError(error, "keypad");
     }
   };
 

@@ -63,6 +63,16 @@ function snapshot(revision = "10", queueId = "queue-1"): CallCenterSnapshot {
   };
 }
 
+function errorResponse(
+  code: "ACCESS_DENIED" | "TEMPORARY_SERVICE_FAILURE",
+  status: number,
+) {
+  return Response.json(
+    { error: { code, referenceId: "ABC123", retryable: status >= 500 } },
+    { status },
+  );
+}
+
 function projection(revision: string): ProjectionEvent {
   return {
     aggregateId: "call-1",
@@ -196,7 +206,7 @@ describe("useCanonicalCallCenter", () => {
     globalThis.fetch = mock(async () => {
       requestCount += 1;
       if (requestCount === 1) return Response.json(snapshot("10"));
-      if (requestCount === 2) return new Response(null, { status: 503 });
+      if (requestCount === 2) return errorResponse("TEMPORARY_SERVICE_FAILURE", 503);
       return Response.json(snapshot("30"));
     }) as unknown as typeof fetch;
     const { result } = renderHook(() =>
@@ -206,7 +216,9 @@ describe("useCanonicalCallCenter", () => {
     await waitFor(() => expect(result.current.state?.revision).toBe("10"));
 
     act(() => result.current.refetch());
-    await waitFor(() => expect(result.current.error?.message).toContain("503"));
+    await waitFor(() =>
+      expect(result.current.error?.message).toBe("TEMPORARY_SERVICE_FAILURE"),
+    );
     expect(result.current.loading).toBe(false);
     expect(result.current.state?.revision).toBe("10");
     expect(result.current.state?.connection).toBe("RECONNECTING");
@@ -223,7 +235,7 @@ describe("useCanonicalCallCenter", () => {
       requestCount += 1;
       return requestCount === 1
         ? Response.json(snapshot("10"))
-        : new Response(null, { status: 403 });
+        : errorResponse("ACCESS_DENIED", 403);
     }) as unknown as typeof fetch;
     const { result } = renderHook(() =>
       useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
@@ -232,7 +244,7 @@ describe("useCanonicalCallCenter", () => {
     await waitFor(() => expect(result.current.state?.revision).toBe("10"));
 
     act(() => result.current.refetch());
-    await waitFor(() => expect(result.current.error?.message).toContain("403"));
+    await waitFor(() => expect(result.current.error?.message).toBe("ACCESS_DENIED"));
     expect(result.current.loading).toBe(false);
     expect(result.current.state).toBeNull();
   });
@@ -259,8 +271,8 @@ describe("useCanonicalCallCenter", () => {
     expect(result.current.loading).toBe(true);
     expect(result.current.state).toBeNull();
 
-    await act(async () => finishRefetch?.(new Response(null, { status: 403 })));
-    await waitFor(() => expect(result.current.error?.message).toContain("403"));
+    await act(async () => finishRefetch?.(errorResponse("ACCESS_DENIED", 403)));
+    await waitFor(() => expect(result.current.error?.message).toBe("ACCESS_DENIED"));
     expect(result.current.state).toBeNull();
   });
 
@@ -269,14 +281,16 @@ describe("useCanonicalCallCenter", () => {
     globalThis.fetch = mock(async () => {
       requestCount += 1;
       return requestCount === 1
-        ? new Response(null, { status: 503 })
+        ? errorResponse("TEMPORARY_SERVICE_FAILURE", 503)
         : Response.json(snapshot("40"));
     }) as unknown as typeof fetch;
     const { result } = renderHook(() =>
       useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
     );
 
-    await waitFor(() => expect(result.current.error?.message).toContain("503"));
+    await waitFor(() =>
+      expect(result.current.error?.message).toBe("TEMPORARY_SERVICE_FAILURE"),
+    );
     expect(result.current.loading).toBe(false);
 
     act(() => result.current.refetch());

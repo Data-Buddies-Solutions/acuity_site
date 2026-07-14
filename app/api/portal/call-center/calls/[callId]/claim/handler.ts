@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { ApiError, parseJsonBody, withApiHandler } from "@/lib/api/handler";
+import { ApiError, parseJsonBody } from "@/lib/api/handler";
 import { claimCall, type ClaimCallInput } from "@/lib/call-center/application/claim-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { prismaClaimCallStore } from "@/lib/call-center/infrastructure/prisma-claim-call-store";
+import {
+  CallCenterOperatorError,
+  withCallCenterApiHandler,
+} from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z
   .object({
@@ -38,7 +42,7 @@ export function createClaimCallHandler({
   isCanonicalActive = () => resolveCallCenterActivationConfig().enabled,
   scheduleCommand,
 }: Dependencies) {
-  return withApiHandler(
+  return withCallCenterApiHandler(
     async (request: Request, routeContext: RouteContext) => {
       const actor = await getActor();
       if (!isCanonicalActive()) {
@@ -55,14 +59,7 @@ export function createClaimCallHandler({
       };
       const receipt = await claim(prismaClaimCallStore, actor, input);
       if (receipt.status === "ALREADY_CLAIMED") {
-        return NextResponse.json(
-          {
-            ...receipt,
-            code: "CALL_ALREADY_CLAIMED",
-            error: "Call was already claimed",
-          },
-          { status: 409 },
-        );
+        throw new CallCenterOperatorError("CALL_ALREADY_CLAIMED", 409);
       }
       if (receipt.status === "PENDING") {
         scheduleCommand?.(receipt.providerCommandId);
@@ -71,8 +68,9 @@ export function createClaimCallHandler({
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 202 });
     },
     {
-      errorMessage: "Failed to claim canonical call",
+      errorCode: "TEMPORARY_SERVICE_FAILURE",
       logLabel: "[portal-call-center] Failed to claim canonical call",
+      retryable: true,
     },
   );
 }

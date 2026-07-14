@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { ApiError, parseJsonBody, withApiHandler } from "@/lib/api/handler";
+import { ApiError, parseJsonBody } from "@/lib/api/handler";
 import { endCall, type EndCallInput } from "@/lib/call-center/application/end-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { prismaEndCallStore } from "@/lib/call-center/infrastructure/prisma-end-call-store";
+import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z.object({ clientInstanceId: z.string().trim().min(1).max(200) });
 const paramsSchema = z.object({ callId: z.string().trim().min(1).max(200) });
@@ -23,7 +24,7 @@ export function createEndCallHandler({
   isCanonicalActive?: () => boolean;
   scheduleCommand?: (commandId: string) => void;
 }) {
-  return withApiHandler(
+  return withCallCenterApiHandler(
     async (request: Request, routeContext: RouteContext) => {
       const actor = await getActor();
       if (!isCanonicalActive()) {
@@ -51,8 +52,9 @@ export function createEndCallHandler({
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 202 });
     },
     {
-      errorMessage: "Failed to end canonical call",
+      errorCode: "TEMPORARY_SERVICE_FAILURE",
       logLabel: "[portal-call-center] Failed to end canonical call",
+      retryable: true,
     },
   );
 }

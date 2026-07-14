@@ -30,6 +30,11 @@ import ActivityRail from "./ActivityRail";
 import CanonicalShadowBridge from "./CanonicalShadowBridge";
 import SoftphonePanel, { type SoftphoneHandle } from "./SoftphonePanel";
 import {
+  callCenterResponse,
+  localCallCenterError,
+  operatorErrorCopy,
+} from "./call-center-errors";
+import {
   desiredPresenceStatus,
   readinessForStation,
   reportedPresenceStatus,
@@ -121,6 +126,8 @@ export default function CallCenterWorkspace({
     seatId: null,
   });
   const [presenceRetryToken, setPresenceRetryToken] = useState(0);
+  const [presenceError, setPresenceError] = useState<string | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
   const [ringingCallerKeys, setRingingCallerKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -158,7 +165,7 @@ export default function CallCenterWorkspace({
   const stationStatusMessage = !currentSoftphoneReadiness.ready
     ? currentSoftphoneReadiness.message
     : presenceFailed
-      ? "Station is offline because its presence update failed."
+      ? (presenceError ?? "We couldn't update this station. Try again.")
       : effectivePresenceStatus === "AVAILABLE"
         ? "Ready to receive calls."
         : effectivePresenceStatus === "BUSY"
@@ -196,8 +203,15 @@ export default function CallCenterWorkspace({
             signal: controller.signal,
           });
 
-          return response.ok;
-        } catch {
+          if (!response.ok) await callCenterResponse(response);
+          setPresenceError(null);
+          return true;
+        } catch (error) {
+          const failure =
+            error instanceof DOMException && error.name === "AbortError"
+              ? localCallCenterError("REQUEST_TIMEOUT")
+              : error;
+          setPresenceError(operatorErrorCopy(failure, "readiness").message);
           return false;
         } finally {
           window.clearTimeout(timeout);
@@ -211,7 +225,6 @@ export default function CallCenterWorkspace({
   );
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Sync a server-selected default into this legacy control.
     setSelectedOutboundCallerNumber(outboundCallerNumber);
   }, [outboundCallerNumber]);
 
@@ -220,12 +233,10 @@ export default function CallCenterWorkspace({
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Navigation input intentionally seeds the imperative dialer.
     setSeed({ token: Date.now(), value: initialDialNumber });
   }, [initialDialNumber]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Restore the persisted legacy station selection after hydration.
     setSelectedSeatId((current) => {
       if (current && seats.some((seat) => seat.id === current)) {
         return current;
@@ -248,7 +259,6 @@ export default function CallCenterWorkspace({
     const seatId = selectedSeat?.id;
 
     if (!seatId || desiredStatus === "OFFLINE") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Clear legacy presence when its external station owner disappears.
       setPresenceSync({
         acknowledgedStatus: null,
         phase: "idle",
@@ -446,6 +456,7 @@ export default function CallCenterWorkspace({
       }
 
       try {
+        setQueueError(null);
         const response = await fetch("/api/portal/call-center/queue/take", {
           body: JSON.stringify({
             browserSessionId,
@@ -458,15 +469,12 @@ export default function CallCenterWorkspace({
           method: "POST",
         });
 
-        if (!response.ok && callerKey) {
-          softphoneRef.current?.clearAnswerPending(callerKey);
-        }
-      } catch {
+        if (!response.ok) await callCenterResponse(response);
+      } catch (error) {
         if (callerKey) {
           softphoneRef.current?.clearAnswerPending(callerKey);
         }
-
-        console.error("[call-center] failed to take queued call");
+        setQueueError(operatorErrorCopy(error, "take").message);
       } finally {
         finishTakingQueueItem(queueItemId);
         router.refresh();
@@ -502,6 +510,7 @@ export default function CallCenterWorkspace({
       }
 
       try {
+        setQueueError(null);
         const response = await fetch("/api/portal/call-center/transfer/take", {
           body: JSON.stringify({
             browserSessionId,
@@ -514,15 +523,12 @@ export default function CallCenterWorkspace({
           method: "POST",
         });
 
-        if (!response.ok && callerKey) {
-          softphoneRef.current?.clearAnswerPending(callerKey);
-        }
-      } catch {
+        if (!response.ok) await callCenterResponse(response);
+      } catch (error) {
         if (callerKey) {
           softphoneRef.current?.clearAnswerPending(callerKey);
         }
-
-        console.error("[call-center] failed to take transfer");
+        setQueueError(operatorErrorCopy(error, "take").message);
       } finally {
         finishTakingQueueItem(queueItemId);
         router.refresh();
@@ -615,6 +621,14 @@ export default function CallCenterWorkspace({
 
   return (
     <div className="space-y-4">
+      {queueError ? (
+        <div
+          className="rounded-lg border border-[var(--portal-danger)] bg-[var(--portal-danger-soft)] px-3 py-2 text-sm text-[var(--portal-danger)]"
+          role="alert"
+        >
+          {queueError}
+        </div>
+      ) : null}
       {shadowQueueId ? (
         <CanonicalShadowBridge
           audioReady={currentSoftphoneReadiness.soundReady}
