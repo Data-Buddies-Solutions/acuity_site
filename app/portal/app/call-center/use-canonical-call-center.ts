@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import {
   applyCursor,
@@ -239,6 +239,7 @@ export function useCanonicalCallCenter({
   queueId,
 }: UseCanonicalCallCenterOptions): UseCanonicalCallCenterResult {
   const [model, dispatch] = useReducer(reducer, initialState);
+  const plannedRotationRef = useRef(false);
   const refetch = useCallback(() => dispatch({ type: "refetch" }), []);
 
   useEffect(() => {
@@ -284,10 +285,20 @@ export function useCanonicalCallCenter({
           }),
         );
         source.addEventListener("open", () => {
-          if (active) dispatch({ type: "connected" });
+          if (!active) return;
+          plannedRotationRef.current = false;
+          dispatch({ type: "connected" });
         });
         source.addEventListener("error", () => {
-          if (active) dispatch({ type: "reconnecting" });
+          if (!active) return;
+          if (plannedRotationRef.current) {
+            plannedRotationRef.current = false;
+            return;
+          }
+          dispatch({ type: "reconnecting" });
+        });
+        source.addEventListener("rotate", () => {
+          if (active) plannedRotationRef.current = true;
         });
         source.addEventListener("projection", (event) => {
           if (!active) return;

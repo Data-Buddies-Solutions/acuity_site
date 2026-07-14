@@ -139,6 +139,19 @@ describe("canonical call center event stream", () => {
     expect(text).toContain("id: 11\nevent: cursor");
   });
 
+  it("announces a planned rotation before the bounded stream closes", async () => {
+    const GET = handler({ clock: () => 1, streamLifetimeMs: 0 });
+    const response = await GET(
+      new Request(
+        "https://example.test/api/portal/call-center/events?contract=canonical&queueId=queue-1&clientInstanceId=tab-1&after=7",
+      ),
+    );
+
+    expect(await body(response)).toBe(
+      'event: rotate\ndata: {"reason":"STREAM_LIFETIME"}\n\n',
+    );
+  });
+
   it("persists progress through filtered batches across bounded reconnects", async () => {
     const cursors: bigint[] = [];
     const GET = handler({
