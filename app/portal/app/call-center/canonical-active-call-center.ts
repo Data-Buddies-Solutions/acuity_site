@@ -16,7 +16,25 @@ export function selectCanonicalAgentActiveCall(
   session: Pick<AgentSessionView, "currentCallId" | "offeredCallId"> | null,
 ) {
   const callId = session?.currentCallId ?? session?.offeredCallId;
-  return callId ? (calls.find(({ id }) => id === callId) ?? null) : null;
+  const call = callId ? (calls.find(({ id }) => id === callId) ?? null) : null;
+  if (call?.direction === "OUTBOUND") return call;
+  if (!session?.currentCallId || call?.id !== session.currentCallId) return null;
+  return call?.status === "CONNECTED" && call.answeredAt && call.winningLegId
+    ? call
+    : null;
+}
+
+export function selectCanonicalInboundAlertCall(
+  calls: readonly CallView[],
+  session: Pick<AgentSessionView, "currentCallId" | "offeredCallId"> | null,
+) {
+  const callId = session?.offeredCallId ?? session?.currentCallId;
+  if (!callId || selectCanonicalAgentActiveCall(calls, session)) return null;
+  const call = calls.find(({ id }) => id === callId) ?? null;
+  return call?.direction === "INBOUND" &&
+    !["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED", "WRAP_UP"].includes(call.status)
+    ? call
+    : null;
 }
 
 function outboundTargetFingerprint(target: {
@@ -128,6 +146,12 @@ export function canonicalTransferAttemptNumber(
 export function beginCanonicalTake(inFlight: Set<string>, callId: string) {
   if (inFlight.has(callId)) return false;
   inFlight.add(callId);
+  return true;
+}
+
+export function beginCanonicalMediaAnswer(inFlight: Set<string>, mediaLegId: string) {
+  if (inFlight.has(mediaLegId)) return false;
+  inFlight.add(mediaLegId);
   return true;
 }
 

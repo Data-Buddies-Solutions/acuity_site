@@ -5,6 +5,7 @@ import type { CallView, OperationView } from "@/lib/call-center/realtime-contrac
 import {
   beginCanonicalTransfer,
   beginCanonicalTake,
+  beginCanonicalMediaAnswer,
   canonicalClaimIdempotencyKey,
   canonicalTransferAttemptNumber,
   canonicalTransferIdempotencyKey,
@@ -14,6 +15,7 @@ import {
   operationShouldAnswerMedia,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
+  selectCanonicalInboundAlertCall,
   selectCanonicalTransferSource,
   selectCanonicalTransferTakeCandidate,
   selectLatestClaimOperation,
@@ -110,7 +112,7 @@ const targetObservation = {
 };
 
 describe("canonical active call center correlation", () => {
-  it("shows only the active call owned by this login", () => {
+  it("keeps an inbound provider leg offered until canonical answer confirmation", () => {
     const emmaOutbound = {
       ...call,
       direction: "OUTBOUND" as const,
@@ -119,17 +121,49 @@ describe("canonical active call center correlation", () => {
     };
     const emmaAnswered = {
       ...call,
+      answeredAt: "2026-07-12T12:00:10.000Z",
       id: "emma-answered",
       status: "CONNECTED" as const,
+      winningLegId: "leg-1",
     };
-    const queueCalls = [emmaOutbound, emmaAnswered];
+    const providerConnectedBeforeAnswer = {
+      ...observation,
+      remoteAudioReady: true,
+      state: "ACTIVE" as const,
+    };
+    const queueCalls = [call, emmaOutbound, emmaAnswered];
 
     expect(
       selectCanonicalAgentActiveCall(queueCalls, {
         currentCallId: null,
+        offeredCallId: call.id,
+      }),
+    ).toBeNull();
+    expect(
+      selectCanonicalInboundAlertCall(queueCalls, {
+        currentCallId: null,
+        offeredCallId: call.id,
+      }),
+    ).toEqual(call);
+    expect(
+      selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [
+        providerConnectedBeforeAnswer,
+      ]),
+    ).toEqual({ leg: call.legs[0], observation: providerConnectedBeforeAnswer });
+
+    expect(
+      selectCanonicalAgentActiveCall(queueCalls, {
+        currentCallId: emmaAnswered.id,
+        offeredCallId: null,
+      }),
+    ).toEqual(emmaAnswered);
+    expect(
+      selectCanonicalInboundAlertCall(queueCalls, {
+        currentCallId: emmaAnswered.id,
         offeredCallId: null,
       }),
     ).toBeNull();
+
     expect(
       selectCanonicalAgentActiveCall(queueCalls, {
         currentCallId: null,
@@ -137,11 +171,28 @@ describe("canonical active call center correlation", () => {
       }),
     ).toEqual(emmaOutbound);
     expect(
-      selectCanonicalAgentActiveCall(queueCalls, {
-        currentCallId: emmaAnswered.id,
-        offeredCallId: null,
+      selectCanonicalInboundAlertCall(queueCalls, {
+        currentCallId: null,
+        offeredCallId: emmaOutbound.id,
       }),
-    ).toEqual(emmaAnswered);
+    ).toBeNull();
+  });
+
+  it("stops inbound alert eligibility on every terminal projection", () => {
+    for (const status of [
+      "COMPLETED",
+      "VOICEMAIL",
+      "ABANDONED",
+      "FAILED",
+      "WRAP_UP",
+    ] as const) {
+      expect(
+        selectCanonicalInboundAlertCall([{ ...call, status }], {
+          currentCallId: null,
+          offeredCallId: call.id,
+        }),
+      ).toBeNull();
+    }
   });
 
   it("reuses one outbound operation key across retries and remounts", () => {
@@ -246,6 +297,13 @@ describe("canonical active call center correlation", () => {
     expect(beginCanonicalTake(inFlight, "call-1")).toBe(false);
     inFlight.delete("call-1");
     expect(beginCanonicalTake(inFlight, "call-1")).toBe(true);
+  });
+
+  it("answers one provider media leg exactly once", () => {
+    const answering = new Set<string>();
+    expect(beginCanonicalMediaAnswer(answering, "media-1")).toBe(true);
+    expect(beginCanonicalMediaAnswer(answering, "media-1")).toBe(false);
+    expect(beginCanonicalMediaAnswer(answering, "media-2")).toBe(true);
   });
 
   it("blocks concurrent targets for the same source leg", () => {

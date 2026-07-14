@@ -55,6 +55,7 @@ import { setCallCenterCurrentCallGuard } from "./call-center-current-call-guard"
 import {
   beginCanonicalTransfer,
   beginCanonicalTake,
+  beginCanonicalMediaAnswer,
   canonicalOutboundIdempotencyKey,
   canonicalClaimIdempotencyKey,
   canonicalTransferAttemptNumber,
@@ -63,6 +64,7 @@ import {
   operationShouldAnswerMedia,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
+  selectCanonicalInboundAlertCall,
   selectCanonicalTransferSource,
   selectCanonicalTransferTakeCandidate,
   selectLatestClaimOperation,
@@ -427,12 +429,65 @@ function ConnectedCanonicalActiveWorkspace({
   const activeCall =
     transferTakeCandidate?.call ??
     selectCanonicalAgentActiveCall(state?.calls ?? [], session);
+  const inboundAlertCall = selectCanonicalInboundAlertCall(state?.calls ?? [], session);
+  const inboundAlertCallId = inboundAlertCall?.id ?? null;
 
   const callingReady = Boolean(session && isAgentSessionViewReady(session));
 
   useEffect(() => {
     if (activeCall?.status === "CONNECTED") refreshSnapshot();
   }, [activeCall?.id, activeCall?.status, refreshSnapshot]);
+
+  useEffect(() => {
+    if (!inboundAlertCallId || !media.soundReady) return;
+
+    const AudioCtxCtor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtxCtor) return;
+
+    const ctx = new AudioCtxCtor();
+    let cancelled = false;
+    let scheduleHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const playTone = (startAt: number, frequency: number, duration: number) => {
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(0.14, startAt + 0.02);
+      gain.gain.setValueAtTime(0.14, startAt + duration - 0.03);
+      gain.gain.linearRampToValueAtTime(0, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration);
+    };
+    const playCycle = () => {
+      if (cancelled) return;
+      const now = ctx.currentTime;
+      playTone(now, 784, 0.16);
+      playTone(now + 0.22, 988, 0.18);
+      scheduleHandle = setTimeout(playCycle, 2400);
+    };
+
+    if (ctx.state === "suspended") {
+      void ctx
+        .resume()
+        .then(playCycle)
+        .catch(() => {});
+    } else {
+      playCycle();
+    }
+
+    return () => {
+      cancelled = true;
+      if (scheduleHandle) clearTimeout(scheduleHandle);
+      void ctx.close().catch(() => {});
+    };
+  }, [inboundAlertCallId, media.soundReady]);
 
   const recentCalls = useMemo(
     () =>
@@ -455,8 +510,7 @@ function ConnectedCanonicalActiveWorkspace({
 
   const answerMedia = useCallback(
     async (mediaLegId: string) => {
-      if (answeredMediaRef.current.has(mediaLegId)) return;
-      answeredMediaRef.current.add(mediaLegId);
+      if (!beginCanonicalMediaAnswer(answeredMediaRef.current, mediaLegId)) return;
       try {
         await Promise.resolve(answerMediaLeg(mediaLegId));
         activateMedia(mediaLegId);
