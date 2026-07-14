@@ -131,6 +131,22 @@ export type CanonicalCallProjector = {
 
 type Transaction = Prisma.TransactionClient;
 
+export function sipEndpointIdentityCandidates(address: string) {
+  const value = address.trim().replace(/^<|>$/g, "");
+  if (!value || /^\+?[\d\s().-]+$/.test(value)) return [];
+  if (!/^sips?:/i.test(value) && !value.includes("@")) return [value];
+
+  const authority =
+    value
+      .replace(/^sips?:/i, "")
+      .split(/[;?]/, 1)[0]
+      ?.trim() ?? "";
+  if (!authority) return [];
+  const username = authority.split("@", 1)[0]?.trim() ?? "";
+
+  return [...new Set([value, `sip:${authority}`, authority, username])].filter(Boolean);
+}
+
 type ProviderCommandLink = {
   arguments?: Prisma.JsonValue;
   callId: string;
@@ -272,6 +288,56 @@ async function existingLeg(tx: Transaction, fact: CanonicalTelnyxCallFact) {
     }
   }
   return match;
+}
+
+export async function resolveCanonicalPeerAgentLeg(
+  tx: Transaction,
+  fact: CanonicalTelnyxCallFact,
+) {
+  if (fact.canonicalCallId || fact.canonicalLegId || fact.endpointId) {
+    return null;
+  }
+
+  const sipIdentities = sipEndpointIdentityCandidates(fact.toAddress);
+  if (!sipIdentities.length) return null;
+
+  const endpoints = await tx.callCenterEndpoint.findMany({
+    select: { id: true, practiceId: true },
+    take: 2,
+    where: { sipUsername: { in: sipIdentities } },
+  });
+  if (!endpoints.length) return null;
+  if (endpoints.length > 1) {
+    throw new CanonicalProjectionError("CANONICAL_ENDPOINT_SIP_AMBIGUOUS");
+  }
+  if (!fact.providerCallSessionId) {
+    throw new CanonicalProjectionError("CANONICAL_CALL_SESSION_MISSING");
+  }
+
+  const endpoint = endpoints[0]!;
+  const call = await tx.callCenterCall.findUnique({
+    include: { queue: { select: { routingMode: true } } },
+    where: { providerCallSessionId: fact.providerCallSessionId },
+  });
+  if (!call) throw new CanonicalProjectionError("CANONICAL_CALL_NOT_FOUND");
+  if (call.practiceId !== endpoint.practiceId) {
+    throw new CanonicalProjectionError("CANONICAL_CALL_OWNER_MISMATCH");
+  }
+
+  const leg = await tx.callCenterCallLeg.findFirst({
+    orderBy: { startedAt: "desc" },
+    where: {
+      callId: call.id,
+      endpointId: endpoint.id,
+      kind: "AGENT",
+      startedAt: { lte: fact.occurredAt },
+    },
+  });
+  if (!leg) {
+    throw new CanonicalProjectionError("CANONICAL_PEER_AGENT_LEG_NOT_FOUND");
+  }
+
+  return { call, leg };
 }
 
 async function resolveAgentContext(
@@ -955,6 +1021,25 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
     return prisma.$transaction(async (tx) => {
       const effectOwner = requireCanonicalProjectionEffectOwner(event);
       let leg = await existingLeg(tx, fact);
+      const peerAgent =
+        effectOwner === "CANONICAL" && !leg
+          ? await resolveCanonicalPeerAgentLeg(tx, fact)
+          : null;
+      if (peerAgent) {
+        assertCanonicalCallEffectOwner(peerAgent.call, effectOwner);
+        await completeProjectionCheckpoint(tx, event, projectedAt);
+        return {
+          callId: peerAgent.call.id,
+          callStatus: peerAgent.call.status,
+          commandIds: [],
+          effectOwner,
+          legId: peerAgent.leg.id,
+          legStatus: peerAgent.leg.status,
+          practiceId: peerAgent.call.practiceId,
+          routingMode: peerAgent.call.queue?.routingMode ?? null,
+        };
+      }
+
       const legKind = resolveCanonicalTelnyxLegKind(leg?.kind ?? null, fact.legKind);
       const observations = resolveCanonicalTelnyxCallObservations(
         fact.eventType,
@@ -1041,8 +1126,17 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         where: { id: leg.id },
       });
 
+      const settledCommand =
+        effectOwner === "CANONICAL" &&
+        (resolvedFact.legKind === "CUSTOMER" || resolvedFact.eventType === "call.hangup")
+          ? await settleProviderCommandCallback(tx, resolvedFact, {
+              callId: call.id,
+              legId: leg.id,
+              practiceId: call.practiceId,
+            })
+          : null;
       const confirmedDialCommand =
-        resolvedFact.legKind === "AGENT"
+        resolvedFact.legKind === "AGENT" && settledCommand?.type !== "HANGUP_LEG"
           ? await confirmProviderCommand(tx, resolvedFact, {
               callId: call.id,
               legId: leg.id,
@@ -1065,16 +1159,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           callId: call.id,
           idempotencyKey: `call:${call.id}:leg:${leg.id}:session-busy`,
           now: resolvedFact.occurredAt,
-        });
-      }
-      if (
-        effectOwner === "CANONICAL" &&
-        (resolvedFact.legKind === "CUSTOMER" || resolvedFact.eventType === "call.hangup")
-      ) {
-        await settleProviderCommandCallback(tx, resolvedFact, {
-          callId: call.id,
-          legId: leg.id,
-          practiceId: call.practiceId,
         });
       }
       if (

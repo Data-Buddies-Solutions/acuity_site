@@ -18,10 +18,12 @@ import {
   retainedAgentSessionIds,
   resolveCanonicalAgentLink,
   requireCanonicalProjectionEffectOwner,
+  resolveCanonicalPeerAgentLeg,
   selectCanonicalProviderCommand,
   settleProviderCommandCallback,
   shouldPlanCanonicalInboundRouting,
   shouldReconcileCanonicalInboundLifecycle,
+  sipEndpointIdentityCandidates,
 } from "../prisma-canonical-call-projector";
 
 const later = new Date("2026-07-11T10:00:05.000Z");
@@ -382,10 +384,121 @@ function fact(overrides: Partial<CanonicalTelnyxCallFact> = {}): CanonicalTelnyx
     recordingDurationSec: 0,
     recordingId: null,
     recordingUrl: null,
+    toAddress: "+17864657479",
     toPhone: "+17864657479",
     ...overrides,
   };
 }
+
+describe("canonical browser peer legs", () => {
+  it("resolves the provider peer to the one planned endpoint leg", async () => {
+    const call = {
+      effectOwner: "CANONICAL",
+      id: "call-1",
+      practiceId: "practice-1",
+      queue: { routingMode: "ACTIVE" },
+      status: "CONNECTED",
+    };
+    const plannedLegs = [
+      {
+        callId: call.id,
+        endpointId: "endpoint-winner",
+        id: "leg-winner",
+        kind: "AGENT",
+        startedAt: earlier,
+        status: "BRIDGED",
+      },
+      {
+        callId: call.id,
+        endpointId: "endpoint-loser",
+        id: "leg-loser",
+        kind: "AGENT",
+        startedAt: earlier,
+        status: "RINGING",
+      },
+    ];
+    const tx = {
+      callCenterCall: {
+        findUnique: async () => call,
+      },
+      callCenterCallLeg: {
+        findFirst: async ({ where }: { where: { endpointId: string } }) =>
+          plannedLegs.find(({ endpointId }) => endpointId === where.endpointId) ?? null,
+      },
+      callCenterEndpoint: {
+        findMany: async ({ where }: { where: { sipUsername: { in: string[] } } }) =>
+          where.sipUsername.in.includes("loser-seat")
+            ? [{ id: "endpoint-loser", practiceId: "practice-1" }]
+            : [],
+      },
+    };
+
+    const peer = await resolveCanonicalPeerAgentLeg(
+      tx as never,
+      fact({
+        direction: null,
+        eventType: "call.hangup",
+        legKind: null,
+        occurredAt: later,
+        toAddress: "loser-seat",
+        toPhone: "loser-seat",
+      }),
+    );
+
+    expect(peer?.call).toMatchObject(call);
+    expect(peer?.leg).toMatchObject(plannedLegs[1]!);
+  });
+
+  it("does not treat ordinary customer ingress as a browser peer", async () => {
+    const tx = {
+      callCenterEndpoint: {
+        findMany: async () => {
+          throw new Error("endpoint lookup should not run");
+        },
+      },
+    };
+
+    await expect(resolveCanonicalPeerAgentLeg(tx as never, fact())).resolves.toBeNull();
+  });
+
+  it("fails closed when a configured peer has no planned agent leg", async () => {
+    const tx = {
+      callCenterCall: {
+        findUnique: async () => ({
+          id: "call-1",
+          practiceId: "practice-1",
+          queue: { routingMode: "ACTIVE" },
+        }),
+      },
+      callCenterCallLeg: { findFirst: async () => null },
+      callCenterEndpoint: {
+        findMany: async () => [{ id: "endpoint-1", practiceId: "practice-1" }],
+      },
+    };
+
+    await expect(
+      resolveCanonicalPeerAgentLeg(
+        tx as never,
+        fact({ toAddress: "sip:seat-1@sip.telnyx.com" }),
+      ),
+    ).rejects.toThrow("CANONICAL_PEER_AGENT_LEG_NOT_FOUND");
+  });
+
+  it("normalizes the supported endpoint SIP forms", () => {
+    expect(
+      sipEndpointIdentityCandidates("sip:seat-1@sip.telnyx.com;transport=tls"),
+    ).toEqual([
+      "sip:seat-1@sip.telnyx.com;transport=tls",
+      "sip:seat-1@sip.telnyx.com",
+      "seat-1@sip.telnyx.com",
+      "seat-1",
+    ]);
+    expect(sipEndpointIdentityCandidates("opaque-browser-credential")).toEqual([
+      "opaque-browser-credential",
+    ]);
+    expect(sipEndpointIdentityCandidates("+19542872010")).toEqual([]);
+  });
+});
 
 describe("canonical projection enrichment", () => {
   it("moves call and leg start times earlier but never later", () => {

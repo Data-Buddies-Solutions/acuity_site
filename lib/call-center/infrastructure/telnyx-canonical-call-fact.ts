@@ -27,6 +27,7 @@ export type CanonicalTelnyxCallFact = {
   recordingDurationSec: number;
   recordingId: string | null;
   recordingUrl: string | null;
+  toAddress: string;
   toPhone: string;
 };
 
@@ -260,7 +261,8 @@ export function parseCanonicalTelnyxCallFact(
   }
 
   const from = normalizePhone(text(payload.from));
-  const to = normalizePhone(text(payload.to));
+  const toAddress = text(payload.to);
+  const to = normalizePhone(toAddress);
   const isRecordingFact =
     eventType === "call.recording.saved" || eventType === "calls.voicemail.completed";
   const recordingId =
@@ -298,6 +300,7 @@ export function parseCanonicalTelnyxCallFact(
     recordingDurationSec: recordingDurationSec(payload),
     recordingId,
     recordingUrl: resolvedRecordingUrl,
+    toAddress,
     toPhone: to,
   };
 }
