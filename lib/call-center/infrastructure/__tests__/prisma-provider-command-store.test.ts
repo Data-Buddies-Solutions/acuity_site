@@ -18,12 +18,15 @@ function transaction(
     },
     commandType = "DIAL_AGENT",
     callStatus = "RINGING",
+    callDirection = "INBOUND",
+    customerLegs = [{ providerCallControlId: "customer-control-1" }],
     dependencyNextAttemptAt,
     dependencyStatus = null,
     effectOwner = "CANONICAL",
     legKind = "AGENT",
     memberUserId = "user-1",
     sessionState = "ACTIVE",
+    sourceProviderCallControlId = "source-control-1",
     winningLegId,
   }: {
     accessLocationIds?: string[];
@@ -46,12 +49,15 @@ function transaction(
       | "VOICEMAIL"
       | "ABANDONED"
       | "FAILED";
+    callDirection?: "INBOUND" | "OUTBOUND";
+    customerLegs?: Array<{ providerCallControlId: string }>;
     dependencyStatus?: "PENDING" | "SENT" | "CONFIRMED" | "FAILED" | null;
     dependencyNextAttemptAt?: Date | null;
     effectOwner?: "CANONICAL" | "LEGACY";
     legKind?: "AGENT" | "CUSTOMER";
     memberUserId?: string | null;
     sessionState?: "ACTIVE" | "OFFERED";
+    sourceProviderCallControlId?: string | null;
     winningLegId?: string | null;
   } = {},
 ) {
@@ -94,9 +100,13 @@ function transaction(
       update: async () => ({ stateVersion: 2 }),
     },
     callCenterCallLeg: {
-      findFirst: async ({ where }: { where: { id: string } }) =>
-        where.id === replacesLegId ? { id: replacesLegId } : null,
-      findMany: async () => [{ providerCallControlId: "customer-control-1" }],
+      findFirst: async ({ where }: { where: { id?: string } }) =>
+        where.id
+          ? where.id === replacesLegId
+            ? { id: replacesLegId, providerCallControlId: sourceProviderCallControlId }
+            : null
+          : (customerLegs[0] ?? null),
+      findMany: async () => customerLegs,
       updateMany: async () => {
         operations.push("leg.reject");
         return { count: 1 };
@@ -108,6 +118,7 @@ function transaction(
         arguments: commandArguments,
         attemptCount: 0,
         call: {
+          direction: callDirection,
           effectOwner,
           number: {
             practicePhoneNumber: {
@@ -238,7 +249,11 @@ describe("Prisma provider command store", () => {
         staleBefore: new Date(now.getTime() - 60_000),
       }),
     ).resolves.toMatchObject({
-      command: { arguments: transferArguments, type: "DIAL_AGENT" },
+      command: {
+        arguments: transferArguments,
+        provider: { linkTo: "customer-control-1" },
+        type: "DIAL_AGENT",
+      },
     });
 
     const changedSource = transaction("ACTIVE", {
@@ -259,6 +274,65 @@ describe("Prisma provider command store", () => {
     ).resolves.toBeNull();
     expect(changedSource.operations).toContain("leg.reject");
     expect(changedSource.operations).toContain("session.release");
+  });
+
+  it("links inbound transfers to the first live customer leg", async () => {
+    const fake = transaction("ACTIVE", {
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        replacesLegId: "source-leg",
+      },
+      callStatus: "CONNECTED",
+      customerLegs: [
+        { providerCallControlId: "original-customer" },
+        { providerCallControlId: "duplicate-customer" },
+      ],
+      sessionState: "OFFERED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        maxAttempts: 5,
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      command: { provider: { linkTo: "original-customer" } },
+    });
+  });
+
+  it("links outbound transfers to the connected source leg", async () => {
+    const fake = transaction("ACTIVE", {
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        replacesLegId: "source-leg",
+      },
+      callDirection: "OUTBOUND",
+      callStatus: "CONNECTED",
+      customerLegs: [],
+      sessionState: "OFFERED",
+      sourceProviderCallControlId: "outbound-source",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        maxAttempts: 5,
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      command: { provider: { linkTo: "outbound-source" } },
+    });
   });
 
   it("uses immutable call ownership instead of mutable queue mode", async () => {

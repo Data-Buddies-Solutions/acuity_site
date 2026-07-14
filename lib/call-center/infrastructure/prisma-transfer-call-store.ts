@@ -159,15 +159,17 @@ class PrismaTransferCallTransaction implements TransferCallTransaction {
       where: {
         audioReady: true,
         connectionState: "READY",
+        currentCallId: null,
         endpointId: targetEndpoint.id,
         leaseExpiresAt: { gt: now },
         microphoneReady: true,
+        offeredCallId: null,
         practiceId: actor.practiceId,
-        presence: { in: ["AVAILABLE", "BUSY"] },
+        presence: "AVAILABLE",
       },
     });
     if (sessions.length !== 1) {
-      throw new TransferCallError("Transfer target is not uniquely ready", 409);
+      throw new TransferCallError("That staff member is not available for transfer", 409);
     }
     await this.transaction.$queryRaw(
       Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "id" = ${sessions[0]!.id} FOR UPDATE`,

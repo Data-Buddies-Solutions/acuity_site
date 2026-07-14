@@ -81,7 +81,7 @@ function reducer(current: HookState, action: Action): HookState {
       return {
         ...current,
         error: null,
-        loading: true,
+        loading: current.state === null,
         refresh: current.refresh + 1,
       };
   }

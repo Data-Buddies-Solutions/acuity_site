@@ -115,6 +115,14 @@ type SelectedCommand = Prisma.CallCenterCommandGetPayload<{
   select: typeof commandSelect;
 }>;
 
+type TransferTargetCandidate = {
+  user: {
+    callCenterEndpoints: Array<{ agentSessions: Array<{ id: string }> }>;
+    id: string;
+    name: string;
+  };
+};
+
 export type CanonicalEventBatchItem = {
   projection: ProjectionEvent | null;
   reset: boolean;
@@ -396,6 +404,16 @@ export function serializeTask(task: SelectedTask): TaskView {
   return { ...task, createdAt: task.createdAt.toISOString() };
 }
 
+export function serializeReadyTransferTargets(candidates: TransferTargetCandidate[]) {
+  return candidates
+    .filter(
+      ({ user }) =>
+        user.callCenterEndpoints.flatMap(({ agentSessions }) => agentSessions).length ===
+        1,
+    )
+    .map(({ user }) => ({ name: user.name, userId: user.id }));
+}
+
 function accessibleQueueLocationIds(actor: QueueAccessActor, queueLocationIds: string[]) {
   return actor.hasAllLocationAccess
     ? queueLocationIds
@@ -550,7 +568,33 @@ export async function readCallCenterSnapshot(
         readOperationalCounts(transaction, callWhere, actor.practiceId),
         transaction.callCenterQueueMember.findMany({
           orderBy: [{ user: { name: "asc" } }, { userId: "asc" }],
-          select: { user: { select: { id: true, name: true } } },
+          select: {
+            user: {
+              select: {
+                callCenterEndpoints: {
+                  select: {
+                    agentSessions: {
+                      select: { id: true },
+                      take: 2,
+                      where: {
+                        audioReady: true,
+                        connectionState: "READY",
+                        currentCallId: null,
+                        leaseExpiresAt: { gt: now },
+                        microphoneReady: true,
+                        offeredCallId: null,
+                        practiceId: actor.practiceId,
+                        presence: "AVAILABLE",
+                      },
+                    },
+                  },
+                  where: endpointWhere(actor, queueLocationIds),
+                },
+                id: true,
+                name: true,
+              },
+            },
+          },
           where: {
             enabled: true,
             queueId,
@@ -620,10 +664,7 @@ export async function readCallCenterSnapshot(
         revision: revisionString(highWater._max.revision ?? BigInt(0)),
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
         tasks: tasks.map(serializeTask),
-        transferTargets: targetMemberships.map(({ user }) => ({
-          name: user.name,
-          userId: user.id,
-        })),
+        transferTargets: serializeReadyTransferTargets(targetMemberships),
       };
     },
     { isolationLevel: "RepeatableRead" },
