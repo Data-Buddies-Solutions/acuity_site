@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
 import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
+import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
 
 type Transaction = Prisma.TransactionClient;
 
@@ -87,6 +88,7 @@ async function failOne(
         reason: errorCode,
       });
     }
+    await clearSettledTransferDeadline(transaction, command.callId);
   }
 
   await appendCommandOperationStatus(transaction, {
@@ -147,9 +149,16 @@ export async function failProviderCommandDependents(
 /** A terminal leg makes every still-unsettled command on that leg impossible. */
 export async function failUnsettledProviderCommandsForLeg(
   transaction: Transaction,
-  input: { legId: string; now: Date },
+  input: {
+    exceptTypes?: Array<"HANGUP_LEG">;
+    legId: string;
+    now: Date;
+  },
 ) {
-  const commands = await unsettledCommands(transaction, { legId: input.legId });
+  const commands = await unsettledCommands(transaction, {
+    legId: input.legId,
+    ...(input.exceptTypes?.length ? { type: { notIn: input.exceptTypes } } : {}),
+  });
   return failCommandsAndDescendants(
     transaction,
     commands,

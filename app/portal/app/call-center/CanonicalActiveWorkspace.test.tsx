@@ -7,7 +7,12 @@ import type { CallView } from "@/lib/call-center/realtime-contract";
 import { CanonicalActiveCall } from "./CanonicalActiveWorkspace";
 import type { useSoftphoneMedia } from "./use-softphone";
 
-afterEach(cleanup);
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  cleanup();
+  globalThis.fetch = originalFetch;
+});
 
 function connectedCall(direction: CallView["direction"]): CallView {
   return {
@@ -39,7 +44,7 @@ function connectedCall(direction: CallView["direction"]): CallView {
 }
 
 function mediaControls(
-  state: "ACTIVE" | "HELD" = "ACTIVE",
+  state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE",
   holdResult: boolean | undefined = undefined,
 ) {
   const controls = {
@@ -86,6 +91,7 @@ describe("CanonicalActiveCall", () => {
       <CanonicalActiveCall
         actionsEnabled
         call={connectedCall("INBOUND")}
+        clientInstanceId="client-1"
         endpointId="endpoint-1"
         media={media}
         onTakeTransfer={mock(async () => {})}
@@ -116,10 +122,56 @@ describe("CanonicalActiveCall", () => {
     fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
     expect(onTransfer).toHaveBeenCalledWith(expect.anything(), "user-2");
 
+    const fetchEnd = mock(async () => new Response("{}", { status: 202 }));
+    globalThis.fetch = fetchEnd as never;
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "End" }));
     });
-    expect(media.hangup).toHaveBeenCalledWith("media-leg-1");
+    expect(fetchEnd).toHaveBeenCalledWith(
+      "/api/portal/call-center/calls/call-inbound/end",
+      expect.objectContaining({
+        body: JSON.stringify({ clientInstanceId: "client-1" }),
+        headers: expect.objectContaining({
+          "Idempotency-Key": "canonical-end:call-inbound:session-1:agent-leg-1",
+        }),
+        method: "POST",
+      }),
+    );
+    expect(media.hangup).not.toHaveBeenCalled();
+  });
+
+  it("durably rejects a ringing offer through the server-owned hangup", async () => {
+    const offered = connectedCall("INBOUND");
+    offered.answeredAt = null;
+    offered.status = "RINGING";
+    offered.winningLegId = null;
+    offered.legs[0]!.status = "RINGING";
+    const media = mediaControls("RINGING");
+    const fetchEnd = mock(async () => new Response("{}", { status: 202 }));
+    globalThis.fetch = fetchEnd as never;
+
+    render(
+      <CanonicalActiveCall
+        actionsEnabled
+        call={offered}
+        clientInstanceId="client-1"
+        endpointId="endpoint-1"
+        media={media}
+        onTakeTransfer={mock(async () => {})}
+        onTransfer={mock(async () => {})}
+        operations={null}
+        sessionId="session-1"
+        transferTargets={[]}
+        transferTakeCandidate={null}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "End" }));
+    });
+
+    expect(fetchEnd).toHaveBeenCalledTimes(1);
+    expect(media.hangup).not.toHaveBeenCalled();
   });
 
   it("shows the outbound patient number and connected controls", () => {
@@ -127,6 +179,7 @@ describe("CanonicalActiveCall", () => {
       <CanonicalActiveCall
         actionsEnabled
         call={connectedCall("OUTBOUND")}
+        clientInstanceId="client-1"
         endpointId="endpoint-1"
         media={mediaControls()}
         onTakeTransfer={mock(async () => {})}
@@ -149,6 +202,7 @@ describe("CanonicalActiveCall", () => {
   it("disables an expanded keypad when calling actions become unavailable", () => {
     const props = {
       call: connectedCall("INBOUND"),
+      clientInstanceId: "client-1",
       endpointId: "endpoint-1",
       media: mediaControls(),
       onTakeTransfer: mock(async () => {}),
@@ -175,6 +229,7 @@ describe("CanonicalActiveCall", () => {
       <CanonicalActiveCall
         actionsEnabled
         call={connectedCall("INBOUND")}
+        clientInstanceId="client-1"
         endpointId="endpoint-1"
         media={media}
         onTakeTransfer={mock(async () => {})}
@@ -203,6 +258,7 @@ describe("CanonicalActiveCall", () => {
     const props = {
       actionsEnabled: true,
       call: connectedCall("INBOUND"),
+      clientInstanceId: "client-1",
       endpointId: "endpoint-1",
       media,
       onTakeTransfer: mock(async () => {}),
@@ -229,6 +285,7 @@ describe("CanonicalActiveCall", () => {
       <CanonicalActiveCall
         actionsEnabled
         call={connectedCall("INBOUND")}
+        clientInstanceId="client-1"
         endpointId="endpoint-1"
         media={media}
         onTakeTransfer={mock(async () => {})}

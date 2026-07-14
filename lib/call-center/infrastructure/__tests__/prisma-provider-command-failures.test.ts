@@ -53,6 +53,11 @@ describe("provider command dependency failures", () => {
         },
       },
       callCenterCall: {
+        findUnique: async () => ({
+          deadlineAt: null,
+          status: "RINGING",
+          winningLegId: null,
+        }),
         update: async () => {
           operations.push("call.update");
           return {};

@@ -6,6 +6,7 @@ import {
   beginCanonicalTransfer,
   beginCanonicalTake,
   canonicalClaimIdempotencyKey,
+  canonicalTransferAttemptNumber,
   canonicalTransferIdempotencyKey,
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
@@ -191,6 +192,33 @@ describe("canonical active call center correlation", () => {
       canonicalTransferIdempotencyKey("call-1", "source-leg", "target-endpoint"),
     ).toBe(first);
     expect(first).toBe("canonical-transfer:call-1:source-leg:target-endpoint");
+    expect(
+      canonicalTransferIdempotencyKey("call-1", "source-leg", "target-endpoint", 2),
+    ).toBe("canonical-transfer:call-1:source-leg:target-endpoint:2");
+  });
+
+  it("advances the transfer key only after the target leg settles", () => {
+    expect(
+      canonicalTransferAttemptNumber(
+        transferredCall,
+        [transferOperation],
+        "source-leg",
+        "target-user",
+      ),
+    ).toBe(1);
+    expect(
+      canonicalTransferAttemptNumber(
+        {
+          ...transferredCall,
+          legs: transferredCall.legs.map((leg) =>
+            leg.id === "target-leg" ? { ...leg, status: "FAILED" as const } : leg,
+          ),
+        },
+        [transferOperation],
+        "source-leg",
+        "target-user",
+      ),
+    ).toBe(2);
   });
 
   it("deduplicates concurrent Take attempts until the first finishes", () => {

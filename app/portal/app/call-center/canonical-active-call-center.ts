@@ -79,8 +79,35 @@ export function canonicalTransferIdempotencyKey(
   callId: string,
   sourceLegId: string,
   targetUserId: string,
+  attempt = 1,
 ) {
-  return `canonical-transfer:${callId}:${sourceLegId}:${targetUserId}`;
+  const base = `canonical-transfer:${callId}:${sourceLegId}:${targetUserId}`;
+  return attempt === 1 ? base : `${base}:${attempt}`;
+}
+
+export function canonicalTransferAttemptNumber(
+  call: Pick<CallView, "legs">,
+  operations: readonly OperationView[] | null,
+  sourceLegId: string,
+  targetUserId: string,
+) {
+  const targetLegIds = new Set(
+    operations
+      ?.filter(
+        (operation) =>
+          operation.type === "TRANSFER" &&
+          operation.sourceLegId === sourceLegId &&
+          operation.targetUserId === targetUserId &&
+          operation.targetLegId,
+      )
+      .map(({ targetLegId }) => targetLegId as string) ?? [],
+  );
+  if (targetLegIds.size === 0) return 1;
+
+  const latestTarget = [...call.legs].reverse().find(({ id }) => targetLegIds.has(id));
+  return latestTarget && !["ENDED", "FAILED"].includes(latestTarget.status)
+    ? targetLegIds.size
+    : targetLegIds.size + 1;
 }
 
 export function beginCanonicalTake(inFlight: Set<string>, callId: string) {

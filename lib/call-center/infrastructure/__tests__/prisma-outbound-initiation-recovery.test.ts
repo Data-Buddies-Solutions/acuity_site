@@ -8,6 +8,7 @@ function fakeRecovery(currentCallId: string | null = "call-1") {
   let due = true;
   let releasedCallId = currentCallId;
   const events: Array<{ data: Record<string, unknown> }> = [];
+  const settlements: Array<Record<string, unknown>> = [];
   const transaction = {
     $queryRaw: async (query: unknown) => {
       const sql = Array.isArray((query as { strings?: string[] }).strings)
@@ -18,36 +19,17 @@ function fakeRecovery(currentCallId: string | null = "call-1") {
       }
       return [];
     },
-    callCenterAgentSession: {
-      findUnique: async ({ select }: { select: Record<string, boolean> }) =>
-        "endpointId" in select
-          ? { endpointId: "endpoint-1" }
-          : {
-              audioReady: true,
-              connectionState: "READY",
-              currentCallId: releasedCallId,
-              id: "session-1",
-              leaseExpiresAt: new Date("2026-07-12T20:01:00.000Z"),
-              microphoneReady: true,
-              practiceId: "practice-1",
-              presence: "BUSY",
-              stateVersion: 4,
-            },
-      update: async () => {
-        releasedCallId = null;
-        return { stateVersion: 5 };
-      },
-    },
     callCenterCall: {
+      findUnique: async () => ({
+        deadlineAt: null,
+        status: "FAILED",
+        winningLegId: null,
+      }),
       updateMany: async () => {
         if (!due) return { count: 0 };
         due = false;
         return { count: 1 };
       },
-    },
-    callCenterCallLeg: {
-      findMany: async () => [{ agentSessionId: "session-1", id: "leg-1" }],
-      updateMany: async () => ({ count: 1 }),
     },
     callCenterEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -58,9 +40,15 @@ function fakeRecovery(currentCallId: string | null = "call-1") {
   };
   return {
     events,
+    settlements,
     releasedCallId: () => releasedCallId,
-    recovery: new PrismaOutboundInitiationRecovery((operation) =>
-      operation(transaction as never),
+    recovery: new PrismaOutboundInitiationRecovery(
+      (operation) => operation(transaction as never),
+      async (_transaction, input) => {
+        settlements.push(input);
+        if (releasedCallId === input.callId) releasedCallId = null;
+        return ["hangup-leg-1"];
+      },
     ),
   };
 }
@@ -75,8 +63,14 @@ describe("outbound initiation recovery", () => {
     });
     expect(fake.releasedCallId()).toBeNull();
     expect(fake.events.map(({ data }) => data.type)).toEqual([
-      "AGENT_SESSION_CALL_RELEASED",
       "CALL_OUTBOUND_INITIATION_FAILED",
+    ]);
+    expect(fake.settlements).toEqual([
+      expect.objectContaining({
+        callId: "call-1",
+        reason: "OUTBOUND_DIAL_TIMEOUT",
+        terminalLegStatus: "FAILED",
+      }),
     ]);
     await expect(fake.recovery.recoverDue(now, 25)).resolves.toEqual({
       callIds: [],
