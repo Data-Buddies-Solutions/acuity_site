@@ -5,10 +5,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
 import {
-  CallReadinessControl,
+  CallConnectionStatus,
   canonicalSessionConnectionState,
   CanonicalActiveCall,
-  resolveCallReadinessState,
 } from "./CanonicalActiveWorkspace";
 import type { useSoftphoneMedia } from "./use-softphone";
 
@@ -66,84 +65,48 @@ function readySession(update: Partial<AgentSessionView> = {}): AgentSessionView 
 }
 
 describe("call readiness", () => {
-  it("reports startup as connecting instead of trying to release the session", () => {
+  it("reports automatic startup as connecting instead of trying to release", () => {
     expect(canonicalSessionConnectionState("CLOSED", true)).toBe("CONNECTING");
     expect(canonicalSessionConnectionState("CLOSED", false)).toBe("CLOSED");
   });
 
-  it("exposes one Ready / Not ready switch", () => {
-    const onChange = mock(() => {});
-    const view = render(
-      <CallReadinessControl disabled={false} onChange={onChange} state="NOT_READY" />,
-    );
+  it("renders one durable connection status with no readiness control", () => {
+    const view = render(<CallConnectionStatus session={null} />);
 
-    const control = screen.getByRole("switch", { name: "Call readiness" });
-    expect(screen.getByText("Not ready")).toBeTruthy();
-    expect(control.getAttribute("aria-checked")).toBe("false");
-    fireEvent.click(control);
-    expect(onChange).toHaveBeenCalledWith(true);
+    expect(screen.getByRole("status").textContent).toBe("Not connected");
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+
+    view.rerender(<CallConnectionStatus session={readySession()} />);
+    expect(screen.getByRole("status").textContent).toBe("Connected");
 
     view.rerender(
-      <CallReadinessControl disabled={false} onChange={onChange} state="READY" />,
+      <CallConnectionStatus
+        session={readySession({ microphoneReady: false, presence: "PAUSED" })}
+      />,
     );
-    expect(screen.getByText("Ready")).toBeTruthy();
-    expect(control.getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(control);
-    expect(onChange).toHaveBeenLastCalledWith(false);
-  });
+    expect(screen.getByRole("status").textContent).toBe("Not connected");
 
-  it("reports Ready only when every canonical readiness invariant passes", () => {
-    expect(
-      resolveCallReadinessState({
-        call: null,
-        desiredReady: true,
-        error: null,
-        session: readySession(),
-      }),
-    ).toBe("READY");
-    expect(
-      resolveCallReadinessState({
-        call: null,
-        desiredReady: true,
-        error: null,
-        session: readySession({ microphoneReady: false, presence: "PAUSED" }),
-      }),
-    ).toBe("STARTING");
-    expect(
-      resolveCallReadinessState({
-        call: null,
-        desiredReady: true,
-        error: "Microphone permission is required.",
-        session: readySession({ microphoneReady: false, presence: "PAUSED" }),
-      }),
-    ).toBe("NOT_READY");
-  });
+    view.rerender(
+      <CallConnectionStatus
+        session={readySession({ connectionState: "CONNECTING", presence: "PAUSED" })}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Connected");
 
-  it("temporarily replaces readiness with incoming, connecting, and active call states", () => {
-    expect(
-      resolveCallReadinessState({
-        call: { direction: "INBOUND", status: "RINGING" },
-        desiredReady: true,
-        error: null,
-        session: readySession({ offeredCallId: "call-1" }),
-      }),
-    ).toBe("INCOMING");
-    expect(
-      resolveCallReadinessState({
-        call: { direction: "OUTBOUND", status: "QUEUED" },
-        desiredReady: true,
-        error: null,
-        session: readySession({ offeredCallId: "call-1" }),
-      }),
-    ).toBe("CONNECTING");
-    expect(
-      resolveCallReadinessState({
-        call: { direction: "INBOUND", status: "CONNECTED" },
-        desiredReady: true,
-        error: null,
-        session: readySession({ currentCallId: "call-1", presence: "BUSY" }),
-      }),
-    ).toBe("ON_CALL");
+    view.rerender(
+      <CallConnectionStatus
+        session={readySession({ currentCallId: "call-1", presence: "BUSY" })}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Connected");
+
+    view.rerender(
+      <CallConnectionStatus
+        session={readySession({ connectionState: "FAILED", presence: "PAUSED" })}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Not connected");
   });
 });
 

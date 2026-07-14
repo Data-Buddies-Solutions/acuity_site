@@ -87,9 +87,6 @@ function errorMessage(error: unknown, action: CallCenterAction) {
   return operatorErrorCopy(error, action).message;
 }
 
-type CallReadinessState =
-  "CONNECTING" | "INCOMING" | "NOT_READY" | "ON_CALL" | "READY" | "STARTING";
-
 function isAgentSessionViewReady(session: AgentSessionView) {
   return (
     session.presence === "AVAILABLE" &&
@@ -101,81 +98,41 @@ function isAgentSessionViewReady(session: AgentSessionView) {
   );
 }
 
-export function resolveCallReadinessState({
-  call,
-  desiredReady,
-  error,
-  session,
-}: {
-  call: Pick<CallView, "direction" | "status"> | null;
-  desiredReady: boolean;
-  error: string | null;
-  session: AgentSessionView | null;
-}): CallReadinessState {
-  if (session?.currentCallId) return "ON_CALL";
-  if (session?.offeredCallId) {
-    return call?.direction === "INBOUND" && call.status === "RINGING"
-      ? "INCOMING"
-      : "CONNECTING";
-  }
-  if (error) return "NOT_READY";
-  if (session && isAgentSessionViewReady(session)) return "READY";
-  return desiredReady ? "STARTING" : "NOT_READY";
+function isAgentSessionViewConnected(session: AgentSessionView) {
+  return (
+    session.presence !== "OFFLINE" &&
+    !["DISCONNECTED", "FAILED"].includes(session.connectionState) &&
+    session.microphoneReady &&
+    session.audioReady
+  );
 }
 
-const callReadinessLabels: Record<CallReadinessState, string> = {
-  CONNECTING: "Connecting",
-  INCOMING: "Incoming call",
-  NOT_READY: "Not ready",
-  ON_CALL: "On call",
-  READY: "Ready",
-  STARTING: "Getting ready",
-};
-
-export function CallReadinessControl({
-  disabled,
-  onChange,
-  state,
-}: {
-  disabled: boolean;
-  onChange: (ready: boolean) => void;
-  state: CallReadinessState;
-}) {
-  const ready = state === "READY";
-  const busy = ["CONNECTING", "INCOMING", "ON_CALL", "STARTING"].includes(state);
+export function CallConnectionStatus({ session }: { session: AgentSessionView | null }) {
+  const connected = Boolean(session && isAgentSessionViewConnected(session));
 
   return (
-    <div className="mt-3 flex items-center justify-between gap-3">
-      <span className="text-sm font-medium text-[var(--portal-ink)]">
-        {callReadinessLabels[state]}
-      </span>
-      <button
-        aria-checked={ready}
-        aria-label="Call readiness"
-        className={`relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-          ready ? "bg-emerald-500" : "bg-slate-300"
-        }`}
-        disabled={disabled || busy}
-        onClick={() => onChange(!ready)}
-        role="switch"
-        type="button"
-      >
-        <span
-          aria-hidden="true"
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-            ready ? "translate-x-5" : "translate-x-0.5"
-          }`}
-        />
-      </button>
-    </div>
+    <PortalBadge
+      className={
+        connected
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
+      }
+      role="status"
+    >
+      <span
+        aria-hidden="true"
+        className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-slate-400"}`}
+      />
+      {connected ? "Connected" : "Not connected"}
+    </PortalBadge>
   );
 }
 
 export function canonicalSessionConnectionState(
   connectionState: CanonicalAgentConnectionState,
-  desiredReady: boolean,
+  shouldConnect: boolean,
 ) {
-  return desiredReady && connectionState === "CLOSED"
+  return shouldConnect && connectionState === "CLOSED"
     ? ("CONNECTING" as const)
     : connectionState;
 }
@@ -270,8 +227,6 @@ function ConnectedCanonicalActiveWorkspace({
 }) {
   const realtime = useCanonicalCallCenter({ clientInstanceId, queueId });
   const refreshSnapshot = realtime.refetch;
-  const [desiredReady, setDesiredReady] = useState(false);
-  const [readyError, setReadyError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
   const [numberChoice, setNumberChoice] = useState("");
@@ -287,8 +242,8 @@ function ConnectedCanonicalActiveWorkspace({
   const answeredMediaRef = useRef(new Set<string>());
   const outboundMediaLegsRef = useRef(new Set<string>());
   const outboundStartingRef = useRef(false);
-  const wasReadyRef = useRef(false);
   const agentProfileId = realtime.state?.agentProfile?.id ?? "";
+  const shouldConnect = Boolean(agentProfileId && actionsEnabled);
   const eligibleOutboundNumbers = outboundNumbers;
   const selectedNumberId = eligibleOutboundNumbers.some(({ id }) => id === numberChoice)
     ? numberChoice
@@ -304,14 +259,14 @@ function ConnectedCanonicalActiveWorkspace({
       : null;
   const sessionConnectionState = canonicalSessionConnectionState(
     mediaReadiness.connectionState,
-    desiredReady,
+    shouldConnect,
   );
   const canonicalSession = useCanonicalAgentSession({
     audioReady: mediaReadiness.audioReady,
     clientInstanceId,
     connectionState: sessionConnectionState,
     microphoneReady: mediaReadiness.microphoneReady,
-    presence: !desiredReady
+    presence: !shouldConnect
       ? "OFFLINE"
       : sessionConnectionState === "READY" &&
           mediaReadiness.audioReady &&
@@ -326,11 +281,11 @@ function ConnectedCanonicalActiveWorkspace({
   const leasedOfferedCallId = leasedSession?.offeredCallId ?? null;
   const media = useSoftphoneMedia({
     agentSessionId: leasedSessionId,
-    autoPrepare: false,
+    autoPrepare: shouldConnect,
     browserSessionId: clientInstanceId,
     credentialMode: "CANONICAL",
     enabled: Boolean(
-      desiredReady && agentProfileId && leasedSession?.endpointId === agentProfileId,
+      shouldConnect && agentProfileId && leasedSession?.endpointId === agentProfileId,
     ),
     stationSeatId: agentProfileId || null,
   });
@@ -340,11 +295,7 @@ function ConnectedCanonicalActiveWorkspace({
     dial: dialMediaLeg,
     observations: mediaObservations,
   } = media;
-  const {
-    error: canonicalSessionError,
-    start: startCanonicalSession,
-    stop: stopCanonicalSession,
-  } = canonicalSession;
+  const { start: startCanonicalSession, stop: stopCanonicalSession } = canonicalSession;
 
   useEffect(() => {
     const next = {
@@ -362,7 +313,7 @@ function ConnectedCanonicalActiveWorkspace({
   }, [media.connection, media.microphoneReady, media.soundReady]);
 
   useEffect(() => {
-    if (agentProfileId && desiredReady) {
+    if (shouldConnect) {
       void startCanonicalSession();
     } else {
       void stopCanonicalSession();
@@ -370,7 +321,7 @@ function ConnectedCanonicalActiveWorkspace({
     return () => {
       void stopCanonicalSession();
     };
-  }, [agentProfileId, desiredReady, startCanonicalSession, stopCanonicalSession]);
+  }, [shouldConnect, startCanonicalSession, stopCanonicalSession]);
 
   const session = leasedSession;
 
@@ -405,47 +356,6 @@ function ConnectedCanonicalActiveWorkspace({
     selectCanonicalAgentActiveCall(state?.calls ?? [], session);
 
   const callingReady = Boolean(session && isAgentSessionViewReady(session));
-  const occupied = Boolean(session?.currentCallId || session?.offeredCallId);
-
-  useEffect(() => {
-    if (callingReady) wasReadyRef.current = true;
-  }, [callingReady]);
-
-  useEffect(() => {
-    if (!desiredReady || occupied) return;
-
-    const lostReadiness =
-      wasReadyRef.current &&
-      (media.connection !== "READY" || !media.microphoneReady || !media.soundReady)
-        ? "Calling disconnected. Select Ready to reconnect."
-        : null;
-    const failure =
-      canonicalSessionError || media.error || media.setupError || lostReadiness;
-    if (!failure) return;
-
-    setReadyError(failure);
-    setDesiredReady(false);
-    wasReadyRef.current = false;
-  }, [
-    canonicalSessionError,
-    desiredReady,
-    media.connection,
-    media.error,
-    media.microphoneReady,
-    media.setupError,
-    media.soundReady,
-    occupied,
-  ]);
-
-  const changeReady = useCallback(
-    (ready: boolean) => {
-      setReadyError(null);
-      wasReadyRef.current = false;
-      setDesiredReady(ready);
-      if (ready) void media.prepare();
-    },
-    [media],
-  );
 
   useEffect(() => {
     if (activeCall?.status === "CONNECTED") refreshSnapshot();
@@ -737,13 +647,6 @@ function ConnectedCanonicalActiveWorkspace({
     return <CanonicalUnavailable message="Connecting to the call center…" />;
   }
 
-  const readinessError = readyError || canonicalSessionError;
-  const readinessState = resolveCallReadinessState({
-    call: activeCall,
-    desiredReady,
-    error: readinessError,
-    session,
-  });
   const outboundHelp = !actionsEnabled
     ? "Calling is temporarily unavailable."
     : activeCall
@@ -800,9 +703,9 @@ function ConnectedCanonicalActiveWorkspace({
         </section>
       ) : null}
 
-      {actionError || readinessError || media.error || media.setupError ? (
+      {actionError ? (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-          {actionError || readinessError || media.error || media.setupError}
+          {actionError}
         </p>
       ) : null}
 
@@ -901,30 +804,9 @@ function ConnectedCanonicalActiveWorkspace({
         <div className="scroll-mt-4 space-y-3" id="softphone">
           <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
-                Station console
-              </h2>
-              <PortalBadge
-                className={
-                  state.connection === "CONNECTED"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-800"
-                }
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    state.connection === "CONNECTED" ? "bg-emerald-500" : "bg-amber-500"
-                  }`}
-                />
-                {state.connection === "CONNECTED" ? "Queue live" : "Queue reconnecting"}
-              </PortalBadge>
+              <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Calling</h2>
+              <CallConnectionStatus session={session} />
             </div>
-
-            <CallReadinessControl
-              disabled={!agentProfileId || !actionsEnabled}
-              onChange={changeReady}
-              state={readinessState}
-            />
           </section>
 
           {eligibleOutboundNumbers.length > 1 ? (
@@ -958,17 +840,6 @@ function ConnectedCanonicalActiveWorkspace({
                     : "No caller number"}
                 </p>
               </div>
-              <PortalBadge
-                className={
-                  activeCall
-                    ? "border-[var(--portal-accent)] bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
-                    : callingReady
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
-                }
-              >
-                {callReadinessLabels[readinessState]}
-              </PortalBadge>
             </div>
 
             <div className="space-y-4 p-4">

@@ -268,6 +268,51 @@ describe("canonical agent sessions", () => {
     expect(store.events.at(-1)?.data.stateVersion).toBe(1);
   });
 
+  it("extends an unchanged lease without publishing another state", async () => {
+    const store = new FakeStore();
+    await acquireAgentSession(store, actor, identity, start);
+    const ready = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "AVAILABLE",
+        expectedStateVersion: 0,
+        sessionId: "session-1",
+      },
+      new Date(start.getTime() + 1_000),
+    );
+
+    const heartbeatAt = new Date(start.getTime() + 31_000);
+    const heartbeat = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "AVAILABLE",
+        expectedStateVersion: ready.session.stateVersion,
+        sessionId: ready.session.id,
+      },
+      heartbeatAt,
+    );
+
+    expect(heartbeat.session).toMatchObject({
+      lastHeartbeatAt: heartbeatAt,
+      leaseExpiresAt: new Date(heartbeatAt.getTime() + AGENT_SESSION_LEASE_MS),
+      stateVersion: ready.session.stateVersion,
+    });
+    expect(store.events.map((event) => event.type)).toEqual([
+      "AGENT_SESSION_LEASE_ACQUIRED",
+      "AGENT_SESSION_READINESS_UPDATED",
+    ]);
+  });
+
   it("rejects incomplete availability without changing the session", async () => {
     const store = new FakeStore();
     await acquireAgentSession(store, actor, identity, start);

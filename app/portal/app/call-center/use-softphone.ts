@@ -399,9 +399,17 @@ function useSoftphoneMediaEngine({
         });
         client.on("telnyx.error", (event) => {
           if (cancelled) return;
-          setConnection("FAILED");
-          setError(mediaFailure());
-          debug("telnyx-error", { causeName: event.error?.name ?? "TelnyxError" });
+          if (event.error?.fatal) {
+            setConnection("FAILED");
+            setError(mediaFailure());
+          } else {
+            setConnection("CONNECTING");
+            setError(null);
+          }
+          debug("telnyx-error", {
+            causeName: event.error?.name ?? "TelnyxError",
+            fatal: Boolean(event.error?.fatal),
+          });
         });
         client.on("telnyx.warning", (event: unknown) => {
           if (!cancelled) debug("telnyx-warning", { message: mediaErrorMessage(event) });
@@ -422,7 +430,8 @@ function useSoftphoneMediaEngine({
         });
         client.on("telnyx.socket.close", () => {
           if (cancelled) return;
-          setConnection("OFFLINE");
+          setConnection("CONNECTING");
+          setError(null);
           debug("telnyx-socket-close");
         });
         client.on("telnyx.notification", (notification: INotification) => {
