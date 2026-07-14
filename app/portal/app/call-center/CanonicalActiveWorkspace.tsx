@@ -23,7 +23,6 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import {
-  selectActiveCall,
   selectIncomingCalls,
   type AgentSessionView,
   type CallView,
@@ -46,6 +45,7 @@ import {
   canonicalTransferIdempotencyKey,
   completeCanonicalOutboundOperation,
   operationShouldAnswerMedia,
+  selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
   selectCanonicalTransferSource,
   selectCanonicalTransferTakeCandidate,
@@ -271,8 +271,7 @@ function ConnectedCanonicalActiveWorkspace({
       : null;
   const activeCall =
     transferTakeCandidate?.call ??
-    state?.calls.find(({ id }) => id === session?.currentCallId) ??
-    (state ? selectActiveCall(state) : null);
+    selectCanonicalAgentActiveCall(state?.calls ?? [], session);
   const recentCalls = useMemo(
     () =>
       state?.calls.filter(({ status }) =>
@@ -605,6 +604,8 @@ function ConnectedCanonicalActiveWorkspace({
     actionsEnabled &&
     session?.presence === "AVAILABLE" &&
     session.connectionState === "READY" &&
+    !session.currentCallId &&
+    !session.offeredCallId &&
     selectedNumberId &&
     destination.trim() &&
     !startingOutbound,

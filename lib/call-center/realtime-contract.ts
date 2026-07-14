@@ -258,17 +258,6 @@ export function selectIncomingCalls(state: CallCenterRealtimeState) {
   );
 }
 
-export function selectActiveCall(state: CallCenterRealtimeState) {
-  return (
-    state.calls.find(
-      ({ direction, status }) =>
-        status === "CONNECTED" ||
-        status === "WRAP_UP" ||
-        (direction === "OUTBOUND" && (status === "RECEIVED" || status === "RINGING")),
-    ) ?? null
-  );
-}
-
 export function selectOperation(
   state: CallCenterRealtimeState,
   operationEventRevision: Revision,
