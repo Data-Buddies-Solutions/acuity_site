@@ -38,7 +38,6 @@ describe("POST /api/portal/call-center/outbound", () => {
         body: JSON.stringify({
           clientInstanceId: "browser-1",
           destination: "+15555550123",
-          expectedSessionStateVersion: 2,
           numberId: "number-1",
           queueId: "queue-1",
         }),
@@ -56,7 +55,6 @@ describe("POST /api/portal/call-center/outbound", () => {
       input: {
         clientInstanceId: "browser-1",
         destination: "+15555550123",
-        expectedSessionStateVersion: 2,
         idempotencyKey: "operation-1",
         numberId: "number-1",
         queueId: "queue-1",

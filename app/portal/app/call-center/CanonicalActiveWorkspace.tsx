@@ -243,7 +243,7 @@ function ConnectedCanonicalActiveWorkspace({
     };
   }, [presence, agentProfileId, startCanonicalSession, stopCanonicalSession]);
 
-  const session = projectedSession;
+  const session = leasedSession;
 
   useEffect(() => {
     if (!state || !leasedSessionId) return;
@@ -521,7 +521,6 @@ function ConnectedCanonicalActiveWorkspace({
         body: JSON.stringify({
           clientInstanceId,
           destination,
-          expectedSessionStateVersion: session.stateVersion,
           numberId: selectedNumberId,
           queueId,
         }),
@@ -534,11 +533,18 @@ function ConnectedCanonicalActiveWorkspace({
       const body = (await response.json().catch(() => null)) as {
         callId?: unknown;
         clientState?: unknown;
+        error?: unknown;
         from?: unknown;
         to?: unknown;
       } | null;
+      if (!response.ok) {
+        throw new Error(
+          typeof body?.error === "string"
+            ? body.error
+            : "We could not start this call. Check the number and try again.",
+        );
+      }
       if (
-        !response.ok ||
         typeof body?.callId !== "string" ||
         typeof body?.clientState !== "string" ||
         typeof body.from !== "string" ||

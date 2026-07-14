@@ -164,9 +164,9 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       numberLocationId,
       queueLocationIds: [...queueLocationIds],
     });
+    // Heartbeats advance the revision; readiness comes from this locked row.
     if (
       !session ||
-      session.stateVersion !== input.expectedSessionStateVersion ||
       session.leaseExpiresAt <= now ||
       !isAgentSessionReady(session) ||
       !session.endpoint.enabled ||

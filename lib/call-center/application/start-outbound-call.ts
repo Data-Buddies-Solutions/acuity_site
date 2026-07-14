@@ -11,7 +11,6 @@ export const CALL_OUTBOUND_REQUESTED_EVENT = "CALL_OUTBOUND_REQUESTED";
 export type StartOutboundCallInput = {
   clientInstanceId: string;
   destination: string;
-  expectedSessionStateVersion: number;
   idempotencyKey: string;
   numberId: string;
   queueId: string;
