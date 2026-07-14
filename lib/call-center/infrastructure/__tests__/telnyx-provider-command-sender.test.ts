@@ -192,6 +192,7 @@ describe("Telnyx provider command sender", () => {
             callControlId: "customer-control-1",
             clientState: expect.any(String),
             commandId: "command-1",
+            playBeep: true,
           },
         ],
       ],

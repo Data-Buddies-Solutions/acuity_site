@@ -19,7 +19,6 @@ export function persistCanonicalVoicemailTask(
   transaction: Transaction,
   input: {
     callId: string;
-    callerPhone: string;
     practiceId: string;
     sourceEventRevision: bigint;
   },
@@ -27,7 +26,6 @@ export function persistCanonicalVoicemailTask(
   return transaction.callCenterTask.upsert({
     create: {
       callId: input.callId,
-      callerPhone: input.callerPhone || null,
       dedupeKey: `voicemail:${input.callId}`,
       kind: "VOICEMAIL",
       practiceId: input.practiceId,
@@ -108,7 +106,6 @@ export async function persistCanonicalVoicemail(
 
   await persistCanonicalVoicemailTask(transaction, {
     callId: input.call.id,
-    callerPhone: input.call.fromPhone,
     practiceId: input.call.practiceId,
     sourceEventRevision: input.sourceEventRevision,
   });

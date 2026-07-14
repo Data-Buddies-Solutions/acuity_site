@@ -142,6 +142,7 @@ export function createTelnyxProviderCommandSender(
             callControlId: command.provider.callControlId,
             clientState: canonicalCommandClientState(command),
             commandId: command.commandId,
+            playBeep: true,
           });
       }
     },
