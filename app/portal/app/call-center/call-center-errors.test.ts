@@ -36,6 +36,22 @@ describe("call-center operator error catalog", () => {
     expect(copy.retryable).toBe(true);
   });
 
+  it("gives a failed outbound call a concrete retry action", () => {
+    const copy = operatorErrorCopy(
+      new CallCenterRequestError({
+        code: "OUTBOUND_CALL_FAILED",
+        referenceId: "R4T8W2",
+        retryable: true,
+      }),
+      "outbound",
+    );
+
+    expect(copy.message).toBe(
+      "The call could not be started. Check the number, then try again. Reference: R4T8W2.",
+    );
+    expect(copy.retryable).toBe(true);
+  });
+
   it("preserves the server reference and retry behavior", async () => {
     const response = Response.json(
       {
