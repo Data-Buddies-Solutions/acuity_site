@@ -1,4 +1,5 @@
 import { Prisma } from "@/generated/prisma/client";
+import { hasUsableCanonicalVoicemail } from "@/lib/call-center/domain/canonical-call-outcome";
 
 type Transaction = Prisma.TransactionClient;
 
@@ -15,30 +16,53 @@ export type CanonicalVoicemailRecording = {
   url: string;
 };
 
-export function persistCanonicalVoicemailTask(
+export async function persistCanonicalUnansweredTask(
   transaction: Transaction,
   input: {
     callId: string;
+    dedupeKey?: string;
+    kind: "MISSED_CALL" | "VOICEMAIL";
     practiceId: string;
     sourceEventRevision: bigint;
   },
 ) {
-  return transaction.callCenterTask.upsert({
+  const dedupeKey = input.dedupeKey ?? `voicemail:${input.callId}`;
+  const task = await transaction.callCenterTask.upsert({
     create: {
       callId: input.callId,
-      dedupeKey: `voicemail:${input.callId}`,
-      kind: "VOICEMAIL",
+      dedupeKey,
+      kind: input.kind,
       practiceId: input.practiceId,
       sourceEventRevision: input.sourceEventRevision,
     },
-    update: {},
+    select: { id: true },
+    update: { kind: input.kind, sourceEventRevision: input.sourceEventRevision },
     where: {
       practiceId_dedupeKey: {
-        dedupeKey: `voicemail:${input.callId}`,
+        dedupeKey,
         practiceId: input.practiceId,
       },
     },
   });
+  await transaction.callCenterEvent.upsert({
+    create: {
+      aggregateId: task.id,
+      aggregateType: "TASK",
+      data: { callId: input.callId, kind: input.kind },
+      idempotencyKey: `task:${task.id}:source:${input.sourceEventRevision}`,
+      practiceId: input.practiceId,
+      type: "TASK_UPSERTED",
+    },
+    update: {},
+    where: {
+      practiceId_type_idempotencyKey: {
+        idempotencyKey: `task:${task.id}:source:${input.sourceEventRevision}`,
+        practiceId: input.practiceId,
+        type: "TASK_UPSERTED",
+      },
+    },
+  });
+  return task;
 }
 
 export async function persistCanonicalVoicemail(
@@ -55,13 +79,20 @@ export async function persistCanonicalVoicemail(
     sourceEventRevision: bigint;
   },
 ) {
+  const existingSelect = {
+    callCenterCallId: true,
+    durationSec: true,
+    id: true,
+    recordingId: true,
+    recordingUrl: true,
+  } as const;
   const [byCall, byRecording, source] = await Promise.all([
     transaction.callCenterVoicemail.findUnique({
-      select: { callCenterCallId: true, id: true, recordingId: true },
+      select: existingSelect,
       where: { callCenterCallId: input.call.id },
     }),
     transaction.callCenterVoicemail.findUnique({
-      select: { callCenterCallId: true, id: true, recordingId: true },
+      select: existingSelect,
       where: { recordingId: input.recording.id },
     }),
     transaction.callCenterCall.findUnique({
@@ -80,9 +111,32 @@ export async function persistCanonicalVoicemail(
   }
 
   const existing = byCall ?? byRecording;
+  const recordingIsUsable = hasUsableCanonicalVoicemail({
+    durationSec: input.recording.durationSec,
+    recordingId: input.recording.id,
+    recordingUrl: input.recording.url,
+  });
+  const existingIsUsable = hasUsableCanonicalVoicemail(
+    existing
+      ? {
+          durationSec: existing.durationSec,
+          recordingId: existing.recordingId,
+          recordingUrl: existing.recordingUrl,
+        }
+      : null,
+  );
+  if (!recordingIsUsable) {
+    await persistCanonicalUnansweredTask(transaction, {
+      callId: input.call.id,
+      kind: existingIsUsable ? "VOICEMAIL" : "MISSED_CALL",
+      practiceId: input.call.practiceId,
+      sourceEventRevision: input.sourceEventRevision,
+    });
+    return existingIsUsable ? { id: existing!.id } : null;
+  }
   const data = {
     callerName: input.call.callerName,
-    durationSec: input.recording.durationSec,
+    durationSec: Math.max(existing?.durationSec ?? 0, input.recording.durationSec),
     fromPhone: input.call.fromPhone,
     locationId: source.number.practicePhoneNumber.locationId,
     recordingUrl: input.recording.url,
@@ -104,8 +158,9 @@ export async function persistCanonicalVoicemail(
         select: { id: true },
       });
 
-  await persistCanonicalVoicemailTask(transaction, {
+  await persistCanonicalUnansweredTask(transaction, {
     callId: input.call.id,
+    kind: "VOICEMAIL",
     practiceId: input.call.practiceId,
     sourceEventRevision: input.sourceEventRevision,
   });

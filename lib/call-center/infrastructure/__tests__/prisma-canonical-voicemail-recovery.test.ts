@@ -15,6 +15,7 @@ function fakeRecovery({
 }: Options = {}) {
   let deadlineAt: Date | null = now;
   let endedAt: Date | null = null;
+  let callStatus = "VOICEMAIL";
   let sessionCallId = currentCallId;
   let taskUpserts = 0;
   let revision = BigInt(8);
@@ -103,11 +104,12 @@ function fakeRecovery({
       updateMany: async ({
         data,
       }: {
-        data: { deadlineAt?: Date | null; endedAt?: Date };
+        data: { deadlineAt?: Date | null; endedAt?: Date; status?: string };
       }) => {
         if (!deadlineAt) return { count: 0 };
         deadlineAt = data.deadlineAt ?? null;
         if (data.endedAt) endedAt = data.endedAt;
+        if (data.status) callStatus = data.status;
         return { count: 1 };
       },
     },
@@ -172,6 +174,7 @@ function fakeRecovery({
   };
   return {
     commands,
+    callStatus: () => callStatus,
     deadlineAt: () => deadlineAt,
     endedAt: () => endedAt,
     events,
@@ -211,6 +214,7 @@ describe("canonical voicemail recovery store", () => {
     });
     expect(fake.deadlineAt()).toBeNull();
     expect(fake.endedAt()).toEqual(now);
+    expect(fake.callStatus()).toBe("ABANDONED");
     expect(fake.sessionCallId()).toBeNull();
     expect(fake.taskUpserts()).toBe(1);
     expect(fake.events).toContain("CALL_VOICEMAIL_RECOVERY_REQUIRED");

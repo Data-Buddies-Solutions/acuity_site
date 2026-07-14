@@ -135,8 +135,9 @@ describe("canonical portal history", () => {
               },
               providerCallSessionId: "provider-missed",
               receivedAt: new Date("2026-07-12T19:00:00.000Z"),
-              status: "ABANDONED",
+              status: "VOICEMAIL",
               toPhone: "+15555550000",
+              voicemail: null,
               winningLeg: null,
             },
           ];
@@ -166,6 +167,61 @@ describe("canonical portal history", () => {
     });
   });
 
+  it("uses the same missed outcome in History and Needs Action", async () => {
+    const call = {
+      answeredAt: null,
+      callerName: "Patient",
+      direction: "INBOUND",
+      endedAt: new Date("2026-07-12T19:01:05.000Z"),
+      fromPhone: "+15555550123",
+      id: "call-missed",
+      number: { practicePhoneNumber: { location: { name: "Optical" } } },
+      providerCallSessionId: "provider-missed",
+      receivedAt: new Date("2026-07-12T19:00:00.000Z"),
+      status: "VOICEMAIL",
+      toPhone: "+15555550000",
+      voicemail: null,
+      winningLeg: null,
+    };
+    const task = {
+      call,
+      callerPhone: "+15555550123",
+      createdAt: new Date("2026-07-12T19:01:05.000Z"),
+      id: "task-1",
+      kind: "VOICEMAIL",
+    };
+    const database = {
+      callCenterCall: {
+        count: async () => 1,
+        findMany: async () => [call],
+      },
+      callCenterTask: {
+        findMany: async (input: Record<string, unknown>) =>
+          "select" in input ? [] : [task],
+        groupBy: async () => [
+          { _max: { createdAt: task.createdAt }, callerPhone: task.callerPhone },
+        ],
+      },
+    };
+
+    const [history, needsAction] = await Promise.all([
+      readCanonicalCallCenterHistory(
+        { range: "all", view: "all" },
+        { database: database as never, getContext: async () => context as never },
+      ),
+      readCanonicalNeedsAction(
+        { page: 1, pageSize: 25 },
+        { database: database as never, getContext: async () => context as never },
+      ),
+    ]);
+
+    expect(history?.calls[0]?.status).toBe("MISSED");
+    expect(needsAction).toMatchObject({
+      groups: [{ latestKind: "missed", missedCount: 1, voicemailCount: 0 }],
+      total: 1,
+    });
+  });
+
   it("paginates open canonical tasks by caller thread", async () => {
     const groupQueries: Array<Record<string, unknown>> = [];
     const taskQueries: Array<Record<string, unknown>> = [];
@@ -183,12 +239,19 @@ describe("canonical portal history", () => {
             ];
           }
           const call = {
+            answeredAt: null,
             callerName: "Patient",
+            direction: "INBOUND",
             fromPhone: "+15555550333",
             number: {
               practicePhoneNumber: { location: { name: "Optical" } },
             },
-            voicemail: { durationSec: 12, recordingId: "recording-1" },
+            status: "VOICEMAIL",
+            voicemail: {
+              durationSec: 12,
+              recordingId: "recording-1",
+              recordingUrl: "https://example.test/recording-1",
+            },
           };
           return [
             {
@@ -312,6 +375,7 @@ describe("canonical portal history", () => {
           durationSec: 18,
           id: "voicemail-1",
           recordingId: "recording-1",
+          recordingUrl: "https://example.test/recording-1",
         },
         winningLeg: null,
       },

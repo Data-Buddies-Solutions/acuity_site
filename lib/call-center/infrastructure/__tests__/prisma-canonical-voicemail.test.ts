@@ -9,15 +9,23 @@ import {
 
 const now = new Date("2026-07-12T12:00:00.000Z");
 
-function fakeDatabase({ existing = false, mismatch = false } = {}) {
+function fakeDatabase({
+  durationSec = 12,
+  existing = false,
+  existingDurationSec = 12,
+  mismatch = false,
+} = {}) {
   const operations: string[] = [];
+  let taskEvents = 0;
   let voicemailCreates = 0;
   let taskUpserts = 0;
   const stored = existing
     ? {
         callCenterCallId: "call-1",
+        durationSec: existingDurationSec,
         id: "voicemail-1",
         recordingId: mismatch ? "recording-other" : "recording-1",
+        recordingUrl: "https://example.test/voicemail.mp3",
       }
     : null;
   const transaction = {
@@ -27,17 +35,45 @@ function fakeDatabase({ existing = false, mismatch = false } = {}) {
       }),
     },
     callCenterTask: {
-      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+      upsert: async ({
+        create,
+        update,
+      }: {
+        create: Record<string, unknown>;
+        update: Record<string, unknown>;
+      }) => {
         operations.push("task.upsert");
         taskUpserts += 1;
         expect(create).toMatchObject({
           callId: "call-1",
           dedupeKey: "voicemail:call-1",
-          kind: "VOICEMAIL",
+          kind:
+            durationSec > 0 || (existing && existingDurationSec > 0)
+              ? "VOICEMAIL"
+              : "MISSED_CALL",
           sourceEventRevision: BigInt(9),
         });
+        expect(update).toMatchObject({
+          kind:
+            durationSec > 0 || (existing && existingDurationSec > 0)
+              ? "VOICEMAIL"
+              : "MISSED_CALL",
+        });
+        expect(update).not.toHaveProperty("status");
         expect(create).not.toHaveProperty("callerPhone");
         return { id: "task-1" };
+      },
+    },
+    callCenterEvent: {
+      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+        operations.push("task.event");
+        taskEvents += 1;
+        expect(create).toMatchObject({
+          aggregateId: "task-1",
+          aggregateType: "TASK",
+          type: "TASK_UPSERTED",
+        });
+        return { revision: BigInt(10) };
       },
     },
     callCenterVoicemail: {
@@ -74,7 +110,7 @@ function fakeDatabase({ existing = false, mismatch = false } = {}) {
       },
       occurredAt: now,
       recording: {
-        durationSec: 12,
+        durationSec,
         id: "recording-1",
         url: "https://example.test/voicemail.mp3",
       },
@@ -83,6 +119,9 @@ function fakeDatabase({ existing = false, mismatch = false } = {}) {
   return {
     get taskUpserts() {
       return taskUpserts;
+    },
+    get taskEvents() {
+      return taskEvents;
     },
     get voicemailCreates() {
       return voicemailCreates;
@@ -96,7 +135,7 @@ describe("canonical voicemail persistence", () => {
   it("creates one call-linked voicemail before its deduplicated task", async () => {
     const fake = fakeDatabase();
     await expect(fake.persist()).resolves.toEqual({ id: "voicemail-1" });
-    expect(fake.operations).toEqual(["voicemail.create", "task.upsert"]);
+    expect(fake.operations).toEqual(["voicemail.create", "task.upsert", "task.event"]);
     expect(fake.voicemailCreates).toBe(1);
     expect(fake.taskUpserts).toBe(1);
   });
@@ -109,6 +148,26 @@ describe("canonical voicemail persistence", () => {
     expect(
       fake.operations.filter((operation) => operation === "voicemail.update"),
     ).toHaveLength(2);
+  });
+
+  it("keeps an empty recording as the same missed-call action", async () => {
+    const fake = fakeDatabase({ durationSec: 0 });
+    await expect(fake.persist()).resolves.toBeNull();
+    expect(fake.voicemailCreates).toBe(0);
+    expect(fake.taskUpserts).toBe(1);
+    expect(fake.taskEvents).toBe(1);
+  });
+
+  it("does not let an out-of-order empty event downgrade usable media", async () => {
+    const fake = fakeDatabase({ durationSec: 0, existing: true });
+    await expect(fake.persist()).resolves.toEqual({ id: "voicemail-1" });
+    expect(fake.operations).toEqual(["task.upsert", "task.event"]);
+  });
+
+  it("upgrades the existing action without rewriting its resolution state", async () => {
+    const fake = fakeDatabase();
+    await fake.persist();
+    expect(fake.taskUpserts).toBe(1);
   });
 
   it("rejects a different recording for the same canonical call", async () => {

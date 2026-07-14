@@ -12,6 +12,7 @@ import {
   type ActiveInboundLifecycleIntent,
 } from "@/lib/call-center/domain/active-inbound-lifecycle";
 import { canonicalVoicemailGreetingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
+import { persistCanonicalUnansweredTask } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
 import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import { prisma } from "@/lib/prisma";
@@ -356,21 +357,12 @@ async function persistMissedCallTask(
   const intent = decision.intents.find((candidate) => candidate.type === "CREATE_TASK");
   if (!intent) return;
 
-  await transaction.callCenterTask.upsert({
-    create: {
-      callId: call.id,
-      dedupeKey: intent.idempotencyKey,
-      kind: intent.kind,
-      practiceId: call.practiceId,
-      sourceEventRevision,
-    },
-    update: {},
-    where: {
-      practiceId_dedupeKey: {
-        dedupeKey: intent.idempotencyKey,
-        practiceId: call.practiceId,
-      },
-    },
+  await persistCanonicalUnansweredTask(transaction, {
+    callId: call.id,
+    dedupeKey: intent.idempotencyKey,
+    kind: intent.kind,
+    practiceId: call.practiceId,
+    sourceEventRevision,
   });
 }
 

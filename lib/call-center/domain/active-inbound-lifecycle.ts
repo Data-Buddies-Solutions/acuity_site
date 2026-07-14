@@ -253,6 +253,12 @@ export function decideActiveInboundLifecycle(
           queueId: input.queue.id,
           type: "START_VOICEMAIL",
         },
+        {
+          description: "Create missed-call task",
+          idempotencyKey: `voicemail:${input.callId}`,
+          kind: "MISSED_CALL",
+          type: "CREATE_TASK",
+        },
       ],
       pendingReplacementLegIds: [],
       queueDeadlineAt,
