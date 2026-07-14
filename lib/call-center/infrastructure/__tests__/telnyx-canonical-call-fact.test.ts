@@ -237,6 +237,7 @@ describe("canonical Telnyx call facts", () => {
     expect(fact).toMatchObject({
       legKind: null,
       providerCallControlId: "control-agent",
+      toAddress: "sip:browser-seat@example.sip.telnyx.com",
     });
     const legKind = resolveCanonicalTelnyxLegKind("AGENT", fact!.legKind);
     expect(legKind).toBe("AGENT");
