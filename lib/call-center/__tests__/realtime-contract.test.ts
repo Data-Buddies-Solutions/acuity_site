@@ -6,7 +6,6 @@ import {
   createRealtimeState,
   markRealtimeReconnecting,
   requestSnapshotReset,
-  selectActiveCall,
   selectIncomingCalls,
   selectOperation,
   type CallCenterSnapshot,
@@ -163,25 +162,12 @@ describe("call-center realtime reducer", () => {
     });
   });
 
-  it("selects logical UI solely from canonical projection state", () => {
+  it("selects incoming calls from canonical projection state", () => {
     const incoming = call({ id: "incoming", status: "RINGING" });
     const active = call({ id: "active", status: "CONNECTED" });
     const state = createRealtimeState(snapshot([incoming, active]));
 
     expect(selectIncomingCalls(state)).toEqual([incoming]);
-    expect(selectActiveCall(state)).toEqual(active);
-  });
-
-  it("treats a ringing outbound call as this agent's active media", () => {
-    const outbound = call({
-      direction: "OUTBOUND",
-      id: "outbound",
-      status: "RINGING",
-    });
-    const state = createRealtimeState(snapshot([outbound]));
-
-    expect(selectIncomingCalls(state)).toEqual([]);
-    expect(selectActiveCall(state)).toEqual(outbound);
   });
 
   it("keeps durable operations until a projection confirms or fails them", () => {

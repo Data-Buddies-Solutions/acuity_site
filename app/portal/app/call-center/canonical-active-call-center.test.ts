@@ -10,6 +10,7 @@ import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
   operationShouldAnswerMedia,
+  selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
   selectCanonicalTransferSource,
   selectCanonicalTransferTakeCandidate,
@@ -107,6 +108,40 @@ const targetObservation = {
 };
 
 describe("canonical active call center correlation", () => {
+  it("shows only the active call owned by this login", () => {
+    const emmaOutbound = {
+      ...call,
+      direction: "OUTBOUND" as const,
+      id: "emma-outbound",
+      status: "RINGING" as const,
+    };
+    const emmaAnswered = {
+      ...call,
+      id: "emma-answered",
+      status: "CONNECTED" as const,
+    };
+    const queueCalls = [emmaOutbound, emmaAnswered];
+
+    expect(
+      selectCanonicalAgentActiveCall(queueCalls, {
+        currentCallId: null,
+        offeredCallId: null,
+      }),
+    ).toBeNull();
+    expect(
+      selectCanonicalAgentActiveCall(queueCalls, {
+        currentCallId: null,
+        offeredCallId: emmaOutbound.id,
+      }),
+    ).toEqual(emmaOutbound);
+    expect(
+      selectCanonicalAgentActiveCall(queueCalls, {
+        currentCallId: emmaAnswered.id,
+        offeredCallId: null,
+      }),
+    ).toEqual(emmaAnswered);
+  });
+
   it("reuses one outbound operation key across retries and remounts", () => {
     const values = new Map<string, string>();
     const storage = {

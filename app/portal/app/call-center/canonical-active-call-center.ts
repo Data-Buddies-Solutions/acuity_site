@@ -11,6 +11,14 @@ const OUTBOUND_OPERATION_STORAGE_KEY = "acuity-call-center:outbound-operation";
 
 type OutboundOperationStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
+export function selectCanonicalAgentActiveCall(
+  calls: readonly CallView[],
+  session: Pick<AgentSessionView, "currentCallId" | "offeredCallId"> | null,
+) {
+  const callId = session?.currentCallId ?? session?.offeredCallId;
+  return callId ? (calls.find(({ id }) => id === callId) ?? null) : null;
+}
+
 function outboundTargetFingerprint(target: {
   clientInstanceId: string;
   destination: string;
