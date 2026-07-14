@@ -14,6 +14,7 @@ export type ResolveCallerThreadInput = {
   legacyVoicemailWhere: Prisma.CallCenterVoicemailWhereInput;
   now: Date;
   phoneVariants: string[];
+  queueId?: string;
 };
 
 export async function resolveCallerThread(
@@ -21,16 +22,27 @@ export async function resolveCallerThread(
   database: Database = prisma,
 ) {
   return database.$transaction(async (transaction) => {
+    const callAccess = canonicalCallAccessWhere(
+      {
+        allowedLocationIds: input.actor.allowedLocationIds,
+        hasAllLocationAccess: input.actor.hasAllLocationAccess,
+        practice: { id: input.actor.practiceId },
+      },
+      input.canonicalLocationIds,
+    );
+    const queueCallAccess = {
+      ...callAccess,
+      ...(input.queueId ? { queueId: input.queueId } : {}),
+    };
     const canonicalWhere: Prisma.CallCenterTaskWhereInput = {
-      call: canonicalCallAccessWhere(
+      call: queueCallAccess,
+      OR: [
+        { callerPhone: { in: input.phoneVariants } },
         {
-          allowedLocationIds: input.actor.allowedLocationIds,
-          hasAllLocationAccess: input.actor.hasAllLocationAccess,
-          practice: { id: input.actor.practiceId },
+          call: { ...queueCallAccess, fromPhone: { in: input.phoneVariants } },
+          callerPhone: null,
         },
-        input.canonicalLocationIds,
-      ),
-      callerPhone: { in: input.phoneVariants },
+      ],
       practiceId: input.actor.practiceId,
       status: "OPEN",
     };

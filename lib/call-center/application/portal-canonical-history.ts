@@ -257,6 +257,7 @@ export async function readCanonicalNeedsAction(
     locationIds?: string[];
     page?: number;
     pageSize?: number;
+    queueId?: string;
   },
   {
     database = prisma,
@@ -271,30 +272,70 @@ export async function readCanonicalNeedsAction(
   if (!context) return null;
   const page = Math.max(1, Math.round(options.page ?? 1));
   const pageSize = Math.min(100, Math.max(1, Math.round(options.pageSize ?? 25)));
+  const callAccess = {
+    ...canonicalCallAccessWhere(context, options.locationIds ?? []),
+    ...(options.queueId ? { queueId: options.queueId } : {}),
+  };
   const taskWhere: Prisma.CallCenterTaskWhereInput = {
-    call: canonicalCallAccessWhere(context, options.locationIds ?? []),
-    callerPhone: { not: null },
+    call: callAccess,
     practiceId: context.practice.id,
     status: "OPEN",
   };
-  const allGroups = await database.callCenterTask.groupBy({
-    by: ["callerPhone"],
-    where: taskWhere,
-  });
-  const groupIds = allGroups.map(({ callerPhone }) =>
-    portalNeedsActionGroupId(callerPhone),
+  const [phoneGroups, legacyNullPhoneTasks] = await Promise.all([
+    database.callCenterTask.groupBy({
+      _max: { createdAt: true },
+      by: ["callerPhone"],
+      where: { ...taskWhere, callerPhone: { not: null } },
+    }),
+    database.callCenterTask.findMany({
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      select: {
+        call: { select: { fromPhone: true } },
+        createdAt: true,
+        id: true,
+      },
+      where: { ...taskWhere, callerPhone: null },
+    }),
+  ]);
+  const groupsById = new Map<
+    string,
+    { latestAt: Date; legacyNullTaskIds: string[]; phones: string[] }
+  >();
+  for (const group of phoneGroups) {
+    if (!group.callerPhone || !group._max.createdAt) continue;
+    const id = portalNeedsActionGroupId(group.callerPhone);
+    const existing = groupsById.get(id);
+    groupsById.set(id, {
+      latestAt:
+        existing && existing.latestAt > group._max.createdAt
+          ? existing.latestAt
+          : group._max.createdAt,
+      legacyNullTaskIds: existing?.legacyNullTaskIds ?? [],
+      phones: [...new Set([...(existing?.phones ?? []), group.callerPhone])],
+    });
+  }
+  for (const task of legacyNullPhoneTasks) {
+    const phone = task.call?.fromPhone;
+    if (!phone) continue;
+    const id = portalNeedsActionGroupId(phone);
+    const existing = groupsById.get(id);
+    groupsById.set(id, {
+      latestAt:
+        existing && existing.latestAt > task.createdAt
+          ? existing.latestAt
+          : task.createdAt,
+      legacyNullTaskIds: [...(existing?.legacyNullTaskIds ?? []), task.id],
+      phones: [...new Set([...(existing?.phones ?? []), phone])],
+    });
+  }
+  const allGroups = [...groupsById.entries()].sort(
+    ([leftId, left], [rightId, right]) =>
+      right.latestAt.getTime() - left.latestAt.getTime() || leftId.localeCompare(rightId),
   );
-  const pageGroups = await database.callCenterTask.groupBy({
-    _max: { createdAt: true },
-    by: ["callerPhone"],
-    orderBy: { _max: { createdAt: "desc" } },
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-    where: taskWhere,
-  });
-  const phones = pageGroups
-    .map(({ callerPhone }) => callerPhone)
-    .filter((phone): phone is string => Boolean(phone));
+  const groupIds = allGroups.map(([id]) => id);
+  const pageGroups = allGroups.slice((page - 1) * pageSize, page * pageSize);
+  const phones = pageGroups.flatMap(([, group]) => group.phones);
+  const legacyNullTaskIds = pageGroups.flatMap(([, group]) => group.legacyNullTaskIds);
   if (!phones.length) return { groupIds, groups: [], total: allGroups.length };
   const tasks = await database.callCenterTask.findMany({
     include: {
@@ -308,18 +349,24 @@ export async function readCanonicalNeedsAction(
       },
     },
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-    where: { ...taskWhere, callerPhone: { in: phones } },
+    where: {
+      ...taskWhere,
+      OR: [
+        { callerPhone: { in: phones } },
+        ...(legacyNullTaskIds.length ? [{ id: { in: legacyNullTaskIds } }] : []),
+      ],
+    },
   });
   const byPhone = new Map(
     buildPortalNeedsActionGroups(tasks.map(taskActivity)).map((group) => [
-      group.fromPhone,
+      group.id,
       group,
     ]),
   );
   return {
     groupIds,
-    groups: phones.flatMap((phone) => {
-      const group = byPhone.get(phone);
+    groups: pageGroups.flatMap(([id]) => {
+      const group = byPhone.get(id);
       return group ? [group] : [];
     }),
     total: allGroups.length,
@@ -495,15 +542,24 @@ export async function readCanonicalCallerTimeline(
     status: { in: [...connectedHistoryStatuses] },
     ...(cutoff ? { receivedAt: { gte: cutoff } } : {}),
   };
+  const taskPhoneWhere: Prisma.CallCenterTaskWhereInput = {
+    OR: [
+      { callerPhone: { in: variants } },
+      {
+        call: { ...access, fromPhone: { in: variants } },
+        callerPhone: null,
+      },
+    ],
+  };
   const taskWhere: Prisma.CallCenterTaskWhereInput = {
     call: access,
-    callerPhone: { in: variants },
+    ...taskPhoneWhere,
     practiceId: context.practice.id,
     ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
   };
   const openTaskWhere: Prisma.CallCenterTaskWhereInput = {
     call: access,
-    callerPhone: { in: variants },
+    ...taskPhoneWhere,
     practiceId: context.practice.id,
     status: "OPEN",
   };

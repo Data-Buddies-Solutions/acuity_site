@@ -239,6 +239,7 @@ export async function readCombinedNeedsAction(
     locationIds: string[];
     page: number;
     pageSize: number;
+    queueId?: string;
   },
   {
     readCanonical = readCanonicalNeedsAction,
@@ -254,6 +255,7 @@ export async function readCombinedNeedsAction(
     locationIds: options.locationIds,
     page: 1,
     pageSize: 100,
+    queueId: options.queueId,
   });
   const [legacy, canonical] = await Promise.all([
     collectPagePrefix(
@@ -272,6 +274,7 @@ export async function readCombinedNeedsAction(
               locationIds: options.locationIds,
               page,
               pageSize,
+              queueId: options.queueId,
             });
       return { items: result?.groups ?? [], total: result?.total ?? 0 };
     }, prefixSize),

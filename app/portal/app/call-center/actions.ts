@@ -19,6 +19,7 @@ import {
   isSpecialAbitaCallCenterContext,
   setCallCenterEnabledForCurrentPractice,
 } from "@/lib/call-center";
+import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
 import { resolveCallerThread } from "@/lib/call-center/infrastructure/prisma-resolve-caller-thread";
 import { reportCallCenterError } from "@/lib/call-center/operator-error-response";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
@@ -299,6 +300,7 @@ async function closeNeedsActionThread(
   phoneVariants: string[],
   resolvedAt: Date,
   scope: CallCenterActionScope,
+  queueId?: string,
 ) {
   await resolveCallerThread({
     actor: {
@@ -314,6 +316,7 @@ async function closeNeedsActionThread(
     legacyVoicemailWhere: scope.activityWhere as Prisma.CallCenterVoicemailWhereInput,
     now: resolvedAt,
     phoneVariants,
+    queueId,
   });
 }
 
@@ -536,6 +539,21 @@ export async function resolveNeedsActionGroupAction(formData: FormData) {
     return;
   }
 
+  const requestedQueueId = String(formData.get("queue") || "").trim() || undefined;
+  const canonicalWorkspace = requestedQueueId
+    ? await readPortalCanonicalWorkspace(
+        scope.canonicalLocationIds,
+        true,
+        requestedQueueId,
+      )
+    : null;
+  const queueId = canonicalWorkspace?.availableQueues.some(
+    ({ id }) => id === requestedQueueId,
+  )
+    ? requestedQueueId
+    : undefined;
+  if (requestedQueueId && !queueId) return;
+
   const resolvedAt = new Date();
 
   await createCallCenterNote({
@@ -555,6 +573,7 @@ export async function resolveNeedsActionGroupAction(formData: FormData) {
     phoneVariants,
     resolvedAt,
     scope,
+    queueId,
   );
 
   revalidateCallCenterPaths(phone);
