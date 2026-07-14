@@ -87,6 +87,10 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
       "Calling is not configured for this login. Ask an administrator to assign a calling station.",
     presentation: "banner",
   },
+  INVALID_REQUEST: {
+    message: "Check the information and try again.",
+    presentation: "inline",
+  },
   MICROPHONE_REQUIRED: {
     message:
       "Microphone access is required. Allow microphone access, then select Ready again.",
@@ -96,6 +100,11 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
   NETWORK_LOST: {
     message: "The network connection was lost. Reconnect, then try again.",
     presentation: "banner",
+    retryable: true,
+  },
+  OUTBOUND_CALL_FAILED: {
+    message: "The call could not be started. Check the number, then try again.",
+    presentation: "inline",
     retryable: true,
   },
   OUTBOUND_NUMBER_INVALID: {
