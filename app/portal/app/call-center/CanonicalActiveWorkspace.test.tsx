@@ -6,6 +6,7 @@ import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-cont
 
 import {
   CallReadinessControl,
+  canonicalSessionConnectionState,
   CanonicalActiveCall,
   resolveCallReadinessState,
 } from "./CanonicalActiveWorkspace";
@@ -60,6 +61,11 @@ function readySession(update: Partial<AgentSessionView> = {}): AgentSessionView 
 }
 
 describe("call readiness", () => {
+  it("reports startup as connecting instead of trying to release the session", () => {
+    expect(canonicalSessionConnectionState("CLOSED", true)).toBe("CONNECTING");
+    expect(canonicalSessionConnectionState("CLOSED", false)).toBe("CLOSED");
+  });
+
   it("exposes one Ready / Not ready switch", () => {
     const onChange = mock(() => {});
     const view = render(
@@ -67,7 +73,7 @@ describe("call readiness", () => {
     );
 
     const control = screen.getByRole("switch", { name: "Call readiness" });
-    expect(control.textContent).toContain("Not ready");
+    expect(screen.getByText("Not ready")).toBeTruthy();
     expect(control.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(control);
     expect(onChange).toHaveBeenCalledWith(true);
@@ -75,7 +81,7 @@ describe("call readiness", () => {
     view.rerender(
       <CallReadinessControl disabled={false} onChange={onChange} state="READY" />,
     );
-    expect(control.textContent).toContain("Ready");
+    expect(screen.getByText("Ready")).toBeTruthy();
     expect(control.getAttribute("aria-checked")).toBe("true");
     fireEvent.click(control);
     expect(onChange).toHaveBeenLastCalledWith(false);
