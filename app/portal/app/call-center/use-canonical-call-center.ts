@@ -27,7 +27,7 @@ type Action =
   | { type: "connected" }
   | { type: "cursor"; revision: string }
   | { type: "failed"; error: Error }
-  | { type: "loading" }
+  | { type: "loading"; preserveSnapshot: boolean }
   | { type: "projection"; event: ProjectionEvent }
   | { type: "reconnecting" }
   | { type: "refetch" }
@@ -44,7 +44,15 @@ const initialState: HookState = {
 function reducer(current: HookState, action: Action): HookState {
   switch (action.type) {
     case "loading":
-      return { ...current, error: null, loading: true };
+      return {
+        ...current,
+        error: null,
+        loading: !action.preserveSnapshot || current.state === null,
+        state:
+          action.preserveSnapshot && current.state
+            ? markRealtimeReconnecting(current.state)
+            : current.state,
+      };
     case "snapshot":
       return {
         ...current,
@@ -239,15 +247,20 @@ export function useCanonicalCallCenter({
   queueId,
 }: UseCanonicalCallCenterOptions): UseCanonicalCallCenterResult {
   const [model, dispatch] = useReducer(reducer, initialState);
+  const loadedIdentityRef = useRef<string | null>(null);
   const plannedRotationRef = useRef(false);
   const refetch = useCallback(() => dispatch({ type: "refetch" }), []);
 
   useEffect(() => {
+    const identityKey = JSON.stringify({ clientInstanceId, queueId });
     const controller = new AbortController();
     let active = true;
     let source: EventSource | null = null;
 
-    dispatch({ type: "loading" });
+    dispatch({
+      type: "loading",
+      preserveSnapshot: loadedIdentityRef.current === identityKey,
+    });
 
     const reset = (reason: CallCenterResetReason) => {
       if (!active) return;
@@ -274,6 +287,7 @@ export function useCanonicalCallCenter({
         }
         const snapshot = data;
         if (!active) return;
+        loadedIdentityRef.current = identityKey;
         dispatch({ type: "snapshot", snapshot });
 
         source = new EventSource(
