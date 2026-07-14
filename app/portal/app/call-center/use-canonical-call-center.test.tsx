@@ -164,6 +164,60 @@ describe("useCanonicalCallCenter", () => {
     expect(String(sources[1]?.url)).toContain("after=30");
   });
 
+  it("keeps the current workspace rendered during a same-session refetch", async () => {
+    let finishRefetch: ((response: Response) => void) | null = null;
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      if (requestCount === 1) return Response.json(snapshot("10"));
+      return new Promise<Response>((resolve) => {
+        finishRefetch = resolve;
+      });
+    }) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
+    );
+
+    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
+
+    act(() => result.current.refetch());
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.state?.revision).toBe("10");
+    expect(result.current.state?.connection).toBe("RECONNECTING");
+
+    await act(async () => finishRefetch?.(Response.json(snapshot("30"))));
+    await waitFor(() => expect(result.current.state?.revision).toBe("30"));
+    expect(result.current.state?.connection).toBe("CONNECTED");
+  });
+
+  it("clears the current workspace when access changes", async () => {
+    let finishRefetch: ((response: Response) => void) | null = null;
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      if (requestCount === 1) return Response.json(snapshot("10"));
+      return new Promise<Response>((resolve) => {
+        finishRefetch = resolve;
+      });
+    }) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
+    );
+
+    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
+
+    act(() => sources[0]?.emit("reset", { reason: "ACCESS_CHANGED", revision: "10" }));
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+    expect(sources[0]?.closeCount).toBe(1);
+    expect(result.current.loading).toBe(true);
+    expect(result.current.state).toBeNull();
+
+    await act(async () => finishRefetch?.(new Response(null, { status: 403 })));
+    await waitFor(() => expect(result.current.error?.message).toContain("403"));
+    expect(result.current.state).toBeNull();
+  });
+
   it("surfaces snapshot failure and allows an explicit refetch", async () => {
     let requestCount = 0;
     globalThis.fetch = mock(async () => {
