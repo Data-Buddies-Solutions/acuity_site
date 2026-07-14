@@ -17,6 +17,7 @@ import {
   type PortalNeedsActionGroup,
   type PortalRecentCallItem,
 } from "@/lib/call-center";
+import { canonicalCallOutcome } from "@/lib/call-center/domain/canonical-call-outcome";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { getPracticeBranding } from "@/lib/practice-branding";
 import { prisma } from "@/lib/prisma";
@@ -77,8 +78,20 @@ function rangeCutoff(range: PortalCallCenterHistoryRange, now: Date) {
 
 const connectedHistoryStatuses = ["CONNECTED", "WRAP_UP", "COMPLETED"] as const;
 
-function legacyStatus(status: CallCenterCallStatus) {
-  switch (status) {
+function legacyStatus(call: {
+  answeredAt: Date | null;
+  direction: "INBOUND" | "OUTBOUND";
+  status: CallCenterCallStatus;
+  voicemail: {
+    durationSec: number;
+    recordingId: string;
+    recordingUrl: string;
+  } | null;
+}) {
+  const outcome = canonicalCallOutcome(call);
+  if (outcome === "MISSED_CALL") return CallCenterSessionStatus.MISSED;
+  if (outcome === "VOICEMAIL") return CallCenterSessionStatus.VOICEMAIL;
+  switch (call.status) {
     case "RECEIVED":
     case "QUEUED":
     case "RINGING":
@@ -163,6 +176,13 @@ export async function readCanonicalCallCenterHistory(
           receivedAt: true,
           status: true,
           toPhone: true,
+          voicemail: {
+            select: {
+              durationSec: true,
+              recordingId: true,
+              recordingUrl: true,
+            },
+          },
           winningLeg: { select: { endpoint: { select: { label: true } } } },
         },
         skip: (page - 1) * pageSize,
@@ -202,7 +222,7 @@ export async function readCanonicalCallCenterHistory(
       providerCallSessionId: call.providerCallSessionId,
       recordSource: "CANONICAL",
       startedAt: call.receivedAt,
-      status: legacyStatus(call.status),
+      status: legacyStatus(call),
       toPhone: call.toPhone,
     })),
     page,
@@ -220,18 +240,34 @@ export async function readCanonicalCallCenterHistory(
 
 function taskActivity(task: {
   call: {
+    answeredAt: Date | null;
     callerName: string | null;
+    direction: "INBOUND" | "OUTBOUND";
     fromPhone: string;
     number: { practicePhoneNumber: { location: { name: string } | null } };
-    voicemail: { durationSec: number; recordingId: string } | null;
+    status: CallCenterCallStatus;
+    voicemail: {
+      durationSec: number;
+      recordingId: string;
+      recordingUrl: string;
+    } | null;
   } | null;
   callerPhone: string | null;
   createdAt: Date;
   id: string;
   kind: "CALLBACK" | "FOLLOW_UP" | "MISSED_CALL" | "VOICEMAIL";
 }): PortalCallActivityItem {
-  const voicemail = task.kind === "VOICEMAIL";
-  const missed = task.kind === "MISSED_CALL";
+  const storedUnanswered = task.kind === "VOICEMAIL" || task.kind === "MISSED_CALL";
+  const outcome =
+    storedUnanswered && task.call
+      ? canonicalCallOutcome(task.call)
+      : task.kind === "VOICEMAIL"
+        ? "VOICEMAIL"
+        : task.kind === "MISSED_CALL"
+          ? "MISSED_CALL"
+          : "CALL";
+  const voicemail = outcome === "VOICEMAIL";
+  const missed = outcome === "MISSED_CALL";
   return {
     callerName: task.call?.callerName ?? null,
     createdAt: task.createdAt,
@@ -392,7 +428,12 @@ const callerCallSelect = {
   status: true,
   toPhone: true,
   voicemail: {
-    select: { durationSec: true, id: true, recordingId: true },
+    select: {
+      durationSec: true,
+      id: true,
+      recordingId: true,
+      recordingUrl: true,
+    },
   },
   winningLeg: { select: { endpoint: { select: { label: true } } } },
 } satisfies Prisma.CallCenterCallSelect;
@@ -412,8 +453,9 @@ type CallerTask = Prisma.CallCenterTaskGetPayload<{ select: typeof callerTaskSel
 
 function callerCallItem(call: CallerCall): PortalCallerTimelineItem {
   const outbound = call.direction === "OUTBOUND";
-  const voicemail = call.status === "VOICEMAIL" || Boolean(call.voicemail);
-  const missed = call.status === "ABANDONED";
+  const outcome = canonicalCallOutcome(call);
+  const voicemail = outcome === "VOICEMAIL";
+  const missed = outcome === "MISSED_CALL";
   return {
     body: null,
     direction: outbound ? "outbound" : "inbound",
@@ -445,8 +487,8 @@ function callerCallItem(call: CallerCall): PortalCallerTimelineItem {
 function callerTaskItem(task: CallerTask): PortalCallerTimelineItem {
   const activity = taskActivity(task);
   const open = task.status === "OPEN";
-  const voicemail = task.kind === "VOICEMAIL";
-  const missed = task.kind === "MISSED_CALL";
+  const voicemail = activity.kind === "voicemail";
+  const missed = activity.kind === "missed";
   const status = open
     ? task.kind === "CALLBACK"
       ? CallCenterNoteDisposition.CALLBACK_NEEDED

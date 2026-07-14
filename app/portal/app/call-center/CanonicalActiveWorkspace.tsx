@@ -52,6 +52,7 @@ import {
   type CallCenterAction,
 } from "./call-center-errors";
 import { setCallCenterCurrentCallGuard } from "./call-center-current-call-guard";
+import { canonicalTaskSignal } from "./canonical-task-signal";
 import {
   beginCanonicalTransfer,
   beginCanonicalTake,
@@ -292,10 +293,7 @@ function ConnectedCanonicalActiveWorkspace({
   );
   const state = realtime.state;
   const taskSignal = state
-    ? `${state.counts.openTasks}:${state.tasks
-        .map(({ id, status }) => `${id}:${status}`)
-        .sort()
-        .join("|")}`
+    ? canonicalTaskSignal(state.counts.openTasks, state.tasks)
     : undefined;
   const projectedSession =
     state?.agentSession?.clientInstanceId === clientInstanceId &&

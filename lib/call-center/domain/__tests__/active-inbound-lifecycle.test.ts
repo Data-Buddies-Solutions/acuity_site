@@ -159,6 +159,7 @@ describe("ACTIVE inbound lifecycle decision", () => {
       "STOP_PLAYBACK",
       "HANGUP_LEG",
       "START_VOICEMAIL",
+      "CREATE_TASK",
     ]);
   });
 
@@ -207,7 +208,12 @@ describe("ACTIVE inbound lifecycle decision", () => {
     expect(result.intents.map((intent) => intent.type)).toEqual([
       "STOP_PLAYBACK",
       "START_VOICEMAIL",
+      "CREATE_TASK",
     ]);
+    expect(result.intents.at(-1)).toMatchObject({
+      idempotencyKey: "voicemail:call-1",
+      kind: "MISSED_CALL",
+    });
   });
 
   it("does not overflow past the overall queue deadline", () => {

@@ -2,7 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { canonicalVoicemailRecordingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
 import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
-import { persistCanonicalVoicemailTask } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
+import { persistCanonicalUnansweredTask } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
@@ -215,6 +215,7 @@ async function recoverLockedCall(
       deadlineAt: null,
       endedAt: call.endedAt ?? now,
       stateVersion: { increment: 1 },
+      status: "ABANDONED",
     },
     where: { deadlineAt: call.deadlineAt, id: call.id, status: "VOICEMAIL" },
   });
@@ -265,8 +266,9 @@ async function recoverLockedCall(
       },
     },
   });
-  await persistCanonicalVoicemailTask(transaction, {
+  await persistCanonicalUnansweredTask(transaction, {
     callId: call.id,
+    kind: "MISSED_CALL",
     practiceId: call.practiceId,
     sourceEventRevision: event.revision,
   });
