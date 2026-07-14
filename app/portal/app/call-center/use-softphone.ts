@@ -9,6 +9,11 @@ import {
   type MediaConnectionState,
   type MediaObservation,
 } from "./softphone-media-adapter";
+import {
+  callCenterResponse,
+  localCallCenterError,
+  operatorErrorCopy,
+} from "./call-center-errors";
 
 type TelnyxTokenResponse =
   | { callerNumber?: string; login: string; password: string }
@@ -58,31 +63,7 @@ const TELNYX_CLIENT_EVENTS = [
 ] as const;
 
 async function readTokenResponse(response: Response): Promise<TelnyxTokenResponse> {
-  const text = await response.text().catch(() => "");
-  let body: unknown = null;
-
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = null;
-    }
-  }
-
-  if (!response.ok) {
-    const detail =
-      body &&
-      typeof body === "object" &&
-      "error" in body &&
-      typeof body.error === "string"
-        ? body.error
-        : `Unable to connect Telnyx (${response.status})`;
-    throw new Error(detail);
-  }
-
-  if (!body || typeof body !== "object") {
-    throw new Error("Call center connection returned an empty response");
-  }
+  const body = await callCenterResponse<TelnyxTokenResponse>(response);
 
   const credentials = body as Record<string, unknown>;
   if (typeof credentials.token === "string" && credentials.token.trim()) {
@@ -97,7 +78,7 @@ async function readTokenResponse(response: Response): Promise<TelnyxTokenRespons
     return { login: credentials.login, password: credentials.password };
   }
 
-  throw new Error("Call center connection returned invalid credentials");
+  throw localCallCenterError("CALLING_NOT_CONFIGURED", false);
 }
 
 function connectionId() {
@@ -105,17 +86,6 @@ function connectionId() {
     globalThis.crypto?.randomUUID?.() ??
     `media-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
-}
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Unknown call error";
-  }
 }
 
 function mediaErrorMessage(event: unknown) {
@@ -140,6 +110,14 @@ function mediaErrorMessage(event: unknown) {
   }
 
   return "Browser microphone or WebRTC media failed";
+}
+
+function mediaFailure() {
+  const code =
+    typeof navigator !== "undefined" && !navigator.onLine
+      ? "NETWORK_LOST"
+      : "PROVIDER_UNAVAILABLE";
+  return operatorErrorCopy(localCallCenterError(code), "connect").message;
 }
 
 function legacyCallSnapshot(call: Call): LegacySoftphoneCall {
@@ -293,10 +271,15 @@ function useSoftphoneMediaEngine({
           setMicrophoneReady(true);
           return true;
         } catch (permissionError) {
-          const message = errorMessage(permissionError);
           setMicrophoneReady(false);
-          setSetupError(`Microphone permission is required to answer calls. ${message}`);
-          debug("microphone-permission-failed", { message });
+          setSetupError(
+            operatorErrorCopy(localCallCenterError("MICROPHONE_REQUIRED"), "readiness")
+              .message,
+          );
+          debug("microphone-permission-failed", {
+            causeName:
+              permissionError instanceof Error ? permissionError.name : "unknown",
+          });
           return false;
         }
       })();
@@ -416,27 +399,26 @@ function useSoftphoneMediaEngine({
         });
         client.on("telnyx.error", (event) => {
           if (cancelled) return;
-          const message = event.error?.message || "Telnyx connection failed";
           setConnection("FAILED");
-          setError(message);
-          debug("telnyx-error", { message });
+          setError(mediaFailure());
+          debug("telnyx-error", { causeName: event.error?.name ?? "TelnyxError" });
         });
         client.on("telnyx.warning", (event: unknown) => {
           if (!cancelled) debug("telnyx-warning", { message: mediaErrorMessage(event) });
         });
         client.on("telnyx.rtc.mediaError", (event: unknown) => {
           if (cancelled) return;
-          const message = mediaErrorMessage(event);
           setConnection("FAILED");
-          setError(message);
-          debug("telnyx-media-error", { message });
+          setError(mediaFailure());
+          debug("telnyx-media-error", { causeName: "TelnyxMediaError" });
         });
         client.on("telnyx.rtc.peerConnectionFailureError", (event: unknown) => {
           if (cancelled) return;
-          const message = mediaErrorMessage(event);
           setConnection("FAILED");
-          setError(message);
-          debug("telnyx-peer-connection-failure", { message });
+          setError(mediaFailure());
+          debug("telnyx-peer-connection-failure", {
+            causeName: "TelnyxPeerConnectionFailure",
+          });
         });
         client.on("telnyx.socket.close", () => {
           if (cancelled) return;
@@ -477,7 +459,7 @@ function useSoftphoneMediaEngine({
         clientRef.current = client;
       } catch (connectError) {
         if (cancelled) return;
-        const message = errorMessage(connectError) || "Telnyx connection failed";
+        const message = operatorErrorCopy(connectError, "connect").message;
         setConnection("FAILED");
         setError(message);
         debug("telnyx-connect-failed", { message });

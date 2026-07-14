@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { ApiError, parseJsonBody, withApiHandler } from "@/lib/api/handler";
+import { ApiError, parseJsonBody } from "@/lib/api/handler";
 import {
   startOutboundCall,
   type StartOutboundCallInput,
 } from "@/lib/call-center/application/start-outbound-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { prismaStartOutboundCallStore } from "@/lib/call-center/infrastructure/prisma-start-outbound-call-store";
+import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z
   .object({
@@ -38,7 +39,7 @@ export function createStartOutboundCallHandler({
   getActor,
   start = startOutboundCall,
 }: Dependencies) {
-  return withApiHandler(
+  return withCallCenterApiHandler(
     async (request: Request) => {
       const actor = await getActor();
       const body = await parseJsonBody(request, bodySchema);
@@ -53,8 +54,9 @@ export function createStartOutboundCallHandler({
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 201 });
     },
     {
-      errorMessage: "Failed to start canonical outbound call",
+      errorCode: "OUTBOUND_CALL_FAILED",
       logLabel: "[portal-call-center] Failed to start canonical outbound call",
+      retryable: true,
     },
   );
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requirePortalCallCenterContext, withApiHandler } from "@/lib/api/handler";
+import { requirePortalCallCenterContext } from "@/lib/api/handler";
 import {
   allowsSharedCallCenterStation,
   buildCallCenterSeatAccessWhere,
@@ -10,6 +10,10 @@ import {
 } from "@/lib/call-center";
 import { createTelnyxLoginToken } from "@/lib/telnyx";
 import { prisma } from "@/lib/prisma";
+import {
+  CallCenterOperatorError,
+  withCallCenterApiHandler,
+} from "@/lib/call-center/operator-error-response";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +21,7 @@ function env(name: string) {
   return process.env[name]?.trim() || "";
 }
 
-export const GET = withApiHandler(
+export const GET = withCallCenterApiHandler(
   async (request: NextRequest) => {
     const context = await requirePortalCallCenterContext();
     const settings = context.practice.callCenterSettings;
@@ -44,17 +48,11 @@ export const GET = withApiHandler(
       : null;
 
     if (seatId && !seat) {
-      return NextResponse.json(
-        { error: "Call center station not found" },
-        { status: 404 },
-      );
+      throw new CallCenterOperatorError("CALL_CENTER_STATION_NOT_FOUND", 404);
     }
 
     if (seat && !seat.telnyxCredentialId) {
-      return NextResponse.json(
-        { error: "Selected call center station is missing Telnyx credentials" },
-        { status: 422 },
-      );
+      throw new CallCenterOperatorError("CALLING_NOT_CONFIGURED", 422);
     }
 
     if (seat && browserSessionId && !allowsSharedCallCenterStation(context, seat)) {
@@ -79,10 +77,7 @@ export const GET = withApiHandler(
       });
 
       if (leasedByAnotherBrowser) {
-        return NextResponse.json(
-          { error: "Selected call center station is already active in another browser" },
-          { status: 409 },
-        );
+        throw new CallCenterOperatorError("CALL_CENTER_STATION_IN_USE", 409);
       }
     }
 
@@ -94,10 +89,7 @@ export const GET = withApiHandler(
     const sipPassword = env("TELNYX_SIP_PASSWORD");
 
     if (!seat && !runtimeSettings.credentialId) {
-      return NextResponse.json(
-        { error: "Select an assigned call center station" },
-        { status: 422 },
-      );
+      throw new CallCenterOperatorError("CALLING_NOT_CONFIGURED", 422);
     }
 
     if (!seat && sipUsername && sipPassword) {
@@ -109,10 +101,7 @@ export const GET = withApiHandler(
     }
 
     if (!credentialId) {
-      return NextResponse.json(
-        { error: "Telnyx WebRTC credentials are not configured" },
-        { status: 422 },
-      );
+      throw new CallCenterOperatorError("CALLING_NOT_CONFIGURED", 422);
     }
 
     const token = await createTelnyxLoginToken(credentialId);
@@ -124,7 +113,8 @@ export const GET = withApiHandler(
     });
   },
   {
-    errorMessage: "Failed to create Telnyx token",
+    errorCode: "PROVIDER_UNAVAILABLE",
     logLabel: "[portal-call-center] Failed to create Telnyx token",
+    retryable: true,
   },
 );

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/handler";
 import { takePendingBlindTransfer } from "@/lib/call-center";
+import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ const transferTakeSchema = z.object({
   seatId: z.string().trim().min(1, "seatId is required"),
 });
 
-export const POST = withApiHandler(
+export const POST = withCallCenterApiHandler(
   async (request: NextRequest) => {
     const { browserSessionId, queueItemId, seatId } = await parseJsonBody(
       request,
@@ -28,7 +29,8 @@ export const POST = withApiHandler(
     return NextResponse.json(result);
   },
   {
-    errorMessage: "Failed to take transfer",
+    errorCode: "TEMPORARY_SERVICE_FAILURE",
     logLabel: "[portal-call-center] Failed to take transfer",
+    retryable: true,
   },
 );

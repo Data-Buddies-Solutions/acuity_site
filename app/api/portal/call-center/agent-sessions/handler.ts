@@ -5,11 +5,7 @@ import {
   CallCenterAgentConnectionState,
   CallCenterAgentPresence,
 } from "@/generated/prisma/client";
-import {
-  parseJsonBody,
-  requirePortalCallCenterContext,
-  withApiHandler,
-} from "@/lib/api/handler";
+import { parseJsonBody, requirePortalCallCenterContext } from "@/lib/api/handler";
 import {
   acquireAgentSession,
   AGENT_SESSION_LEASE_MS,
@@ -19,6 +15,7 @@ import {
 } from "@/lib/call-center/application/agent-sessions";
 import { prismaAgentSessionStore } from "@/lib/call-center/infrastructure/prisma-agent-session-store";
 import { serializeAgentSessionView } from "@/lib/call-center/domain/agent-session-wire";
+import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const identitySchema = z.object({
   clientInstanceId: z.string().trim().min(1).max(200),
@@ -68,7 +65,7 @@ export function createAgentSessionHandlers({
   release = releaseAgentSession,
   updateReadiness = updateAgentSessionReadiness,
 }: AgentSessionHandlersDependencies = {}) {
-  const POST = withApiHandler(
+  const POST = withCallCenterApiHandler(
     async (request: Request) => {
       const context = await getContext();
       const input = await parseJsonBody(request, identitySchema);
@@ -85,12 +82,13 @@ export function createAgentSessionHandlers({
       });
     },
     {
-      errorMessage: "Failed to start call center session",
+      errorCode: "TEMPORARY_SERVICE_FAILURE",
       logLabel: "[portal-call-center] Failed to start canonical agent session",
+      retryable: true,
     },
   );
 
-  const PATCH = withApiHandler(
+  const PATCH = withCallCenterApiHandler(
     async (request: Request, routeContext: RouteContext) => {
       const context = await getContext();
       const sessionId = await readSessionId(routeContext);
@@ -105,12 +103,13 @@ export function createAgentSessionHandlers({
       return NextResponse.json({ session: serializeAgentSessionView(result.session) });
     },
     {
-      errorMessage: "Failed to update call center readiness",
+      errorCode: "TEMPORARY_SERVICE_FAILURE",
       logLabel: "[portal-call-center] Failed to update canonical readiness",
+      retryable: true,
     },
   );
 
-  const DELETE = withApiHandler(
+  const DELETE = withCallCenterApiHandler(
     async (request: Request, routeContext: RouteContext) => {
       const context = await getContext();
       const sessionId = await readSessionId(routeContext);
@@ -125,8 +124,9 @@ export function createAgentSessionHandlers({
       return NextResponse.json({ session: serializeAgentSessionView(result.session) });
     },
     {
-      errorMessage: "Failed to release call center session",
+      errorCode: "TEMPORARY_SERVICE_FAILURE",
       logLabel: "[portal-call-center] Failed to release canonical agent session",
+      retryable: true,
     },
   );
 

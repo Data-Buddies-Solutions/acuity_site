@@ -20,6 +20,7 @@ import {
   setCallCenterEnabledForCurrentPractice,
 } from "@/lib/call-center";
 import { resolveCallerThread } from "@/lib/call-center/infrastructure/prisma-resolve-caller-thread";
+import { reportCallCenterError } from "@/lib/call-center/operator-error-response";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
@@ -443,9 +444,26 @@ function revalidateCallCenterPaths(phone: string) {
   }
 }
 
-export async function enableCallCenterAction() {
-  await setCallCenterEnabledForCurrentPractice(true);
-  revalidatePath("/portal/app/call-center");
+export type EnableCallCenterState = {
+  error: ReturnType<typeof reportCallCenterError>["envelope"]["error"] | null;
+};
+
+export async function enableCallCenterAction(
+  _state: EnableCallCenterState,
+): Promise<EnableCallCenterState> {
+  try {
+    await setCallCenterEnabledForCurrentPractice(true);
+    revalidatePath("/portal/app/call-center");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: reportCallCenterError(error, undefined, {
+        errorCode: "TEMPORARY_SERVICE_FAILURE",
+        logLabel: "enable call center failed",
+        retryable: true,
+      }).envelope.error,
+    };
+  }
 }
 
 export async function disableCallCenterAction() {

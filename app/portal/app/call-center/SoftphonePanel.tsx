@@ -26,6 +26,12 @@ import type { PortalCallCenterSeat } from "@/lib/call-center";
 import { cn } from "@/lib/utils";
 
 import { saveCallCenterNoteAction } from "./actions";
+import {
+  callCenterResponse,
+  localCallCenterError,
+  operatorErrorCopy,
+  type CallCenterAction,
+} from "./call-center-errors";
 import { sanitizeCallCenterDebugDetails } from "./call-center-debug";
 import {
   hasLocalProviderCallLeg,
@@ -51,6 +57,8 @@ type TelnyxCall = LegacySoftphoneCall;
 
 const CALL_CENTER_DEBUG = process.env.NEXT_PUBLIC_CALL_CENTER_DEBUG === "true";
 const AGENT_RING_UI_TIMEOUT_MS = 30_500;
+const DEBUG_START_MS =
+  typeof performance === "undefined" ? Date.now() : performance.now();
 
 const keypadRows = [
   ["1", "2", "3"],
@@ -236,6 +244,10 @@ function errorMessageFor(error: unknown) {
   }
 }
 
+function operatorMessage(error: unknown, action: CallCenterAction) {
+  return operatorErrorCopy(error, action).message;
+}
+
 function isStaleTelnyxCallError(error: unknown) {
   const message = errorMessageFor(error);
 
@@ -306,9 +318,6 @@ const SoftphonePanel = forwardRef<
   },
   ref,
 ) {
-  const debugStartMsRef = useRef<number>(
-    typeof performance === "undefined" ? Date.now() : performance.now(),
-  );
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState<TelnyxStatus>(
     enabled ? "initializing" : "offline",
@@ -380,7 +389,7 @@ const SoftphonePanel = forwardRef<
 
     console.info("[call-center-debug]", {
       at: new Date().toISOString(),
-      elapsedMs: Math.round(now - debugStartMsRef.current),
+      elapsedMs: Math.round(now - DEBUG_START_MS),
       event,
       ...sanitizeCallCenterDebugDetails(details),
     });
@@ -396,31 +405,33 @@ const SoftphonePanel = forwardRef<
   const {
     activate: activateMediaLeg,
     answer: answerMediaLeg,
+    connection: mediaConnection,
     deactivate: deactivateMediaLeg,
     decline: declineMediaLeg,
     dial: dialMediaLeg,
+    error: mediaError,
     hangup: hangupMediaLeg,
     hold: holdMediaLeg,
+    microphoneReady,
     mute: muteMediaLeg,
+    prepare: prepareMedia,
+    remoteAudioRef,
     sendDtmf,
+    setupError,
+    setupPending,
+    soundReady,
     subscribeLegacy,
   } = media;
   const readiness = useMemo(
     () =>
       resolveSoftphoneReadiness({
-        microphoneReady: media.microphoneReady,
-        providerReady: media.connection === "READY",
-        soundReady: media.soundReady,
+        microphoneReady,
+        providerReady: mediaConnection === "READY",
+        soundReady,
         stationId: stationSeatId ?? null,
         stationSelected,
       }),
-    [
-      media.connection,
-      media.microphoneReady,
-      media.soundReady,
-      stationSeatId,
-      stationSelected,
-    ],
+    [mediaConnection, microphoneReady, soundReady, stationSeatId, stationSelected],
   );
 
   const eligibleTransferTargets = useMemo(
@@ -439,6 +450,7 @@ const SoftphonePanel = forwardRef<
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Keep the selected external station valid.
     setSelectedTransferSeatId(eligibleTransferTargets[0]?.id ?? "");
   }, [eligibleTransferTargets, selectedTransferSeatId]);
 
@@ -611,8 +623,6 @@ const SoftphonePanel = forwardRef<
     ],
   );
 
-  const prepareMedia = media.prepare;
-
   useEffect(() => {
     activeCallRef.current = activeCall;
   }, [activeCall]);
@@ -684,6 +694,7 @@ const SoftphonePanel = forwardRef<
       return;
     }
     debugLog("callback-seeded", { value: seedNumber.value });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Navigation deliberately seeds the dialer.
     setDraftNumber(seedNumber.value);
   }, [debugLog, seedNumber]);
 
@@ -1086,7 +1097,7 @@ const SoftphonePanel = forwardRef<
                 if (armedKey !== ringKey) {
                   setAnsweringRingPending(armedKey, false);
                 }
-                setError(errorMessageFor(answerError) || "Unable to answer call");
+                setError(operatorMessage(answerError, "take"));
               }
             });
           }
@@ -1239,27 +1250,30 @@ const SoftphonePanel = forwardRef<
   );
 
   useEffect(() => {
-    if (media.connection === "CONNECTING") {
+    if (mediaConnection === "CONNECTING") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Mirror the external media connection state.
       setStatus("initializing");
       return;
     }
-    if (media.connection === "FAILED") {
+    if (mediaConnection === "FAILED") {
       setStatus("error");
-      setError(media.error || "Telnyx connection failed");
+      setError(
+        mediaError ||
+          operatorMessage(localCallCenterError("PROVIDER_UNAVAILABLE"), "connect"),
+      );
       return;
     }
-    if (media.connection === "OFFLINE") {
+    if (mediaConnection === "OFFLINE") {
       setStatus("offline");
       return;
     }
-
     setStatus((current) =>
       current === "initializing" || current === "offline" || current === "error"
         ? "ready"
         : current,
     );
     setError(null);
-  }, [media.connection, media.error]);
+  }, [mediaConnection, mediaError]);
 
   useEffect(() => {
     const answeringRingKeys = answeringRingKeysRef.current;
@@ -1377,9 +1391,9 @@ const SoftphonePanel = forwardRef<
   const makeCall = useCallback(async () => {
     const to = normalizeToE164(draftNumber);
 
-    if (media.connection !== "READY" || !to || status !== "ready") {
+    if (mediaConnection !== "READY" || !to || status !== "ready") {
       debugLog("outbound-call-blocked", {
-        hasClient: media.connection === "READY",
+        hasClient: mediaConnection === "READY",
         hasDestination: Boolean(to),
         status,
       });
@@ -1427,7 +1441,7 @@ const SoftphonePanel = forwardRef<
         message: callError instanceof Error ? callError.message : "Unable to start call",
       });
       setStatus("error");
-      setError(callError instanceof Error ? callError.message : "Unable to start call");
+      setError(operatorMessage(callError, "outbound"));
     }
   }, [
     browserSessionId,
@@ -1436,7 +1450,7 @@ const SoftphonePanel = forwardRef<
     draftNumber,
     office,
     dialMediaLeg,
-    media.connection,
+    mediaConnection,
     prepareMedia,
     stationLabel,
     stationSeatId,
@@ -1450,14 +1464,18 @@ const SoftphonePanel = forwardRef<
 
       // Hold current active if any, then unhold the selected
       if (activeCall && activeCall.id !== callId) {
-        void holdMediaLeg(activeCall.id, true).catch(() => {});
+        void holdMediaLeg(activeCall.id, true).catch((error) => {
+          setError(operatorMessage(error, "hold"));
+        });
         setHeldCalls((current) =>
           current.some((c) => c.id === activeCall.id)
             ? current
             : [...current, activeCall],
         );
       }
-      void holdMediaLeg(held.id, false).catch(() => {});
+      void holdMediaLeg(held.id, false).catch((error) => {
+        setError(operatorMessage(error, "hold"));
+      });
     },
     [activeCall, heldCalls, holdMediaLeg],
   );
@@ -1466,7 +1484,9 @@ const SoftphonePanel = forwardRef<
     (callId: string) => {
       const held = heldCalls.find((c) => c.id === callId);
       if (!held) return;
-      void hangupMediaLeg(held.id).catch(() => {});
+      void hangupMediaLeg(held.id).catch((error) => {
+        setError(operatorMessage(error, "end"));
+      });
       setHeldCalls((current) => current.filter((c) => c.id !== callId));
     },
     [hangupMediaLeg, heldCalls],
@@ -1484,7 +1504,7 @@ const SoftphonePanel = forwardRef<
           queuePostCallWrapUp("stale-hangup-error");
           resetActiveCallUi();
         } else {
-          setError(errorMessageFor(hangupError) || "Unable to end call");
+          setError(operatorMessage(hangupError, "end"));
         }
       });
     }
@@ -1492,19 +1512,34 @@ const SoftphonePanel = forwardRef<
 
   const toggleMute = useCallback(() => {
     if (!activeCall) return;
-    muteMediaLeg(activeCall.id, !isMuted);
-    setMuted((current) => !current);
+    try {
+      muteMediaLeg(activeCall.id, !isMuted);
+      setMuted((current) => !current);
+      setError(null);
+    } catch (error) {
+      setError(operatorMessage(error, "mute"));
+    }
   }, [activeCall, isMuted, muteMediaLeg]);
 
   const toggleHold = useCallback(() => {
     if (!activeCall) return;
-    void holdMediaLeg(activeCall.id, !isHeld).catch(() => {});
-    setHeld((current) => !current);
+    void holdMediaLeg(activeCall.id, !isHeld)
+      .then(() => {
+        setHeld((current) => !current);
+        setError(null);
+      })
+      .catch((error) => setError(operatorMessage(error, "hold")));
   }, [activeCall, holdMediaLeg, isHeld]);
 
   const sendDigit = useCallback(
     (digit: string) => {
-      if (activeCall) sendDtmf(activeCall.id, digit);
+      if (!activeCall) return;
+      try {
+        sendDtmf(activeCall.id, digit);
+        setError(null);
+      } catch (error) {
+        setError(operatorMessage(error, "keypad"));
+      }
     },
     [activeCall, sendDtmf],
   );
@@ -1540,11 +1575,7 @@ const SoftphonePanel = forwardRef<
       });
 
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          detail?: string;
-          error?: string;
-        } | null;
-        throw new Error(body?.detail || body?.error || "Unable to transfer call");
+        await callCenterResponse(response);
       }
 
       debugLog("transfer-request-finished", {
@@ -1567,7 +1598,7 @@ const SoftphonePanel = forwardRef<
       });
       transferPendingRef.current = false;
       setTransferPending(false);
-      setError(errorMessageFor(transferError) || "Unable to transfer call");
+      setError(operatorMessage(transferError, "transfer"));
     }
   }, [
     activeCall,
@@ -1595,7 +1626,7 @@ const SoftphonePanel = forwardRef<
     : visualStatus === "ready" && !readiness.ready
       ? "Setup needed"
       : statusLabel(visualStatus);
-  const visibleError = error ?? media.setupError;
+  const visibleError = error ?? setupError;
 
   return (
     <section className="rounded-lg border border-[var(--portal-border)] bg-white shadow-[0_14px_40px_rgba(16,39,44,0.04)]">
@@ -1636,7 +1667,7 @@ const SoftphonePanel = forwardRef<
       </div>
 
       <div className="space-y-4 p-4">
-        <audio ref={media.remoteAudioRef} autoPlay className="hidden" playsInline />
+        <audio ref={remoteAudioRef} autoPlay className="hidden" playsInline />
 
         {visibleError ? (
           <div
@@ -1656,13 +1687,13 @@ const SoftphonePanel = forwardRef<
             (!readiness.microphoneReady || !readiness.soundReady) ? (
               <Button
                 className="mt-2"
-                disabled={media.setupPending}
+                disabled={setupPending}
                 onClick={() => void prepareMedia()}
                 size="sm"
                 variant="secondary"
               >
                 <Mic className="h-4 w-4" aria-hidden="true" />
-                {media.setupPending ? "Enabling" : "Enable calling"}
+                {setupPending ? "Enabling" : "Enable calling"}
               </Button>
             ) : null}
           </div>

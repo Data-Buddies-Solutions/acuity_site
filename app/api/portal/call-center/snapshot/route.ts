@@ -1,10 +1,11 @@
-import { requirePortalCallCenterContext, withApiHandler } from "@/lib/api/handler";
+import { requirePortalCallCenterContext } from "@/lib/api/handler";
+import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 import { createSnapshotHandler } from "./handler";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withApiHandler(
+export const GET = withCallCenterApiHandler(
   createSnapshotHandler({
     getActor: async () => {
       const context = await requirePortalCallCenterContext();
@@ -17,7 +18,8 @@ export const GET = withApiHandler(
     },
   }),
   {
-    errorMessage: "Failed to load call center snapshot",
+    errorCode: "TEMPORARY_SERVICE_FAILURE",
     logLabel: "[portal-call-center] Failed to load canonical snapshot",
+    retryable: true,
   },
 );

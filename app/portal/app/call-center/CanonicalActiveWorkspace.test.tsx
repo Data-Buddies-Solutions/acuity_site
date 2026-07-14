@@ -404,7 +404,7 @@ describe("CanonicalActiveCall", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hold" }));
 
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "We could not update hold. Try again.",
+      "The phone service is temporarily unavailable. Try again in a moment.",
     );
     expect(screen.getByRole("button", { name: "Hold" })).toBeTruthy();
   });

@@ -318,7 +318,9 @@ describe("useSoftphoneMedia canonical credentials", () => {
     );
 
     await waitFor(() => expect(result.current.connection).toBe("FAILED"));
-    expect(result.current.error).toBe("Unable to connect Telnyx (503)");
+    expect(result.current.error).toBe(
+      "We couldn't connect to the call center. Try again. If it keeps happening, contact support.",
+    );
     expect(result.current.error).not.toContain("JSON");
     expect(clients).toHaveLength(0);
   });
@@ -326,7 +328,13 @@ describe("useSoftphoneMedia canonical credentials", () => {
   it("shows the API explanation when a station lease is rejected", async () => {
     globalThis.fetch = mock(async () =>
       Response.json(
-        { error: "Selected call center station is already active in another browser" },
+        {
+          error: {
+            code: "CALL_CENTER_STATION_IN_USE",
+            referenceId: "ABC123",
+            retryable: false,
+          },
+        },
         { status: 409 },
       ),
     ) as unknown as typeof fetch;
@@ -343,7 +351,7 @@ describe("useSoftphoneMedia canonical credentials", () => {
 
     await waitFor(() => expect(result.current.connection).toBe("FAILED"));
     expect(result.current.error).toBe(
-      "Selected call center station is already active in another browser",
+      "This calling station is open in another browser. Close it there or use another station. Reference: ABC123.",
     );
   });
 });

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
 import { getPortalCallCenterData, resolveTelnyxRuntimeSettings } from "@/lib/call-center";
 import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
 import { resolvePortalCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
@@ -11,9 +10,9 @@ import { PracticePageHeader } from "../PracticePageHeader";
 
 import CallCenterWorkspace from "./CallCenterWorkspace";
 import { CanonicalActiveWorkspace } from "./CanonicalActiveWorkspace";
+import { EnableCallCenterControl } from "./EnableCallCenterControl";
 import LocationPicker from "./LocationPicker";
 import { QueuePicker } from "./QueuePicker";
-import { enableCallCenterAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 const logger = createLogger("portal-call-center-page");
@@ -127,11 +126,7 @@ export default async function PortalCallCenterPage({
               queues={canonicalWorkspace.availableQueues}
             />
           ) : null}
-          {!enabled && data.hasAllLocationAccess ? (
-            <form action={enableCallCenterAction}>
-              <Button variant="primary">Enable</Button>
-            </form>
-          ) : null}
+          {!enabled && data.hasAllLocationAccess ? <EnableCallCenterControl /> : null}
         </div>
       </PracticePageHeader>
 

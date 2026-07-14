@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { parseJsonBody, withApiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/handler";
 import { blindTransferActiveCallToSeat } from "@/lib/call-center";
+import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ const transferSchema = z.object({
   targetSeatId: z.string().trim().min(1, "targetSeatId is required"),
 });
 
-export const POST = withApiHandler(
+export const POST = withCallCenterApiHandler(
   async (request: NextRequest) => {
     const { browserSessionId, sourceCallControlId, targetSeatId } = await parseJsonBody(
       request,
@@ -28,7 +29,8 @@ export const POST = withApiHandler(
     return NextResponse.json(result);
   },
   {
-    errorMessage: "Failed to transfer call",
+    errorCode: "TEMPORARY_SERVICE_FAILURE",
     logLabel: "[portal-call-center] Failed to transfer call",
+    retryable: true,
   },
 );
