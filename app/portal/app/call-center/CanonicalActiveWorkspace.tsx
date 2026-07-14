@@ -742,7 +742,7 @@ function ConnectedCanonicalActiveWorkspace({
                     state.connection === "CONNECTED" ? "bg-emerald-500" : "bg-amber-500"
                   }`}
                 />
-                {state.connection === "CONNECTED" ? "Live" : "Reconnecting"}
+                {state.connection === "CONNECTED" ? "Queue live" : "Queue reconnecting"}
               </PortalBadge>
             </div>
 

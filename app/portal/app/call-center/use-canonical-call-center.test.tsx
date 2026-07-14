@@ -128,6 +128,10 @@ describe("useCanonicalCallCenter", () => {
     act(() => sources[0]?.emit("cursor", { revision: "18" }));
     expect(result.current.state?.revision).toBe("18");
 
+    act(() => sources[0]?.emit("rotate", { reason: "STREAM_LIFETIME" }));
+    act(() => sources[0]?.emit("error"));
+    expect(result.current.state?.connection).toBe("CONNECTED");
+
     act(() => sources[0]?.emit("error"));
     expect(result.current.state?.connection).toBe("RECONNECTING");
     expect(sources).toHaveLength(1);

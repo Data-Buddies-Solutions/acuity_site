@@ -144,7 +144,12 @@ export function createCanonicalEventsHandler({
         };
         const poll = async () => {
           if (closed) return;
-          if (request.signal.aborted || clock() - startedAt >= streamLifetimeMs) {
+          if (request.signal.aborted) {
+            close();
+            return;
+          }
+          if (clock() - startedAt >= streamLifetimeMs) {
+            send('event: rotate\ndata: {"reason":"STREAM_LIFETIME"}\n\n');
             close();
             return;
           }
