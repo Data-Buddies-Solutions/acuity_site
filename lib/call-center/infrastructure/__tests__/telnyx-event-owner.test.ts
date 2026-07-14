@@ -37,7 +37,7 @@ function event({
   callLegId?: string | null;
   callSessionId?: string | null;
   clientState?: Record<string, unknown>;
-  direction?: "incoming" | "outgoing";
+  direction?: "incoming" | "outgoing" | null;
   effectOwner?: TelnyxEventOwner | null;
   eventId?: string;
   eventType?: string;
@@ -54,7 +54,7 @@ function event({
       : payloadClientState
         ? { client_state: payloadClientState }
         : {}),
-    direction,
+    ...(direction ? { direction } : {}),
     from,
     to,
   });
@@ -288,6 +288,39 @@ function database({
       configuredNumber = value ?? null;
     },
   };
+}
+
+const trustedOutboundState = {
+  callId: "tampered-call-is-ignored",
+  canonicalOutboundToken: "trusted-token",
+  legId: "tampered-leg-is-ignored",
+  practiceId: "practice-1",
+};
+
+function outboundDatabase() {
+  const call = {
+    effectOwner: "CANONICAL" as const,
+    id: "outbound-call",
+    providerCallSessionId: null,
+  };
+  const leg: PersistedLeg = {
+    call,
+    id: "outbound-leg",
+    kind: "AGENT",
+    providerCallControlId: null,
+    providerCallLegId: null,
+    providerCallSessionId: null,
+  };
+  return database({
+    legs: [leg],
+    number: null,
+    outboundMapping: {
+      callId: call.id,
+      legId: leg.id,
+      practiceId: "practice-1",
+      token: "trusted-token",
+    },
+  });
 }
 
 describe("Telnyx event effect owner", () => {
@@ -549,41 +582,47 @@ describe("Telnyx event effect owner", () => {
     ).resolves.toBe("CANONICAL");
   });
 
-  it("resolves opaque outbound state and rejects tamper or provider replay", async () => {
-    const call = {
-      effectOwner: "CANONICAL" as const,
-      id: "outbound-call",
-      providerCallSessionId: null,
-    };
-    const leg: PersistedLeg = {
-      call,
-      id: "outbound-leg",
-      kind: "AGENT",
-      providerCallControlId: null,
-      providerCallLegId: null,
-      providerCallSessionId: null,
-    };
-    const db = database({
-      legs: [leg],
-      number: null,
-      outboundMapping: {
-        callId: call.id,
-        legId: leg.id,
-        practiceId: "practice-1",
-        token: "trusted-token",
-      },
-    });
-    const trustedState = {
-      callId: "tampered-call-is-ignored",
-      canonicalOutboundToken: "trusted-token",
-      legId: "tampered-leg-is-ignored",
-      practiceId: "practice-1",
-    };
+  it("resolves a persisted outbound token when direction is absent", async () => {
+    const db = outboundDatabase();
+
     await expect(
       resolveTelnyxEventOwner(
         event({
           callSessionId: "outbound-session",
-          clientState: trustedState,
+          clientState: trustedOutboundState,
+          direction: null,
+        }),
+        db.prisma,
+      ),
+    ).resolves.toBe("CANONICAL");
+    expect(db.legs[0]).toMatchObject({
+      id: "outbound-leg",
+      providerCallControlId: "control-1",
+      providerCallLegId: "provider-leg-1",
+      providerCallSessionId: "outbound-session",
+    });
+  });
+
+  it("rejects a persisted outbound token with explicit inbound direction", async () => {
+    const db = outboundDatabase();
+
+    await expect(
+      resolveTelnyxEventOwner(
+        event({ clientState: trustedOutboundState, direction: "incoming" }),
+        db.prisma,
+      ),
+    ).rejects.toThrow("TELNYX_EVENT_OUTBOUND_TOKEN_INVALID");
+    expect(db.legs[0]?.providerCallControlId).toBeNull();
+  });
+
+  it("resolves opaque outbound state and rejects tamper or provider replay", async () => {
+    const db = outboundDatabase();
+
+    await expect(
+      resolveTelnyxEventOwner(
+        event({
+          callSessionId: "outbound-session",
+          clientState: trustedOutboundState,
           direction: "outgoing",
         }),
         db.prisma,
@@ -600,7 +639,7 @@ describe("Telnyx event effect owner", () => {
       resolveTelnyxEventOwner(
         event({
           callSessionId: "replayed-session",
-          clientState: trustedState,
+          clientState: trustedOutboundState,
           direction: "outgoing",
           eventId: "replay",
         }),
