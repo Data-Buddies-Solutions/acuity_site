@@ -7,12 +7,18 @@ import {
   ChevronDown,
   ChevronRight,
   Delete,
+  Grid3X3,
   Headphones,
+  Mic,
+  MicOff,
+  Pause,
   Phone,
+  PhoneForwarded,
   PhoneIncoming,
   PhoneMissed,
   PhoneOff,
   PhoneOutgoing,
+  Play,
   Voicemail,
 } from "lucide-react";
 
@@ -68,6 +74,15 @@ type CanonicalActiveWorkspaceProps = {
 };
 
 const keypadDigits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+
+function formatCallDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const remainingSeconds = (seconds % 60).toString().padStart(2, "0");
+
+  return `${minutes}:${remainingSeconds}`;
+}
 
 function canonicalConnectionState(
   state: ReturnType<typeof useSoftphoneMedia>["connection"],
@@ -581,7 +596,7 @@ function ConnectedCanonicalActiveWorkspace({
     session,
   ]);
 
-  if (realtime.error) {
+  if (realtime.error && !state) {
     return (
       <CanonicalUnavailable message="We could not connect to the call center. Refresh to try again." />
     );
@@ -636,6 +651,23 @@ function ConnectedCanonicalActiveWorkspace({
 
   return (
     <div className="space-y-4">
+      {realtime.error ? (
+        <section
+          className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+          role="alert"
+        >
+          <div>
+            <p className="font-medium">Call center updates are unavailable.</p>
+            <p className="mt-0.5 text-amber-900/75">
+              Existing call controls remain available. Retry to resume live updates.
+            </p>
+          </div>
+          <Button onClick={refreshSnapshot} size="sm" variant="secondary">
+            Retry
+          </Button>
+        </section>
+      ) : null}
+
       {!actionsEnabled ? (
         <section
           aria-label="Calling unavailable"
@@ -854,6 +886,7 @@ function ConnectedCanonicalActiveWorkspace({
                   actionsEnabled={actionsEnabled}
                   call={activeCall}
                   endpointId={agentProfileId}
+                  key={activeCall.id}
                   media={media}
                   onTakeTransfer={takeTransfer}
                   onTransfer={transferActiveCall}
@@ -921,7 +954,7 @@ function ConnectedCanonicalActiveWorkspace({
   );
 }
 
-function CanonicalActiveCall({
+export function CanonicalActiveCall({
   actionsEnabled,
   call,
   endpointId,
@@ -945,6 +978,12 @@ function CanonicalActiveCall({
   transferTakeCandidate: ReturnType<typeof selectCanonicalTransferTakeCandidate>;
 }) {
   const [targetChoice, setTargetChoice] = useState("");
+  const [callDuration, setCallDuration] = useState(0);
+  const [controlError, setControlError] = useState<string | null>(null);
+  const [controlPending, setControlPending] = useState<"end" | "hold" | null>(null);
+  const [isHeld, setHeld] = useState(false);
+  const [isMuted, setMuted] = useState(false);
+  const [showKeypad, setShowKeypad] = useState(false);
   const match = sessionId
     ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
     : null;
@@ -967,6 +1006,230 @@ function CanonicalActiveCall({
   const targetTransfer =
     transferTakeCandidate?.call.id === call.id ? transferTakeCandidate : null;
   const phone = formatPhone(callPhone(call));
+  const connected = call.status === "CONNECTED" && !targetTransfer;
+  const mediaLegId = match?.observation.mediaLegId ?? null;
+  const observedHeld = match?.observation.state === "HELD";
+  const controlsEnabled = Boolean(actionsEnabled && canEnd && mediaLegId);
+
+  useEffect(() => {
+    setHeld(observedHeld);
+  }, [mediaLegId, observedHeld]);
+
+  useEffect(() => {
+    if (!connected) return;
+
+    const answeredAt = call.answeredAt ? new Date(call.answeredAt).getTime() : NaN;
+    const connectedAt = Number.isFinite(answeredAt) ? answeredAt : Date.now();
+    const updateDuration = () => {
+      setCallDuration(Math.max(0, Math.floor((Date.now() - connectedAt) / 1000)));
+    };
+
+    updateDuration();
+    const timer = window.setInterval(() => {
+      updateDuration();
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [call.answeredAt, connected]);
+
+  const showControlError = (error: unknown, fallback: string) => {
+    setControlError(error instanceof Error ? error.message : fallback);
+  };
+
+  const toggleMute = () => {
+    if (!mediaLegId) return;
+
+    try {
+      media.mute(mediaLegId, !isMuted);
+      setMuted((current) => !current);
+      setControlError(null);
+    } catch (error) {
+      showControlError(error, "We could not update mute. Try again.");
+    }
+  };
+
+  const toggleHold = async () => {
+    if (!mediaLegId || controlPending) return;
+
+    const requestedHeld = !isHeld;
+    setControlPending("hold");
+    try {
+      const updated = await media.hold(mediaLegId, requestedHeld);
+      if (updated === false) {
+        throw new Error("We could not update hold. Try again.");
+      }
+      setHeld(requestedHeld);
+      setControlError(null);
+    } catch (error) {
+      showControlError(error, "We could not update hold. Try again.");
+    } finally {
+      setControlPending(null);
+    }
+  };
+
+  const endCall = async () => {
+    if (!mediaLegId || controlPending) return;
+
+    setControlPending("end");
+    try {
+      await media.hangup(mediaLegId);
+      setControlError(null);
+    } catch (error) {
+      showControlError(error, "We could not end this call. Try again.");
+      setControlPending(null);
+    }
+  };
+
+  const sendDigit = (digit: string) => {
+    if (!mediaLegId || !controlsEnabled || controlPending) return;
+
+    try {
+      media.sendDtmf(mediaLegId, digit);
+      setControlError(null);
+    } catch (error) {
+      showControlError(error, "We could not send that keypad tone. Try again.");
+    }
+  };
+
+  const transferControls = source ? (
+    <div className="mt-3 rounded-md border border-[var(--portal-border)] bg-white p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label className="min-w-0 flex-1">
+          <span className="sr-only">Transfer station</span>
+          <PortalSelect
+            disabled={!actionsEnabled || transferTargets.length === 0}
+            onChange={(event) => setTargetChoice(event.target.value)}
+            value={selectedTargetId}
+          >
+            {transferTargets.length ? (
+              transferTargets.map((target) => (
+                <option key={target.userId} value={target.userId}>
+                  {target.name}
+                </option>
+              ))
+            ) : (
+              <option value="">No stations available</option>
+            )}
+          </PortalSelect>
+        </label>
+        <Button
+          disabled={!actionsEnabled || !selectedTargetId || Boolean(transferOperation)}
+          onClick={() => void onTransfer(call, selectedTargetId)}
+          variant="secondary"
+        >
+          <PhoneForwarded className="h-4 w-4" aria-hidden="true" />
+          {transferOperation?.status === "FAILED"
+            ? "Transfer failed"
+            : transferOperation
+              ? "Transferring"
+              : "Transfer"}
+        </Button>
+      </div>
+      {transferOperation ? (
+        <p
+          className={`mt-2 text-xs ${transferOperation.status === "FAILED" ? "text-[var(--portal-danger)]" : "text-[var(--portal-muted)]"}`}
+        >
+          {transferOperation.status === "FAILED"
+            ? "The transfer could not be completed. Try again."
+            : `Transfer ${transferOperation.status.toLowerCase()}`}
+        </p>
+      ) : transferTargets.length === 0 ? (
+        <p className="mt-2 text-xs text-[var(--portal-muted)]">
+          No other staff member is available for transfer.
+        </p>
+      ) : null}
+    </div>
+  ) : null;
+
+  if (connected) {
+    return (
+      <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
+        {controlError ? (
+          <p className="mb-3 text-sm text-[var(--portal-danger)]" role="alert">
+            {controlError}
+          </p>
+        ) : null}
+
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
+              {call.callerName || phone}
+            </p>
+            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--portal-muted)]">
+              {call.direction === "OUTBOUND" ? "Outbound" : "Patient call"}
+              {call.callerName ? ` · ${phone}` : ""}
+            </p>
+          </div>
+          <p className="font-mono text-lg font-semibold tabular-nums text-[var(--portal-ink)]">
+            {formatCallDuration(callDuration)}
+          </p>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Button
+            aria-pressed={isMuted}
+            disabled={!controlsEnabled || Boolean(controlPending)}
+            onClick={toggleMute}
+            variant={isMuted ? "default" : "secondary"}
+          >
+            {isMuted ? (
+              <MicOff className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Mic className="h-4 w-4" aria-hidden="true" />
+            )}
+            {isMuted ? "Unmute" : "Mute"}
+          </Button>
+          <Button
+            aria-pressed={isHeld}
+            disabled={!controlsEnabled || Boolean(controlPending)}
+            onClick={() => void toggleHold()}
+            variant={isHeld ? "default" : "secondary"}
+          >
+            {isHeld ? (
+              <Play className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Pause className="h-4 w-4" aria-hidden="true" />
+            )}
+            {controlPending === "hold" ? "Updating" : isHeld ? "Resume" : "Hold"}
+          </Button>
+          <Button
+            aria-expanded={showKeypad}
+            disabled={!controlsEnabled || Boolean(controlPending)}
+            onClick={() => setShowKeypad((current) => !current)}
+            variant={showKeypad ? "default" : "secondary"}
+          >
+            <Grid3X3 className="h-4 w-4" aria-hidden="true" />
+            Keypad
+          </Button>
+          <Button
+            disabled={!controlsEnabled || Boolean(controlPending)}
+            onClick={() => void endCall()}
+            variant="secondary"
+          >
+            <PhoneOff className="h-4 w-4" aria-hidden="true" />
+            {controlPending === "end" ? "Ending" : "End"}
+          </Button>
+        </div>
+
+        {showKeypad ? (
+          <div className="mt-4 grid max-w-60 grid-cols-3 gap-2">
+            {keypadDigits.map((digit) => (
+              <Button
+                disabled={!controlsEnabled || Boolean(controlPending)}
+                key={digit}
+                onClick={() => sendDigit(digit)}
+                variant="secondary"
+              >
+                {digit}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+
+        {transferControls}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
@@ -1008,48 +1271,7 @@ function CanonicalActiveCall({
       </div>
 
       {source ? (
-        <div className="mt-4 flex flex-col gap-2 rounded-md border border-[var(--portal-border)] bg-white p-3">
-          <label className="block text-xs font-medium text-[var(--portal-muted)]">
-            Transfer station
-            <PortalSelect
-              className="mt-1.5"
-              disabled={!actionsEnabled || transferTargets.length === 0}
-              onChange={(event) => setTargetChoice(event.target.value)}
-              value={selectedTargetId}
-            >
-              {transferTargets.map((target) => (
-                <option key={target.userId} value={target.userId}>
-                  {target.name}
-                </option>
-              ))}
-            </PortalSelect>
-          </label>
-          <Button
-            disabled={!actionsEnabled || !selectedTargetId || Boolean(transferOperation)}
-            onClick={() => void onTransfer(call, selectedTargetId)}
-            size="sm"
-            variant="secondary"
-          >
-            {transferOperation?.status === "FAILED"
-              ? "Transfer failed"
-              : transferOperation
-                ? "Transferring"
-                : "Transfer"}
-          </Button>
-          {transferOperation ? (
-            <p
-              className={`text-xs ${transferOperation.status === "FAILED" ? "text-[var(--portal-danger)]" : "text-[var(--portal-muted)]"}`}
-            >
-              {transferOperation.status === "FAILED"
-                ? "The transfer could not be completed. Try again."
-                : `Transfer ${transferOperation.status.toLowerCase()}`}
-            </p>
-          ) : transferTargets.length === 0 ? (
-            <p className="text-xs text-[var(--portal-muted)]">
-              No other staff member is available for transfer.
-            </p>
-          ) : null}
-        </div>
+        transferControls
       ) : targetTransfer ? (
         <p className="mt-3 text-xs text-[var(--portal-muted)]">
           A transferred call is ringing now.
