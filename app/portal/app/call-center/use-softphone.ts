@@ -37,6 +37,7 @@ type DialMediaLeg = {
 
 type SoftphoneMediaOptions = {
   agentSessionId?: string | null;
+  autoPrepare?: boolean;
   browserSessionId: string;
   credentialMode?: "CANONICAL" | "LEGACY";
   enabled: boolean;
@@ -160,6 +161,7 @@ function legacyCallSnapshot(call: Call): LegacySoftphoneCall {
 
 function useSoftphoneMediaEngine({
   agentSessionId,
+  autoPrepare = false,
   browserSessionId,
   credentialMode = "LEGACY",
   enabled,
@@ -175,6 +177,7 @@ function useSoftphoneMediaEngine({
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const debugRef = useRef(onDebug);
   const observationRef = useRef(onObservation);
+  const autoPrepareAttemptedRef = useRef(false);
   const [connection, setConnection] = useState<MediaConnectionState>(
     enabled ? "CONNECTING" : "OFFLINE",
   );
@@ -316,6 +319,17 @@ function useSoftphoneMediaEngine({
       setSetupPending(false);
     }
   }, [debug, soundReady]);
+
+  useEffect(() => {
+    if (!autoPrepare) {
+      autoPrepareAttemptedRef.current = false;
+      return;
+    }
+    if (autoPrepareAttemptedRef.current) return;
+
+    autoPrepareAttemptedRef.current = true;
+    void prepare();
+  }, [autoPrepare, prepare]);
 
   useEffect(() => {
     if (!navigator.permissions?.query) return;

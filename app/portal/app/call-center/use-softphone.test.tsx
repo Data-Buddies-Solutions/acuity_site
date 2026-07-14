@@ -141,6 +141,39 @@ describe("useLegacySoftphoneMedia", () => {
     expect(clients[0]?.handlers.size).toBe(0);
   });
 
+  it("prepares browser calling automatically once when requested", async () => {
+    const mediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+    const stop = mock(() => {});
+    const getUserMedia = mock(async () => ({ getTracks: () => [{ stop }] }));
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    try {
+      const { rerender } = renderHook(() =>
+        useLegacySoftphoneMedia({
+          autoPrepare: true,
+          browserSessionId: "browser-1",
+          enabled: true,
+          stationSeatId: "seat-1",
+        }),
+      );
+
+      await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(1));
+      expect(stop).toHaveBeenCalledTimes(1);
+
+      act(() => rerender());
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+    } finally {
+      if (mediaDevices) {
+        Object.defineProperty(navigator, "mediaDevices", mediaDevices);
+      } else {
+        Reflect.deleteProperty(navigator, "mediaDevices");
+      }
+    }
+  });
+
   it("observes active media without attaching until the leg is explicitly selected", async () => {
     const { result } = renderHook(() =>
       useLegacySoftphoneMedia({
