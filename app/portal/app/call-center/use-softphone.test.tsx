@@ -45,6 +45,10 @@ class FakeTelnyxClient {
     this.handlers.get("telnyx.notification")?.({ call, type: "callUpdate" });
   }
 
+  emit(event: string, payload?: unknown) {
+    this.handlers.get(event)?.(payload);
+  }
+
   on(event: string, handler: (...args: unknown[]) => void) {
     this.handlers.set(event, handler);
   }
@@ -300,6 +304,49 @@ describe("useSoftphoneMedia canonical credentials", () => {
         url: "/api/portal/call-center/agent-sessions/session-1/token",
       },
     ]);
+  });
+
+  it("treats provider recovery as connecting until ready or fatally failed", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        credentialMode: "CANONICAL",
+        enabled: true,
+        stationSeatId: "endpoint-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    act(() => clients[0]?.emit("telnyx.socket.close"));
+    expect(result.current.connection).toBe("CONNECTING");
+    expect(result.current.error).toBeNull();
+
+    act(() =>
+      clients[0]?.emit("telnyx.error", {
+        error: { fatal: false, message: "Connection to server lost" },
+      }),
+    );
+    expect(result.current.connection).toBe("CONNECTING");
+    expect(result.current.error).toBeNull();
+
+    act(() => clients[0]?.emit("telnyx.ready"));
+    expect(result.current.connection).toBe("READY");
+
+    act(() =>
+      clients[0]?.emit("telnyx.error", {
+        error: { fatal: true, message: "Unable to reconnect" },
+      }),
+    );
+    expect(result.current.connection).toBe("FAILED");
+    expect(result.current.error).toBe(
+      "The phone service is temporarily unavailable. Try again in a moment.",
+    );
   });
 
   it("reports an empty token failure without exposing a JSON parser error", async () => {

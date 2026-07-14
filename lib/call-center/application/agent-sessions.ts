@@ -369,6 +369,21 @@ export async function updateAgentSessionReadiness(
       return { error: new AgentSessionError(validationError, 422) };
     }
 
+    const readyAt = resolveAgentSessionReadyAt(nextReadiness, session.readyAt, now);
+    const readinessUnchanged =
+      session.audioReady === input.audioReady &&
+      session.connectionState === input.connectionState &&
+      session.microphoneReady === input.microphoneReady &&
+      session.presence === input.presence &&
+      (session.readyAt?.getTime() ?? null) === (readyAt?.getTime() ?? null);
+    if (readinessUnchanged) {
+      const heartbeat = await transaction.updateSession(session.id, {
+        lastHeartbeatAt: now,
+        leaseExpiresAt: leaseExpiry(now),
+      });
+      return { session: heartbeat };
+    }
+
     const updated = await transaction.updateSession(session.id, {
       audioReady: input.audioReady,
       connectionState: input.connectionState,
@@ -376,7 +391,7 @@ export async function updateAgentSessionReadiness(
       leaseExpiresAt: leaseExpiry(now),
       microphoneReady: input.microphoneReady,
       presence: input.presence,
-      readyAt: resolveAgentSessionReadyAt(nextReadiness, session.readyAt, now),
+      readyAt,
       stateVersion: session.stateVersion + 1,
     });
     await transaction.appendEvent(
