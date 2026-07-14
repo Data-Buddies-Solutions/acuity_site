@@ -1,5 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import {
+  CALL_CLAIMED_EVENT,
   ClaimCallError,
   type ClaimCallInput,
   type ClaimCallStore,
@@ -11,6 +12,7 @@ import type {
 } from "@/lib/call-center/application/operation-receipts";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveQueueAccess } from "@/lib/call-center/auth/queue-access";
+import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
 import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastructure/prisma-operation-receipts";
 import { prisma } from "@/lib/prisma";
 
@@ -34,6 +36,25 @@ function operationStatus(
   if (status === "SENDING") return "PENDING";
   if (status === "FAILED" && nextAttemptAt) return "PENDING";
   return status;
+}
+
+function claimOwner(data: Prisma.JsonValue) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const value = data as Record<string, Prisma.JsonValue>;
+  if (
+    typeof value.agentSessionId !== "string" ||
+    typeof value.endpointId !== "string" ||
+    typeof value.legId !== "string" ||
+    typeof value.providerCommandId !== "string"
+  ) {
+    return null;
+  }
+  return {
+    agentSessionId: value.agentSessionId,
+    endpointId: value.endpointId,
+    legId: value.legId,
+    providerCommandId: value.providerCommandId,
+  };
 }
 
 class PrismaClaimCallTransaction implements ClaimCallTransaction {
@@ -157,6 +178,76 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
     ) {
       throw new ClaimCallError("Endpoint is not eligible for this user", 403);
     }
+
+    const claimedEvent = await this.transaction.callCenterEvent.findUnique({
+      select: { data: true },
+      where: {
+        practiceId_type_idempotencyKey: {
+          idempotencyKey: call.id,
+          practiceId: call.practiceId,
+          type: CALL_CLAIMED_EVENT,
+        },
+      },
+    });
+    if (claimedEvent) {
+      const owner = claimOwner(claimedEvent.data);
+      if (!owner) {
+        throw new ClaimCallError("Claim ownership is inconsistent", 409);
+      }
+      if (owner.agentSessionId !== session.id) {
+        await releaseAgentSessionReservation(this.transaction, {
+          actorUserId: actor.userId,
+          agentSessionId: session.id,
+          callId: call.id,
+          idempotencyKey: `claim-lost:${call.id}:${session.id}`,
+          now,
+          reason: "CLAIMED_BY_ANOTHER_AGENT",
+        });
+        return {
+          agentSessionId: session.id,
+          callId: call.id,
+          endpointId: session.endpointId,
+          legId: null,
+          operationType: "CLAIM",
+          providerCommandId: null,
+          stateVersion: call.stateVersion,
+          status: "ALREADY_CLAIMED",
+        };
+      }
+
+      const command = await this.transaction.callCenterCommand.findUnique({
+        select: {
+          callId: true,
+          id: true,
+          legId: true,
+          nextAttemptAt: true,
+          practiceId: true,
+          status: true,
+          type: true,
+        },
+        where: { id: owner.providerCommandId },
+      });
+      if (
+        !command ||
+        command.callId !== call.id ||
+        command.legId !== owner.legId ||
+        command.practiceId !== call.practiceId ||
+        command.type !== "DIAL_AGENT"
+      ) {
+        throw new ClaimCallError("Claim ownership is missing its provider command", 409);
+      }
+      return {
+        agentSessionId: owner.agentSessionId,
+        callId: call.id,
+        endpointId: owner.endpointId,
+        legId: owner.legId,
+        operationType: "CLAIM",
+        providerCommandId: command.id,
+        stateVersion: call.stateVersion,
+        status: operationStatus(command.status, command.nextAttemptAt),
+      };
+    }
+
     if (call.status !== "QUEUED" && call.status !== "RINGING") {
       throw new ClaimCallError("Call is no longer available to claim", 409);
     }
@@ -197,6 +288,29 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
       if (!offered && !active) {
         throw new ClaimCallError("Existing claim session is inconsistent", 409);
       }
+      const updatedCall = await this.transaction.callCenterCall.update({
+        data: { stateVersion: { increment: 1 } },
+        select: { stateVersion: true },
+        where: { id: call.id },
+      });
+      await this.transaction.callCenterEvent.create({
+        data: {
+          actorUserId: actor.userId,
+          aggregateId: call.id,
+          aggregateType: "CALL",
+          data: {
+            agentSessionId: session.id,
+            endpointId: session.endpointId,
+            legId: existing.id,
+            providerCommandId: existingCommand.id,
+            stateVersion: updatedCall.stateVersion,
+          },
+          idempotencyKey: call.id,
+          occurredAt: now,
+          practiceId: call.practiceId,
+          type: CALL_CLAIMED_EVENT,
+        },
+      });
       return {
         agentSessionId: session.id,
         callId: call.id,
@@ -204,7 +318,7 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
         legId: existing.id,
         operationType: "CLAIM",
         providerCommandId: existingCommand.id,
-        stateVersion: call.stateVersion,
+        stateVersion: updatedCall.stateVersion,
         status: operationStatus(existingCommand.status, existingCommand.nextAttemptAt),
       };
     }
@@ -270,11 +384,17 @@ class PrismaClaimCallTransaction implements ClaimCallTransaction {
         actorUserId: actor.userId,
         aggregateId: call.id,
         aggregateType: "CALL",
-        data: { commandId: command.id, legId: leg.id, status: call.status },
-        idempotencyKey: `claim-state:${leg.id}`,
+        data: {
+          agentSessionId: session.id,
+          endpointId: session.endpointId,
+          legId: leg.id,
+          providerCommandId: command.id,
+          stateVersion: updatedCall.stateVersion,
+        },
+        idempotencyKey: call.id,
         occurredAt: now,
         practiceId: call.practiceId,
-        type: "CALL_CLAIM_STARTED",
+        type: CALL_CLAIMED_EVENT,
       },
     });
     await this.transaction.callCenterEvent.create({

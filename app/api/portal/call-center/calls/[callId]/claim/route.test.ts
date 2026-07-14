@@ -171,6 +171,46 @@ describe("canonical claim route", () => {
     expect(scheduled).toEqual(["command-1"]);
   });
 
+  it("returns a stable conflict without scheduling the losing request", async () => {
+    const scheduled: string[] = [];
+    const POST = createClaimCallHandler({
+      claim: async () => ({
+        agentSessionId: "session-2",
+        callId: "call-1",
+        endpointId: "endpoint-2",
+        legId: null,
+        occurredAt: "2026-07-12T12:00:00.000Z",
+        operationType: "CLAIM",
+        providerCommandId: null,
+        replayed: false,
+        revision: "13",
+        stateVersion: 4,
+        status: "ALREADY_CLAIMED",
+      }),
+      getActor: async () => actor,
+      isCanonicalActive: () => true,
+      scheduleCommand: (commandId) => scheduled.push(commandId),
+    });
+
+    const response = await POST(
+      request(
+        {
+          clientInstanceId: "browser-2",
+          expectedSessionStateVersion: 2,
+        },
+        "operation-2",
+      ),
+      routeContext,
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "CALL_ALREADY_CLAIMED",
+      status: "ALREADY_CLAIMED",
+    });
+    expect(scheduled).toEqual([]);
+  });
+
   it("rejects a missing idempotency key and client-owned scope", async () => {
     let calls = 0;
     const POST = createClaimCallHandler({

@@ -50,6 +50,7 @@ import {
   canonicalClaimIdempotencyKey,
   canonicalTransferIdempotencyKey,
   completeCanonicalOutboundOperation,
+  isCanonicalClaimConflict,
   operationShouldAnswerMedia,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
@@ -508,6 +509,11 @@ function ConnectedCanonicalActiveWorkspace({
           },
         );
         if (!response.ok) {
+          if (await isCanonicalClaimConflict(response)) {
+            setCallCenterCurrentCallGuard(null);
+            refreshSnapshot();
+            return;
+          }
           throw new Error("We could not answer this call. Try again.");
         }
         await answerMedia(match.observation.mediaLegId);
@@ -522,7 +528,14 @@ function ConnectedCanonicalActiveWorkspace({
         takingRef.current.delete(call.id);
       }
     },
-    [actionsEnabled, answerMedia, clientInstanceId, mediaObservations, session],
+    [
+      actionsEnabled,
+      answerMedia,
+      clientInstanceId,
+      mediaObservations,
+      refreshSnapshot,
+      session,
+    ],
   );
 
   const takeTransfer = useCallback(async () => {
@@ -829,14 +842,15 @@ function ConnectedCanonicalActiveWorkspace({
             {incomingCalls.length ? (
               <ul className="space-y-3">
                 {incomingCalls.map((call) => {
-                  const match = session
-                    ? selectCanonicalBrowserMediaLeg(
-                        call,
-                        session.id,
-                        session.endpointId,
-                        mediaObservations,
-                      )
-                    : null;
+                  const match =
+                    session?.offeredCallId === call.id
+                      ? selectCanonicalBrowserMediaLeg(
+                          call,
+                          session.id,
+                          session.endpointId,
+                          mediaObservations,
+                        )
+                      : null;
                   const operation =
                     session && match
                       ? selectLatestClaimOperation(state.operations, {

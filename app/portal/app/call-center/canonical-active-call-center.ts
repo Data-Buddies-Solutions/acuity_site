@@ -75,6 +75,21 @@ export function canonicalClaimIdempotencyKey(callId: string, agentSessionId: str
   return `canonical-claim:${callId}:${agentSessionId}`;
 }
 
+export async function isCanonicalClaimConflict(response: Response) {
+  if (response.status !== 409) return false;
+  try {
+    const body: unknown = await response.json();
+    return (
+      typeof body === "object" &&
+      body !== null &&
+      "code" in body &&
+      body.code === "CALL_ALREADY_CLAIMED"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function canonicalTransferIdempotencyKey(
   callId: string,
   sourceLegId: string,

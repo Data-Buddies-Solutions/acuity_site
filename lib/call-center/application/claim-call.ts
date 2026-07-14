@@ -7,6 +7,7 @@ import {
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 
 export const CALL_CLAIM_REQUESTED_EVENT = "CALL_CLAIM_REQUESTED";
+export const CALL_CLAIMED_EVENT = "CALL_CLAIMED";
 
 export type ClaimCallInput = {
   callId: string;
@@ -15,13 +16,26 @@ export type ClaimCallInput = {
   idempotencyKey: string;
 };
 
-export type ClaimCallReceipt = OperationReceipt & {
+type ClaimCallReceiptBase = OperationReceipt & {
   agentSessionId: string;
+  callId: string;
   endpointId: string;
-  legId: string;
-  providerCommandId: string;
-  status: "PENDING" | "SENT" | "CONFIRMED" | "FAILED";
+  operationType: "CLAIM";
 };
+
+export type ClaimCallReceipt = ClaimCallReceiptBase &
+  (
+    | {
+        legId: string;
+        providerCommandId: string;
+        status: "PENDING" | "SENT" | "CONFIRMED" | "FAILED";
+      }
+    | {
+        legId: null;
+        providerCommandId: null;
+        status: "ALREADY_CLAIMED";
+      }
+  );
 
 export interface ClaimCallTransaction extends OperationReceiptTransaction {
   createClaim(
