@@ -75,6 +75,80 @@ type CanonicalActiveWorkspaceProps = {
 
 const keypadDigits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
+type CallReadinessState =
+  "CONNECTING" | "INCOMING" | "NOT_READY" | "ON_CALL" | "READY" | "STARTING";
+
+function isAgentSessionViewReady(session: AgentSessionView) {
+  return (
+    session.presence === "AVAILABLE" &&
+    session.connectionState === "READY" &&
+    session.microphoneReady &&
+    session.audioReady &&
+    session.offeredCallId === null &&
+    session.currentCallId === null
+  );
+}
+
+export function resolveCallReadinessState({
+  call,
+  desiredReady,
+  error,
+  session,
+}: {
+  call: Pick<CallView, "direction" | "status"> | null;
+  desiredReady: boolean;
+  error: string | null;
+  session: AgentSessionView | null;
+}): CallReadinessState {
+  if (session?.currentCallId) return "ON_CALL";
+  if (session?.offeredCallId) {
+    return call?.direction === "INBOUND" && call.status === "RINGING"
+      ? "INCOMING"
+      : "CONNECTING";
+  }
+  if (error) return "NOT_READY";
+  if (session && isAgentSessionViewReady(session)) return "READY";
+  return desiredReady ? "STARTING" : "NOT_READY";
+}
+
+const callReadinessLabels: Record<CallReadinessState, string> = {
+  CONNECTING: "Connecting",
+  INCOMING: "Incoming call",
+  NOT_READY: "Not ready",
+  ON_CALL: "On call",
+  READY: "Ready",
+  STARTING: "Getting ready",
+};
+
+export function CallReadinessControl({
+  disabled,
+  onChange,
+  state,
+}: {
+  disabled: boolean;
+  onChange: (ready: boolean) => void;
+  state: CallReadinessState;
+}) {
+  const ready = state === "READY";
+  const busy = ["CONNECTING", "INCOMING", "ON_CALL", "STARTING"].includes(state);
+
+  return (
+    <Button
+      aria-checked={ready}
+      aria-label="Call readiness"
+      className="mt-3 w-full"
+      disabled={disabled || busy}
+      onClick={() => onChange(!ready)}
+      role="switch"
+      size="sm"
+      variant={ready ? "primary" : "secondary"}
+    >
+      <Headphones className="h-4 w-4" aria-hidden="true" />
+      {callReadinessLabels[state]}
+    </Button>
+  );
+}
+
 function formatCallDuration(seconds: number) {
   const minutes = Math.floor(seconds / 60)
     .toString()
@@ -165,7 +239,8 @@ function ConnectedCanonicalActiveWorkspace({
 }) {
   const realtime = useCanonicalCallCenter({ clientInstanceId, queueId });
   const refreshSnapshot = realtime.refetch;
-  const [presence, setPresence] = useState<AgentSessionView["presence"]>("AVAILABLE");
+  const [desiredReady, setDesiredReady] = useState(false);
+  const [readyError, setReadyError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
   const [numberChoice, setNumberChoice] = useState("");
@@ -181,6 +256,7 @@ function ConnectedCanonicalActiveWorkspace({
   const answeredMediaRef = useRef(new Set<string>());
   const outboundMediaLegsRef = useRef(new Set<string>());
   const outboundStartingRef = useRef(false);
+  const wasReadyRef = useRef(false);
   const agentProfileId = realtime.state?.agentProfile?.id ?? "";
   const eligibleOutboundNumbers = outboundNumbers;
   const selectedNumberId = eligibleOutboundNumbers.some(({ id }) => id === numberChoice)
@@ -200,11 +276,12 @@ function ConnectedCanonicalActiveWorkspace({
     clientInstanceId,
     connectionState: mediaReadiness.connectionState,
     microphoneReady: mediaReadiness.microphoneReady,
-    presence:
-      mediaReadiness.connectionState === "READY" &&
-      mediaReadiness.audioReady &&
-      mediaReadiness.microphoneReady
-        ? presence
+    presence: !desiredReady
+      ? "OFFLINE"
+      : mediaReadiness.connectionState === "READY" &&
+          mediaReadiness.audioReady &&
+          mediaReadiness.microphoneReady
+        ? "AVAILABLE"
         : "PAUSED",
     projectedSession,
   });
@@ -214,10 +291,12 @@ function ConnectedCanonicalActiveWorkspace({
   const leasedOfferedCallId = leasedSession?.offeredCallId ?? null;
   const media = useSoftphoneMedia({
     agentSessionId: leasedSessionId,
-    autoPrepare: Boolean(agentProfileId),
+    autoPrepare: false,
     browserSessionId: clientInstanceId,
     credentialMode: "CANONICAL",
-    enabled: Boolean(agentProfileId && leasedSession?.endpointId === agentProfileId),
+    enabled: Boolean(
+      desiredReady && agentProfileId && leasedSession?.endpointId === agentProfileId,
+    ),
     stationSeatId: agentProfileId || null,
   });
   const {
@@ -248,7 +327,7 @@ function ConnectedCanonicalActiveWorkspace({
   }, [media.connection, media.microphoneReady, media.soundReady]);
 
   useEffect(() => {
-    if (agentProfileId && presence !== "OFFLINE") {
+    if (agentProfileId && desiredReady) {
       void startCanonicalSession();
     } else {
       void stopCanonicalSession();
@@ -256,7 +335,7 @@ function ConnectedCanonicalActiveWorkspace({
     return () => {
       void stopCanonicalSession();
     };
-  }, [presence, agentProfileId, startCanonicalSession, stopCanonicalSession]);
+  }, [agentProfileId, desiredReady, startCanonicalSession, stopCanonicalSession]);
 
   const session = leasedSession;
 
@@ -289,6 +368,49 @@ function ConnectedCanonicalActiveWorkspace({
   const activeCall =
     transferTakeCandidate?.call ??
     selectCanonicalAgentActiveCall(state?.calls ?? [], session);
+
+  const callingReady = Boolean(session && isAgentSessionViewReady(session));
+  const occupied = Boolean(session?.currentCallId || session?.offeredCallId);
+
+  useEffect(() => {
+    if (callingReady) wasReadyRef.current = true;
+  }, [callingReady]);
+
+  useEffect(() => {
+    if (!desiredReady || occupied) return;
+
+    const lostReadiness =
+      wasReadyRef.current &&
+      (media.connection !== "READY" || !media.microphoneReady || !media.soundReady)
+        ? "Calling disconnected. Select Ready to reconnect."
+        : null;
+    const failure =
+      canonicalSessionError || media.error || media.setupError || lostReadiness;
+    if (!failure) return;
+
+    setReadyError(failure);
+    setDesiredReady(false);
+    wasReadyRef.current = false;
+  }, [
+    canonicalSessionError,
+    desiredReady,
+    media.connection,
+    media.error,
+    media.microphoneReady,
+    media.setupError,
+    media.soundReady,
+    occupied,
+  ]);
+
+  const changeReady = useCallback(
+    (ready: boolean) => {
+      setReadyError(null);
+      wasReadyRef.current = false;
+      setDesiredReady(ready);
+      if (ready) void media.prepare();
+    },
+    [media],
+  );
 
   useEffect(() => {
     if (activeCall?.status === "CONNECTED") refreshSnapshot();
@@ -605,36 +727,36 @@ function ConnectedCanonicalActiveWorkspace({
     return <CanonicalUnavailable message="Connecting to the call center…" />;
   }
 
-  const stationPresence = session?.presence ?? presence;
-  const callingReady = Boolean(
-    session?.connectionState === "READY" && session.microphoneReady && session.audioReady,
-  );
-  const stationLabel = !agentProfileId
-    ? "Calling unavailable"
-    : callingReady
-      ? stationPresence === "PAUSED"
-        ? "Paused"
-        : stationPresence === "BUSY"
-          ? "On a call"
-          : "Available for calls"
-      : media.setupPending
-        ? "Starting calling"
-        : "Calling is off";
-  const stationDescription = canonicalSessionError
-    ? "We could not connect your calling status. Try again."
-    : !agentProfileId
-      ? "Calling is not configured for this login."
-      : callingReady
-        ? "Ready for incoming and outbound calls."
-        : "Allow microphone and browser audio to start calling.";
+  const readinessError = readyError || canonicalSessionError;
+  const readinessState = resolveCallReadinessState({
+    call: activeCall,
+    desiredReady,
+    error: readinessError,
+    session,
+  });
+  const stationDescription = !agentProfileId
+    ? "Calling is not configured for this login."
+    : readinessState === "READY"
+      ? "Ready for incoming and outbound calls."
+      : readinessState === "STARTING"
+        ? "Connecting calling, microphone, and browser audio."
+        : readinessState === "INCOMING"
+          ? "An incoming call is waiting."
+          : readinessState === "CONNECTING"
+            ? "The call is connecting."
+            : readinessState === "ON_CALL"
+              ? "Call in progress."
+              : readinessError
+                ? "Resolve the error, then select Ready to try again."
+                : "Select Ready to receive and place calls.";
   const outboundHelp = !actionsEnabled
     ? "Calling is temporarily unavailable."
     : activeCall
       ? "Finish the current call before starting another."
       : !callingReady
         ? "Start taking calls before placing an outbound call."
-        : stationPresence !== "AVAILABLE"
-          ? "Set your status to Available to place a call."
+        : session?.presence !== "AVAILABLE"
+          ? "Wait until the station is Ready to place a call."
           : !selectedNumberId
             ? "No outbound caller number is configured."
             : "Enter a patient number to begin.";
@@ -683,9 +805,9 @@ function ConnectedCanonicalActiveWorkspace({
         </section>
       ) : null}
 
-      {actionError || media.error || media.setupError ? (
+      {actionError || readinessError || media.error || media.setupError ? (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-          {actionError || media.error || media.setupError}
+          {actionError || readinessError || media.error || media.setupError}
         </p>
       ) : null}
 
@@ -802,37 +924,15 @@ function ConnectedCanonicalActiveWorkspace({
               </PortalBadge>
             </div>
 
-            {callingReady ? (
-              <div className="mt-3 grid grid-cols-2 gap-1.5">
-                {(["AVAILABLE", "PAUSED"] as const).map((option) => (
-                  <Button
-                    aria-pressed={stationPresence === option}
-                    disabled={Boolean(session?.currentCallId || session?.offeredCallId)}
-                    key={option}
-                    onClick={() => setPresence(option)}
-                    size="sm"
-                    variant={stationPresence === option ? "primary" : "secondary"}
-                  >
-                    {option === "AVAILABLE" ? "Available" : "Paused"}
-                  </Button>
-                ))}
-              </div>
-            ) : (
-              <Button
-                className="mt-3 w-full"
-                disabled={!agentProfileId || media.setupPending}
-                onClick={() => void media.prepare()}
-                size="sm"
-                variant="secondary"
-              >
-                <Headphones className="h-4 w-4" aria-hidden="true" />
-                {media.setupPending ? "Enabling" : "Enable calling"}
-              </Button>
-            )}
+            <CallReadinessControl
+              disabled={!agentProfileId || !actionsEnabled}
+              onChange={changeReady}
+              state={readinessState}
+            />
             <p className="mt-2 text-xs leading-relaxed text-[var(--portal-muted)]">
               {state.connection === "RECONNECTING"
                 ? "Trying to reconnect. New calls may be delayed."
-                : `${stationLabel}. ${stationDescription}`}
+                : stationDescription}
             </p>
           </section>
 
@@ -876,7 +976,7 @@ function ConnectedCanonicalActiveWorkspace({
                       : "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
                 }
               >
-                {activeCall ? "On call" : callingReady ? "Ready" : "Setup needed"}
+                {callReadinessLabels[readinessState]}
               </PortalBadge>
             </div>
 

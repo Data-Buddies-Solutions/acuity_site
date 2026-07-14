@@ -241,6 +241,7 @@ function useSoftphoneMediaEngine({
   );
 
   const prepare = useCallback(async () => {
+    setSetupError(null);
     setSetupPending(true);
 
     try {
@@ -307,9 +308,7 @@ function useSoftphoneMediaEngine({
 
       if (!microphoneAllowed) return false;
       if (!audioReady) {
-        setSetupError(
-          "Browser sound is blocked. Click Enable calling and allow audio playback.",
-        );
+        setSetupError("Browser sound is blocked. Select Ready and allow audio playback.");
         return false;
       }
 
