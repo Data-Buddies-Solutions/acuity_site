@@ -1,5 +1,5 @@
-# Acuity Health Portal 
- 
+# Acuity Health Portal
+
 Private internal application for Acuity Health. This repo contains the public
 marketing site, the practice portal, the internal admin command center, and the
 portal-owned call analytics/call-center backend.
