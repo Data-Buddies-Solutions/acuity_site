@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Check, ChevronRight, Play, RotateCcw, X } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import { PortalQuerySelect } from "@/app/portal/app/PortalQuerySelect";
 import { PracticePageHeader } from "@/app/portal/app/PracticePageHeader";
-import { updateAgentTaskStatus } from "@/app/portal/app/tasking/actions";
-import { Button } from "@/components/ui/button";
+import { TaskActionForm } from "@/app/portal/app/tasking/TaskActionForm";
 import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import {
   getPortalTasks,
@@ -119,46 +118,6 @@ function formatTaskAge(createdAt: Date) {
   const hours = Math.floor(elapsedMinutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
-}
-
-function TaskActionForm({ task }: { task: PortalTask }) {
-  const isActive = task.status === "open" || task.status === "in_progress";
-  const nextStatus = task.status === "open" ? "in_progress" : "done";
-  const primaryLabel = task.status === "open" ? "Start" : "Complete";
-  const PrimaryIcon = task.status === "open" ? Play : Check;
-
-  if (!isActive) {
-    return (
-      <form action={updateAgentTaskStatus}>
-        <input name="taskId" type="hidden" value={task.id} />
-        <Button name="status" size="sm" value="open" variant="outline">
-          <RotateCcw />
-          Reopen
-        </Button>
-      </form>
-    );
-  }
-
-  return (
-    <form action={updateAgentTaskStatus} className="flex items-center gap-1.5">
-      <input name="taskId" type="hidden" value={task.id} />
-      <Button
-        aria-label={`Dismiss ${task.summary}`}
-        className="text-[var(--portal-muted)]"
-        name="status"
-        size="icon"
-        title="Dismiss"
-        value="closed_no_action"
-        variant="ghost"
-      >
-        <X />
-      </Button>
-      <Button name="status" size="sm" value={nextStatus} variant="primary">
-        <PrimaryIcon />
-        {primaryLabel}
-      </Button>
-    </form>
-  );
 }
 
 function TaskRow({ task }: { task: PortalTask }) {
