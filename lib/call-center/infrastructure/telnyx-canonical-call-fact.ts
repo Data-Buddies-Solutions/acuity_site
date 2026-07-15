@@ -91,6 +91,11 @@ function recordingDurationSec(payload: JsonObject) {
       return Math.max(0, Math.round(milliseconds / 1_000));
     }
   }
+  const startedAt = Date.parse(text(payload.recording_started_at));
+  const endedAt = Date.parse(text(payload.recording_ended_at));
+  if (Number.isFinite(startedAt) && Number.isFinite(endedAt)) {
+    return Math.max(0, Math.round((endedAt - startedAt) / 1_000));
+  }
   return 0;
 }
 
