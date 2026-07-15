@@ -63,6 +63,8 @@ import {
   canonicalTransferIdempotencyKey,
   completeCanonicalOutboundOperation,
   operationShouldAnswerMedia,
+  OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE,
+  runOutboundWithExpiredLeaseRefresh,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
   selectCanonicalTransferSource,
@@ -122,23 +124,35 @@ function isAgentSessionViewConnected(session: AgentSessionView) {
   );
 }
 
-export function CallConnectionStatus({ session }: { session: AgentSessionView | null }) {
-  const connected = Boolean(session && isAgentSessionViewConnected(session));
+export function CallConnectionStatus({
+  restoring = false,
+  session,
+}: {
+  restoring?: boolean;
+  session: AgentSessionView | null;
+}) {
+  const connected = Boolean(
+    !restoring && session && isAgentSessionViewConnected(session),
+  );
 
   return (
     <PortalBadge
       className={
-        connected
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
+        restoring
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : connected
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-[var(--portal-border)] bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
       }
       role="status"
     >
       <span
         aria-hidden="true"
-        className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-slate-400"}`}
+        className={`h-1.5 w-1.5 rounded-full ${
+          restoring ? "bg-amber-500" : connected ? "bg-emerald-500" : "bg-slate-400"
+        }`}
       />
-      {connected ? "Connected" : "Not connected"}
+      {restoring ? "Restoring calling…" : connected ? "Connected" : "Not connected"}
     </PortalBadge>
   );
 }
@@ -270,6 +284,7 @@ function ConnectedCanonicalActiveWorkspace({
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [numberChoice, setNumberChoice] = useState("");
+  const [recoveringOutbound, setRecoveringOutbound] = useState(false);
   const [startingOutbound, setStartingOutbound] = useState(false);
   const [submittingDisposition, setSubmittingDisposition] = useState<string | null>(null);
   const [mediaReadiness, setMediaReadiness] = useState({
@@ -343,7 +358,11 @@ function ConnectedCanonicalActiveWorkspace({
     dial: dialMediaLeg,
     observations: mediaObservations,
   } = media;
-  const { start: startCanonicalSession, stop: stopCanonicalSession } = canonicalSession;
+  const {
+    refresh: refreshCanonicalSession,
+    start: startCanonicalSession,
+    stop: stopCanonicalSession,
+  } = canonicalSession;
 
   useEffect(() => {
     if (taskSignal === undefined) return;
@@ -680,25 +699,33 @@ function ConnectedCanonicalActiveWorkspace({
       () => crypto.randomUUID(),
     );
     try {
-      const response = await fetch("/api/portal/call-center/outbound", {
-        body: JSON.stringify({
-          clientInstanceId,
-          destination,
-          numberId: selectedNumberId,
-          queueId,
-        }),
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": operationKey,
-        },
-        method: "POST",
+      const requestOutbound = async () => {
+        const response = await fetch("/api/portal/call-center/outbound", {
+          body: JSON.stringify({
+            clientInstanceId,
+            destination,
+            numberId: selectedNumberId,
+            queueId,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": operationKey,
+          },
+          method: "POST",
+        });
+        return callCenterResponse<{
+          callId?: unknown;
+          clientState?: unknown;
+          from?: unknown;
+          to?: unknown;
+        }>(response);
+      };
+      const body = await runOutboundWithExpiredLeaseRefresh({
+        leaseExpiresAt: session.leaseExpiresAt,
+        onRecovering: () => setRecoveringOutbound(true),
+        operation: requestOutbound,
+        refresh: refreshCanonicalSession,
       });
-      const body = await callCenterResponse<{
-        callId?: unknown;
-        clientState?: unknown;
-        from?: unknown;
-        to?: unknown;
-      }>(response);
       if (
         typeof body?.callId !== "string" ||
         typeof body?.clientState !== "string" ||
@@ -717,9 +744,15 @@ function ConnectedCanonicalActiveWorkspace({
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
-      setActionError(errorMessage(error, "outbound"));
+      setActionError(
+        error instanceof Error &&
+          error.message === OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE
+          ? OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE
+          : errorMessage(error, "outbound"),
+      );
     } finally {
       outboundStartingRef.current = false;
+      setRecoveringOutbound(false);
       setStartingOutbound(false);
     }
   }, [
@@ -728,6 +761,7 @@ function ConnectedCanonicalActiveWorkspace({
     destination,
     dialMediaLeg,
     queueId,
+    refreshCanonicalSession,
     selectedNumberId,
     session,
   ]);
@@ -739,17 +773,19 @@ function ConnectedCanonicalActiveWorkspace({
     return <CanonicalUnavailable message="Connecting to the call center…" />;
   }
 
-  const outboundHelp = !actionsEnabled
-    ? "Calling is temporarily unavailable."
-    : activeCall
-      ? "Finish the current call before starting another."
-      : !callingReady
-        ? "Start taking calls before placing an outbound call."
-        : session?.presence !== "AVAILABLE"
-          ? "Wait until the station is Ready to place a call."
-          : !selectedNumberId
-            ? "No outbound caller number is configured."
-            : "Enter a patient number to begin.";
+  const outboundHelp = recoveringOutbound
+    ? "Restoring calling and preparing your call."
+    : !actionsEnabled
+      ? "Calling is temporarily unavailable."
+      : activeCall
+        ? "Finish the current call before starting another."
+        : !callingReady
+          ? "Start taking calls before placing an outbound call."
+          : session?.presence !== "AVAILABLE"
+            ? "Wait until the station is Ready to place a call."
+            : !selectedNumberId
+              ? "No outbound caller number is configured."
+              : "Enter a patient number to begin.";
   const canStartOutbound = Boolean(
     actionsEnabled &&
     session?.presence === "AVAILABLE" &&
@@ -915,7 +951,7 @@ function ConnectedCanonicalActiveWorkspace({
           <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Calling</h2>
-              <CallConnectionStatus session={session} />
+              <CallConnectionStatus restoring={recoveringOutbound} session={session} />
             </div>
           </section>
 
@@ -999,7 +1035,11 @@ function ConnectedCanonicalActiveWorkspace({
                       variant="primary"
                     >
                       <Phone className="h-4 w-4" aria-hidden="true" />
-                      {startingOutbound ? "Calling" : "Call"}
+                      {recoveringOutbound
+                        ? "Preparing…"
+                        : startingOutbound
+                          ? "Calling"
+                          : "Call"}
                     </Button>
                   </div>
                   <div className="grid max-w-60 grid-cols-3 gap-2">
