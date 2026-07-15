@@ -610,6 +610,74 @@ describe("useCanonicalAgentSession", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("reacquires when settlement clears occupancy before expiry is observed", async () => {
+    const expiredPatch = deferred<Response>();
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: postCount === 1 ? agentSession() : agentSession(4),
+        });
+      }
+      patchCount += 1;
+      if (patchCount === 2) return expiredPatch.promise;
+      return Response.json({ session: agentSession(patchCount === 1 ? 1 : 5) });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ presence, projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+          projectedSession,
+        }),
+      {
+        initialProps: {
+          presence: "AVAILABLE" as AgentSessionView["presence"],
+          projectedSession: null as AgentSessionView | null,
+        },
+      },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ presence: "BUSY", projectedSession: activeAgentSession(2) });
+    await waitFor(() => expect(patchCount).toBe(2));
+
+    rerender({
+      presence: "AVAILABLE",
+      projectedSession: {
+        ...agentSession(3),
+        connectionState: "DISCONNECTED",
+        leaseExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+        presence: "PAUSED",
+      },
+    });
+    expiredPatch.resolve(
+      Response.json(
+        {
+          error: {
+            code: "SESSION_EXPIRED",
+            referenceId: "ABC123",
+            retryable: true,
+          },
+        },
+        { status: 409 },
+      ),
+    );
+
+    await waitFor(() => expect(postCount).toBe(2));
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
+    expect(result.current.session?.presence).toBe("AVAILABLE");
+    expect(result.current.error).toBeNull();
+  });
+
   it("coalesces overlapping server and realtime lease-expiry recovery", async () => {
     const recoveryPost = deferred<Response>();
     let deleteCount = 0;
@@ -853,6 +921,9 @@ describe("useCanonicalAgentSession", () => {
     await waitFor(() => expect(postCount).toBe(2));
     await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
     expect(postCount).toBe(2);
+    expect(result.current.error).toBe(
+      "You do not have access to this calling queue. Ask an administrator to update your access. Reference: ABC123.",
+    );
   });
 
   it("refreshes and republishes readiness without dropping the media session", async () => {

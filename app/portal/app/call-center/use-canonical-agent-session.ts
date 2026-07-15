@@ -38,6 +38,33 @@ type Readiness = Pick<
   "audioReady" | "connectionState" | "microphoneReady" | "presence"
 >;
 
+const RECOVERY_RETRY_BASE_MS = 1_000;
+const RECOVERY_RETRY_MAX_MS = 30_000;
+
+function recoveryRetryDelay(attempt: number) {
+  const ceiling = Math.min(
+    RECOVERY_RETRY_BASE_MS * 2 ** Math.min(attempt, 5),
+    RECOVERY_RETRY_MAX_MS,
+  );
+  return Math.floor(ceiling * (0.75 + Math.random() * 0.25));
+}
+
+function needsRecovery(
+  session: AgentSessionView,
+  requestedPresence: Readiness["presence"],
+) {
+  return (
+    requestedPresence !== "OFFLINE" &&
+    (session.connectionState === "DISCONNECTED" ||
+      session.presence === "OFFLINE" ||
+      new Date(session.leaseExpiresAt).getTime() <= Date.now())
+  );
+}
+
+function isRetryableRecoveryError(error: unknown) {
+  return !(error instanceof CallCenterRequestError) || error.operatorError.retryable;
+}
+
 export function canonicalHeartbeatPresence(
   session: Pick<AgentSessionView, "currentCallId" | "offeredCallId" | "presence">,
   requested: AgentSessionView["presence"],
@@ -108,6 +135,7 @@ export function useCanonicalAgentSession({
     () => Promise.resolve(),
   );
   const recoveryPromiseRef = useRef<Promise<void> | null>(null);
+  const recoveryRetryAttemptRef = useRef(0);
   const recoveryRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPromiseRef = useRef<Promise<ActiveSession | undefined> | null>(null);
   const readinessRef = useRef<Readiness>({
@@ -123,11 +151,23 @@ export function useCanonicalAgentSession({
     heartbeatRef.current = null;
   }, []);
 
-  const clearRecoveryRetry = useCallback(() => {
+  const clearRecoveryTimer = useCallback(() => {
     if (!recoveryRetryRef.current) return;
     clearTimeout(recoveryRetryRef.current);
     recoveryRetryRef.current = null;
   }, []);
+
+  const resetRecoveryRetry = useCallback(() => {
+    clearRecoveryTimer();
+    recoveryRetryAttemptRef.current = 0;
+  }, [clearRecoveryTimer]);
+
+  const drainReadiness = useCallback(async () => {
+    clearHeartbeat();
+    patchRequestedRef.current = false;
+    await patchPromiseRef.current?.catch(() => {});
+    clearHeartbeat();
+  }, [clearHeartbeat]);
 
   const patchReadiness = useCallback(() => {
     const active = activeRef.current;
@@ -176,7 +216,7 @@ export function useCanonicalAgentSession({
         if (
           requestError instanceof CallCenterRequestError &&
           requestError.operatorError.code === "SESSION_EXPIRED" &&
-          Boolean(active.session.currentCallId || active.session.offeredCallId)
+          readinessRef.current.presence !== "OFFLINE"
         ) {
           recoverExpiredSession = true;
           retryDelayMs = 1_000;
@@ -263,13 +303,7 @@ export function useCanonicalAgentSession({
       setSession(projectedSession);
       setError(null);
     });
-    if (
-      (projectedSession.currentCallId || projectedSession.offeredCallId) &&
-      readinessRef.current.presence !== "OFFLINE" &&
-      (projectedSession.connectionState === "DISCONNECTED" ||
-        projectedSession.presence === "OFFLINE" ||
-        new Date(projectedSession.leaseExpiresAt).getTime() <= Date.now())
-    ) {
+    if (needsRecovery(projectedSession, readinessRef.current.presence)) {
       void recoverExpiredSessionRef
         .current(
           projectedSession.connectionState === "DISCONNECTED" ||
@@ -312,7 +346,7 @@ export function useCanonicalAgentSession({
 
     activeRef.current = null;
     clearHeartbeat();
-    clearRecoveryRetry();
+    resetRecoveryRetry();
     patchRequestedRef.current = false;
     if (mountedRef.current) {
       setSession(null);
@@ -323,7 +357,7 @@ export function useCanonicalAgentSession({
     });
     releasePromiseRef.current = pending;
     await pending;
-  }, [clearHeartbeat, clearRecoveryRetry, release]);
+  }, [clearHeartbeat, release, resetRecoveryRetry]);
 
   const stop = useCallback(async () => {
     lifecycleRef.current += 1;
@@ -403,50 +437,54 @@ export function useCanonicalAgentSession({
     (serverExpired = false) => {
       if (recoveryPromiseRef.current) return recoveryPromiseRef.current;
       const pending = (async () => {
-        clearRecoveryRetry();
-        clearHeartbeat();
-        patchRequestedRef.current = false;
-        await patchPromiseRef.current?.catch(() => {});
-        clearHeartbeat();
+        clearRecoveryTimer();
+        await drainReadiness();
         const active = activeRef.current;
-        if (!active || active.stopping) return;
+        if (!active || active.stopping) {
+          recoveryRetryAttemptRef.current = 0;
+          return;
+        }
         if (
           !serverExpired &&
           new Date(active.session.leaseExpiresAt).getTime() > Date.now()
         ) {
           await patchReadiness();
+          recoveryRetryAttemptRef.current = 0;
           return;
         }
 
-        let recovered: ActiveSession | undefined;
         try {
-          recovered = await startSession(true);
+          const recovered = await startSession(true);
+          if (!recovered) return;
+          await patchPromiseRef.current?.catch(() => {});
+          if (activeRef.current !== recovered || recovered.stopping) return;
+          await patchReadiness();
+          recoveryRetryAttemptRef.current = 0;
         } catch (recoveryError) {
           if (
             mountedRef.current &&
             activeRef.current === active &&
             !active.stopping &&
-            (!(recoveryError instanceof CallCenterRequestError) ||
-              recoveryError.operatorError.retryable)
+            isRetryableRecoveryError(recoveryError)
           ) {
+            const delay = recoveryRetryDelay(recoveryRetryAttemptRef.current);
+            recoveryRetryAttemptRef.current += 1;
             recoveryRetryRef.current = setTimeout(() => {
               recoveryRetryRef.current = null;
               void recoverExpiredSessionRef.current(serverExpired).catch(() => {});
-            }, 1_000);
+            }, delay);
+          } else {
+            recoveryRetryAttemptRef.current = 0;
           }
           throw recoveryError;
         }
-        if (!recovered) return;
-        await patchPromiseRef.current?.catch(() => {});
-        if (activeRef.current !== recovered || recovered.stopping) return;
-        await patchReadiness();
       })().finally(() => {
         if (recoveryPromiseRef.current === pending) recoveryPromiseRef.current = null;
       });
       recoveryPromiseRef.current = pending;
       return pending;
     },
-    [clearHeartbeat, clearRecoveryRetry, patchReadiness, startSession],
+    [clearRecoveryTimer, drainReadiness, patchReadiness, startSession],
   );
 
   useEffect(() => {
@@ -455,11 +493,8 @@ export function useCanonicalAgentSession({
 
   const refresh = useCallback(async () => {
     const generation = lifecycleRef.current;
-    clearHeartbeat();
-    clearRecoveryRetry();
-    patchRequestedRef.current = false;
-    await patchPromiseRef.current?.catch(() => {});
-    clearHeartbeat();
+    resetRecoveryRetry();
+    await drainReadiness();
 
     if (
       !mountedRef.current ||
@@ -484,7 +519,7 @@ export function useCanonicalAgentSession({
     }
     if (mountedRef.current) setError(null);
     return refreshed.session;
-  }, [clearHeartbeat, clearRecoveryRetry, flushReadiness, patchReadiness, startSession]);
+  }, [drainReadiness, flushReadiness, patchReadiness, resetRecoveryRetry, startSession]);
 
   useEffect(() => {
     if (presence === "OFFLINE") {
@@ -508,12 +543,12 @@ export function useCanonicalAgentSession({
     return () => {
       mountedRef.current = false;
       lifecycleRef.current += 1;
-      clearRecoveryRetry();
+      resetRecoveryRetry();
       const active = activeRef.current;
       activeRef.current = null;
       if (active) void release(active);
     };
-  }, [clearRecoveryRetry, release]);
+  }, [release, resetRecoveryRetry]);
 
   const effectiveSession =
     projectedSession &&
@@ -526,7 +561,7 @@ export function useCanonicalAgentSession({
       : session;
 
   return {
-    error: projectedSession && effectiveSession === projectedSession ? null : error,
+    error,
     refresh,
     session: effectiveSession,
     start,
