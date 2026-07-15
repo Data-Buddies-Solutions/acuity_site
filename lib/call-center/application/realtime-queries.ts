@@ -333,7 +333,9 @@ export function buildCanonicalBatchItems({
       const session = sessionById.get(event.aggregateId);
       const removed =
         event.type === "AGENT_SESSION_RELEASED" ||
-        event.type === "AGENT_SESSION_LEASE_EXPIRED";
+        (event.type === "AGENT_SESSION_LEASE_EXPIRED" &&
+          !session?.currentCallId &&
+          !session?.offeredCallId);
       return {
         projection: session
           ? {
@@ -481,11 +483,17 @@ export function localAgentSessionWhere(
 ): Prisma.CallCenterAgentSessionWhereInput {
   return {
     browserSessionId: clientInstanceId,
-    connectionState: { not: "CLOSED" },
     endpointId: { in: endpointIds },
-    leaseExpiresAt: { gt: now },
+    OR: [
+      { currentCallId: { not: null } },
+      { offeredCallId: { not: null } },
+      {
+        connectionState: { not: "CLOSED" },
+        leaseExpiresAt: { gt: now },
+        presence: { not: "OFFLINE" },
+      },
+    ],
     practiceId: actor.practiceId,
-    presence: { not: "OFFLINE" },
     userId: actor.userId,
   };
 }

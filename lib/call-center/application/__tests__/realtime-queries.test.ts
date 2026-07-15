@@ -60,8 +60,77 @@ describe("canonical realtime serializers", () => {
     ).toMatchObject({
       browserSessionId: "tab-1",
       endpointId: { in: ["endpoint-1"] },
+      OR: [
+        { currentCallId: { not: null } },
+        { offeredCallId: { not: null } },
+        {
+          connectionState: { not: "CLOSED" },
+          leaseExpiresAt: { gt: now },
+          presence: { not: "OFFLINE" },
+        },
+      ],
       practiceId: "practice-1",
       userId: "user-1",
+    });
+  });
+
+  it("keeps active-call ownership projected when the station lease expires", () => {
+    const session = {
+      audioReady: false,
+      browserSessionId: "tab-1",
+      connectionState: "CLOSED" as const,
+      currentCallId: "call-1",
+      offeredCallId: null,
+      endpointId: "endpoint-1",
+      id: "session-1",
+      leaseExpiresAt: now,
+      microphoneReady: false,
+      presence: "OFFLINE" as const,
+      stateVersion: 5,
+    };
+    const counts = { active: 1, openTasks: 0, recent: 0, waiting: 0 };
+
+    const [active] = buildCanonicalBatchItems({
+      calls: [],
+      counts,
+      events: [
+        {
+          aggregateId: session.id,
+          aggregateType: "AGENT_SESSION",
+          data: {},
+          practiceId: "practice-1",
+          revision: BigInt(40),
+          type: "AGENT_SESSION_LEASE_EXPIRED",
+        },
+      ],
+      sessions: [session],
+      tasks: [],
+    });
+    const [idle] = buildCanonicalBatchItems({
+      calls: [],
+      counts,
+      events: [
+        {
+          aggregateId: session.id,
+          aggregateType: "AGENT_SESSION",
+          data: {},
+          practiceId: "practice-1",
+          revision: BigInt(41),
+          type: "AGENT_SESSION_LEASE_EXPIRED",
+        },
+      ],
+      sessions: [{ ...session, currentCallId: null }],
+      tasks: [],
+    });
+
+    expect(active.projection).toMatchObject({
+      delta: {
+        kind: "AGENT_SESSION_UPSERT",
+        session: { currentCallId: "call-1", id: "session-1" },
+      },
+    });
+    expect(idle.projection).toMatchObject({
+      delta: { kind: "AGENT_SESSION_REMOVE", sessionId: "session-1" },
     });
   });
   it("scopes queue calls through the configured practice-number location", () => {
