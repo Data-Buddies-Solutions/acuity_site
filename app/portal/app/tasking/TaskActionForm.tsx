@@ -1,4 +1,4 @@
-import { Check, RotateCcw, X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 
 import { updateAgentTaskStatus } from "@/app/portal/app/tasking/actions";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,6 @@ export function TaskActionForm({ task }: { task: PortalTask }) {
         <X />
       </Button>
       <Button name="status" size="sm" type="submit" value="done" variant="primary">
-        <Check />
         Completed
       </Button>
     </form>
