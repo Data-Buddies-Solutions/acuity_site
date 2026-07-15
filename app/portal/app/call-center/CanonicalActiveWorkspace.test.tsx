@@ -80,6 +80,9 @@ describe("call readiness", () => {
     view.rerender(<CallConnectionStatus session={readySession()} />);
     expect(screen.getByRole("status").textContent).toBe("Connected");
 
+    view.rerender(<CallConnectionStatus restoring session={readySession()} />);
+    expect(screen.getByRole("status").textContent).toBe("Restoring calling…");
+
     view.rerender(
       <CallConnectionStatus
         session={readySession({ microphoneReady: false, presence: "PAUSED" })}

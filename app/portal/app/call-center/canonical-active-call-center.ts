@@ -1,4 +1,5 @@
 import { parseRevision } from "@/lib/call-center/realtime";
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type {
   AgentSessionView,
   CallView,
@@ -9,7 +10,55 @@ import type { MediaObservation } from "./softphone-media-adapter";
 
 const OUTBOUND_OPERATION_STORAGE_KEY = "acuity-call-center:outbound-operation";
 
+export const OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE =
+  "Calling is temporarily unavailable. We couldn’t restore the station automatically. Refresh the page.";
+
 type OutboundOperationStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
+
+function isCallNotReady(error: unknown) {
+  return (
+    error instanceof CallCenterRequestError &&
+    error.operatorError.code === "CALL_NOT_READY"
+  );
+}
+
+function isActionableReadinessError(error: unknown) {
+  return (
+    error instanceof CallCenterRequestError &&
+    !["CALL_NOT_READY", "SESSION_EXPIRED", "SESSION_STALE"].includes(
+      error.operatorError.code,
+    )
+  );
+}
+
+export async function runOutboundWithExpiredLeaseRefresh<T>({
+  leaseExpiresAt,
+  onRecovering,
+  operation,
+  refresh,
+}: {
+  leaseExpiresAt: string;
+  onRecovering: () => void;
+  operation: () => Promise<T>;
+  refresh: () => Promise<unknown>;
+}) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isCallNotReady(error) || new Date(leaseExpiresAt).getTime() > Date.now()) {
+      throw error;
+    }
+  }
+
+  onRecovering();
+  try {
+    await refresh();
+    return await operation();
+  } catch (error) {
+    if (isActionableReadinessError(error)) throw error;
+    throw new Error(OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE);
+  }
+}
 
 export function selectCanonicalAgentActiveCall(
   calls: readonly CallView[],

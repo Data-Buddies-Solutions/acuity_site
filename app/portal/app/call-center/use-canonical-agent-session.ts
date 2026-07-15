@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 
 import { callCenterResponse, operatorErrorCopy } from "./call-center-errors";
@@ -48,8 +49,36 @@ function message(error: unknown, action: "connect" | "readiness") {
   return operatorErrorCopy(error, action).message;
 }
 
+function isReadyForCalls(session: AgentSessionView) {
+  return (
+    session.presence === "AVAILABLE" &&
+    session.connectionState === "READY" &&
+    session.microphoneReady &&
+    session.audioReady &&
+    session.offeredCallId === null &&
+    session.currentCallId === null &&
+    new Date(session.leaseExpiresAt).getTime() > Date.now()
+  );
+}
+
 async function responseJson<T>(response: Response): Promise<T> {
   return callCenterResponse<T>(response);
+}
+
+async function acquireSession(clientInstanceId: string): Promise<ActiveSession> {
+  const response = await fetch("/api/portal/call-center/agent-sessions", {
+    body: JSON.stringify({ clientInstanceId }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  const acquired = await responseJson<AcquisitionResponse>(response);
+  return {
+    clientInstanceId,
+    endpointId: acquired.session.endpointId,
+    leaseDurationMs: acquired.leaseDurationMs,
+    session: acquired.session,
+    stopping: false,
+  };
 }
 
 export function useCanonicalAgentSession({
@@ -68,10 +97,10 @@ export function useCanonicalAgentSession({
   const lifecycleRef = useRef(0);
   const mountedRef = useRef(true);
   const patchPromiseRef = useRef<Promise<void> | null>(null);
-  const patchReadinessRef = useRef<() => void>(() => {});
+  const patchReadinessRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const patchRequestedRef = useRef(false);
   const releasePromiseRef = useRef<Promise<void> | null>(null);
-  const startPromiseRef = useRef<Promise<void> | null>(null);
+  const startPromiseRef = useRef<Promise<ActiveSession | undefined> | null>(null);
   const readinessRef = useRef<Readiness>({
     audioReady,
     connectionState,
@@ -87,14 +116,15 @@ export function useCanonicalAgentSession({
 
   const patchReadiness = useCallback(() => {
     const active = activeRef.current;
-    if (!active || active.stopping) return;
+    if (!active || active.stopping) return Promise.resolve();
 
     patchRequestedRef.current = true;
-    if (patchPromiseRef.current) return;
+    if (patchPromiseRef.current) return patchPromiseRef.current;
 
     clearHeartbeat();
     patchRequestedRef.current = false;
     const requestedStateVersion = active.session.stateVersion;
+    let retryDelayMs = Math.max(1_000, Math.floor(active.leaseDurationMs / 2));
     const request = (async () => {
       const response = await fetch(
         `/api/portal/call-center/agent-sessions/${encodeURIComponent(active.session.id)}`,
@@ -122,6 +152,12 @@ export function useCanonicalAgentSession({
     })()
       .catch((requestError) => {
         if (
+          requestError instanceof CallCenterRequestError &&
+          requestError.operatorError.code === "SESSION_STALE"
+        ) {
+          retryDelayMs = 1_000;
+        }
+        if (
           mountedRef.current &&
           activeRef.current === active &&
           !active.stopping &&
@@ -129,6 +165,7 @@ export function useCanonicalAgentSession({
         ) {
           setError(message(requestError, "readiness"));
         }
+        throw requestError;
       })
       .finally(() => {
         if (patchPromiseRef.current !== request) return;
@@ -136,18 +173,33 @@ export function useCanonicalAgentSession({
 
         if (activeRef.current !== active || active.stopping) return;
         if (patchRequestedRef.current) {
-          patchReadinessRef.current();
+          void patchReadinessRef.current().catch(() => {});
           return;
         }
 
         heartbeatRef.current = setTimeout(
-          () => patchReadinessRef.current(),
-          Math.max(1_000, Math.floor(active.leaseDurationMs / 2)),
+          () => void patchReadinessRef.current().catch(() => {}),
+          retryDelayMs,
         );
       });
 
     patchPromiseRef.current = request;
+    return request;
   }, [clearHeartbeat]);
+
+  const flushReadiness = useCallback(async () => {
+    patchReadiness();
+    let failure: unknown = null;
+    while (patchPromiseRef.current) {
+      try {
+        await patchPromiseRef.current;
+        failure = null;
+      } catch (error) {
+        failure = error;
+      }
+    }
+    if (failure) throw failure;
+  }, [patchReadiness]);
 
   useEffect(() => {
     patchReadinessRef.current = patchReadiness;
@@ -184,7 +236,7 @@ export function useCanonicalAgentSession({
       active.stopping = true;
       clearHeartbeat();
       patchRequestedRef.current = false;
-      await patchPromiseRef.current;
+      await patchPromiseRef.current?.catch(() => {});
 
       try {
         await fetch(
@@ -229,74 +281,103 @@ export function useCanonicalAgentSession({
     await deactivate();
   }, [deactivate]);
 
-  const start = useCallback(async () => {
-    const generation = ++lifecycleRef.current;
-    const previousStart = startPromiseRef.current;
-    const pending = (async () => {
-      await previousStart;
-      await releasePromiseRef.current;
-      if (generation !== lifecycleRef.current) return;
+  const startSession = useCallback(
+    async (force = false) => {
+      const generation = ++lifecycleRef.current;
+      const previousStart = startPromiseRef.current;
+      const pending = (async () => {
+        await previousStart;
+        await releasePromiseRef.current;
+        if (generation !== lifecycleRef.current) return;
 
-      if (!clientInstanceId) {
-        if (mountedRef.current) setError("Call center browser identity is unavailable");
-        return;
-      }
-
-      const current = activeRef.current;
-      if (current && current.clientInstanceId === clientInstanceId) {
-        patchReadiness();
-        return;
-      }
-      if (current) await deactivate();
-      if (generation !== lifecycleRef.current) return;
-
-      if (mountedRef.current) setError(null);
-      try {
-        const response = await fetch("/api/portal/call-center/agent-sessions", {
-          body: JSON.stringify({
-            clientInstanceId,
-          }),
-          headers: { "Content-Type": "application/json" },
-          method: "POST",
-        });
-        const acquired = await responseJson<AcquisitionResponse>(response);
-        const active: ActiveSession = {
-          clientInstanceId,
-          endpointId: acquired.session.endpointId,
-          leaseDurationMs: acquired.leaseDurationMs,
-          session: acquired.session,
-          stopping: false,
-        };
-
-        if (
-          !mountedRef.current ||
-          generation !== lifecycleRef.current ||
-          identityRef.current.clientInstanceId !== clientInstanceId
-        ) {
-          await release(active);
+        if (!clientInstanceId) {
+          if (mountedRef.current) setError("Call center browser identity is unavailable");
           return;
         }
 
-        activeRef.current = active;
-        setSession(acquired.session);
-        patchReadiness();
-      } catch (startError) {
-        if (mountedRef.current) setError(message(startError, "connect"));
-      }
-    })().finally(() => {
-      if (startPromiseRef.current === pending) startPromiseRef.current = null;
-    });
+        const current = activeRef.current;
+        if (!force && current && current.clientInstanceId === clientInstanceId) {
+          void patchReadiness().catch(() => {});
+          return current;
+        }
+        if (current && current.clientInstanceId !== clientInstanceId) {
+          await deactivate();
+        }
+        if (generation !== lifecycleRef.current) return;
 
-    startPromiseRef.current = pending;
-    await pending;
-  }, [clientInstanceId, deactivate, patchReadiness, release]);
+        if (mountedRef.current) setError(null);
+        try {
+          const active = await acquireSession(clientInstanceId);
+
+          if (
+            !mountedRef.current ||
+            generation !== lifecycleRef.current ||
+            identityRef.current.clientInstanceId !== clientInstanceId
+          ) {
+            await release(active);
+            return;
+          }
+
+          activeRef.current = active;
+          setSession(active.session);
+          if (!force) void patchReadiness().catch(() => {});
+          return active;
+        } catch (startError) {
+          if (mountedRef.current) setError(message(startError, "connect"));
+          if (force) throw startError;
+        }
+      })().finally(() => {
+        if (startPromiseRef.current === pending) startPromiseRef.current = null;
+      });
+
+      startPromiseRef.current = pending;
+      return await pending;
+    },
+    [clientInstanceId, deactivate, patchReadiness, release],
+  );
+
+  const start = useCallback(async () => {
+    await startSession();
+  }, [startSession]);
+
+  const refresh = useCallback(async () => {
+    const generation = lifecycleRef.current;
+    clearHeartbeat();
+    patchRequestedRef.current = false;
+    await patchPromiseRef.current?.catch(() => {});
+    clearHeartbeat();
+
+    if (
+      !mountedRef.current ||
+      generation !== lifecycleRef.current ||
+      !activeRef.current ||
+      activeRef.current.stopping
+    ) {
+      throw new Error("Call center station is unavailable");
+    }
+
+    const refreshed = await startSession(true);
+    if (!refreshed) throw new Error("Call center station is unavailable");
+    try {
+      await flushReadiness();
+    } catch (refreshError) {
+      void patchReadiness().catch(() => {});
+      throw refreshError;
+    }
+
+    if (activeRef.current !== refreshed || !isReadyForCalls(refreshed.session)) {
+      throw new Error("Call center station did not become ready");
+    }
+    if (mountedRef.current) setError(null);
+    return refreshed.session;
+  }, [clearHeartbeat, flushReadiness, patchReadiness, startSession]);
 
   useEffect(() => {
     if (presence === "OFFLINE") {
       const timeout = setTimeout(() => void stop(), 0);
       return () => clearTimeout(timeout);
     }
-    patchReadiness();
+    void patchReadiness().catch(() => {});
   }, [audioReady, connectionState, microphoneReady, patchReadiness, presence, stop]);
 
   useEffect(() => {
@@ -331,6 +412,7 @@ export function useCanonicalAgentSession({
 
   return {
     error: projectedSession && effectiveSession === projectedSession ? null : error,
+    refresh,
     session: effectiveSession,
     start,
     stop,

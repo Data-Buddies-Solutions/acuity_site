@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { CallView, OperationView } from "@/lib/call-center/realtime-contract";
 
 import {
@@ -13,6 +14,8 @@ import {
   completeCanonicalOutboundOperation,
   isCanonicalClaimConflict,
   operationShouldAnswerMedia,
+  OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE,
+  runOutboundWithExpiredLeaseRefresh,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
   selectCanonicalTransferSource,
@@ -20,6 +23,12 @@ import {
   selectLatestClaimOperation,
   selectLatestTransferOperation,
 } from "./canonical-active-call-center";
+
+function callCenterError(
+  code: ConstructorParameters<typeof CallCenterRequestError>[0]["code"],
+) {
+  return new CallCenterRequestError({ code, referenceId: "ABC123", retryable: true });
+}
 
 const call: CallView = {
   answeredAt: null,
@@ -547,5 +556,104 @@ describe("canonical active call center correlation", () => {
         targetUserId: "other-user",
       }),
     ).toBeNull();
+  });
+});
+
+describe("outbound station recovery", () => {
+  it("refreshes an expired station and retries the original operation once", async () => {
+    let attempts = 0;
+    let refreshes = 0;
+    let recoveringSignals = 0;
+
+    const result = await runOutboundWithExpiredLeaseRefresh({
+      leaseExpiresAt: new Date(Date.now() - 1).toISOString(),
+      onRecovering: () => {
+        recoveringSignals += 1;
+      },
+      operation: async () => {
+        attempts += 1;
+        if (attempts === 1) throw callCenterError("CALL_NOT_READY");
+        return "started";
+      },
+      refresh: async () => {
+        refreshes += 1;
+      },
+    });
+
+    expect(result).toBe("started");
+    expect(attempts).toBe(2);
+    expect(refreshes).toBe(1);
+    expect(recoveringSignals).toBe(1);
+  });
+
+  it("returns the selected refresh message when readiness cannot be restored", async () => {
+    let attempts = 0;
+    const promise = runOutboundWithExpiredLeaseRefresh({
+      leaseExpiresAt: new Date(Date.now() - 1).toISOString(),
+      onRecovering: () => {},
+      operation: async () => {
+        attempts += 1;
+        throw callCenterError("CALL_NOT_READY");
+      },
+      refresh: async () => {},
+    });
+
+    await expect(promise).rejects.toHaveProperty(
+      "message",
+      OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE,
+    );
+    expect(attempts).toBe(2);
+  });
+
+  it("does not retry non-readiness failures", async () => {
+    let refreshes = 0;
+    const error = callCenterError("OUTBOUND_NUMBER_INVALID");
+    const promise = runOutboundWithExpiredLeaseRefresh({
+      leaseExpiresAt: new Date(Date.now() - 1).toISOString(),
+      onRecovering: () => {},
+      operation: async () => {
+        throw error;
+      },
+      refresh: async () => {
+        refreshes += 1;
+      },
+    });
+
+    await expect(promise).rejects.toBe(error);
+    expect(refreshes).toBe(0);
+  });
+
+  it("does not reacquire for an ordinary non-ready race", async () => {
+    let refreshes = 0;
+    const error = callCenterError("CALL_NOT_READY");
+    const promise = runOutboundWithExpiredLeaseRefresh({
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      onRecovering: () => {},
+      operation: async () => {
+        throw error;
+      },
+      refresh: async () => {
+        refreshes += 1;
+      },
+    });
+
+    await expect(promise).rejects.toBe(error);
+    expect(refreshes).toBe(0);
+  });
+
+  it("preserves an actionable readiness failure from refresh", async () => {
+    const readinessError = callCenterError("MICROPHONE_REQUIRED");
+    const promise = runOutboundWithExpiredLeaseRefresh({
+      leaseExpiresAt: new Date(Date.now() - 1).toISOString(),
+      onRecovering: () => {},
+      operation: async () => {
+        throw callCenterError("CALL_NOT_READY");
+      },
+      refresh: async () => {
+        throw readinessError;
+      },
+    });
+
+    await expect(promise).rejects.toBe(readinessError);
   });
 });

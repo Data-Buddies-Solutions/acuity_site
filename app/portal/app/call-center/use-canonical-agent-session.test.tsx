@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 
 import {
@@ -12,13 +13,13 @@ const originalFetch = globalThis.fetch;
 
 function agentSession(stateVersion = 0): AgentSessionView {
   return {
-    audioReady: false,
+    audioReady: Boolean(stateVersion),
     clientInstanceId: "browser-1",
     connectionState: stateVersion ? "READY" : "CONNECTING",
     currentCallId: null,
     endpointId: "endpoint-1",
     id: "session-1",
-    leaseExpiresAt: "2026-07-12T12:01:00.000Z",
+    leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
     microphoneReady: Boolean(stateVersion),
     offeredCallId: null,
     presence: stateVersion ? "AVAILABLE" : "PAUSED",
@@ -244,6 +245,172 @@ describe("useCanonicalAgentSession", () => {
         expectedStateVersion: 2,
       },
     });
+  });
+
+  it("refreshes and republishes readiness without dropping the media session", async () => {
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      requests.push({ method, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (method === "POST") {
+        postCount += 1;
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: agentSession(postCount === 1 ? 0 : 2),
+        });
+      }
+      patchCount += 1;
+      return Response.json({ session: agentSession(patchCount === 1 ? 1 : 3) });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalAgentSession({
+        audioReady: true,
+        clientInstanceId: "browser-1",
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "AVAILABLE",
+      }),
+    );
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+
+    await act(() => result.current.refresh());
+
+    expect(requests.map(({ method }) => method)).toEqual([
+      "POST",
+      "PATCH",
+      "POST",
+      "PATCH",
+    ]);
+    expect(requests[2]?.body).toEqual({ clientInstanceId: "browser-1" });
+    expect(requests[3]?.body).toMatchObject({
+      clientInstanceId: "browser-1",
+      expectedStateVersion: 2,
+      presence: "AVAILABLE",
+    });
+    expect(result.current.session?.stateVersion).toBe(3);
+  });
+
+  it("releases a refreshed lease that finishes after an intentional stop", async () => {
+    const refreshPost = deferred<Response>();
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    let postCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      requests.push({ method, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (method === "POST") {
+        postCount += 1;
+        return postCount === 1 ? acquisition() : refreshPost.promise;
+      }
+      return Response.json({ session: agentSession(1) });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalAgentSession({
+        audioReady: true,
+        clientInstanceId: "browser-1",
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "AVAILABLE",
+      }),
+    );
+    await act(() => result.current.start());
+    await waitFor(() =>
+      expect(requests.map(({ method }) => method)).toEqual(["POST", "PATCH"]),
+    );
+
+    let refreshError: unknown;
+    let refreshing!: Promise<void>;
+    act(() => {
+      refreshing = result.current.refresh().then(
+        () => undefined,
+        (error) => {
+          refreshError = error;
+        },
+      );
+    });
+    await waitFor(() =>
+      expect(requests.map(({ method }) => method)).toEqual(["POST", "PATCH", "POST"]),
+    );
+
+    await act(() => result.current.stop());
+    refreshPost.resolve(
+      Response.json({
+        leaseDurationMs: 60_000,
+        session: agentSession(2),
+      }),
+    );
+    await act(() => refreshing);
+
+    await waitFor(() =>
+      expect(requests.map(({ method }) => method)).toEqual([
+        "POST",
+        "PATCH",
+        "POST",
+        "DELETE",
+        "DELETE",
+      ]),
+    );
+    expect(refreshError).toEqual(new Error("Call center station is unavailable"));
+    expect(result.current.session).toBeNull();
+  });
+
+  it("propagates an actionable readiness failure during refresh", async () => {
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      if (method === "POST") {
+        postCount += 1;
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: agentSession(postCount === 1 ? 0 : 2),
+        });
+      }
+      patchCount += 1;
+      if (patchCount === 1) {
+        return Response.json({ session: agentSession(1) });
+      }
+      return Response.json(
+        {
+          error: {
+            code: "MICROPHONE_REQUIRED",
+            referenceId: "ABC123",
+            retryable: true,
+          },
+        },
+        { status: 409 },
+      );
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalAgentSession({
+        audioReady: true,
+        clientInstanceId: "browser-1",
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "AVAILABLE",
+      }),
+    );
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+
+    let refreshError: unknown;
+    await act(async () => {
+      try {
+        await result.current.refresh();
+      } catch (error) {
+        refreshError = error;
+      }
+    });
+
+    expect(refreshError).toBeInstanceOf(CallCenterRequestError);
+    expect((refreshError as CallCenterRequestError).operatorError.code).toBe(
+      "MICROPHONE_REQUIRED",
+    );
   });
 
   it("releases the lease instead of heartbeating an offline station", async () => {
