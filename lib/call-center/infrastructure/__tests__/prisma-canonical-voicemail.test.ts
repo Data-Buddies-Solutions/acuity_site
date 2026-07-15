@@ -6,6 +6,7 @@ import {
   CanonicalVoicemailPersistenceError,
   persistCanonicalVoicemail,
 } from "../prisma-canonical-voicemail";
+import { parseCanonicalTelnyxCallFact } from "../telnyx-canonical-call-fact";
 
 const now = new Date("2026-07-12T12:00:00.000Z");
 
@@ -132,6 +133,32 @@ function fakeDatabase({
 }
 
 describe("canonical voicemail persistence", () => {
+  it("persists and classifies Telnyx timestamp-only recording media as voicemail", async () => {
+    const parsed = parseCanonicalTelnyxCallFact(
+      {
+        data: {
+          event_type: "call.recording.saved",
+          id: "event-recording-saved",
+          occurred_at: "2026-07-12T12:00:13.000Z",
+          payload: {
+            call_session_id: "session-1",
+            command_id: "record-command-1",
+            public_recording_urls: { mp3: "https://example.test/voicemail.mp3" },
+            recording_ended_at: "2026-07-12T12:00:12.000Z",
+            recording_id: "recording-1",
+            recording_started_at: "2026-07-12T12:00:00.000Z",
+          },
+        },
+      },
+      now,
+    );
+    expect(parsed?.recordingDurationSec).toBe(12);
+
+    const fake = fakeDatabase({ durationSec: parsed!.recordingDurationSec });
+    await expect(fake.persist()).resolves.toEqual({ id: "voicemail-1" });
+    expect(fake.operations).toEqual(["voicemail.create", "task.upsert", "task.event"]);
+  });
+
   it("creates one call-linked voicemail before its deduplicated task", async () => {
     const fake = fakeDatabase();
     await expect(fake.persist()).resolves.toEqual({ id: "voicemail-1" });

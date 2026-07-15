@@ -176,6 +176,77 @@ describe("canonical Telnyx call facts", () => {
     });
   });
 
+  it("derives recording duration from Telnyx recording timestamps", () => {
+    expect(
+      parseCanonicalTelnyxCallFact(
+        envelope("call.recording.saved", {
+          call_session_id: "session-1",
+          client_state: Buffer.from(
+            JSON.stringify({
+              callId: "call-1",
+              canonicalCommand: true,
+              commandId: "record-command-1",
+              legId: "customer-leg-1",
+            }),
+          ).toString("base64"),
+          public_recording_urls: { mp3: "https://example.test/voicemail.mp3" },
+          recording_ended_at: "2026-07-11T10:00:12.400Z",
+          recording_id: "recording-1",
+          recording_started_at: "2026-07-11T10:00:00.000Z",
+        }),
+        receivedAt,
+      ),
+    ).toMatchObject({
+      recordingDurationSec: 12,
+      recordingId: "recording-1",
+      recordingUrl: "https://example.test/voicemail.mp3",
+    });
+  });
+
+  it("prefers numeric recording duration over derived timestamps", () => {
+    expect(
+      parseCanonicalTelnyxCallFact(
+        envelope("call.recording.saved", {
+          call_session_id: "session-1",
+          command_id: "record-command-1",
+          duration_secs: 4,
+          public_recording_urls: { mp3: "https://example.test/voicemail.mp3" },
+          recording_ended_at: "2026-07-11T10:00:12.000Z",
+          recording_id: "recording-1",
+          recording_started_at: "2026-07-11T10:00:00.000Z",
+        }),
+        receivedAt,
+      ),
+    ).toMatchObject({ recordingDurationSec: 4 });
+  });
+
+  it("safely rejects invalid, missing, or reversed recording timestamps", () => {
+    for (const timestamps of [
+      {
+        recording_ended_at: "2026-07-11T10:00:12.000Z",
+        recording_started_at: "invalid",
+      },
+      { recording_started_at: "2026-07-11T10:00:00.000Z" },
+      {
+        recording_ended_at: "2026-07-11T10:00:00.000Z",
+        recording_started_at: "2026-07-11T10:00:12.000Z",
+      },
+    ]) {
+      expect(
+        parseCanonicalTelnyxCallFact(
+          envelope("call.recording.saved", {
+            call_session_id: "session-1",
+            command_id: "record-command-1",
+            public_recording_urls: { mp3: "https://example.test/voicemail.mp3" },
+            recording_id: "recording-1",
+            ...timestamps,
+          }),
+          receivedAt,
+        ),
+      ).toMatchObject({ recordingDurationSec: 0 });
+    }
+  });
+
   it("recognizes exact customer greeting completion and recording evidence", () => {
     const clientState = (commandId: string) =>
       Buffer.from(
