@@ -1,26 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import type { PortalNeedsActionGroup } from "@/lib/call-center";
+import type { PortalNeedsActionGroup } from "@/lib/call-center/portal-model";
 
 import ActivityRail from "./ActivityRail";
 
 afterEach(cleanup);
-
-const totals = {
-  activeCalls: 0,
-  availableStations: 0,
-  busyStations: 0,
-  historyCalls: 1,
-  missedCallers: 0,
-  missedCalls: 0,
-  needsActionCallers: 1,
-  needsActionEvents: 1,
-  pausedStations: 0,
-  voicemailCallers: 1,
-  voicemails: 1,
-  waitingCalls: 0,
-};
 
 function voicemail(recordingId: string | null): PortalNeedsActionGroup {
   return {
@@ -37,7 +22,6 @@ function voicemail(recordingId: string | null): PortalNeedsActionGroup {
     locationNames: ["South Florida"],
     missedCount: 0,
     noteCount: 0,
-    recordIds: ["task-1"],
     voicemailCount: 1,
   };
 }
@@ -48,8 +32,8 @@ describe("ActivityRail voicemail media", () => {
       <ActivityRail
         followUpHref="/follow-up"
         needsAction={[voicemail(null)]}
+        needsActionCount={1}
         onCallback={() => {}}
-        totals={totals}
       />,
     );
 
@@ -60,8 +44,8 @@ describe("ActivityRail voicemail media", () => {
       <ActivityRail
         followUpHref="/follow-up"
         needsAction={[voicemail("recording-1")]}
+        needsActionCount={1}
         onCallback={() => {}}
-        totals={totals}
       />,
     );
 

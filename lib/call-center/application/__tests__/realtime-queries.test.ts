@@ -187,7 +187,11 @@ describe("canonical realtime serializers", () => {
       tasks: [
         {
           callId: "call-1",
-          callerPhone: null,
+          call: {
+            direction: "INBOUND",
+            fromPhone: "+15550000001",
+            toPhone: "+15550000002",
+          },
           createdAt: new Date("2026-07-12T12:00:00.000Z"),
           id: "task-1",
           kind: "FOLLOW_UP",
@@ -452,7 +456,6 @@ describe("canonical realtime serializers", () => {
             maxWaitSec: 30,
             name: "Optical",
             ringTimeoutSec: 20,
-            routingMode: "LEGACY",
           }),
         },
         callCenterTask: {

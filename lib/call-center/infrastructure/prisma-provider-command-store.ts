@@ -422,7 +422,7 @@ async function loadProviderCommandClaim(
     const endpoint = leg.endpoint;
     const session = leg.agentSession;
     const settings = command.practice.callCenterSettings;
-    if (!endpoint?.enabled || !endpoint.sipUsername || !settings?.enabled) {
+    if (!endpoint?.enabled || !endpoint.sipUsername || !settings) {
       return rejectProviderCommandClaim(
         tx,
         command,
@@ -786,39 +786,6 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
             input.attemptCount,
           )
         : "STALE";
-    });
-  }
-
-  listRecoverable(input: {
-    limit: number;
-    maxAttempts: number;
-    now: Date;
-    staleBefore: Date;
-  }) {
-    return this.commands.findMany({
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: { id: true },
-      take: input.limit,
-      where: {
-        attemptCount: { lt: input.maxAttempts },
-        AND: [
-          {
-            OR: [
-              { dependsOnCommandId: null },
-              {
-                dependsOnCommand: {
-                  is: { status: { in: ["SENT", "CONFIRMED"] } },
-                },
-              },
-            ],
-          },
-        ],
-        OR: [
-          { status: "PENDING" },
-          { nextAttemptAt: { lte: input.now }, status: "FAILED" },
-          { status: "SENDING", updatedAt: { lte: input.staleBefore } },
-        ],
-      },
     });
   }
 }

@@ -1,16 +1,5 @@
-import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  renderHook,
-  screen,
-  waitFor,
-} from "@testing-library/react";
-
-import type { SoftphoneHandle } from "./SoftphonePanel";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 const clients: FakeTelnyxClient[] = [];
 
@@ -56,212 +45,12 @@ class FakeTelnyxClient {
 
 mock.module("@telnyx/webrtc", () => ({ TelnyxRTC: FakeTelnyxClient }));
 
-const { useLegacySoftphoneMedia, useSoftphoneMedia } = await import("./use-softphone");
-const { default: SoftphonePanel } = await import("./SoftphonePanel");
+const { useSoftphoneMedia } = await import("./use-softphone");
 const originalFetch = globalThis.fetch;
 const mediaPrototype = Object.getPrototypeOf(document.createElement("audio")) as {
   play: () => Promise<void>;
 };
 const originalPlay = mediaPrototype.play;
-
-function callClientState(value: Record<string, unknown>) {
-  return window.btoa(JSON.stringify(value));
-}
-
-function providerCall({
-  hangup = mock(async () => {}),
-  id = "media-leg-1",
-  state = "active",
-}: {
-  hangup?: () => Promise<void>;
-  id?: string;
-  state?: string;
-} = {}) {
-  return {
-    answer: mock(async () => {}),
-    direction: "inbound",
-    dtmf: mock(() => {}),
-    hangup,
-    hold: mock(async () => {}),
-    id,
-    muteAudio: mock(() => {}),
-    options: {
-      callerNumber: "+17865550100",
-      clientState: callClientState({
-        callerNumber: "+17865550100",
-        ringAttemptId: "ring-1",
-      }),
-      remoteCallerNumber: "+17865550100",
-    },
-    remoteStream: new window.MediaStream(),
-    state,
-    telnyxIDs: {
-      telnyxCallControlId: `control-${id}`,
-      telnyxLegId: `provider-${id}`,
-      telnyxSessionId: `session-${id}`,
-    },
-    unhold: mock(async () => {}),
-    unmuteAudio: mock(() => {}),
-  };
-}
-
-describe("useLegacySoftphoneMedia", () => {
-  beforeEach(() => {
-    clients.length = 0;
-    mediaPrototype.play = mock(async () => {});
-    globalThis.fetch = mock(async () =>
-      Response.json({ login: "seat", password: "secret" }),
-    ) as unknown as typeof fetch;
-  });
-
-  afterEach(() => {
-    cleanup();
-    globalThis.fetch = originalFetch;
-    mediaPrototype.play = originalPlay;
-  });
-
-  it("does not reconnect or replace the legacy subscription on a parent rerender", async () => {
-    const { result, rerender, unmount } = renderHook(
-      ({ browserSessionId }) =>
-        useLegacySoftphoneMedia({
-          browserSessionId,
-          enabled: true,
-          stationSeatId: "seat-1",
-        }),
-      { initialProps: { browserSessionId: "browser-1" } },
-    );
-
-    await waitFor(() => expect(result.current.connection).toBe("READY"));
-    const subscribeLegacy = result.current.subscribeLegacy;
-
-    act(() => rerender({ browserSessionId: "browser-1" }));
-
-    expect(result.current.subscribeLegacy).toBe(subscribeLegacy);
-    expect(clients).toHaveLength(1);
-    expect(clients[0]?.connectCount).toBe(1);
-
-    unmount();
-    expect(clients[0]?.disconnectCount).toBe(1);
-    expect(clients[0]?.handlers.size).toBe(0);
-  });
-
-  it("prepares browser calling automatically once when requested", async () => {
-    const mediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
-    const stop = mock(() => {});
-    const getUserMedia = mock(async () => ({ getTracks: () => [{ stop }] }));
-    Object.defineProperty(navigator, "mediaDevices", {
-      configurable: true,
-      value: { getUserMedia },
-    });
-
-    try {
-      const { rerender } = renderHook(() =>
-        useLegacySoftphoneMedia({
-          autoPrepare: true,
-          browserSessionId: "browser-1",
-          enabled: true,
-          stationSeatId: "seat-1",
-        }),
-      );
-
-      await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(1));
-      expect(stop).toHaveBeenCalledTimes(1);
-
-      act(() => rerender());
-      expect(getUserMedia).toHaveBeenCalledTimes(1);
-    } finally {
-      if (mediaDevices) {
-        Object.defineProperty(navigator, "mediaDevices", mediaDevices);
-      } else {
-        Reflect.deleteProperty(navigator, "mediaDevices");
-      }
-    }
-  });
-
-  it("observes active media without attaching until the leg is explicitly selected", async () => {
-    const { result } = renderHook(() =>
-      useLegacySoftphoneMedia({
-        browserSessionId: "browser-1",
-        enabled: true,
-        stationSeatId: "seat-1",
-      }),
-    );
-    await waitFor(() => expect(result.current.connection).toBe("READY"));
-
-    const audio = document.createElement("audio");
-    result.current.remoteAudioRef.current = audio;
-    const call = providerCall();
-
-    act(() => clients[0]?.emitCallUpdate(call));
-    expect(audio.srcObject ?? null).toBeNull();
-
-    act(() => result.current.activate(call.id));
-    expect(audio.srcObject).toBe(call.remoteStream);
-    expect(result.current.deactivate("another-leg")).toBe(false);
-    expect(audio.srcObject).toBe(call.remoteStream);
-    expect(result.current.deactivate(call.id)).toBe(true);
-    expect(audio.srcObject).toBeNull();
-  });
-
-  it("removes a purged leg from the action map and releases selected audio", async () => {
-    const { result } = renderHook(() =>
-      useLegacySoftphoneMedia({
-        browserSessionId: "browser-1",
-        enabled: true,
-        stationSeatId: "seat-1",
-      }),
-    );
-    await waitFor(() => expect(result.current.connection).toBe("READY"));
-
-    const audio = document.createElement("audio");
-    result.current.remoteAudioRef.current = audio;
-    const call = providerCall();
-    act(() => clients[0]?.emitCallUpdate(call));
-    act(() => result.current.activate(call.id));
-
-    call.state = "purge";
-    act(() => clients[0]?.emitCallUpdate(call));
-
-    expect(audio.srcObject).toBeNull();
-    expect(() => result.current.activate(call.id)).toThrow(
-      "Media leg is no longer available",
-    );
-  });
-
-  it("selects audio only on logical promotion and clears it on stale hangup reset", async () => {
-    const ref = createRef<SoftphoneHandle>();
-    const { container } = render(
-      <SoftphonePanel
-        ref={ref}
-        browserSessionId="browser-1"
-        callerNumber="+17865550199"
-        enabled
-        inboundEnabled
-        stationSeatId="seat-1"
-      />,
-    );
-    await waitFor(() => expect(clients).toHaveLength(1));
-    const audio = container.querySelector("audio");
-    expect(audio).not.toBeNull();
-
-    const call = providerCall({
-      hangup: mock(async () => {
-        throw new Error("CALL DOES NOT EXIST");
-      }),
-    });
-    act(() => clients[0]?.emitCallUpdate(call));
-    expect(audio?.srcObject ?? null).toBeNull();
-
-    act(() => expect(ref.current?.markAnswerPending("ring-1")).toBe(true));
-    act(() => clients[0]?.emitCallUpdate(call));
-    await waitFor(() => expect(screen.getByRole("button", { name: "End" })).toBeTruthy());
-    expect(audio?.srcObject).toBe(call.remoteStream);
-
-    fireEvent.click(screen.getByRole("button", { name: "End" }));
-    await waitFor(() => expect(audio?.srcObject).toBeNull());
-    expect(screen.queryByRole("button", { name: "End" })).toBeNull();
-  });
-});
 
 describe("useSoftphoneMedia canonical credentials", () => {
   beforeEach(() => {
@@ -290,9 +79,7 @@ describe("useSoftphoneMedia canonical credentials", () => {
       useSoftphoneMedia({
         agentSessionId: "session-1",
         browserSessionId: "browser-1",
-        credentialMode: "CANONICAL",
         enabled: true,
-        stationSeatId: "endpoint-1",
       }),
     );
 
@@ -315,9 +102,7 @@ describe("useSoftphoneMedia canonical credentials", () => {
       useSoftphoneMedia({
         agentSessionId: "session-1",
         browserSessionId: "browser-1",
-        credentialMode: "CANONICAL",
         enabled: true,
-        stationSeatId: "endpoint-1",
       }),
     );
 
@@ -358,9 +143,7 @@ describe("useSoftphoneMedia canonical credentials", () => {
       useSoftphoneMedia({
         agentSessionId: "session-1",
         browserSessionId: "browser-1",
-        credentialMode: "CANONICAL",
         enabled: true,
-        stationSeatId: "endpoint-1",
       }),
     );
 
@@ -372,12 +155,12 @@ describe("useSoftphoneMedia canonical credentials", () => {
     expect(clients).toHaveLength(0);
   });
 
-  it("shows the API explanation when a station lease is rejected", async () => {
+  it("shows the API explanation when a browser lease is rejected", async () => {
     globalThis.fetch = mock(async () =>
       Response.json(
         {
           error: {
-            code: "CALL_CENTER_STATION_IN_USE",
+            code: "CALL_CENTER_SESSION_IN_USE",
             referenceId: "ABC123",
             retryable: false,
           },
@@ -390,15 +173,13 @@ describe("useSoftphoneMedia canonical credentials", () => {
       useSoftphoneMedia({
         agentSessionId: "session-1",
         browserSessionId: "browser-1",
-        credentialMode: "CANONICAL",
         enabled: true,
-        stationSeatId: "endpoint-1",
       }),
     );
 
     await waitFor(() => expect(result.current.connection).toBe("FAILED"));
     expect(result.current.error).toBe(
-      "This calling station is open in another browser. Close it there or use another station. Reference: ABC123.",
+      "Your calling session is open in another browser. Close it there, then try again. Reference: ABC123.",
     );
   });
 });

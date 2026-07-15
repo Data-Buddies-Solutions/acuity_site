@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 import { PortalSelect } from "@/app/portal/app/PortalFields";
-import type { PortalCallCenterLocation } from "@/lib/call-center";
+import type { PortalCallCenterLocation } from "@/lib/call-center/portal-model";
 
 import { useCallCenterCurrentCallGuard } from "./call-center-current-call-guard";
 

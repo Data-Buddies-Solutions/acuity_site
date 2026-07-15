@@ -19,7 +19,6 @@ import {
   readCallCenterConfiguration,
   type VersionedCallCenterConfiguration,
 } from "@/lib/call-center/infrastructure/prisma-configuration-repository";
-import { readLegacyCallCenterBackfillReport } from "@/lib/call-center/infrastructure/legacy-backfill-report";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("admin-call-center-configuration");
@@ -35,9 +34,6 @@ type ConfigurationHandlerDependencies = {
   readConfiguration?: (
     practiceId: string,
   ) => Promise<VersionedCallCenterConfiguration | null>;
-  readMigrationReport?: (
-    practiceId: string,
-  ) => Promise<{ overallReadiness: "BLOCKED" | "READY_FOR_MANUAL_REVIEW" } | null>;
   saveConfiguration?: (
     input: CallCenterConfigurationInput,
     expectedVersion: string,
@@ -62,7 +58,6 @@ export function createConfigurationHandlers({
   getSession = () => getAuthSession() as Promise<AdminSession | null>,
   isAdmin = isAdminEmail,
   readConfiguration = readCallCenterConfiguration,
-  readMigrationReport = readLegacyCallCenterBackfillReport,
   saveConfiguration = (input, expectedVersion, actorUserId) =>
     saveCallCenterConfiguration(
       new PrismaCallCenterConfigurationRepository(),
@@ -164,25 +159,6 @@ export function createConfigurationHandlers({
       const current = await readConfiguration(practiceId);
       if (!current) {
         return Response.json({ error: "Practice not found" }, { status: 404 });
-      }
-      const isFirstBootstrap =
-        current.configuration.queues.length === 0 &&
-        current.configuration.numbers.length === 0 &&
-        current.configuration.endpoints.length === 0;
-      if (isFirstBootstrap) {
-        const report = await readMigrationReport(practiceId);
-        if (report?.overallReadiness !== "READY_FOR_MANUAL_REVIEW") {
-          return Response.json(
-            {
-              error: "Migration report is blocked",
-              issues: requestIssue(
-                "MIGRATION_REPORT_BLOCKED",
-                "Resolve every discovery ambiguity before the first configuration write",
-              ),
-            },
-            { status: 422 },
-          );
-        }
       }
       const saved = await saveConfiguration(
         resolveCallCenterConfigurationWireInput(

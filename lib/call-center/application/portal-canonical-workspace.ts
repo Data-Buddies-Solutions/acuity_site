@@ -1,5 +1,8 @@
 import { listAccessibleQueues } from "@/lib/call-center/auth/queue-access";
+import { readCanonicalNeedsAction } from "@/lib/call-center/application/portal-canonical-history";
+import type { PortalCallCenterLocation } from "@/lib/call-center/portal-model";
 import { prisma } from "@/lib/prisma";
+import { getPracticeBranding } from "@/lib/practice-branding";
 import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 
 type AccessibleQueue = Awaited<ReturnType<typeof listAccessibleQueues>>[number];
@@ -65,33 +68,18 @@ export async function listCanonicalOutboundNumbers(
 export function selectCanonicalWorkspaceQueue(
   queues: AccessibleQueue[],
   selectedLocationIds: string[],
-  canonicalActivation = false,
-  drainingQueueIds: ReadonlySet<string> = new Set(),
   selectedQueueId?: string,
 ) {
-  const matches = listCanonicalWorkspaceQueues(
-    queues,
-    selectedLocationIds,
-    canonicalActivation,
-    drainingQueueIds,
-  );
+  const matches = listCanonicalWorkspaceQueues(queues, selectedLocationIds);
   return matches.find(({ id }) => id === selectedQueueId) ?? matches[0] ?? null;
 }
 
 export function listCanonicalWorkspaceQueues(
   queues: AccessibleQueue[],
   selectedLocationIds: string[],
-  canonicalActivation = false,
-  drainingQueueIds: ReadonlySet<string> = new Set(),
 ) {
   const selected = new Set(selectedLocationIds);
-  const drainingQueues = queues.filter(({ id }) => drainingQueueIds.has(id));
-  const canonicalQueues = canonicalActivation
-    ? queues
-    : drainingQueues.length
-      ? drainingQueues
-      : queues.filter(({ routingMode }) => routingMode === "SHADOW");
-  return canonicalQueues.filter(
+  return queues.filter(
     (queue) =>
       selected.size === 0 ||
       queue.locations.length === 0 ||
@@ -101,11 +89,10 @@ export function listCanonicalWorkspaceQueues(
 
 export async function readPortalCanonicalWorkspace(
   selectedLocationIds: string[],
-  canonicalActivation = false,
   selectedQueueId?: string,
 ) {
   const context = await getCurrentPortalPracticeContext();
-  if (!context?.practice.callCenterSettings?.enabled) return null;
+  if (!context) return null;
 
   const queues = await listAccessibleQueues({
     allowedLocationIds: context.allowedLocationIds,
@@ -113,32 +100,7 @@ export async function readPortalCanonicalWorkspace(
     practiceId: context.practice.id,
     userId: context.session.user.id,
   });
-  const drainingQueueIds = canonicalActivation
-    ? new Set<string>()
-    : new Set(
-        (
-          await prisma.callCenterCall.findMany({
-            distinct: ["queueId"],
-            select: { queueId: true },
-            where: {
-              effectOwner: "CANONICAL",
-              practiceId: context.practice.id,
-              queueId: { in: queues.map(({ id }) => id) },
-              status: {
-                in: ["RECEIVED", "QUEUED", "RINGING", "CONNECTED", "WRAP_UP"],
-              },
-            },
-          })
-        )
-          .map(({ queueId }) => queueId)
-          .filter((queueId): queueId is string => Boolean(queueId)),
-      );
-  const availableQueues = listCanonicalWorkspaceQueues(
-    queues,
-    selectedLocationIds,
-    canonicalActivation,
-    drainingQueueIds,
-  );
+  const availableQueues = listCanonicalWorkspaceQueues(queues, selectedLocationIds);
   const queue =
     availableQueues.find(({ id }) => id === selectedQueueId) ??
     availableQueues[0] ??
@@ -154,9 +116,66 @@ export async function readPortalCanonicalWorkspace(
   );
   return {
     availableQueues: availableQueues.map(({ id, name }) => ({ id, name })),
-    drainingCanonical: !canonicalActivation && drainingQueueIds.has(queue.id),
     outboundNumbers,
     queueId: queue.id,
-    routingMode: queue.routingMode,
+  };
+}
+
+function portalLocations(
+  context: NonNullable<Awaited<ReturnType<typeof getCurrentPortalPracticeContext>>>,
+): PortalCallCenterLocation[] {
+  const allowed = new Set(context.allowedLocationIds);
+  const visible = context.hasAllLocationAccess
+    ? context.practice.locations
+    : context.practice.locations.filter(({ id }) => allowed.has(id));
+  return visible.map(({ id, name }) => ({
+    id,
+    label: name,
+    locationId: id,
+    locationIds: [id],
+  }));
+}
+
+export async function readPortalCallCenterPage(
+  selectedLocationId?: string,
+  selectedQueueId?: string,
+) {
+  const shell = await readPortalCallCenterShell(selectedLocationId);
+  if (!shell) return null;
+
+  const selectedLocationIds = shell.selectedLocation ? [shell.selectedLocation.id] : [];
+  const workspace = await readPortalCanonicalWorkspace(
+    selectedLocationIds,
+    selectedQueueId,
+  );
+  const needsAction = workspace
+    ? await readCanonicalNeedsAction({
+        locationIds: selectedLocationIds,
+        page: 1,
+        pageSize: 25,
+        queueId: workspace.queueId,
+      })
+    : null;
+
+  return {
+    ...shell,
+    needsAction: needsAction?.groups ?? [],
+    needsActionCount: needsAction?.total ?? 0,
+    workspace,
+  };
+}
+
+export async function readPortalCallCenterShell(selectedLocationId?: string) {
+  const context = await getCurrentPortalPracticeContext();
+  if (!context) return null;
+
+  const locations = portalLocations(context);
+  const selectedLocation =
+    locations.find(({ id }) => id === selectedLocationId) ?? locations[0] ?? null;
+  return {
+    branding: getPracticeBranding(context.practice),
+    locations,
+    practiceName: context.practice.name,
+    selectedLocation,
   };
 }

@@ -353,11 +353,11 @@ export function useCanonicalAgentSession({
       !activeRef.current ||
       activeRef.current.stopping
     ) {
-      throw new Error("Call center station is unavailable");
+      throw new Error("Call center session is unavailable");
     }
 
     const refreshed = await startSession(true);
-    if (!refreshed) throw new Error("Call center station is unavailable");
+    if (!refreshed) throw new Error("Call center session is unavailable");
     try {
       await flushReadiness();
     } catch (refreshError) {
@@ -366,7 +366,7 @@ export function useCanonicalAgentSession({
     }
 
     if (activeRef.current !== refreshed || !isReadyForCalls(refreshed.session)) {
-      throw new Error("Call center station did not become ready");
+      throw new Error("Call center session did not become ready");
     }
     if (mountedRef.current) setError(null);
     return refreshed.session;

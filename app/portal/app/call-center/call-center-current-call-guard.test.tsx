@@ -11,11 +11,6 @@ import {
 import LocationPicker from "./LocationPicker";
 import { QueuePicker } from "./QueuePicker";
 
-function StationSwitch() {
-  const guarded = useCallCenterCurrentCallGuard();
-  return <select aria-label="Station" disabled={guarded} />;
-}
-
 function Switches() {
   return (
     <>
@@ -27,7 +22,6 @@ function Switches() {
             id: "location-1",
             label: "Optical",
             locationId: "location-1",
-            outboundNumber: "",
           },
         ]}
       />
@@ -36,7 +30,6 @@ function Switches() {
         office="location-1"
         queues={[{ id: "queue-1", name: "Optical" }]}
       />
-      <StationSwitch />
     </>
   );
 }
@@ -48,7 +41,7 @@ afterEach(() => {
 });
 
 describe("current-call navigation guard", () => {
-  it("keeps station, queue, and location switches disabled across remount", () => {
+  it("keeps queue and location switches disabled across remount", () => {
     setCallCenterCurrentCallGuard("call-1");
     const first = render(<Switches />);
 

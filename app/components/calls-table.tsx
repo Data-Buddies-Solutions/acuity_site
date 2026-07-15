@@ -353,6 +353,8 @@ export function CallsTable({
   );
 
   React.useEffect(() => {
+    // URL navigation replaces the authoritative server table state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSearchQuery(serverState.searchQuery);
     setQuickFilter(serverState.quickFilter);
     setSortState(serverState.sortState);

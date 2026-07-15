@@ -59,7 +59,6 @@ export function createDirectHandoffHandler({
 }: Dependencies = {}) {
   return async function handleDirectHandoff(request: Request) {
     const resolved = config();
-    if (!resolved.enabled) throw new ApiError("Direct call handoff is disabled", 503);
     if (!authorized(request.headers.get("authorization"), resolved.secret)) {
       throw new ApiError("Unauthorized", 401);
     }

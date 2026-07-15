@@ -6,7 +6,6 @@ import { phoneNationalDigits } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
 const portalPracticeAccessInclude = {
-  callCenterSettings: true,
   locations: {
     orderBy: [{ isPrimary: "desc" as const }, { createdAt: "asc" as const }],
   },

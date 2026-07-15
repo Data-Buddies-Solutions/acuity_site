@@ -1,22 +1,15 @@
 import { redirect } from "next/navigation";
 
-import { getPortalCallCenterData, resolveTelnyxRuntimeSettings } from "@/lib/call-center";
-import { readCombinedNeedsAction } from "@/lib/call-center/application/portal-combined-call-center-reads";
-import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
-import { resolvePortalCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
-import { createLogger } from "@/lib/logger";
+import { readPortalCallCenterPage } from "@/lib/call-center/application/portal-canonical-workspace";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import { PracticePageHeader } from "../PracticePageHeader";
 
-import CallCenterWorkspace from "./CallCenterWorkspace";
 import { CanonicalActiveWorkspace } from "./CanonicalActiveWorkspace";
-import { EnableCallCenterControl } from "./EnableCallCenterControl";
 import LocationPicker from "./LocationPicker";
 import { QueuePicker } from "./QueuePicker";
 
 export const dynamic = "force-dynamic";
-const logger = createLogger("portal-call-center-page");
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 
@@ -32,73 +25,20 @@ export default async function PortalCallCenterPage({
   }
 
   const params = searchParams ? await searchParams : {};
-  const activation = resolvePortalCallCenterActivationConfig();
-  const canonicalActivation = activation.enabled;
-  if (!activation.valid) {
-    logger.error("canonical activation configuration invalid", {
-      errorCode: "INVALID_CALL_CENTER_ACTIVATION_CONFIG",
-    });
-  }
   const selectedLocationId = Array.isArray(params.office)
     ? params.office[0]
     : params.office;
   const initialDialNumber = Array.isArray(params.call) ? params.call[0] : params.call;
   const selectedQueueId = Array.isArray(params.queue) ? params.queue[0] : params.queue;
-
-  const data = await getPortalCallCenterData({
-    excludeCanonicalLinkedActivity: canonicalActivation,
-    locationId: selectedLocationId,
-    needsActionPageSize: canonicalActivation ? 100 : undefined,
-  });
+  const data = await readPortalCallCenterPage(selectedLocationId, selectedQueueId);
 
   if (!data) {
     redirect("/portal");
   }
 
-  const settings = data.settings;
-  const enabled = settings?.enabled === true;
-  const runtimeSettings = settings ? resolveTelnyxRuntimeSettings(settings) : null;
   const selectedLocation = data.selectedLocation;
-  const selectedCanonicalLocationIds = selectedLocation?.locationIds?.length
-    ? selectedLocation.locationIds
-    : selectedLocation?.locationId
-      ? [selectedLocation.locationId]
-      : [];
-  const canonicalWorkspace = activation.valid
-    ? await readPortalCanonicalWorkspace(
-        selectedCanonicalLocationIds,
-        canonicalActivation,
-        selectedQueueId,
-      )
-    : null;
-  const combinedNeedsAction = canonicalActivation
-    ? await readCombinedNeedsAction({
-        legacyGroups: data.needsAction,
-        legacyGroupIds: data.needsActionIds,
-        legacyTotal: data.needsActionTotal,
-        locationIds: selectedCanonicalLocationIds,
-        page: 1,
-        pageSize: 25,
-        queueId: canonicalWorkspace?.queueId ?? undefined,
-      })
-    : null;
-  const canonicalNeedsAction = combinedNeedsAction?.groups ?? data.needsAction;
-  const canonicalTotals = combinedNeedsAction
-    ? {
-        ...data.totals,
-        needsActionCallers: combinedNeedsAction.total,
-      }
-    : data.totals;
+  const canonicalWorkspace = data.workspace;
   const selectedOfficeId = selectedLocation?.id ?? selectedLocationId ?? null;
-  const practiceWideOutboundCallerNumber =
-    selectedLocation?.outboundNumber ||
-    runtimeSettings?.outboundCallerNumber ||
-    data.phoneNumbers.find((phone) => phone.isPrimary)?.phoneNumber ||
-    data.phoneNumbers[0]?.phoneNumber ||
-    "";
-  const outboundCallerNumber = data.hasAllLocationAccess
-    ? practiceWideOutboundCallerNumber
-    : selectedLocation?.outboundNumber || "";
   const followUpParams = new URLSearchParams();
   if (selectedOfficeId) followUpParams.set("office", selectedOfficeId);
   if (canonicalWorkspace?.queueId) {
@@ -109,21 +49,6 @@ export default async function PortalCallCenterPage({
     followUpQuery ? `?${followUpQuery}` : ""
   }`;
   const historyHref = "/portal/app/call-center/history";
-  const voicemailTimeoutSec = Math.max(1, settings?.voicemailTimeoutSec ?? 30);
-  const hasSeatCredential = data.seats.some((seat) => seat.hasCredential);
-  const needsSeatCredential = data.seats.length > 0;
-  const configured = Boolean(
-    enabled &&
-    runtimeSettings?.connectionId &&
-    (needsSeatCredential ? hasSeatCredential : runtimeSettings.credentialId) &&
-    outboundCallerNumber,
-  );
-  const configurationMessage =
-    !data.hasAllLocationAccess && data.seats.length === 0
-      ? "No assigned call center station is configured for this location."
-      : needsSeatCredential
-        ? "Add a Telnyx credential ID to at least one station for this location before staff can register."
-        : "Telnyx is missing connection details. Add the connection ID, credential ID, and caller number to start placing calls.";
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -139,9 +64,7 @@ export default async function PortalCallCenterPage({
           {selectedLocation ? (
             <LocationPicker
               currentId={selectedLocation.id}
-              guardCurrentCall={
-                canonicalActivation || Boolean(canonicalWorkspace?.drainingCanonical)
-              }
+              guardCurrentCall
               locations={data.locations}
               showLabel={false}
             />
@@ -153,46 +76,19 @@ export default async function PortalCallCenterPage({
               queues={canonicalWorkspace.availableQueues}
             />
           ) : null}
-          {!enabled && data.hasAllLocationAccess ? <EnableCallCenterControl /> : null}
         </div>
       </PracticePageHeader>
 
-      {canonicalActivation || canonicalWorkspace?.drainingCanonical ? (
-        <CanonicalActiveWorkspace
-          actionsEnabled={canonicalActivation}
-          enabled={enabled}
-          eventLocationId={selectedLocation?.locationId}
-          followUpHref={followUpHref}
-          historyHref={historyHref}
-          initialDialNumber={initialDialNumber}
-          needsAction={canonicalNeedsAction}
-          office={selectedOfficeId}
-          outboundNumbers={canonicalWorkspace?.outboundNumbers ?? []}
-          queueId={canonicalWorkspace?.queueId ?? null}
-          totals={canonicalTotals}
-        />
-      ) : (
-        <CallCenterWorkspace
-          configured={configured}
-          configurationMessage={configurationMessage}
-          enabled={enabled}
-          eventLocationId={selectedLocation?.locationId}
-          followUpHref={followUpHref}
-          historyHref={historyHref}
-          initialDialNumber={initialDialNumber}
-          inboundEnabled={data.inboundEnabled}
-          needsAction={data.needsAction}
-          office={selectedOfficeId}
-          outboundCallerNumber={outboundCallerNumber}
-          outboundCallerNumbers={data.outboundCallerNumbers}
-          queue={data.queue}
-          recentCalls={data.recentCalls}
-          seats={data.seats}
-          shadowQueueId={canonicalWorkspace?.queueId ?? null}
-          totals={data.totals}
-          voicemailTimeoutSec={voicemailTimeoutSec}
-        />
-      )}
+      <CanonicalActiveWorkspace
+        followUpHref={followUpHref}
+        historyHref={historyHref}
+        initialDialNumber={initialDialNumber}
+        needsAction={data.needsAction}
+        needsActionCount={data.needsActionCount}
+        office={selectedOfficeId}
+        outboundNumbers={canonicalWorkspace?.outboundNumbers ?? []}
+        queueId={canonicalWorkspace?.queueId ?? null}
+      />
     </div>
   );
 }

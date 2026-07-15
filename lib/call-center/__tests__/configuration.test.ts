@@ -20,7 +20,6 @@ function validInput(): CallCenterConfigurationInput {
         id: "queue-1",
         name: " Optical ",
         enabled: true,
-        routingMode: "SHADOW",
         ringTimeoutSec: 20,
         maxWaitSec: 30,
         wrapUpSec: 0,
@@ -175,16 +174,6 @@ describe("call-center configuration validation", () => {
     );
   });
 
-  it("allows an unassigned profile while its queue remains LEGACY", () => {
-    const input = validInput();
-    input.queues[0]!.routingMode = "LEGACY";
-    input.endpoints[0]!.userId = null;
-
-    expect(
-      validateCallCenterConfiguration(input, validContext()).endpoints[0],
-    ).toMatchObject({ userId: null });
-  });
-
   it("rejects assigning two call profiles to one user", () => {
     const input = validInput();
     input.endpoints.push({
@@ -202,7 +191,7 @@ describe("call-center configuration validation", () => {
     ).toContain("DUPLICATE_VALUE");
   });
 
-  it("requires a shadow endpoint to belong to one of its queue locations", () => {
+  it("requires an endpoint to belong to one of its queue locations", () => {
     const input = validInput();
     input.endpoints[0]!.locationId = null;
 
@@ -235,7 +224,7 @@ describe("call-center configuration validation", () => {
     ).toContain("PROVIDER_NUMBER_ALREADY_ASSIGNED");
   });
 
-  it("refuses to activate an incomplete routing configuration", () => {
+  it("rejects an incomplete enabled routing configuration", () => {
     const input = validInput();
     input.queues[0]!.locationIds = [];
     input.queues[0]!.members = [];
@@ -251,33 +240,6 @@ describe("call-center configuration validation", () => {
       "INCOMPLETE_ROUTING",
       "INCOMPLETE_ROUTING",
     ]);
-  });
-
-  it("allows incomplete LEGACY configuration during staged migration", () => {
-    const input = validInput();
-    input.queues[0]!.routingMode = "LEGACY";
-    input.queues[0]!.locationIds = [];
-    input.queues[0]!.members = [];
-    input.numbers = [];
-    input.endpoints = [];
-    input.defaultOutboundNumberId = null;
-
-    expect(
-      validateCallCenterConfiguration(input, validContext()).queues[0],
-    ).toMatchObject({
-      routingMode: "LEGACY",
-      locationIds: [],
-      members: [],
-    });
-  });
-
-  it("rejects ACTIVE until the execution cutover is installed", () => {
-    const input = validInput();
-    input.queues[0]!.routingMode = "ACTIVE";
-
-    expect(
-      issueCodes(() => validateCallCenterConfiguration(input, validContext())),
-    ).toContain("ACTIVE_NOT_AVAILABLE");
   });
 
   it("requires enabled rows to be explicitly disabled before omission", () => {
@@ -324,7 +286,6 @@ describe("call-center configuration validation", () => {
     input.queues.push({
       ...input.queues[0]!,
       name: "Duplicate queue ID",
-      routingMode: "LEGACY",
     });
     input.queues[0]!.overflowQueueId = "queue-foreign";
     input.defaultOutboundNumberId = "number-foreign";
@@ -486,7 +447,6 @@ describe("transactional configuration boundary", () => {
       id: "queue-disabled",
       name: "Retired queue",
       enabled: false,
-      routingMode: "LEGACY",
       locationIds: [],
       members: [],
     });

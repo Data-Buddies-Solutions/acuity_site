@@ -1,19 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  assertCanonicalOutboundActivation,
   canonicalOutboundClientState,
   isOutboundScopeAllowed,
 } from "../prisma-start-outbound-call-store";
 
 describe("canonical outbound scope", () => {
-  it("uses the injected global activation guard", () => {
-    expect(() => assertCanonicalOutboundActivation(() => false)).toThrow(
-      "Canonical call center is not active",
-    );
-    expect(() => assertCanonicalOutboundActivation(() => true)).not.toThrow();
-  });
-
   it("returns stable correlation-only client state", () => {
     const input = {
       practiceId: "practice-1",

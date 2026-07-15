@@ -37,7 +37,6 @@ describe("canonical end call route", () => {
         };
       },
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       scheduleCommand: (commandId) => scheduled.push(commandId),
     });
 
@@ -53,27 +52,5 @@ describe("canonical end call route", () => {
       },
     });
     expect(scheduled).toEqual(["hangup-agent", "hangup-customer"]);
-  });
-
-  it("authenticates before rejecting an inactive canonical surface", async () => {
-    let authenticated = false;
-    let calls = 0;
-    const POST = createEndCallHandler({
-      end: async () => {
-        calls += 1;
-        throw new Error("not reached");
-      },
-      getActor: async () => {
-        authenticated = true;
-        return actor;
-      },
-      isCanonicalActive: () => false,
-    });
-
-    const response = await POST(request(), routeContext);
-
-    expect(response.status).toBe(409);
-    expect(authenticated).toBe(true);
-    expect(calls).toBe(0);
   });
 });

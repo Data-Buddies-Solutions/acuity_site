@@ -83,7 +83,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
           where: { role: "AGENT" },
         },
         ringTimeoutSec: true,
-        routingMode: true,
       },
       where: { id: call.queueId, practiceId },
     });
@@ -163,7 +162,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
           userId: member.userId,
         })),
         ringTimeoutSec: queue.ringTimeoutSec,
-        routingMode: queue.routingMode,
       },
       status: call.status,
     } satisfies ActiveRoutingContext;

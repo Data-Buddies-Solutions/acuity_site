@@ -151,19 +151,13 @@ export async function parseJsonBody<Schema extends z.ZodType>(
   return result.data;
 }
 
-export type PortalCallCenterContext = Omit<PortalPracticeAccessContext, "practice"> & {
-  practice: Omit<PortalPracticeAccessContext["practice"], "callCenterSettings"> & {
-    callCenterSettings: NonNullable<
-      PortalPracticeAccessContext["practice"]["callCenterSettings"]
-    >;
-  };
-};
+export type PortalCallCenterContext = PortalPracticeAccessContext;
 
 /**
  * Resolves the current portal call-center context or throws a typed error:
- * 401 when there is no authenticated practice context, and 403 when the
- * practice has not enabled the call center. The returned context is narrowed so
- * `practice.callCenterSettings` is guaranteed to be present.
+ * 401 when there is no authenticated practice context. Queue and endpoint
+ * configuration determine whether the authenticated user can place or answer
+ * calls.
  */
 export async function requirePortalCallCenterContext(): Promise<PortalCallCenterContext> {
   const context = await getCurrentPortalPracticeContext();
@@ -172,9 +166,5 @@ export async function requirePortalCallCenterContext(): Promise<PortalCallCenter
     throw new ApiError("Unauthorized", 401);
   }
 
-  if (!context.practice.callCenterSettings?.enabled) {
-    throw new ApiError("Call center is not enabled for this practice", 403);
-  }
-
-  return context as PortalCallCenterContext;
+  return context;
 }

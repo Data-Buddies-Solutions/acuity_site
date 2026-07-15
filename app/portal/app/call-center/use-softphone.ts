@@ -19,21 +19,6 @@ type TelnyxTokenResponse =
   | { callerNumber?: string; login: string; password: string }
   | { callerNumber?: string; token: string };
 
-export type LegacySoftphoneCall = {
-  direction: string | null;
-  id: string;
-  options: {
-    callerNumber?: string;
-    clientState?: string;
-    remoteCallerNumber?: string;
-  };
-  providerCallControlId: string | null;
-  providerCallLegId: string | null;
-  providerCallSessionId: string | null;
-  remoteAudioReady: boolean;
-  state: string | null;
-};
-
 type DialMediaLeg = {
   callerNumber: string;
   clientState: string;
@@ -41,17 +26,14 @@ type DialMediaLeg = {
 };
 
 type SoftphoneMediaOptions = {
-  agentSessionId?: string | null;
+  agentSessionId: string | null;
   autoPrepare?: boolean;
   browserSessionId: string;
-  credentialMode?: "CANONICAL" | "LEGACY";
   enabled: boolean;
   onDebug?: (event: string, details?: Record<string, unknown>) => void;
   onObservation?: (observation: MediaObservation) => void;
-  stationSeatId?: string | null;
 };
 
-type LegacyObserver = (call: LegacySoftphoneCall) => void;
 const TELNYX_CLIENT_EVENTS = [
   "telnyx.error",
   "telnyx.notification",
@@ -120,39 +102,26 @@ function mediaFailure() {
   return operatorErrorCopy(localCallCenterError(code), "connect").message;
 }
 
-function legacyCallSnapshot(call: Call): LegacySoftphoneCall {
-  return {
-    direction: call.direction ?? null,
-    id: call.id,
-    options: {
-      callerNumber: call.options?.callerNumber,
-      clientState: call.options?.clientState,
-      remoteCallerNumber: call.options?.remoteCallerNumber,
-    },
-    providerCallControlId: call.telnyxIDs?.telnyxCallControlId || null,
-    providerCallLegId: call.telnyxIDs?.telnyxLegId || null,
-    providerCallSessionId: call.telnyxIDs?.telnyxSessionId || null,
-    remoteAudioReady: Boolean(call.remoteStream),
-    state: call.state ?? null,
-  };
+function playRemoteStream(audio: HTMLAudioElement, stream: MediaStream) {
+  audio.autoplay = true;
+  audio.setAttribute("playsinline", "true");
+  audio.srcObject = stream;
+  void audio.play().catch(() => {});
 }
 
 function useSoftphoneMediaEngine({
   agentSessionId,
   autoPrepare = false,
   browserSessionId,
-  credentialMode = "LEGACY",
   enabled,
   onDebug,
   onObservation,
-  stationSeatId,
 }: SoftphoneMediaOptions) {
   const clientRef = useRef<TelnyxRTC | null>(null);
   const callsRef = useRef(new Map<string, Call>());
-  const legacyObserversRef = useRef(new Set<LegacyObserver>());
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
   const attachedMediaLegRef = useRef<string | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const debugRef = useRef(onDebug);
   const observationRef = useRef(onObservation);
   const autoPrepareAttemptedRef = useRef(false);
@@ -184,7 +153,9 @@ function useSoftphoneMediaEngine({
       fallbackAudioRef.current.remove();
       fallbackAudioRef.current = null;
     }
-    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    if (remoteAudioElementRef.current) {
+      remoteAudioElementRef.current.srcObject = null;
+    }
     attachedMediaLegRef.current = null;
     debug("audio-detached");
   }, [debug]);
@@ -197,22 +168,19 @@ function useSoftphoneMediaEngine({
         return;
       }
 
-      const currentAudio = remoteAudioRef.current ?? fallbackAudioRef.current;
+      const currentAudio = remoteAudioElementRef.current ?? fallbackAudioRef.current;
       if (attachedMediaLegRef.current === call.id && currentAudio?.srcObject === stream) {
         return;
       }
 
       detachAudio();
-      const audio = remoteAudioRef.current ?? document.createElement("audio");
-      audio.autoplay = true;
-      audio.setAttribute("playsinline", "true");
-      audio.srcObject = stream;
-      if (!remoteAudioRef.current) {
+      const audio = remoteAudioElementRef.current ?? document.createElement("audio");
+      playRemoteStream(audio, stream);
+      if (!remoteAudioElementRef.current) {
         document.body.appendChild(audio);
         fallbackAudioRef.current = audio;
       }
       attachedMediaLegRef.current = call.id;
-      void audio.play().catch(() => {});
       debug("audio-attached", { mediaLegId: call.id });
     },
     [debug, detachAudio],
@@ -302,6 +270,11 @@ function useSoftphoneMediaEngine({
     }
   }, [debug, soundReady]);
 
+  const setRemoteAudioElement = useCallback((element: HTMLAudioElement | null) => {
+    remoteAudioElementRef.current = element;
+    if (clientRef.current && element) clientRef.current.remoteElement = element;
+  }, []);
+
   useEffect(() => {
     if (!autoPrepare) {
       autoPrepareAttemptedRef.current = false;
@@ -339,44 +312,29 @@ function useSoftphoneMediaEngine({
   }, []);
 
   useEffect(() => {
-    if (!enabled) {
-      setConnection("OFFLINE");
-      setError(null);
-      return;
-    }
+    if (!enabled) return;
 
     const adapterConnectionId = connectionId();
     const calls = callsRef.current;
     let cancelled = false;
-    setConnection("CONNECTING");
 
     async function connect() {
+      await Promise.resolve();
+      if (cancelled) return;
+      setConnection("CONNECTING");
       try {
         debug("token-request-start");
-        let response: Response;
-        if (credentialMode === "CANONICAL") {
-          if (!agentSessionId || !browserSessionId) {
-            throw new Error("Canonical agent session is unavailable");
-          }
-          response = await fetch(
-            `/api/portal/call-center/agent-sessions/${encodeURIComponent(agentSessionId)}/token`,
-            {
-              body: JSON.stringify({
-                clientInstanceId: browserSessionId,
-              }),
-              headers: { "Content-Type": "application/json" },
-              method: "POST",
-            },
-          );
-        } else {
-          const params = new URLSearchParams();
-          if (stationSeatId) params.set("seatId", stationSeatId);
-          if (browserSessionId) params.set("browserSessionId", browserSessionId);
-          const query = params.toString();
-          response = await fetch(
-            `/api/portal/call-center/telnyx-token${query ? `?${query}` : ""}`,
-          );
+        if (!agentSessionId || !browserSessionId) {
+          throw new Error("Canonical agent session is unavailable");
         }
+        const response = await fetch(
+          `/api/portal/call-center/agent-sessions/${encodeURIComponent(agentSessionId)}/token`,
+          {
+            body: JSON.stringify({ clientInstanceId: browserSessionId }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+          },
+        );
         const data = await readTokenResponse(response);
         debug("token-request-finished", { ok: response.ok, status: response.status });
         if (cancelled) return;
@@ -389,7 +347,9 @@ function useSoftphoneMediaEngine({
           "login" in auth && auth.login && auth.password
             ? new TelnyxRTC({ login: auth.login, password: auth.password })
             : new TelnyxRTC({ login_token: (auth as { token: string }).token });
-        if (remoteAudioRef.current) client.remoteElement = remoteAudioRef.current;
+        if (remoteAudioElementRef.current) {
+          client.remoteElement = remoteAudioElementRef.current;
+        }
 
         client.on("telnyx.ready", () => {
           if (cancelled) return;
@@ -458,9 +418,6 @@ function useSoftphoneMediaEngine({
             calls.delete(call.id);
             if (attachedMediaLegRef.current === call.id) detachAudio();
           }
-
-          const legacySnapshot = legacyCallSnapshot(call);
-          for (const observer of legacyObserversRef.current) observer(legacySnapshot);
         });
 
         debug("telnyx-connect-start", { connectionId: adapterConnectionId });
@@ -490,15 +447,7 @@ function useSoftphoneMediaEngine({
       client?.disconnect();
       clientRef.current = null;
     };
-  }, [
-    agentSessionId,
-    browserSessionId,
-    credentialMode,
-    debug,
-    detachAudio,
-    enabled,
-    stationSeatId,
-  ]);
+  }, [agentSessionId, browserSessionId, debug, detachAudio, enabled]);
 
   const callFor = useCallback((mediaLegId: string) => {
     const call = callsRef.current.get(mediaLegId);
@@ -553,43 +502,28 @@ function useSoftphoneMediaEngine({
     callsRef.current.set(call.id, call);
     return call.id;
   }, []);
-  const subscribeLegacy = useCallback((observer: LegacyObserver) => {
-    legacyObserversRef.current.add(observer);
-    return () => {
-      legacyObserversRef.current.delete(observer);
-    };
-  }, []);
-
   return {
     activate,
     answer,
-    connection,
+    connection: enabled ? connection : "OFFLINE",
     deactivate,
     decline,
     dial,
-    error,
+    error: enabled ? error : null,
     hangup,
     hold,
     microphoneReady,
     mute,
     observations,
     prepare,
-    remoteAudioRef,
+    setRemoteAudioElement,
     sendDtmf,
     setupError,
     setupPending,
     soundReady,
-    subscribeLegacy,
   };
 }
 
 export function useSoftphoneMedia(options: SoftphoneMediaOptions) {
-  const { subscribeLegacy: _subscribeLegacy, ...media } =
-    useSoftphoneMediaEngine(options);
-  return media;
-}
-
-/** Temporary phone-aware bridge used only by the legacy panel until Phase 5B. */
-export function useLegacySoftphoneMedia(options: SoftphoneMediaOptions) {
   return useSoftphoneMediaEngine(options);
 }

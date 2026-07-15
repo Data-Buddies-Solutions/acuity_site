@@ -354,7 +354,7 @@ describe("useCanonicalAgentSession", () => {
         "DELETE",
       ]),
     );
-    expect(refreshError).toEqual(new Error("Call center station is unavailable"));
+    expect(refreshError).toEqual(new Error("Call center session is unavailable"));
     expect(result.current.session).toBeNull();
   });
 
@@ -413,7 +413,7 @@ describe("useCanonicalAgentSession", () => {
     );
   });
 
-  it("releases the lease instead of heartbeating an offline station", async () => {
+  it("releases the lease instead of heartbeating an offline session", async () => {
     const methods: string[] = [];
     globalThis.fetch = mock(async (_input, init) => {
       methods.push(init?.method ?? "GET");
@@ -500,7 +500,7 @@ describe("useCanonicalAgentSession", () => {
       Response.json(
         {
           error: {
-            code: "CALL_CENTER_STATION_IN_USE",
+            code: "CALL_CENTER_SESSION_IN_USE",
             referenceId: "ABC123",
             retryable: false,
           },
@@ -520,7 +520,7 @@ describe("useCanonicalAgentSession", () => {
 
     await act(() => result.current.start());
     expect(result.current.error).toBe(
-      "This calling station is open in another browser. Close it there or use another station. Reference: ABC123.",
+      "Your calling session is open in another browser. Close it there, then try again. Reference: ABC123.",
     );
     expect(result.current.session).toBeNull();
   });

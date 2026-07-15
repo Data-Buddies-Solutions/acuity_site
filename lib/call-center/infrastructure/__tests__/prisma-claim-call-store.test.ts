@@ -36,7 +36,6 @@ function fakeDatabase({
   existingNextAttemptAt = null as Date | null,
   leaseExpired = false,
   lockedMember = true,
-  routingMode = "ACTIVE" as "ACTIVE" | "LEGACY" | "SHADOW",
   sessionStateVersion = 2,
   winningLegId = null as string | null,
 } = {}) {
@@ -60,7 +59,6 @@ function fakeDatabase({
     members: [{ id: "member-1" }],
     name: "Optical",
     ringTimeoutSec: 20,
-    routingMode,
   };
   const call = {
     direction: "INBOUND" as const,
@@ -269,8 +267,8 @@ describe("Prisma canonical manual claim", () => {
     expect(fake.operations).not.toContain("receipt.create");
   });
 
-  it("reuses a canonical leg after global activation regardless of queue mode", async () => {
-    const fake = fakeDatabase({ existing: true, routingMode: "LEGACY" });
+  it("reuses an existing canonical leg", async () => {
+    const fake = fakeDatabase({ existing: true });
 
     await expect(claimCall(fake.store, actor, input, now)).resolves.toMatchObject({
       legId: "leg-existing",

@@ -16,8 +16,8 @@ import {
   type PortalCallCenterHistoryRange,
   type PortalCallCenterHistoryView,
   type PortalRecentCallItem,
-} from "@/lib/call-center";
-import { readCombinedCallCenterHistory } from "@/lib/call-center/application/portal-combined-call-center-reads";
+} from "@/lib/call-center/portal-model";
+import { readCanonicalCallCenterHistory } from "@/lib/call-center/application/portal-canonical-history";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
 
@@ -50,7 +50,7 @@ export default async function PortalCallCenterHistoryPage({
     Array.isArray(params.view) ? params.view[0] : params.view,
   );
   const historyOptions = { page, pageSize: HISTORY_PAGE_SIZE, range, view };
-  const data = await readCombinedCallCenterHistory(historyOptions);
+  const data = await readCanonicalCallCenterHistory(historyOptions);
 
   if (!data) {
     redirect("/portal");

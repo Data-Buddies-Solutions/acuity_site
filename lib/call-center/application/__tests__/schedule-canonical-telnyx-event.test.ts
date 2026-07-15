@@ -3,61 +3,39 @@ import { describe, expect, it } from "bun:test";
 import { createImmediateCanonicalProjection } from "../schedule-canonical-telnyx-event";
 
 describe("immediate canonical projection", () => {
-  it("is a no-op while the feature is disabled", () => {
-    let scheduled = 0;
-    const project = createImmediateCanonicalProjection({
-      config: () => ({ enabled: false }),
-      processEvent: async () => ({ outcome: "SKIPPED" }),
-    });
-
-    expect(project("event-1", () => (scheduled += 1))).toBe(false);
-    expect(scheduled).toBe(0);
-  });
-
-  it("defers canonical work until the post-response callback", async () => {
+  it("defers projection until the post-response callback", async () => {
     const projected: string[] = [];
-    let callback: (() => Promise<void>) | null = null;
+    let callback: (() => Promise<void>) | undefined;
     const project = createImmediateCanonicalProjection({
-      config: () => ({ enabled: true }),
       processEvent: async (eventId) => {
         projected.push(eventId);
-        return { outcome: "SKIPPED" };
+        return { outcome: "IGNORED" };
       },
     });
 
     expect(project("event-1", (task) => (callback = task))).toBe(true);
     expect(projected).toEqual([]);
-    await callback!();
+    await callback?.();
     expect(projected).toEqual(["event-1"]);
   });
 
-  it("contains config, scheduler, and callback failures", async () => {
-    const configFailure = createImmediateCanonicalProjection({
-      config: () => {
-        throw new Error("invalid config");
-      },
-      processEvent: async () => ({ outcome: "SKIPPED" }),
-    });
-    expect(() => configFailure("event-1", () => undefined)).not.toThrow();
-
+  it("contains scheduler and callback failures after durable persistence", async () => {
     const scheduleFailure = createImmediateCanonicalProjection({
-      config: () => ({ enabled: true }),
-      processEvent: async () => ({ outcome: "SKIPPED" }),
+      processEvent: async () => ({ outcome: "IGNORED" }),
     });
-    expect(() =>
+    expect(
       scheduleFailure("event-1", () => {
         throw new Error("scheduler unavailable");
       }),
-    ).not.toThrow();
+    ).toBe(false);
 
-    let callback: (() => Promise<void>) | null = null;
+    let callback: (() => Promise<void>) | undefined;
     const callbackFailure = createImmediateCanonicalProjection({
-      config: () => ({ enabled: true }),
       processEvent: async () => {
-        throw new Error("unexpected callback failure");
+        throw new Error("projection unavailable");
       },
     });
-    callbackFailure("event-1", (task) => (callback = task));
-    await expect(callback!()).resolves.toBeUndefined();
+    expect(callbackFailure("event-2", (task) => (callback = task))).toBe(true);
+    await expect(callback?.()).resolves.toBeUndefined();
   });
 });

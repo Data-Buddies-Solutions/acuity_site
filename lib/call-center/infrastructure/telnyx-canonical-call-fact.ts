@@ -225,6 +225,7 @@ export function parseCanonicalTelnyxCallFact(
   const agentLegHint = Boolean(
     endpointId ||
     text(clientState?.canonicalOutboundToken) ||
+    clientState?.internalAgentLeg === true ||
     clientState?.internalSeatLeg === true ||
     text(clientState?.queueItemId) ||
     text(clientState?.ringAttemptId),

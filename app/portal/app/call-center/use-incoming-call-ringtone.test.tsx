@@ -214,7 +214,6 @@ describe("selectIncomingRingtoneOffer", () => {
         maxWaitSec: 30,
         name: "Optical",
         ringTimeoutSec: 20,
-        routingMode: "ACTIVE",
       },
       revision: "20",
       schemaVersion: CALL_CENTER_SCHEMA_VERSION,

@@ -1,4 +1,3 @@
-import { handleTelnyxWebhookEvent } from "@/lib/call-center";
 import {
   providerWebhookInbox,
   type ProviderWebhookInbox,
@@ -13,7 +12,6 @@ import {
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("call-center-webhook-processor");
-const LEGACY_PROJECTION_ERROR = "legacy_projection_failed";
 const OWNER_RESOLUTION_ERROR = "event_owner_resolution_failed";
 const INBOX_COMPLETION_ERROR = "provider_webhook_completion_failed";
 const TERMINAL_DIRECT_HANDOFF_ERRORS = new Set([
@@ -26,12 +24,9 @@ const TERMINAL_DIRECT_HANDOFF_ERRORS = new Set([
   "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID",
 ]);
 
-type LegacyProjectionResult = { ignored?: boolean } & Record<string, unknown>;
-
 type TelnyxVoiceEventProcessorDependencies = {
   clock?: () => Date;
   inbox: ProviderWebhookInbox;
-  projectLegacyEvent: (body: unknown) => Promise<LegacyProjectionResult>;
   resolveOwner?: (event: ProviderWebhookRecord) => Promise<TelnyxEventOwner>;
 };
 
@@ -48,17 +43,11 @@ export class ProviderWebhookProcessingPendingError extends Error {
   }
 }
 
-/**
- * Compatibility boundary: the durable inbox survives the rewrite. Only this
- * legacy projector dependency is deleted when canonical call projection owns processing.
- * Until then processing is deduplicated and at-least-once: a crash after legacy
- * writes but before inbox completion can replay those existing idempotent writes.
- */
+/** Claims one durable provider event and persists its immutable admission. */
 export function createTelnyxVoiceEventProcessor({
   clock = () => new Date(),
   inbox,
-  projectLegacyEvent,
-  resolveOwner = async () => "LEGACY",
+  resolveOwner = async () => "CANONICAL",
 }: TelnyxVoiceEventProcessorDependencies) {
   return async function processTelnyxVoiceEvent(envelope: TelnyxVoiceWebhookEnvelope) {
     const received = await inbox.receive(envelope);
@@ -97,17 +86,14 @@ export function createTelnyxVoiceEventProcessor({
     }
 
     const event = claim.event;
-    let phase: "COMPLETE" | "OWNER" | "PROJECT" = "OWNER";
+    let phase: "COMPLETE" | "OWNER" = "OWNER";
 
     try {
       const owner = await resolveOwner(event);
-      let result: LegacyProjectionResult;
-      if (owner === "CANONICAL") {
-        result = { ignored: true, reason: "canonical_owner" };
-      } else {
-        phase = "PROJECT";
-        result = await projectLegacyEvent(event.payload);
-      }
+      const result = {
+        ignored: true,
+        reason: owner === "CANONICAL" ? "canonical_owner" : "out_of_scope",
+      };
       phase = "COMPLETE";
       const processingStatus = result.ignored ? "IGNORED" : "PROCESSED";
       const completed = await inbox.complete({
@@ -166,9 +152,8 @@ export function createTelnyxVoiceEventProcessor({
   };
 }
 
-function processingErrorCode(phase: "COMPLETE" | "OWNER" | "PROJECT", error: unknown) {
+function processingErrorCode(phase: "COMPLETE" | "OWNER", error: unknown) {
   if (phase === "COMPLETE") return INBOX_COMPLETION_ERROR;
-  if (phase === "PROJECT") return LEGACY_PROJECTION_ERROR;
   return error instanceof TelnyxEventOwnerError
     ? error.code.slice(0, 100)
     : OWNER_RESOLUTION_ERROR;
@@ -189,6 +174,5 @@ async function markProjectionFailed(
 
 export const processTelnyxVoiceEvent = createTelnyxVoiceEventProcessor({
   inbox: providerWebhookInbox,
-  projectLegacyEvent: handleTelnyxWebhookEvent,
   resolveOwner: resolveTelnyxEventOwner,
 });

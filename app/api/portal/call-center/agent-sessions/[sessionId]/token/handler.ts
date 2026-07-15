@@ -7,7 +7,6 @@ import {
   type AgentSessionCredentialActor,
 } from "@/lib/call-center/application/agent-session-credentials";
 import { prismaAgentSessionCredentialStore } from "@/lib/call-center/infrastructure/prisma-agent-session-credential-store";
-import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { createTelnyxLoginToken } from "@/lib/telnyx";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
@@ -24,7 +23,6 @@ type Dependencies = {
   authorize?: typeof authorizeAgentSessionCredential;
   clock?: () => Date;
   createToken?: typeof createTelnyxLoginToken;
-  getActivation?: typeof resolveCallCenterActivationConfig;
   getActor: () => Promise<AgentSessionCredentialActor>;
 };
 
@@ -32,7 +30,6 @@ export function createCanonicalAgentSessionTokenHandler({
   authorize = authorizeAgentSessionCredential,
   clock = () => new Date(),
   createToken = createTelnyxLoginToken,
-  getActivation = resolveCallCenterActivationConfig,
   getActor,
 }: Dependencies) {
   return withCallCenterApiHandler(
@@ -41,13 +38,11 @@ export function createCanonicalAgentSessionTokenHandler({
       const parameters = paramsSchema.safeParse(await context.params);
       if (!parameters.success) throw new ApiError("Valid agent session required", 400);
       const body = await parseJsonBody(request, bodySchema);
-      const activation = getActivation();
       const credential = await authorize(
         prismaAgentSessionCredentialStore,
         actor,
         {
           ...body,
-          activationEnabled: activation.enabled,
           sessionId: parameters.data.sessionId,
         },
         clock(),

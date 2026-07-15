@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import {
-  buildCallCenterActivityScopeWhere,
-  fetchTelnyxRecordingMetadata,
-  getCurrentPracticeCallCenterContext,
-} from "@/lib/call-center";
+import { canonicalCallAccessWhere } from "@/lib/call-center/application/portal-canonical-history";
+import { fetchTelnyxRecordingMetadata } from "@/lib/call-center/infrastructure/telnyx-recording";
 import {
   CallCenterOperatorError,
   withCallCenterApiHandler,
 } from "@/lib/call-center/operator-error-response";
 import { prisma } from "@/lib/prisma";
+import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +16,7 @@ export const GET = withCallCenterApiHandler(
     request: NextRequest,
     { params }: { params: Promise<{ recordingId: string }> },
   ) {
-    const context = await getCurrentPracticeCallCenterContext();
+    const context = await getCurrentPortalPracticeContext();
 
     if (!context) {
       throw new CallCenterOperatorError("AUTH_REQUIRED", 401);
@@ -32,9 +30,8 @@ export const GET = withCallCenterApiHandler(
         recordingUrl: true,
       },
       where: {
-        practiceId: context.practice.id,
+        callCenterCall: canonicalCallAccessWhere(context),
         recordingId,
-        ...buildCallCenterActivityScopeWhere(context),
       },
     });
 

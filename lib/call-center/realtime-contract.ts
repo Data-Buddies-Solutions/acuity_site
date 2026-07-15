@@ -77,13 +77,12 @@ export type QueueSummary = { id: string; name: string };
 export type QueueView = QueueSummary & {
   maxWaitSec: number;
   ringTimeoutSec: number;
-  routingMode: "LEGACY" | "SHADOW" | "ACTIVE";
 };
 
 export type TaskView = {
   id: string;
   callId: string | null;
-  kind: "CALLBACK" | "FOLLOW_UP" | "MISSED_CALL" | "VOICEMAIL";
+  kind: "CALLBACK" | "FOLLOW_UP" | "MISSED_CALL" | "NOTE" | "VOICEMAIL";
   status: "OPEN" | "RESOLVED";
   callerPhone: string | null;
   createdAt: string;

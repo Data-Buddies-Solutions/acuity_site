@@ -1,5 +1,4 @@
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
-import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { directHandoffCorrelationLockKey } from "@/lib/call-center/infrastructure/direct-handoff-correlation";
 import { hasDirectHandoffIdentity } from "@/lib/call-center/infrastructure/direct-handoff-uri";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
@@ -56,10 +55,6 @@ export class TelnyxEventOwnerError extends Error {
     super(code);
     this.name = "TelnyxEventOwnerError";
   }
-}
-
-function ownerForNewAdmission(activationEnabled: boolean) {
-  return activationEnabled ? "CANONICAL" : "LEGACY";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -515,17 +510,15 @@ async function lockQueue(
   enabled: boolean;
   id: string;
   practiceId: string;
-  routingMode: "ACTIVE" | "LEGACY" | "SHADOW";
 }> {
   const queues = await tx.$queryRaw<
     Array<{
       enabled: boolean;
       id: string;
       practiceId: string;
-      routingMode: "ACTIVE" | "LEGACY" | "SHADOW";
     }>
   >(Prisma.sql`
-    SELECT "id", "practiceId", "enabled", "routingMode"
+    SELECT "id", "practiceId", "enabled"
     FROM "call_center_queue"
     WHERE "id" = ${queueId}
     FOR SHARE
@@ -566,11 +559,7 @@ async function lockNumber(tx: OwnerTransaction, numberId: string) {
   return number;
 }
 
-async function persistInboundOwner(
-  tx: OwnerTransaction,
-  raw: RawIdentity,
-  activationEnabled: boolean,
-) {
+async function persistInboundOwner(tx: OwnerTransaction, raw: RawIdentity) {
   if (raw.direction !== "INBOUND") return null;
   if (!raw.providerCallSessionId) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_CALL_SESSION_MISSING");
@@ -604,7 +593,7 @@ async function persistInboundOwner(
     throw new TelnyxEventOwnerError("TELNYX_EVENT_QUEUE_PRACTICE_MISMATCH");
   }
 
-  const effectOwner = ownerForNewAdmission(activationEnabled);
+  const effectOwner = "CANONICAL" as const;
   await tx.callCenterCall.create({
     data: {
       callerName: raw.callerName,
@@ -658,13 +647,12 @@ async function persistEventOwner(
 /**
  * Selects and commits one provider-effect owner before either effect lane runs.
  * The durable inbox payload is the source of identity, and provider-session
- * serialization keeps unconfigured, legacy, shadow, and active calls sticky
- * across retries, callback reordering, configuration changes, and rollbacks.
+ * serialization keeps provider sessions sticky across retries, callback
+ * reordering, and configuration changes.
  */
 export async function resolveTelnyxEventOwner(
   event: ProviderWebhookRecord,
   database: OwnerDatabase = prisma,
-  activationConfig: typeof resolveCallCenterActivationConfig = resolveCallCenterActivationConfig,
 ): Promise<TelnyxEventOwner> {
   const unresolvedRaw = rawIdentity(event);
   return database.$transaction(async (tx) => {
@@ -686,7 +674,7 @@ export async function resolveTelnyxEventOwner(
     const effectOwner =
       existingOwner ??
       (await persistDirectHandoffOwner(ownerTx, raw, raw.occurredAt)) ??
-      (await persistInboundOwner(ownerTx, raw, activationConfig().enabled)) ??
+      (await persistInboundOwner(ownerTx, raw)) ??
       "LEGACY";
 
     await persistEventOwner(ownerTx, event, raw, effectOwner);

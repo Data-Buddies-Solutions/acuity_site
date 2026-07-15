@@ -9,7 +9,6 @@ const actor = {
   userId: "user-1",
 };
 const input = {
-  activationEnabled: true,
   clientInstanceId: "browser-1",
   sessionId: "session-1",
 };
@@ -60,63 +59,6 @@ describe("Prisma canonical agent-session credential store", () => {
     );
   });
 
-  it("allows rollback token refresh only for the exact owned canonical call", async () => {
-    let sessionWhere: Record<string, unknown> = {};
-    const store = new PrismaAgentSessionCredentialStore({
-      $transaction: async (operation: (transaction: unknown) => Promise<unknown>) =>
-        operation({
-          callCenterAgentSession: {
-            findFirst: async ({ where }: { where: Record<string, unknown> }) => {
-              sessionWhere = where;
-              return {
-                endpoint: {
-                  locationId: "location-1",
-                  providerCredentialId: "credential-1",
-                  user: { name: "Maria" },
-                },
-              };
-            },
-          },
-          callCenterQueueMember: {
-            findFirst: async () => ({ id: "member-1" }),
-          },
-        }),
-    } as never);
-
-    await expect(
-      store.resolve(actor, { ...input, activationEnabled: false }, now),
-    ).resolves.toEqual({
-      agentLabel: "Maria",
-      providerCredentialId: "credential-1",
-    });
-    expect(sessionWhere).toEqual(
-      expect.objectContaining({
-        OR: [
-          {
-            currentCall: {
-              is: {
-                effectOwner: "CANONICAL",
-                status: {
-                  in: ["RECEIVED", "QUEUED", "RINGING", "CONNECTED", "WRAP_UP"],
-                },
-              },
-            },
-          },
-          {
-            offeredCall: {
-              is: {
-                effectOwner: "CANONICAL",
-                status: {
-                  in: ["RECEIVED", "QUEUED", "RINGING", "CONNECTED", "WRAP_UP"],
-                },
-              },
-            },
-          },
-        ],
-      }),
-    );
-  });
-
   it("returns no credential when exact lease authorization fails", async () => {
     const store = new PrismaAgentSessionCredentialStore({
       $transaction: async (operation: (transaction: unknown) => Promise<unknown>) =>
@@ -131,31 +73,5 @@ describe("Prisma canonical agent-session credential store", () => {
     } as never);
 
     await expect(store.resolve(actor, input, now)).resolves.toBeNull();
-  });
-
-  it("rejects an exact lease without an owned call while activation is off", async () => {
-    let sessionWhere: Record<string, unknown> = {};
-    const store = new PrismaAgentSessionCredentialStore({
-      $transaction: async (operation: (transaction: unknown) => Promise<unknown>) =>
-        operation({
-          callCenterAgentSession: {
-            findFirst: async ({ where }: { where: Record<string, unknown> }) => {
-              sessionWhere = where;
-              return null;
-            },
-          },
-          callCenterQueueMember: {
-            findFirst: async () => {
-              throw new Error("membership must not be queried");
-            },
-          },
-        }),
-    } as never);
-
-    await expect(
-      store.resolve(actor, { ...input, activationEnabled: false }, now),
-    ).resolves.toBeNull();
-    expect(sessionWhere).toHaveProperty("OR.0.currentCall.is.effectOwner", "CANONICAL");
-    expect(sessionWhere).toHaveProperty("OR.1.offeredCall.is.effectOwner", "CANONICAL");
   });
 });

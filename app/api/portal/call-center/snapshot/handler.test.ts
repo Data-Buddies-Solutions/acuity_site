@@ -52,7 +52,6 @@ describe("canonical call center snapshot route", () => {
             maxWaitSec: 30,
             name: "Optical",
             ringTimeoutSec: 20,
-            routingMode: "LEGACY",
           },
           revision: "9223372036854775800",
           schemaVersion: CALL_CENTER_SCHEMA_VERSION,

@@ -1,0 +1,2 @@
+ALTER TYPE "CallCenterTaskKind" ADD VALUE IF NOT EXISTS 'NOTE';
+ALTER TABLE "call_center_task" ADD COLUMN IF NOT EXISTS "note" TEXT;

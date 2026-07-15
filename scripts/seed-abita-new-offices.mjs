@@ -15,22 +15,6 @@ const PRACTICE_NAME = "Abita Eye Group";
 const officeConfigs = ABITA_NEW_OFFICES;
 const sharedInsuranceRules = ABITA_HOLLYWOOD_SWEETWATER_INSURANCE_RULES;
 
-function parseSeatConfig() {
-  const raw = process.env.ABITA_NEW_OFFICE_CALL_CENTER_SEATS_JSON;
-
-  if (!raw) {
-    return {};
-  }
-
-  const parsed = JSON.parse(raw);
-
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("ABITA_NEW_OFFICE_CALL_CENTER_SEATS_JSON must be an object.");
-  }
-
-  return parsed;
-}
-
 function rulesForOffice(office) {
   if (!office.insuranceTitle || !office.ruleSlug) {
     return null;
@@ -347,98 +331,11 @@ async function upsertInsuranceRuleSet(client, practiceId, locationId, office) {
   };
 }
 
-function normalizeSeat(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const extension = String(value.extension || "").trim();
-  const label = String(value.label || "").trim();
-
-  if (!extension || !label) {
-    return null;
-  }
-
-  return {
-    enabled: value.enabled !== false,
-    extension,
-    label,
-    sipUsername: String(value.sipUsername || "").trim() || null,
-    telnyxCredentialId: String(value.telnyxCredentialId || "").trim() || null,
-  };
-}
-
-async function upsertSeats(client, practiceId, locationId, office, seatConfig) {
-  const rawSeats = Array.isArray(seatConfig[office.key]) ? seatConfig[office.key] : [];
-  const seats = rawSeats.map(normalizeSeat).filter(Boolean);
-
-  for (const seat of seats) {
-    const existing = await client.query(
-      `
-        SELECT id
-        FROM call_center_agent_seat
-        WHERE "practiceId" = $1 AND "locationId" = $2 AND extension = $3
-        LIMIT 1
-      `,
-      [practiceId, locationId, seat.extension],
-    );
-    const existingId = existing.rows[0]?.id;
-
-    if (existingId) {
-      await client.query(
-        `
-          UPDATE call_center_agent_seat
-          SET
-            label = $2,
-            "telnyxCredentialId" = $3,
-            "sipUsername" = $4,
-            enabled = $5,
-            "updatedAt" = NOW()
-          WHERE id = $1
-        `,
-        [existingId, seat.label, seat.telnyxCredentialId, seat.sipUsername, seat.enabled],
-      );
-      continue;
-    }
-
-    await client.query(
-      `
-        INSERT INTO call_center_agent_seat (
-          id,
-          "practiceId",
-          "locationId",
-          label,
-          extension,
-          "telnyxCredentialId",
-          "sipUsername",
-          enabled,
-          "createdAt",
-          "updatedAt"
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-      `,
-      [
-        randomUUID(),
-        practiceId,
-        locationId,
-        seat.label,
-        seat.extension,
-        seat.telnyxCredentialId,
-        seat.sipUsername,
-        seat.enabled,
-      ],
-    );
-  }
-
-  return seats.length;
-}
-
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL is required.");
   process.exit(1);
 }
 
-const seatConfig = parseSeatConfig();
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
@@ -466,20 +363,11 @@ try {
         location.id,
         office,
       );
-      const seatCount = await upsertSeats(
-        client,
-        practice.id,
-        location.id,
-        office,
-        seatConfig,
-      );
-
       summary.push({
         insurance,
         knowledge,
         location,
         phones: office.phones.map((phone) => phone.phoneNumber),
-        seatsUpserted: seatCount,
       });
     }
 

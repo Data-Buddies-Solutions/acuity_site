@@ -11,10 +11,10 @@ const envelope = {
 } satisfies TelnyxVoiceWebhookEnvelope;
 
 describe("durable Telnyx webhook coordination", () => {
-  it("returns the legacy result without exposing the internal inbox ID", async () => {
+  it("returns the provider result without exposing the internal inbox ID", async () => {
     const scheduled: string[] = [];
     const process = createDurableTelnyxWebhookCoordinator({
-      processLegacy: async () => ({
+      processInbox: async () => ({
         duplicate: false,
         processingStatus: "PROCESSED",
         providerWebhookEventId: "inbox-1",
@@ -29,10 +29,10 @@ describe("durable Telnyx webhook coordination", () => {
     expect(scheduled).toEqual(["inbox-1"]);
   });
 
-  it("contains scheduling failure without replaying legacy effects", async () => {
+  it("contains scheduling failure without replaying inbox admission", async () => {
     let legacyCalls = 0;
     const process = createDurableTelnyxWebhookCoordinator({
-      processLegacy: async () => {
+      processInbox: async () => {
         legacyCalls += 1;
         return { ok: true, providerWebhookEventId: "inbox-1" };
       },

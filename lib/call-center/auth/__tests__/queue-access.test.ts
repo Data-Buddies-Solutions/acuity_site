@@ -46,7 +46,6 @@ describe("call center queue access", () => {
             maxWaitSec: 30,
             name: "Practice wide",
             ringTimeoutSec: 20,
-            routingMode: "LEGACY",
           };
         },
       },

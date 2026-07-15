@@ -7,7 +7,6 @@ import {
   type TransferCallInput,
 } from "@/lib/call-center/application/transfer-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
-import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { prismaTransferCallStore } from "@/lib/call-center/infrastructure/prisma-transfer-call-store";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
@@ -18,7 +17,6 @@ const IDEMPOTENCY_KEY_MAX_LENGTH = 200;
 type RouteContext = { params: Promise<{ callId: string }> };
 type Dependencies = {
   getActor: () => Promise<QueueAccessActor>;
-  isCanonicalActive?: () => boolean;
   scheduleCommand?: (commandId: string) => void;
   transfer?: typeof transferCall;
 };
@@ -33,16 +31,12 @@ function idempotencyKey(request: Request) {
 
 export function createTransferCallHandler({
   getActor,
-  isCanonicalActive = () => resolveCallCenterActivationConfig().enabled,
   scheduleCommand,
   transfer = transferCall,
 }: Dependencies) {
   return withCallCenterApiHandler(
     async (request: Request, routeContext: RouteContext) => {
       const actor = await getActor();
-      if (!isCanonicalActive()) {
-        throw new ApiError("Canonical call center is not active", 409);
-      }
       const parameters = paramsSchema.safeParse(await routeContext.params);
       if (!parameters.success) throw new ApiError("A valid call ID is required", 400);
       const body = await parseJsonBody(request, bodySchema);

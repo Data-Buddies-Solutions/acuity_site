@@ -14,7 +14,7 @@ import {
   completeCanonicalOutboundOperation,
   isCanonicalClaimConflict,
   operationShouldAnswerMedia,
-  OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE,
+  OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE,
   runOutboundWithExpiredLeaseRefresh,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
@@ -600,7 +600,7 @@ describe("outbound station recovery", () => {
 
     await expect(promise).rejects.toHaveProperty(
       "message",
-      OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE,
+      OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE,
     );
     expect(attempts).toBe(2);
   });

@@ -159,7 +159,6 @@ describe("CanonicalActiveCall", () => {
 
     render(
       <CanonicalActiveCall
-        actionsEnabled
         call={connectedCall("INBOUND")}
         clientInstanceId="client-1"
         endpointId="endpoint-1"
@@ -222,7 +221,6 @@ describe("CanonicalActiveCall", () => {
 
     render(
       <CanonicalActiveCall
-        actionsEnabled
         call={offered}
         clientInstanceId="client-1"
         endpointId="endpoint-1"
@@ -247,7 +245,6 @@ describe("CanonicalActiveCall", () => {
   it("shows the outbound patient number and connected controls", () => {
     render(
       <CanonicalActiveCall
-        actionsEnabled
         call={connectedCall("OUTBOUND")}
         clientInstanceId="client-1"
         endpointId="endpoint-1"
@@ -269,35 +266,11 @@ describe("CanonicalActiveCall", () => {
     expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
   });
 
-  it("disables an expanded keypad when calling actions become unavailable", () => {
-    const props = {
-      call: connectedCall("INBOUND"),
-      clientInstanceId: "client-1",
-      endpointId: "endpoint-1",
-      media: mediaControls(),
-      onTakeTransfer: mock(async () => {}),
-      onTransfer: mock(async () => {}),
-      operations: null,
-      sessionId: "session-1",
-      transferTargets: [],
-      transferTakeCandidate: null,
-    };
-    const view = render(<CanonicalActiveCall actionsEnabled {...props} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Keypad" }));
-    view.rerender(<CanonicalActiveCall actionsEnabled={false} {...props} />);
-
-    expect(
-      (screen.getByRole("button", { name: "5" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-  });
-
   it("offers Resume when the canonical media leg is already held", async () => {
     const media = mediaControls("HELD");
 
     render(
       <CanonicalActiveCall
-        actionsEnabled
         call={connectedCall("INBOUND")}
         clientInstanceId="client-1"
         endpointId="endpoint-1"
@@ -326,7 +299,6 @@ describe("CanonicalActiveCall", () => {
         }),
     );
     const props = {
-      actionsEnabled: true,
       call: connectedCall("INBOUND"),
       clientInstanceId: "client-1",
       endpointId: "endpoint-1",
@@ -353,7 +325,6 @@ describe("CanonicalActiveCall", () => {
 
     render(
       <CanonicalActiveCall
-        actionsEnabled
         call={connectedCall("INBOUND")}
         clientInstanceId="client-1"
         endpointId="endpoint-1"

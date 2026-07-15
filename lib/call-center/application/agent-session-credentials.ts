@@ -6,7 +6,6 @@ export type AgentSessionCredentialActor = {
 };
 
 export type AgentSessionCredentialInput = {
-  activationEnabled: boolean;
   clientInstanceId: string;
   sessionId: string;
 };

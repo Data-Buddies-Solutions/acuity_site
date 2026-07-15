@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 
 import { isValidQueuePolicy } from "@/lib/call-center/domain/queue-policy";
 
-export type CallCenterRoutingMode = "LEGACY" | "SHADOW" | "ACTIVE";
 export type CallCenterQueueRole = "AGENT" | "SUPERVISOR";
 
 export type CallCenterConfigurationInput = {
@@ -12,7 +11,6 @@ export type CallCenterConfigurationInput = {
     id: string;
     name: string;
     enabled: boolean;
-    routingMode: CallCenterRoutingMode;
     ringTimeoutSec: number;
     maxWaitSec: number;
     wrapUpSec: number;
@@ -96,14 +94,7 @@ export function callCenterConfigurationVersion(
 
 export type CallCenterConfigurationAudit = {
   actorUserId: string | null;
-  automation?: {
-    actor: string;
-    triggeringActor: string;
-    runId: string;
-    runAttempt: number;
-  };
   previousVersion: string;
-  source?: "ADMIN_API" | "LEGACY_BOOTSTRAP";
 };
 
 export type CallCenterConfigurationReferences = {
@@ -159,7 +150,6 @@ export type CallCenterConfigurationIssueCode =
   | "INCOMPLETE_ROUTING"
   | "INVALID_VALUE"
   | "STALE_CONFIGURATION"
-  | "ACTIVE_NOT_AVAILABLE"
   | "OMITTED_ENABLED_ENTITY"
   | "OMITTED_ENABLED_MEMBERSHIP"
   | "VOICEMAIL_GREETING_REQUIRED";
@@ -532,31 +522,12 @@ export function validateCallCenterConfiguration(
     context.enabledEndpointIds,
     issues,
   );
-  const validRoutingModes = new Set<CallCenterRoutingMode>([
-    "LEGACY",
-    "SHADOW",
-    "ACTIVE",
-  ]);
   const validQueueRoles = new Set<CallCenterQueueRole>(["AGENT", "SUPERVISOR"]);
 
   for (const [queueIndex, queue] of configuration.queues.entries()) {
     const path = `queues[${queueIndex}]`;
     requireText(queue.id, `${path}.id`, issues);
     requireText(queue.name, `${path}.name`, issues);
-    if (!validRoutingModes.has(queue.routingMode)) {
-      issues.push({
-        code: "INVALID_VALUE",
-        path: `${path}.routingMode`,
-        message: "Unknown routing mode",
-      });
-    }
-    if (queue.routingMode === "ACTIVE") {
-      issues.push({
-        code: "ACTIVE_NOT_AVAILABLE",
-        path: `${path}.routingMode`,
-        message: "Active routing is unavailable until execution cutover",
-      });
-    }
     rejectCrossPracticeOwner(
       context.queueOwnerPracticeIds.get(queue.id),
       configuration.practiceId,
@@ -748,7 +719,6 @@ export function validateCallCenterConfiguration(
     const requiresAgentIdentity = configuration.queues.some(
       (queue) =>
         queue.enabled &&
-        queue.routingMode !== "LEGACY" &&
         Boolean(endpoint.locationId && queue.locationIds.includes(endpoint.locationId)),
     );
     if (
@@ -791,7 +761,7 @@ export function validateCallCenterConfiguration(
   }
 
   for (const [queueIndex, queue] of configuration.queues.entries()) {
-    if (!queue.enabled || queue.routingMode === "LEGACY") continue;
+    if (!queue.enabled) continue;
 
     const path = `queues[${queueIndex}]`;
     const hasInboundNumber = configuration.numbers.some(
@@ -819,28 +789,28 @@ export function validateCallCenterConfiguration(
       issues.push({
         code: "INCOMPLETE_ROUTING",
         path: `${path}.locationIds`,
-        message: "Shadow and active queues require at least one location",
+        message: "Enabled queues require at least one location",
       });
     }
     if (!hasInboundNumber) {
       issues.push({
         code: "INCOMPLETE_ROUTING",
         path,
-        message: "Shadow and active queues require an enabled inbound number",
+        message: "Enabled queues require an enabled inbound number",
       });
     }
     if (!hasAgent) {
       issues.push({
         code: "INCOMPLETE_ROUTING",
         path: `${path}.members`,
-        message: "Shadow and active queues require an enabled agent",
+        message: "Enabled queues require an enabled agent",
       });
     }
     if (!hasEndpoint) {
       issues.push({
         code: "INCOMPLETE_ROUTING",
         path: "endpoints",
-        message: "Shadow and active queues require a configured endpoint",
+        message: "Enabled queues require a configured endpoint",
       });
     }
   }
@@ -885,7 +855,6 @@ export async function saveCallCenterConfigurationInTransaction(
   input: CallCenterConfigurationInput,
   expectedVersion: string,
   actorUserId: string | null,
-  auditMetadata: Pick<CallCenterConfigurationAudit, "automation" | "source"> = {},
 ) {
   const references = collectCallCenterConfigurationReferences(input);
   const practiceId = clean(input.practiceId);
@@ -912,7 +881,6 @@ export async function saveCallCenterConfigurationInTransaction(
   }
   await transaction.persistValidatedSnapshot(configuration, {
     actorUserId,
-    ...auditMetadata,
     previousVersion: context.configurationVersion,
   });
   return { changed: true, configuration, version };

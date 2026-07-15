@@ -15,7 +15,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
-import type { PortalCallCenterTotals, PortalNeedsActionGroup } from "@/lib/call-center";
+import type { PortalNeedsActionGroup } from "@/lib/call-center/portal-model";
 import { cn } from "@/lib/utils";
 
 import { resolveNeedsActionGroupAction } from "./actions";
@@ -108,21 +108,17 @@ function formatGroupSummary(group: PortalNeedsActionGroup) {
 export default function ActivityRail({
   followUpHref,
   needsAction,
+  needsActionCount,
   office,
   onCallback,
   queueId,
-  stationLabel,
-  stationSeatId,
-  totals,
 }: {
   followUpHref: string;
   needsAction: PortalNeedsActionGroup[];
+  needsActionCount: number;
   office?: string | null;
   onCallback: (number: string) => void;
   queueId?: string;
-  stationLabel?: string | null;
-  stationSeatId?: string | null;
-  totals: PortalCallCenterTotals;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -150,9 +146,9 @@ export default function ActivityRail({
                 <span className="text-sm font-semibold text-[var(--portal-ink)]">
                   Needs action
                 </span>
-                {totals.needsActionCallers ? (
+                {needsActionCount ? (
                   <PortalBadge className="px-2 py-0.5 tabular-nums">
-                    {totals.needsActionCallers}
+                    {needsActionCount}
                   </PortalBadge>
                 ) : null}
               </span>
@@ -161,7 +157,7 @@ export default function ActivityRail({
               </span>
             </span>
           </button>
-          {totals.needsActionCallers ? (
+          {needsActionCount ? (
             <Link
               className="shrink-0 text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
               href={followUpHref}
@@ -285,16 +281,6 @@ export default function ActivityRail({
                       <form action={resolveNeedsActionGroupAction}>
                         {office ? (
                           <input type="hidden" name="office" value={office} />
-                        ) : null}
-                        {stationLabel ? (
-                          <input type="hidden" name="stationLabel" value={stationLabel} />
-                        ) : null}
-                        {stationSeatId ? (
-                          <input
-                            type="hidden"
-                            name="stationSeatId"
-                            value={stationSeatId}
-                          />
                         ) : null}
                         <input type="hidden" name="phone" value={group.fromPhone ?? ""} />
                         {queueId ? (

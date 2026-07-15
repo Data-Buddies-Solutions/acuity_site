@@ -14,7 +14,6 @@ import type {
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveQueueAccess } from "@/lib/call-center/auth/queue-access";
 import { isAgentSessionReady } from "@/lib/call-center/domain/agent-session-readiness";
-import { resolveCallCenterActivationConfig } from "@/lib/call-center/infrastructure/call-center-activation-config";
 import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastructure/prisma-operation-receipts";
 import { normalizePhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
@@ -23,16 +22,7 @@ type Transaction = Prisma.TransactionClient;
 export type StartOutboundCallTransactionRunner = <T>(
   operation: (transaction: Transaction) => Promise<T>,
 ) => Promise<T>;
-export type OutboundActivationEnabled = () => boolean;
 export const OUTBOUND_INITIATION_TIMEOUT_MS = 60_000;
-
-export function assertCanonicalOutboundActivation(
-  activationEnabled: OutboundActivationEnabled,
-) {
-  if (!activationEnabled()) {
-    throw new StartOutboundCallError("Canonical call center is not active", 409);
-  }
-}
 
 export function canonicalOutboundClientState(input: {
   practiceId: string;
@@ -76,10 +66,7 @@ export function isOutboundScopeAllowed(input: {
 class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction {
   private readonly receipts: PrismaOperationReceiptTransaction;
 
-  constructor(
-    private readonly transaction: Transaction,
-    private readonly activationEnabled: OutboundActivationEnabled,
-  ) {
+  constructor(private readonly transaction: Transaction) {
     this.receipts = new PrismaOperationReceiptTransaction(transaction);
   }
 
@@ -100,8 +87,6 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     input: StartOutboundCallInput,
     now: Date,
   ) {
-    assertCanonicalOutboundActivation(this.activationEnabled);
-
     await resolveQueueAccess(actor, input.queueId, this.transaction);
     await this.transaction.$queryRaw(
       Prisma.sql`SELECT "id" FROM "call_center_queue" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.queueId} FOR UPDATE`,
@@ -286,15 +271,11 @@ export class PrismaStartOutboundCallStore implements StartOutboundCallStore {
   constructor(
     private readonly runTransaction: StartOutboundCallTransactionRunner = (operation) =>
       prisma.$transaction(operation),
-    private readonly activationEnabled: OutboundActivationEnabled = () =>
-      resolveCallCenterActivationConfig().enabled,
   ) {}
 
   transaction<T>(operation: (transaction: StartOutboundCallTransaction) => Promise<T>) {
     return this.runTransaction((transaction) =>
-      operation(
-        new PrismaStartOutboundCallTransaction(transaction, this.activationEnabled),
-      ),
+      operation(new PrismaStartOutboundCallTransaction(transaction)),
     );
   }
 }

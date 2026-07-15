@@ -10,7 +10,9 @@ Current core tables:
 - `PracticeKnowledgeBase`, `PracticeInsuranceCrosswalk`
 - `PracticeAgent`, `PracticePhoneNumber`
 - `AgentCall`, `UsageCostLineItem`
-- `PracticeCallCenterSettings`, `CallCenterSession`, `CallCenterMissedCall`, `CallCenterVoicemail`
+- `PracticeCallCenterSettings`, `CallCenterQueue`, `CallCenterNumber`, `CallCenterEndpoint`
+- `CallCenterAgentSession`, `CallCenterCall`, `CallCenterCallLeg`, `CallCenterTask`, `CallCenterVoicemail`
+- `CallCenterCommand`, `CallCenterEvent`, `ProviderWebhookEvent`, `CallCenterHandoff`
 
 Practice branding is stored directly on `Practice`:
 
@@ -36,14 +38,14 @@ The portal now has four practice data paths:
    - This endpoint normalizes both legacy call-summary payloads and the current LiveKit observability payload shape (`usage`, `llmMetrics`, `turnMetrics`, `sessionReport`) into `AgentCall` and estimated `UsageCostLineItem` rows.
    - It resolves the practice by explicit `practiceId` or by `officePhone` through `PracticePhoneNumber`.
 
-3. Practice opt-in Telnyx call center
+3. Canonical Telnyx call center
    - `/portal/app/call-center`
    - `POST /api/telnyx/webhooks`
-   - Enabled practices get a browser WebRTC softphone, active-session counts, missed-call callback queue, and voicemail inbox.
-   - Telnyx webhooks are verified with `TELNYX_PUBLIC_KEY` and scoped to enabled `PracticeCallCenterSettings` rows. Inbound webhooks resolve by the practice-owned `to` number; outbound webhooks resolve by the practice-owned `from` number.
-   - Connection-ID fallback is intentionally conservative. It only applies when a webhook has no usable practice phone number and exactly one enabled settings row matches the connection. If a phone number is present but does not match a configured practice number, the event is ignored instead of being attributed by shared connection ID.
-   - Telnyx runtime defaults can come from env vars while per-practice overrides live in `PracticeCallCenterSettings`.
-   - Open queue KPIs use database counts, while the page lists the latest 20 unresolved missed calls and voicemails.
+   - Enabled numbers, queues, memberships, endpoints, and location scope are database-owned.
+   - Each signed Telnyx callback is admitted once to `ProviderWebhookEvent`, assigned one immutable effect owner, and projected into the canonical call state.
+   - `CallCenterCall` and `CallCenterCallLeg` own call and bridge state; `CallCenterCommand` owns retryable provider effects; `CallCenterEvent` is the ordered browser stream.
+   - Each person signs in with their own portal account and uses their assigned `CallCenterEndpoint`; there is no station selector.
+   - The page shows eligible waiting/active calls, outbound dialing, call history, follow-up tasks, and voicemail.
 
 4. Practice branding
    - `Practice` owns customer branding fields, not cookies or local assets.
@@ -54,7 +56,7 @@ The current Abita demo row for `demo@acuity.local` is configured with the Abita 
 
 If the live agent is not posting to `/api/livekit/calls` yet, the portal is not fully live from the agent. It is either showing imported data or any calls posted directly to the new endpoint.
 
-If inbound calls should pop in `/portal/app/call-center`, Telnyx must route the practice number to the WebRTC credential/connection used by the portal softphone, the staff browser must be signed in with the page open, and the deployed app must expose `POST /api/telnyx/webhooks`. Localhost can place/receive browser WebRTC calls only when Telnyx can reach the configured route or the number is routed directly to the registered WebRTC client.
+If inbound calls should appear in `/portal/app/call-center`, the number must be an enabled `CallCenterNumber` mapped to an enabled queue, the user must be an enabled queue member with an assigned endpoint, the browser must have calling enabled, and Telnyx must reach `POST /api/telnyx/webhooks`.
 
 ## Target Live Flow
 
@@ -99,15 +101,18 @@ Raw payloads, latency traces, token costs, model fallback, and tool debugging be
 
 ## Call Center Model
 
-The practice-owned call center is intentionally opt-in per practice.
+The call center has one canonical model:
 
-- `PracticeCallCenterSettings` stores enablement, provider, Telnyx connection/credential IDs, inbound number, caller ID, voicemail greeting, and recording behavior.
-- `CallCenterSession` stores live Telnyx call session state and links to `AgentCall` when client state provides a matching call ID.
-- `CallCenterMissedCall` stores unresolved callback work.
-- `CallCenterVoicemail` stores recording metadata and listened/resolved state.
-- `PracticePhoneNumber` remains the routing bridge for phone-to-practice ownership and should contain every live office/call-center number.
+- `CallCenterNumber` defines inbound/outbound capability and maps an inbound number to one queue.
+- `CallCenterQueue`, its locations, and its user memberships define who may see and answer each call.
+- `CallCenterEndpoint` assigns one Telnyx WebRTC identity to one portal user; `CallCenterAgentSession` is that user's short browser lease and presence.
+- `CallCenterCall` is the aggregate, and `CallCenterCallLeg` records caller, agent, voicemail, and transfer legs.
+- `CallCenterCommand` is the durable provider-effect outbox; `ProviderWebhookEvent` is the durable callback inbox; `CallCenterEvent` is the ordered application event stream.
+- `CallCenterTask` stores follow-up work, and `CallCenterVoicemail` stores recording metadata and resolution state.
+- `CallCenterHandoff` correlates a one-time authenticated direct transfer from an upstream agent without a phone-number hop.
+- `PracticePhoneNumber` remains the practice ownership boundary for every live office and call-center number.
 
-For scale, webhook lookup indexes exist on enabled settings by inbound number, outbound caller number, and Telnyx connection ID. Do not rely on shared connection ID as the primary tenant boundary; phone number ownership or explicit `practiceId` should be the durable routing signal.
+Provider keys and webhook verification remain environment secrets. Routing, caller IDs, queues, users, and endpoints belong in the database.
 
 ## Vendor Cost Model
 
@@ -142,6 +147,6 @@ The admin analytics Costs tab shows total estimated vendor cost, cost per call, 
 5. Move the review worker output into `AgentCall.reviewResult`.
 6. Add a small ingestion smoke test that posts a fixture payload and verifies the portal overview updates.
 7. Add customer-facing call outcome fields if appointment review needs more structured data than tool payload parsing can provide.
-8. Configure each call-center practice with Telnyx connection, credential, inbound, caller-ID, and `PracticePhoneNumber` values before enabling staff softphone access.
+8. Configure every call-center number, queue, membership, endpoint, location scope, and `PracticePhoneNumber` owner before enabling browser calling.
 9. Deploy the Telnyx webhook route before expecting public inbound events to update call-center queues.
 10. Add admin screens for branding and call-center settings so production operators do not need direct DB scripts.

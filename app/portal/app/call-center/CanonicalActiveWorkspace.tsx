@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Delete,
@@ -16,11 +15,9 @@ import {
   Phone,
   PhoneForwarded,
   PhoneIncoming,
-  PhoneMissed,
   PhoneOff,
   PhoneOutgoing,
   Play,
-  Voicemail,
 } from "lucide-react";
 
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
@@ -28,7 +25,7 @@ import { PortalSelect } from "@/app/portal/app/PortalFields";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { PortalCallCenterTotals, PortalNeedsActionGroup } from "@/lib/call-center";
+import type { PortalNeedsActionGroup } from "@/lib/call-center/portal-model";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import {
@@ -36,7 +33,6 @@ import {
   type AgentSessionView,
   type CallView,
   type OperationView,
-  type TaskView,
   type TransferTargetView,
 } from "@/lib/call-center/realtime-contract";
 import { formatPhone } from "@/lib/format";
@@ -63,7 +59,7 @@ import {
   canonicalTransferIdempotencyKey,
   completeCanonicalOutboundOperation,
   operationShouldAnswerMedia,
-  OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE,
+  OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE,
   runOutboundWithExpiredLeaseRefresh,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
@@ -85,17 +81,14 @@ import {
 import { useSoftphoneMedia } from "./use-softphone";
 
 type CanonicalActiveWorkspaceProps = {
-  actionsEnabled: boolean;
-  enabled: boolean;
-  eventLocationId?: string | null;
   followUpHref: string;
   historyHref: string;
   initialDialNumber?: string | null;
   needsAction: PortalNeedsActionGroup[];
+  needsActionCount: number;
   office?: string | null;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string | null;
-  totals: PortalCallCenterTotals;
 };
 
 const keypadDigits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
@@ -185,17 +178,14 @@ function canonicalConnectionState(
 }
 
 export function CanonicalActiveWorkspace({
-  actionsEnabled,
-  enabled,
-  eventLocationId,
   followUpHref,
   historyHref,
   initialDialNumber,
   needsAction,
+  needsActionCount,
   office,
   outboundNumbers,
   queueId,
-  totals,
 }: CanonicalActiveWorkspaceProps) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
   const [identityError, setIdentityError] = useState(false);
@@ -221,9 +211,6 @@ export function CanonicalActiveWorkspace({
     };
   }, []);
 
-  if (!enabled) {
-    return <CanonicalUnavailable message="Calling is turned off for this practice." />;
-  }
   if (!queueId) {
     return (
       <CanonicalUnavailable message="Calling is not configured for this location." />
@@ -239,44 +226,38 @@ export function CanonicalActiveWorkspace({
   return (
     <ConnectedCanonicalActiveWorkspace
       clientInstanceId={client.clientInstanceId}
-      actionsEnabled={actionsEnabled}
-      eventLocationId={eventLocationId}
       followUpHref={followUpHref}
       historyHref={historyHref}
       initialDialNumber={initialDialNumber}
       needsAction={needsAction}
+      needsActionCount={needsActionCount}
       office={office}
       outboundNumbers={outboundNumbers}
       queueId={queueId}
-      totals={totals}
     />
   );
 }
 
 function ConnectedCanonicalActiveWorkspace({
-  actionsEnabled,
   clientInstanceId,
-  eventLocationId,
   followUpHref,
   historyHref,
   initialDialNumber,
   needsAction,
+  needsActionCount,
   office,
   outboundNumbers,
   queueId,
-  totals,
 }: {
-  actionsEnabled: boolean;
   clientInstanceId: string;
-  eventLocationId?: string | null;
   followUpHref: string;
   historyHref: string;
   initialDialNumber?: string | null;
   needsAction: PortalNeedsActionGroup[];
+  needsActionCount: number;
   office?: string | null;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string;
-  totals: PortalCallCenterTotals;
 }) {
   const router = useRouter();
   const realtime = useCanonicalCallCenter({ clientInstanceId, queueId });
@@ -286,7 +267,6 @@ function ConnectedCanonicalActiveWorkspace({
   const [numberChoice, setNumberChoice] = useState("");
   const [recoveringOutbound, setRecoveringOutbound] = useState(false);
   const [startingOutbound, setStartingOutbound] = useState(false);
-  const [submittingDisposition, setSubmittingDisposition] = useState<string | null>(null);
   const [mediaReadiness, setMediaReadiness] = useState({
     audioReady: false,
     connectionState: "CLOSED" as CanonicalAgentConnectionState,
@@ -299,11 +279,8 @@ function ConnectedCanonicalActiveWorkspace({
   const outboundStartingRef = useRef(false);
   const taskSignalRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (initialDialNumber) setDestination(initialDialNumber);
-  }, [initialDialNumber]);
   const agentProfileId = realtime.state?.agentProfile?.id ?? "";
-  const shouldConnect = Boolean(agentProfileId && actionsEnabled);
+  const shouldConnect = Boolean(agentProfileId);
   const eligibleOutboundNumbers = outboundNumbers;
   const selectedNumberId = eligibleOutboundNumbers.some(({ id }) => id === numberChoice)
     ? numberChoice
@@ -346,17 +323,19 @@ function ConnectedCanonicalActiveWorkspace({
     agentSessionId: leasedSessionId,
     autoPrepare: shouldConnect,
     browserSessionId: clientInstanceId,
-    credentialMode: "CANONICAL",
     enabled: Boolean(
       shouldConnect && agentProfileId && leasedSession?.endpointId === agentProfileId,
     ),
-    stationSeatId: agentProfileId || null,
   });
   const {
     activate: activateMedia,
     answer: answerMediaLeg,
+    connection: mediaConnection,
     dial: dialMediaLeg,
+    microphoneReady: mediaMicrophoneReady,
     observations: mediaObservations,
+    setRemoteAudioElement,
+    soundReady: mediaSoundReady,
   } = media;
   const {
     refresh: refreshCanonicalSession,
@@ -378,26 +357,14 @@ function ConnectedCanonicalActiveWorkspace({
   }, [router, taskSignal]);
 
   useEffect(() => {
-    if (!actionsEnabled) return;
-    const query =
-      eventLocationId === undefined
-        ? ""
-        : `?locationId=${encodeURIComponent(eventLocationId ?? "__NULL__")}`;
-    const source = new EventSource(`/api/portal/call-center/events${query}`);
-    const refresh = () => router.refresh();
-    source.addEventListener("refresh", refresh);
-    return () => {
-      source.removeEventListener("refresh", refresh);
-      source.close();
-    };
-  }, [actionsEnabled, eventLocationId, router]);
-
-  useEffect(() => {
     const next = {
-      audioReady: media.soundReady,
-      connectionState: canonicalConnectionState(media.connection),
-      microphoneReady: media.microphoneReady,
+      audioReady: mediaSoundReady,
+      connectionState: canonicalConnectionState(mediaConnection),
+      microphoneReady: mediaMicrophoneReady,
     };
+    // The provider connection starts only after the server lease exists, so its
+    // readiness is intentionally fed into the next lease update.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMediaReadiness((current) =>
       current.audioReady === next.audioReady &&
       current.connectionState === next.connectionState &&
@@ -405,7 +372,7 @@ function ConnectedCanonicalActiveWorkspace({
         ? current
         : next,
     );
-  }, [media.connection, media.microphoneReady, media.soundReady]);
+  }, [mediaConnection, mediaMicrophoneReady, mediaSoundReady]);
 
   useEffect(() => {
     if (shouldConnect) {
@@ -446,9 +413,9 @@ function ConnectedCanonicalActiveWorkspace({
         session: session
           ? {
               ...session,
-              audioReady: media.soundReady,
-              connectionState: media.connection === "READY" ? "READY" : "DISCONNECTED",
-              microphoneReady: media.microphoneReady,
+              audioReady: mediaSoundReady,
+              connectionState: mediaConnection === "READY" ? "READY" : "DISCONNECTED",
+              microphoneReady: mediaMicrophoneReady,
             }
           : null,
       })
@@ -533,7 +500,7 @@ function ConnectedCanonicalActiveWorkspace({
 
   const takeCall = useCallback(
     async (call: CallView) => {
-      if (!actionsEnabled || !session) return;
+      if (!session) return;
       const match = selectCanonicalBrowserMediaLeg(
         call,
         session.id,
@@ -576,29 +543,22 @@ function ConnectedCanonicalActiveWorkspace({
         takingRef.current.delete(call.id);
       }
     },
-    [
-      actionsEnabled,
-      answerMedia,
-      clientInstanceId,
-      mediaObservations,
-      refreshSnapshot,
-      session,
-    ],
+    [answerMedia, clientInstanceId, mediaObservations, refreshSnapshot, session],
   );
 
   const takeTransfer = useCallback(async () => {
-    if (!actionsEnabled || !transferTakeCandidate) return;
+    if (!transferTakeCandidate) return;
     setActionError(null);
     try {
       await answerMedia(transferTakeCandidate.observation.mediaLegId);
     } catch (error) {
       setActionError(errorMessage(error, "take"));
     }
-  }, [actionsEnabled, answerMedia, transferTakeCandidate]);
+  }, [answerMedia, transferTakeCandidate]);
 
   const transferActiveCall = useCallback(
     async (call: CallView, targetUserId: string) => {
-      if (!actionsEnabled || !session) return;
+      if (!session) return;
       const source = selectCanonicalTransferSource(call, session);
       if (!source) {
         setActionError(
@@ -638,46 +598,12 @@ function ConnectedCanonicalActiveWorkspace({
         transferringRef.current.delete(`${call.id}:${source.id}`);
       }
     },
-    [actionsEnabled, session, state?.operations],
-  );
-
-  const saveDisposition = useCallback(
-    async (call: CallView, disposition: string) => {
-      if (!actionsEnabled || !state || submittingDisposition) return;
-      setSubmittingDisposition(call.id);
-      try {
-        const response = await fetch(
-          `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/disposition`,
-          {
-            body: JSON.stringify({
-              disposition,
-              expectedStateVersion: call.stateVersion,
-              note: null,
-              taskIds: state.tasks
-                .filter((task) => task.callId === call.id)
-                .map(({ id }) => id),
-            }),
-            headers: {
-              "Content-Type": "application/json",
-              "Idempotency-Key": `canonical-disposition:${call.id}`,
-            },
-            method: "POST",
-          },
-        );
-        await callCenterResponse(response);
-      } catch (error) {
-        setActionError(errorMessage(error, "save"));
-      } finally {
-        setSubmittingDisposition(null);
-      }
-    },
-    [actionsEnabled, state, submittingDisposition],
+    [session, state],
   );
 
   const startOutbound = useCallback(async () => {
     if (
       outboundStartingRef.current ||
-      !actionsEnabled ||
       !session ||
       !selectedNumberId ||
       !destination.trim()
@@ -746,8 +672,8 @@ function ConnectedCanonicalActiveWorkspace({
     } catch (error) {
       setActionError(
         error instanceof Error &&
-          error.message === OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE
-          ? OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE
+          error.message === OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE
+          ? OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE
           : errorMessage(error, "outbound"),
       );
     } finally {
@@ -756,7 +682,6 @@ function ConnectedCanonicalActiveWorkspace({
       setStartingOutbound(false);
     }
   }, [
-    actionsEnabled,
     clientInstanceId,
     destination,
     dialMediaLeg,
@@ -775,19 +700,16 @@ function ConnectedCanonicalActiveWorkspace({
 
   const outboundHelp = recoveringOutbound
     ? "Restoring calling and preparing your call."
-    : !actionsEnabled
-      ? "Calling is temporarily unavailable."
-      : activeCall
-        ? "Finish the current call before starting another."
-        : !callingReady
-          ? "Start taking calls before placing an outbound call."
-          : session?.presence !== "AVAILABLE"
-            ? "Wait until the station is Ready to place a call."
-            : !selectedNumberId
-              ? "No outbound caller number is configured."
-              : "Enter a patient number to begin.";
+    : activeCall
+      ? "Finish the current call before starting another."
+      : !callingReady
+        ? "Start taking calls before placing an outbound call."
+        : session?.presence !== "AVAILABLE"
+          ? "Wait until you are Ready to place a call."
+          : !selectedNumberId
+            ? "No outbound caller number is configured."
+            : "Enter a patient number to begin.";
   const canStartOutbound = Boolean(
-    actionsEnabled &&
     session?.presence === "AVAILABLE" &&
     session.connectionState === "READY" &&
     !session.currentCallId &&
@@ -813,21 +735,6 @@ function ConnectedCanonicalActiveWorkspace({
           <Button onClick={refreshSnapshot} size="sm" variant="secondary">
             Retry
           </Button>
-        </section>
-      ) : null}
-
-      {!actionsEnabled ? (
-        <section
-          aria-label="Calling unavailable"
-          className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
-        >
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <div>
-            <p className="font-medium">Calling is temporarily unavailable.</p>
-            <p className="mt-0.5 text-amber-900/75">
-              Existing calls remain visible and follow-ups can still be reviewed.
-            </p>
-          </div>
         </section>
       ) : null}
 
@@ -910,9 +817,7 @@ function ConnectedCanonicalActiveWorkspace({
                       </div>
                       <Button
                         className="w-fit"
-                        disabled={
-                          !actionsEnabled || !session || !match || Boolean(connecting)
-                        }
+                        disabled={!session || !match || Boolean(connecting)}
                         onClick={() => void takeCall(call)}
                         size="sm"
                         variant="primary"
@@ -931,19 +836,14 @@ function ConnectedCanonicalActiveWorkspace({
           </section>
 
           <CanonicalActivity
-            actionsEnabled={actionsEnabled}
-            calls={state.calls}
             followUpHref={followUpHref}
             historyHref={historyHref}
             needsAction={needsAction}
+            needsActionCount={needsActionCount}
             office={office}
             onCallback={setDestination}
-            onResolve={(call) => void saveDisposition(call, "RESOLVED")}
             queueId={queueId}
             recentCalls={recentCalls}
-            submittingDisposition={submittingDisposition}
-            tasks={state.tasks}
-            totals={totals}
           />
         </div>
 
@@ -991,7 +891,6 @@ function ConnectedCanonicalActiveWorkspace({
             <div className="space-y-4 p-4">
               {activeCall ? (
                 <CanonicalActiveCall
-                  actionsEnabled={actionsEnabled}
                   call={activeCall}
                   clientInstanceId={clientInstanceId}
                   endpointId={agentProfileId}
@@ -1058,7 +957,12 @@ function ConnectedCanonicalActiveWorkspace({
                   </p>
                 </>
               )}
-              <audio ref={media.remoteAudioRef} autoPlay className="hidden" playsInline />
+              <audio
+                ref={setRemoteAudioElement}
+                autoPlay
+                className="hidden"
+                playsInline
+              />
             </div>
           </section>
         </div>
@@ -1068,7 +972,6 @@ function ConnectedCanonicalActiveWorkspace({
 }
 
 export function CanonicalActiveCall({
-  actionsEnabled,
   call,
   clientInstanceId,
   endpointId,
@@ -1080,7 +983,6 @@ export function CanonicalActiveCall({
   transferTargets,
   transferTakeCandidate,
 }: {
-  actionsEnabled: boolean;
   call: CallView;
   clientInstanceId: string;
   endpointId: string;
@@ -1096,7 +998,10 @@ export function CanonicalActiveCall({
   const [callDuration, setCallDuration] = useState(0);
   const [controlError, setControlError] = useState<string | null>(null);
   const [controlPending, setControlPending] = useState<"end" | "hold" | null>(null);
-  const [isHeld, setHeld] = useState(false);
+  const [heldOverride, setHeldOverride] = useState<{
+    mediaLegId: string;
+    value: boolean;
+  } | null>(null);
   const [isMuted, setMuted] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
   const match = sessionId
@@ -1133,15 +1038,12 @@ export function CanonicalActiveCall({
   const connected = call.status === "CONNECTED" && !targetTransfer;
   const mediaLegId = match?.observation.mediaLegId ?? null;
   const observedHeld = match?.observation.state === "HELD";
+  const isHeld =
+    heldOverride?.mediaLegId === mediaLegId ? heldOverride.value : observedHeld;
   const controlsEnabled = Boolean(
-    actionsEnabled &&
     mediaLegId &&
     (match?.leg.status === "BRIDGED" || match?.observation.state === "ACTIVE"),
   );
-
-  useEffect(() => {
-    setHeld(observedHeld);
-  }, [mediaLegId, observedHeld]);
 
   useEffect(() => {
     if (!connected) return;
@@ -1180,15 +1082,16 @@ export function CanonicalActiveCall({
     if (!mediaLegId || controlPending) return;
 
     const requestedHeld = !isHeld;
+    setHeldOverride({ mediaLegId, value: requestedHeld });
     setControlPending("hold");
     try {
       const updated = await media.hold(mediaLegId, requestedHeld);
       if (updated === false) {
         throw localCallCenterError("PROVIDER_UNAVAILABLE");
       }
-      setHeld(requestedHeld);
       setControlError(null);
     } catch (error) {
+      setHeldOverride(null);
       showControlError(error, "hold");
     } finally {
       setControlPending(null);
@@ -1234,9 +1137,9 @@ export function CanonicalActiveCall({
     <div className="mt-3 rounded-md border border-[var(--portal-border)] bg-white p-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <label className="min-w-0 flex-1">
-          <span className="sr-only">Transfer station</span>
+          <span className="sr-only">Transfer person</span>
           <PortalSelect
-            disabled={!actionsEnabled || transferTargets.length === 0}
+            disabled={transferTargets.length === 0}
             onChange={(event) => setTargetChoice(event.target.value)}
             value={selectedTargetId}
           >
@@ -1247,12 +1150,12 @@ export function CanonicalActiveCall({
                 </option>
               ))
             ) : (
-              <option value="">No stations available</option>
+              <option value="">No people available</option>
             )}
           </PortalSelect>
         </label>
         <Button
-          disabled={!actionsEnabled || !selectedTargetId || transferPending}
+          disabled={!selectedTargetId || transferPending}
           onClick={() => void onTransfer(call, selectedTargetId)}
           variant="secondary"
         >
@@ -1387,7 +1290,6 @@ export function CanonicalActiveCall({
           {targetTransfer ? (
             <Button
               disabled={
-                !actionsEnabled ||
                 !["RINGING", "CONNECTING"].includes(targetTransfer.observation.state)
               }
               onClick={() => void onTakeTransfer()}
@@ -1398,7 +1300,7 @@ export function CanonicalActiveCall({
             </Button>
           ) : null}
           <Button
-            disabled={!actionsEnabled || !canEnd}
+            disabled={!canEnd}
             onClick={() => void endCall()}
             size="sm"
             variant="secondary"
@@ -1421,141 +1323,36 @@ export function CanonicalActiveCall({
 }
 
 function CanonicalActivity({
-  actionsEnabled,
-  calls,
   followUpHref,
   historyHref,
   needsAction,
+  needsActionCount,
   office,
   onCallback,
-  onResolve,
   queueId,
   recentCalls,
-  submittingDisposition,
-  tasks,
-  totals,
 }: {
-  actionsEnabled: boolean;
-  calls: CallView[];
   followUpHref: string;
   historyHref: string;
   needsAction: PortalNeedsActionGroup[];
+  needsActionCount: number;
   office?: string | null;
   onCallback: (phone: string) => void;
-  onResolve: (call: CallView) => void;
   queueId: string;
   recentCalls: CallView[];
-  submittingDisposition: string | null;
-  tasks: TaskView[];
-  totals: PortalCallCenterTotals;
 }) {
-  const [actionsOpen, setActionsOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   return (
     <>
-      {actionsEnabled ? (
-        <ActivityRail
-          followUpHref={followUpHref}
-          needsAction={needsAction}
-          office={office}
-          onCallback={onCallback}
-          queueId={queueId}
-          totals={totals}
-        />
-      ) : null}
-
-      {!actionsEnabled ? (
-        <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
-          <header className="border-b border-[var(--portal-border)] px-4 py-3">
-            <button
-              aria-expanded={actionsOpen}
-              className="flex w-full min-w-0 items-center gap-2 text-left"
-              onClick={() => setActionsOpen((current) => !current)}
-              type="button"
-            >
-              {actionsOpen ? (
-                <ChevronDown
-                  aria-hidden="true"
-                  className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
-                />
-              ) : (
-                <ChevronRight
-                  aria-hidden="true"
-                  className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
-                />
-              )}
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-[var(--portal-ink)]">
-                    Needs action
-                  </span>
-                  {tasks.length ? (
-                    <PortalBadge className="px-2 py-0.5 tabular-nums">
-                      {tasks.length}
-                    </PortalBadge>
-                  ) : null}
-                </span>
-                <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
-                  Missed calls, voicemails, and notes that still need a response.
-                </span>
-              </span>
-            </button>
-          </header>
-
-          {!actionsOpen ? null : tasks.length ? (
-            <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
-              {tasks.map((task) => {
-                const TaskIcon = task.kind === "VOICEMAIL" ? Voicemail : PhoneMissed;
-                const call = task.callId
-                  ? calls.find(({ id }) => id === task.callId)
-                  : null;
-
-                return (
-                  <li
-                    className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
-                    key={task.id}
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
-                        <TaskIcon className="h-4 w-4" aria-hidden="true" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-[var(--portal-ink)]">
-                          {followUpLabel(task.kind)}
-                        </p>
-                        <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
-                          {task.callerPhone
-                            ? formatPhone(task.callerPhone)
-                            : "Patient call"}
-                          {` · ${formatRelativeTime(task.createdAt)}`}
-                        </p>
-                      </div>
-                    </div>
-                    {call ? (
-                      <Button
-                        className="w-fit"
-                        disabled={
-                          !actionsEnabled || submittingDisposition === task.callId
-                        }
-                        onClick={() => onResolve(call)}
-                        size="sm"
-                        variant="secondary"
-                      >
-                        {submittingDisposition === task.callId ? "Saving…" : "Mark done"}
-                      </Button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
-              No items need action.
-            </div>
-          )}
-        </section>
-      ) : null}
+      <ActivityRail
+        followUpHref={followUpHref}
+        needsAction={needsAction}
+        needsActionCount={needsActionCount}
+        office={office}
+        onCallback={onCallback}
+        queueId={queueId}
+      />
 
       <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
         <header className="flex items-center gap-3 border-b border-[var(--portal-border)] px-4 py-3">
@@ -1655,19 +1452,6 @@ function CanonicalActivity({
       </section>
     </>
   );
-}
-
-function followUpLabel(kind: TaskView["kind"]) {
-  switch (kind) {
-    case "CALLBACK":
-      return "Callback requested";
-    case "FOLLOW_UP":
-      return "Patient follow-up";
-    case "MISSED_CALL":
-      return "Missed call";
-    case "VOICEMAIL":
-      return "New voicemail";
-  }
 }
 
 function callStatusLabel(status: CallView["status"]) {

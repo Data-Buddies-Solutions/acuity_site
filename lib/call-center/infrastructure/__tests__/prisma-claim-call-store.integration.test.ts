@@ -221,7 +221,6 @@ describe("PostgreSQL canonical claim concurrency", () => {
         return createClaimCallHandler({
           claim: (_store, actor, input) => claimCall(store, actor, input),
           getActor: async () => actors[index]!,
-          isCanonicalActive: () => true,
           scheduleCommand: (commandId) => scheduled.push(commandId),
         });
       });

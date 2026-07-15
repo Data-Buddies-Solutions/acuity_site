@@ -38,7 +38,6 @@ export type ActiveRoutingContext = {
     | (ActiveRoutingQueueSnapshot & {
         maxWaitSec: number;
         ringTimeoutSec: number;
-        routingMode: "LEGACY" | "SHADOW" | "ACTIVE";
       })
     | null;
   status: ActiveCallStatus;
