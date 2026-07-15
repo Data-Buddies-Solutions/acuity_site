@@ -767,7 +767,12 @@ function ConnectedCanonicalActiveWorkspace({
   ]);
 
   if (realtime.error && !state) {
-    return <CanonicalUnavailable message={errorMessage(realtime.error, "connect")} />;
+    return (
+      <CanonicalUnavailable
+        message={errorMessage(realtime.error, "connect")}
+        retry={refreshSnapshot}
+      />
+    );
   }
   if (realtime.loading || !state) {
     return <CanonicalUnavailable message="Connecting to the call center…" />;
@@ -1721,7 +1726,13 @@ function callPhone(call: CallView) {
   return call.direction === "OUTBOUND" ? call.toPhone : call.fromPhone;
 }
 
-function CanonicalUnavailable({ message }: { message: string }) {
+function CanonicalUnavailable({
+  message,
+  retry,
+}: {
+  message: string;
+  retry?: () => void;
+}) {
   return (
     <Card className="items-center gap-3 rounded-2xl bg-white px-6 py-10 text-center shadow-sm ring-[var(--portal-border)]">
       <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--portal-panel-soft)] text-[var(--portal-accent)]">
@@ -1730,6 +1741,11 @@ function CanonicalUnavailable({ message }: { message: string }) {
       <p className="max-w-md text-sm leading-relaxed text-[var(--portal-muted)]">
         {message}
       </p>
+      {retry ? (
+        <Button onClick={retry} size="sm" variant="secondary">
+          Try again
+        </Button>
+      ) : null}
     </Card>
   );
 }

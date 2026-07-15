@@ -300,6 +300,26 @@ describe("useCanonicalCallCenter", () => {
     expect(sources).toHaveLength(1);
   });
 
+  it("automatically retries a retryable initial snapshot failure", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? errorResponse("TEMPORARY_SERVICE_FAILURE", 503)
+        : Response.json(snapshot("40"));
+    }) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
+    );
+
+    await waitFor(() => expect(result.current.state?.revision).toBe("40"), {
+      timeout: 2_500,
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toBeNull();
+    expect(sources).toHaveLength(1);
+  });
+
   it("fails closed on an incompatible snapshot", async () => {
     globalThis.fetch = mock(async () =>
       Response.json({ ...snapshot(), schemaVersion: 2 }),
