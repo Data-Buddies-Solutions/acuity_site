@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   failProviderCommandDependents,
-  failUnsettledProviderCommandsForLeg,
+  settleProviderCommandsForTerminalLeg,
 } from "../prisma-provider-command-failures";
 
 const now = new Date("2026-07-12T12:00:00.000Z");
@@ -117,7 +117,7 @@ describe("provider command dependency failures", () => {
     expect(operations).toContain("session.release");
   });
 
-  it("cancels an unsettled leg command when the provider leg is already terminal", async () => {
+  it("confirms a cleanup effect already satisfied by a terminal provider leg", async () => {
     const updates: Array<Record<string, unknown>> = [];
     let reads = 0;
     const transaction = {
@@ -152,16 +152,16 @@ describe("provider command dependency failures", () => {
     };
 
     await expect(
-      failUnsettledProviderCommandsForLeg(transaction as never, {
+      settleProviderCommandsForTerminalLeg(transaction as never, {
         legId: "customer-leg",
         now,
       }),
-    ).resolves.toEqual(["stop-command"]);
+    ).resolves.toEqual([]);
     expect(updates).toEqual([
       expect.objectContaining({
-        errorCode: "COMMAND_LEG_TERMINAL",
+        errorCode: null,
         nextAttemptAt: null,
-        status: "FAILED",
+        status: "CONFIRMED",
       }),
     ]);
   });

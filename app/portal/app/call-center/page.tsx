@@ -161,7 +161,6 @@ export default async function PortalCallCenterPage({
         <CanonicalActiveWorkspace
           actionsEnabled={canonicalActivation}
           enabled={enabled}
-          eventLocationId={selectedLocation?.locationId}
           followUpHref={followUpHref}
           historyHref={historyHref}
           initialDialNumber={initialDialNumber}

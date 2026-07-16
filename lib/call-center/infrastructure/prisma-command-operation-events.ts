@@ -35,9 +35,10 @@ export async function appendCommandOperationStatus(
   });
   if (receipts.length === 0) return [];
 
-  return Promise.all(
-    receipts.map((receipt) =>
-      transaction.callCenterEvent.create({
+  const events = [];
+  for (const receipt of receipts) {
+    events.push(
+      await transaction.callCenterEvent.create({
         data: {
           actorUserId: receipt.actorUserId,
           aggregateId: command.callId,
@@ -76,6 +77,7 @@ export async function appendCommandOperationStatus(
           type: CALL_OPERATION_STATUS_CHANGED_EVENT,
         },
       }),
-    ),
-  );
+    );
+  }
+  return events;
 }

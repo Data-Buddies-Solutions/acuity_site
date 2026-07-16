@@ -87,7 +87,6 @@ import { useSoftphoneMedia } from "./use-softphone";
 type CanonicalActiveWorkspaceProps = {
   actionsEnabled: boolean;
   enabled: boolean;
-  eventLocationId?: string | null;
   followUpHref: string;
   historyHref: string;
   initialDialNumber?: string | null;
@@ -187,7 +186,6 @@ function canonicalConnectionState(
 export function CanonicalActiveWorkspace({
   actionsEnabled,
   enabled,
-  eventLocationId,
   followUpHref,
   historyHref,
   initialDialNumber,
@@ -240,7 +238,6 @@ export function CanonicalActiveWorkspace({
     <ConnectedCanonicalActiveWorkspace
       clientInstanceId={client.clientInstanceId}
       actionsEnabled={actionsEnabled}
-      eventLocationId={eventLocationId}
       followUpHref={followUpHref}
       historyHref={historyHref}
       initialDialNumber={initialDialNumber}
@@ -256,7 +253,6 @@ export function CanonicalActiveWorkspace({
 function ConnectedCanonicalActiveWorkspace({
   actionsEnabled,
   clientInstanceId,
-  eventLocationId,
   followUpHref,
   historyHref,
   initialDialNumber,
@@ -268,7 +264,6 @@ function ConnectedCanonicalActiveWorkspace({
 }: {
   actionsEnabled: boolean;
   clientInstanceId: string;
-  eventLocationId?: string | null;
   followUpHref: string;
   historyHref: string;
   initialDialNumber?: string | null;
@@ -376,21 +371,6 @@ function ConnectedCanonicalActiveWorkspace({
       router.refresh();
     }
   }, [router, taskSignal]);
-
-  useEffect(() => {
-    if (!actionsEnabled) return;
-    const query =
-      eventLocationId === undefined
-        ? ""
-        : `?locationId=${encodeURIComponent(eventLocationId ?? "__NULL__")}`;
-    const source = new EventSource(`/api/portal/call-center/events${query}`);
-    const refresh = () => router.refresh();
-    source.addEventListener("refresh", refresh);
-    return () => {
-      source.removeEventListener("refresh", refresh);
-      source.close();
-    };
-  }, [actionsEnabled, eventLocationId, router]);
 
   useEffect(() => {
     const next = {

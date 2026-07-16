@@ -249,14 +249,12 @@ export async function repairExhaustedLegacyOutOfScopeSessionInTransaction(
   })) as RepairRow[];
   const { failures, proofs } = validateRows(rows, input);
 
-  const [callCount, legCount] = await Promise.all([
-    tx.callCenterCall.count({
-      where: { providerCallSessionId: input.providerCallSessionId },
-    }),
-    tx.callCenterCallLeg.count({
-      where: { providerCallSessionId: input.providerCallSessionId },
-    }),
-  ]);
+  const callCount = await tx.callCenterCall.count({
+    where: { providerCallSessionId: input.providerCallSessionId },
+  });
+  const legCount = await tx.callCenterCallLeg.count({
+    where: { providerCallSessionId: input.providerCallSessionId },
+  });
   if (callCount || legCount) fail("PASSIVE_LEGACY_REPAIR_CORRELATION_EXISTS");
   await proveSinglePractice(tx, proofs, input);
 

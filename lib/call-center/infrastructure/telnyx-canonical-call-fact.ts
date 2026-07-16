@@ -21,6 +21,7 @@ export type CanonicalTelnyxCallFact = {
   occurredAt: Date;
   providerCallControlId: string | null;
   providerCommandId: string | null;
+  providerCommandIdSource: "CLIENT_STATE" | "PAYLOAD" | null;
   providerCallLegId: string | null;
   providerCallSessionId: string | null;
   providerEventId: string;
@@ -244,8 +245,14 @@ export function parseCanonicalTelnyxCallFact(
   const providerCallControlId = text(payload.call_control_id) || null;
   const providerCallLegId = text(payload.call_leg_id) || null;
   const providerCallSessionId = text(payload.call_session_id) || null;
-  const providerCommandId =
-    text(payload.command_id) || text(clientState?.commandId) || null;
+  const payloadCommandId = text(payload.command_id);
+  const clientStateCommandId = text(clientState?.commandId);
+  const providerCommandId = payloadCommandId || clientStateCommandId || null;
+  const providerCommandIdSource = payloadCommandId
+    ? ("PAYLOAD" as const)
+    : clientStateCommandId
+      ? ("CLIENT_STATE" as const)
+      : null;
   if (
     (eventType === "call.speak.ended" || eventType === "call.recording.saved") &&
     !providerCommandId
@@ -299,6 +306,7 @@ export function parseCanonicalTelnyxCallFact(
     occurredAt,
     providerCallControlId,
     providerCommandId,
+    providerCommandIdSource,
     providerCallLegId,
     providerCallSessionId,
     providerEventId,

@@ -74,6 +74,7 @@ const eligibleRows = () => {
 type FakeOptions = {
   callCount?: number;
   canonicalNumberCount?: number;
+  detectConcurrentCounts?: boolean;
   existingReceipt?: null | {
     data: { repairedCount: number };
     revision: bigint;
@@ -87,6 +88,7 @@ type FakeOptions = {
 function fakeTransaction({
   callCount = 0,
   canonicalNumberCount = 0,
+  detectConcurrentCounts = false,
   existingReceipt = null,
   legCount = 0,
   phonePracticeId = practiceId,
@@ -100,13 +102,23 @@ function fakeTransaction({
   const queries: string[] = [];
   const updates: unknown[] = [];
   let rowReads = 0;
+  let countInFlight = false;
+  const count = async (value: number) => {
+    if (detectConcurrentCounts && countInFlight) {
+      throw new Error("concurrent transaction query");
+    }
+    countInFlight = true;
+    await Promise.resolve();
+    countInFlight = false;
+    return value;
+  };
   const transaction = {
     $queryRaw: async (query: { strings?: readonly string[] }) => {
       queries.push(query.strings?.join(" ") ?? "");
       return [];
     },
-    callCenterCall: { count: async () => callCount },
-    callCenterCallLeg: { count: async () => legCount },
+    callCenterCall: { count: async () => count(callCount) },
+    callCenterCallLeg: { count: async () => count(legCount) },
     callCenterNumber: {
       count: async (input: unknown) => {
         numberScopes.push(input);
@@ -232,6 +244,18 @@ describe("passive LEGACY projection history repair", () => {
     expect(audit).not.toContain(sessionId);
     expect(audit).not.toContain(practicePhone);
     expect(audit).not.toContain("event-1");
+  });
+
+  it("serializes queries on one interactive transaction", async () => {
+    const fake = fakeTransaction({ detectConcurrentCounts: true });
+
+    await expect(
+      repairExhaustedLegacyOutOfScopeSessionInTransaction(
+        fake.transaction as never,
+        { practiceId, providerCallSessionId: sessionId },
+        now,
+      ),
+    ).resolves.toMatchObject({ outcome: "REPAIRED" });
   });
 
   it("returns the existing receipt without touching repaired rows", async () => {

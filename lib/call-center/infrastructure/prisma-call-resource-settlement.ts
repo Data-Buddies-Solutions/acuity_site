@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
-import { failUnsettledProviderCommandsForLeg } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
+import { settleProviderCommandsForTerminalLeg } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
 
 type Transaction = Prisma.TransactionClient;
@@ -58,7 +58,7 @@ export async function settleCanonicalCallLegs(
 
   const commandIds: string[] = [];
   for (const leg of legs) {
-    await failUnsettledProviderCommandsForLeg(transaction, {
+    await settleProviderCommandsForTerminalLeg(transaction, {
       exceptTypes: ["HANGUP_LEG"],
       legId: leg.id,
       now: input.now,
