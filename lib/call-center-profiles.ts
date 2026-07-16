@@ -8,7 +8,11 @@ const ABITA_SOUTH_FLORIDA_CALL_CENTER_EMAIL = "callcenter@abitaeye.com";
 const ABITA_SOUTH_FLORIDA_LOCATION_NAMES = new Set(["hollywood", "sweetwater"]);
 const ABITA_SOUTH_FLORIDA_QUEUE_KEY = "abita-south-florida";
 const ABITA_SOUTH_FLORIDA_TRANSFER_PHONE = "+16184220360";
-const ABITA_SWEETWATER_OPTICAL_EMAIL = "sweetwateropticals@abitaeye.com";
+const ABITA_SWEETWATER_OPTICAL_EMAILS = new Set([
+  "justin@abitaeye.com",
+  "optical@abitaeye.com",
+  "sweetwateropticals@abitaeye.com",
+]);
 const ABITA_SWEETWATER_OPTICAL_PHONE = "+17864657479";
 const ABITA_NORTH_MIAMI_BEACH_OPTICAL_PHONE = "+13055095333";
 const ABITA_SWEETWATER_OPTICAL_QUEUE_KEY = "abita-sweetwater-optical";
@@ -69,7 +73,7 @@ export function isAbitaSweetwaterOpticalCallCenterContext(
 ) {
   return (
     isAbitaPractice(context.practice) &&
-    userEmail(context) === ABITA_SWEETWATER_OPTICAL_EMAIL
+    ABITA_SWEETWATER_OPTICAL_EMAILS.has(userEmail(context))
   );
 }
 

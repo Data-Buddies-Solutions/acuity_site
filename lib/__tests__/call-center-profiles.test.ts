@@ -68,6 +68,24 @@ describe("call-center profiles", () => {
       isSpecialAbitaCallCenterContext(
         profileContext({
           allowedPhoneNumbers,
+          email: "justin@abitaeye.com",
+          locations,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isSpecialAbitaCallCenterContext(
+        profileContext({
+          allowedPhoneNumbers,
+          email: "optical@abitaeye.com",
+          locations,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isSpecialAbitaCallCenterContext(
+        profileContext({
+          allowedPhoneNumbers,
           email: "callcenter@abitaeye.com",
           locations,
           practiceName: "Other Eye Group",
