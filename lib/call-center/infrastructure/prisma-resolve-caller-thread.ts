@@ -84,37 +84,35 @@ export async function resolveCallerThreadInTransaction(
       })
     : [];
 
-  await Promise.all([
-    transaction.callCenterMissedCall.updateMany({
-      data: { calledBack: true, resolvedAt: input.now },
-      where: {
-        calledBack: false,
-        fromPhone: { in: input.phoneVariants },
-        practiceId: input.actor.practiceId,
-        resolvedAt: null,
-        ...input.legacyMissedCallWhere,
-      },
-    }),
-    transaction.callCenterVoicemail.updateMany({
-      data: { resolvedAt: input.now },
-      where: {
-        fromPhone: { in: input.phoneVariants },
-        practiceId: input.actor.practiceId,
-        resolvedAt: null,
-        ...input.legacyVoicemailWhere,
-      },
-    }),
-    transaction.callCenterNote.updateMany({
-      data: { resolvedThread: true },
-      where: {
-        disposition: { in: ["CALLBACK_NEEDED", "FOLLOW_UP_REQUIRED"] },
-        fromPhone: { in: input.phoneVariants },
-        practiceId: input.actor.practiceId,
-        resolvedThread: false,
-        ...input.legacyNoteWhere,
-      },
-    }),
-  ]);
+  await transaction.callCenterMissedCall.updateMany({
+    data: { calledBack: true, resolvedAt: input.now },
+    where: {
+      calledBack: false,
+      fromPhone: { in: input.phoneVariants },
+      practiceId: input.actor.practiceId,
+      resolvedAt: null,
+      ...input.legacyMissedCallWhere,
+    },
+  });
+  await transaction.callCenterVoicemail.updateMany({
+    data: { resolvedAt: input.now },
+    where: {
+      fromPhone: { in: input.phoneVariants },
+      practiceId: input.actor.practiceId,
+      resolvedAt: null,
+      ...input.legacyVoicemailWhere,
+    },
+  });
+  await transaction.callCenterNote.updateMany({
+    data: { resolvedThread: true },
+    where: {
+      disposition: { in: ["CALLBACK_NEEDED", "FOLLOW_UP_REQUIRED"] },
+      fromPhone: { in: input.phoneVariants },
+      practiceId: input.actor.practiceId,
+      resolvedThread: false,
+      ...input.legacyNoteWhere,
+    },
+  });
 
   if (tasks.length) {
     const resolved = await transaction.callCenterTask.updateMany({

@@ -96,11 +96,11 @@ export async function loadConfigurationValidationContext(
     ),
   };
 
-  const endpointLookup =
+  const endpoints =
     effectiveReferences.endpointIds.length ||
     effectiveReferences.providerCredentialIds.length ||
     effectiveReferences.sipUsernames.length
-      ? transaction.callCenterEndpoint.findMany({
+      ? await transaction.callCenterEndpoint.findMany({
           select: {
             id: true,
             practiceId: true,
@@ -119,41 +119,38 @@ export async function loadConfigurationValidationContext(
             ],
           },
         })
-      : Promise.resolve([]);
-  const [locations, phoneNumbers, memberships, queues, numbers, endpoints] =
-    await Promise.all([
-      transaction.practiceLocation.findMany({
-        select: { id: true },
-        where: { id: { in: effectiveReferences.locationIds }, practiceId },
-      }),
-      transaction.practicePhoneNumber.findMany({
-        select: { id: true, locationId: true },
-        where: {
-          id: { in: effectiveReferences.practicePhoneNumberIds },
-          practiceId,
-        },
-      }),
-      transaction.practiceMembership.findMany({
-        select: { userId: true },
-        where: { practiceId, userId: { in: effectiveReferences.memberUserIds } },
-      }),
-      transaction.callCenterQueue.findMany({
-        select: { id: true, practiceId: true },
-        where: { id: { in: effectiveReferences.queueIds } },
-      }),
-      effectiveReferences.numberIds.length || effectiveReferences.providerNumberIds.length
-        ? transaction.callCenterNumber.findMany({
-            select: { id: true, practiceId: true, providerNumberId: true },
-            where: {
-              OR: [
-                { id: { in: effectiveReferences.numberIds } },
-                { providerNumberId: { in: effectiveReferences.providerNumberIds } },
-              ],
-            },
-          })
-        : Promise.resolve([]),
-      endpointLookup,
-    ]);
+      : [];
+  const locations = await transaction.practiceLocation.findMany({
+    select: { id: true },
+    where: { id: { in: effectiveReferences.locationIds }, practiceId },
+  });
+  const phoneNumbers = await transaction.practicePhoneNumber.findMany({
+    select: { id: true, locationId: true },
+    where: {
+      id: { in: effectiveReferences.practicePhoneNumberIds },
+      practiceId,
+    },
+  });
+  const memberships = await transaction.practiceMembership.findMany({
+    select: { userId: true },
+    where: { practiceId, userId: { in: effectiveReferences.memberUserIds } },
+  });
+  const queues = await transaction.callCenterQueue.findMany({
+    select: { id: true, practiceId: true },
+    where: { id: { in: effectiveReferences.queueIds } },
+  });
+  const numbers =
+    effectiveReferences.numberIds.length || effectiveReferences.providerNumberIds.length
+      ? await transaction.callCenterNumber.findMany({
+          select: { id: true, practiceId: true, providerNumberId: true },
+          where: {
+            OR: [
+              { id: { in: effectiveReferences.numberIds } },
+              { providerNumberId: { in: effectiveReferences.providerNumberIds } },
+            ],
+          },
+        })
+      : [];
 
   return {
     practiceExists: lockedPractice.length === 1,

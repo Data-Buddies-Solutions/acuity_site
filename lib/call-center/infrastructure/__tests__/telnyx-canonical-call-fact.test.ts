@@ -41,6 +41,7 @@ describe("canonical Telnyx call facts", () => {
       fromPhone: "+17865550100",
       legKind: "CUSTOMER",
       providerCommandId: null,
+      providerCommandIdSource: null,
       toPhone: "+17864657479",
     });
   });
@@ -75,6 +76,7 @@ describe("canonical Telnyx call facts", () => {
       endpointId: "endpoint-1",
       legKind: "AGENT",
       providerCommandId: "command-1",
+      providerCommandIdSource: "PAYLOAD",
     });
   });
 
@@ -151,6 +153,7 @@ describe("canonical Telnyx call facts", () => {
         canonicalLegId: "customer-leg-1",
         eventType,
         providerCommandId: `command-${eventType}`,
+        providerCommandIdSource: "CLIENT_STATE",
       });
     }
   });

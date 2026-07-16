@@ -86,22 +86,20 @@ export async function persistCanonicalVoicemail(
     recordingId: true,
     recordingUrl: true,
   } as const;
-  const [byCall, byRecording, source] = await Promise.all([
-    transaction.callCenterVoicemail.findUnique({
-      select: existingSelect,
-      where: { callCenterCallId: input.call.id },
-    }),
-    transaction.callCenterVoicemail.findUnique({
-      select: existingSelect,
-      where: { recordingId: input.recording.id },
-    }),
-    transaction.callCenterCall.findUnique({
-      select: {
-        number: { select: { practicePhoneNumber: { select: { locationId: true } } } },
-      },
-      where: { id: input.call.id },
-    }),
-  ]);
+  const byCall = await transaction.callCenterVoicemail.findUnique({
+    select: existingSelect,
+    where: { callCenterCallId: input.call.id },
+  });
+  const byRecording = await transaction.callCenterVoicemail.findUnique({
+    select: existingSelect,
+    where: { recordingId: input.recording.id },
+  });
+  const source = await transaction.callCenterCall.findUnique({
+    select: {
+      number: { select: { practicePhoneNumber: { select: { locationId: true } } } },
+    },
+    where: { id: input.call.id },
+  });
   if (!source) throw new CanonicalVoicemailPersistenceError("CANONICAL_CALL_NOT_FOUND");
   if (
     (byCall && byCall.recordingId !== input.recording.id) ||
