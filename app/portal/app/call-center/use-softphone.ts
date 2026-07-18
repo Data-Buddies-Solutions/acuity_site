@@ -128,6 +128,7 @@ function useSoftphoneMediaEngine({
   const [connection, setConnection] = useState<MediaConnectionState>(
     enabled ? "CONNECTING" : "OFFLINE",
   );
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [microphoneReady, setMicrophoneReady] = useState(false);
   const [observations, setObservations] = useState<readonly MediaObservation[]>([]);
@@ -259,7 +260,7 @@ function useSoftphoneMediaEngine({
 
       if (!microphoneAllowed) return false;
       if (!audioReady) {
-        setSetupError("Browser sound is blocked. Select Ready and allow audio playback.");
+        setSetupError("Browser sound is blocked. Allow sound, then try again.");
         return false;
       }
 
@@ -447,7 +448,13 @@ function useSoftphoneMediaEngine({
       client?.disconnect();
       clientRef.current = null;
     };
-  }, [agentSessionId, browserSessionId, debug, detachAudio, enabled]);
+  }, [agentSessionId, browserSessionId, connectionAttempt, debug, detachAudio, enabled]);
+
+  const reconnect = useCallback(() => {
+    setError(null);
+    setConnection("CONNECTING");
+    setConnectionAttempt((current) => current + 1);
+  }, []);
 
   const callFor = useCallback((mediaLegId: string) => {
     const call = callsRef.current.get(mediaLegId);
@@ -516,6 +523,7 @@ function useSoftphoneMediaEngine({
     mute,
     observations,
     prepare,
+    reconnect,
     setRemoteAudioElement,
     sendDtmf,
     setupError,

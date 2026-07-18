@@ -594,12 +594,14 @@ export default function TwoWayTextingWorkspace({
   initialConversation,
   initialFilter,
   initialInbox,
+  initialRecipientPhone,
   initialSearchQuery,
   initialSelectedConversationId,
 }: {
   initialConversation: ConversationDetail | null;
   initialFilter: ConversationFilter;
   initialInbox: InboxState;
+  initialRecipientPhone: string;
   initialSearchQuery: string;
   initialSelectedConversationId: string;
 }) {
@@ -617,9 +619,11 @@ export default function TwoWayTextingWorkspace({
   );
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [draft, setDraft] = useState("");
-  const [newPatientPhone, setNewPatientPhone] = useState("");
+  const [newPatientPhone, setNewPatientPhone] = useState(initialRecipientPhone);
   const [newDraft, setNewDraft] = useState("");
-  const [composing, setComposing] = useState(false);
+  const [composing, setComposing] = useState(
+    Boolean(initialRecipientPhone && !initialConversation),
+  );
   const [mobileThreadOpen, setMobileThreadOpen] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [deleting, setDeleting] = useState(false);

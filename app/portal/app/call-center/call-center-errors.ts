@@ -6,6 +6,7 @@ import {
 } from "@/lib/call-center/operator-error";
 
 export type CallCenterAction =
+  | "answer"
   | "connect"
   | "enable"
   | "end"
@@ -16,7 +17,6 @@ export type CallCenterAction =
   | "queue"
   | "readiness"
   | "save"
-  | "take"
   | "transfer"
   | "voicemail";
 
@@ -42,12 +42,12 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     presentation: "banner",
   },
   BROWSER_AUDIO_REQUIRED: {
-    message: "Browser audio is blocked. Allow sound, then select Ready again.",
+    message: "Browser audio is blocked. Allow sound, then try again.",
     presentation: "inline",
     retryable: true,
   },
   CALL_ALREADY_CLAIMED: {
-    message: "Call taken by another agent",
+    message: "Call answered by another operator",
     presentation: "inline",
     includeReference: false,
   },
@@ -67,13 +67,13 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     includeReference: false,
   },
   CALL_NOT_READY: {
-    message: "You are not ready for calls. Select Ready, then try again.",
+    message: "Calling is not ready yet. Wait a moment, then try again.",
     presentation: "inline",
     retryable: true,
   },
   CALLING_NOT_CONFIGURED: {
     message:
-      "Calling is not configured for this login. Ask an administrator to assign your calling endpoint and queue access.",
+      "Calling is not configured for this login. Ask an administrator to set up calling and queue access for your account.",
     presentation: "banner",
   },
   INVALID_REQUEST: {
@@ -81,8 +81,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     presentation: "inline",
   },
   MICROPHONE_REQUIRED: {
-    message:
-      "Microphone access is required. Allow microphone access, then select Ready again.",
+    message: "Microphone access is required. Allow microphone access, then try again.",
     presentation: "inline",
     retryable: true,
   },
@@ -115,7 +114,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     retryable: true,
   },
   SESSION_EXPIRED: {
-    message: "Your calling session ended. Select Ready to reconnect.",
+    message: "Your calling session ended. Try again to reconnect.",
     presentation: "banner",
     retryable: true,
   },
@@ -135,7 +134,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     retryable: true,
   },
   TRANSFER_TARGET_UNAVAILABLE: {
-    message: "That team member cannot take the call right now. Choose someone else.",
+    message: "That team member cannot receive the call right now. Choose someone else.",
     presentation: "inline",
     retryable: true,
   },
@@ -147,6 +146,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
 };
 
 const actionPhrase: Record<CallCenterAction, string> = {
+  answer: "answer this call",
   connect: "connect to the call center",
   enable: "enable calling",
   end: "end this call",
@@ -155,9 +155,8 @@ const actionPhrase: Record<CallCenterAction, string> = {
   mute: "update mute",
   outbound: "start this call",
   queue: "complete that queue action",
-  readiness: "get ready for calls",
+  readiness: "restore calling",
   save: "save that update",
-  take: "answer this call",
   transfer: "transfer this call",
   voicemail: "load this voicemail",
 };

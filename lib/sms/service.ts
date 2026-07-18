@@ -266,11 +266,18 @@ async function getAllowedSmsPhoneNumbers(context: PortalPracticeAccessContext) {
   return filterSmsPhoneNumbersForContext(context, allPracticeNumbers);
 }
 
-export async function getAllowedSmsPracticeNumberIdsForContext(
+export async function getAllowedSmsPracticeNumbersForContext(
   context: PortalPracticeAccessContext,
 ) {
   const phoneNumbers = await getAllowedSmsPhoneNumbers(context);
-  return phoneNumbers.map((phoneNumber) => phoneNumber.id);
+  return phoneNumbers.map(({ id, locationId }) => ({ id, locationId }));
+}
+
+export async function getAllowedSmsPracticeNumberIdsForContext(
+  context: PortalPracticeAccessContext,
+) {
+  const phoneNumbers = await getAllowedSmsPracticeNumbersForContext(context);
+  return phoneNumbers.map(({ id }) => id);
 }
 
 function serializeSmsInboxOption(phoneNumber: PracticeSmsPhoneNumber): SmsInboxOption {
