@@ -1,13 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
-  PhoneIncoming,
-  PhoneOutgoing,
-} from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
@@ -15,13 +8,12 @@ import { LinkSegmentedControl } from "@/components/ui/link-segmented-control";
 import {
   type PortalCallCenterHistoryRange,
   type PortalCallCenterHistoryView,
-  type PortalRecentCallItem,
 } from "@/lib/call-center/portal-model";
 import { readCanonicalCallCenterHistory } from "@/lib/call-center/application/portal-canonical-history";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
-import { cn } from "@/lib/utils";
 
 import { PracticePageHeader } from "../../PracticePageHeader";
+import { CallHistoryRow } from "./CallHistoryRow";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +55,7 @@ export default async function PortalCallCenterHistoryPage({
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-5">
       <PracticePageHeader
         branding={data.branding}
         practiceName={data.practiceName}
@@ -74,13 +66,16 @@ export default async function PortalCallCenterHistoryPage({
           <Button asChild variant="secondary">
             <Link href="/portal/app/call-center">
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              Command center
+              Call Center
             </Link>
           </Button>
         </div>
       </PracticePageHeader>
 
-      <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <section
+        aria-label="Call totals"
+        className="grid gap-px overflow-hidden rounded-2xl border border-[var(--portal-border)] bg-[var(--portal-border)] shadow-sm sm:grid-cols-2 lg:grid-cols-4"
+      >
         <SummaryMetric
           label={view === "all" ? "Total calls" : "Total connections"}
           value={data.totals.totalCalls}
@@ -93,61 +88,62 @@ export default async function PortalCallCenterHistoryPage({
         />
       </section>
 
-      <section className="rounded-xl border border-[var(--portal-border)] bg-white p-3 shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-[var(--portal-border)] pb-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Call type</h2>
-            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
-              {view === "all" ? "Every call outcome." : "Answered calls only."}
-            </p>
+      <section className="overflow-hidden rounded-2xl border border-[var(--portal-border)] bg-white shadow-sm">
+        <header className="space-y-4 border-b border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-4 py-4 sm:px-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-[var(--portal-ink)]">
+                {view === "all" ? "All calls" : "Connected calls"}
+              </h2>
+              <p className="mt-1 text-sm text-[var(--portal-muted)]">
+                {view === "all"
+                  ? `Every call outcome · ${historyRangeLabel(data.range)}`
+                  : `Answered calls · ${historyRangeLabel(data.range)}`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <PortalBadge tone="soft">
+                {data.totals.totalCalls} {view === "all" ? "calls" : "connections"}
+              </PortalBadge>
+              <PaginationControls
+                page={data.page}
+                range={data.range}
+                totalPages={totalPages}
+                view={view}
+              />
+            </div>
           </div>
-          <HistoryViewTabs range={data.range} selectedView={view} />
-        </div>
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Time range</h2>
-            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
-              {historyRangeLabel(data.range)}
-            </p>
-          </div>
-          <HistoryRangeTabs selectedRange={data.range} view={view} />
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
-        <header className="flex flex-col gap-3 border-b border-[var(--portal-border)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--portal-ink)]">
-              {view === "all" ? "Inbound and outbound calls" : "Connections"}
-            </h2>
-            <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
-              {view === "all"
-                ? "Completed, missed, voicemail, failed, and active calls."
-                : "Answered call-center calls for the selected range."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <PortalBadge>
-              {data.totals.totalCalls} {view === "all" ? "calls" : "connections"}
-            </PortalBadge>
-            <PaginationControls
-              page={data.page}
-              range={data.range}
-              totalPages={totalPages}
-              view={view}
-            />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <HistoryViewTabs range={data.range} selectedView={view} />
+            <HistoryRangeTabs selectedRange={data.range} view={view} />
           </div>
         </header>
+
+        <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-4 py-2.5 text-xs text-[var(--portal-muted)] sm:px-5">
+          <span>
+            {view === "all"
+              ? "Completed, missed, voicemail, failed, and active calls"
+              : "Answered call-center calls"}
+          </span>
+          <span className="hidden font-medium sm:inline">Most recent first</span>
+        </div>
 
         {data.calls.length ? (
           <ul className="divide-y divide-[var(--portal-border)]">
             {data.calls.map((call) => (
-              <HistoryRow call={call} key={call.id} />
+              <CallHistoryRow call={call} key={call.id} />
             ))}
           </ul>
         ) : (
-          <div className="px-5 py-12 text-center text-sm text-[var(--portal-muted)]">
-            {view === "all" ? "No calls yet." : "No connected calls yet."}
+          <div className="px-5 py-14 text-center">
+            <p className="text-sm font-medium text-[var(--portal-ink)]">
+              {view === "all" ? "No calls found." : "No connected calls found."}
+            </p>
+            <p className="mt-1 text-xs text-[var(--portal-muted)]">
+              {view === "all"
+                ? "No calls were found for this time range."
+                : "No connected calls were found for this time range."}
+            </p>
           </div>
         )}
       </section>
@@ -169,11 +165,11 @@ function HistoryViewTabs({
 
   return (
     <LinkSegmentedControl
-      activeClassName="bg-white text-[var(--portal-ink)]"
+      activeClassName="bg-white text-[var(--portal-ink)] shadow-sm"
       ariaLabel="Call history type"
-      className="border border-[var(--portal-border)] bg-[var(--portal-panel-soft)]"
+      className="w-full border border-[var(--portal-border)] bg-white/60 sm:w-fit"
       inactiveClassName="text-[var(--portal-muted)] hover:text-[var(--portal-ink)]"
-      itemClassName="px-3 py-1.5 text-xs font-semibold"
+      itemClassName="flex-1 px-3 py-1.5 text-xs font-semibold sm:flex-none"
       items={options.map((option) => ({
         href: historyHref({ page: 1, range, view: option.value }),
         label: option.label,
@@ -192,18 +188,18 @@ function HistoryRangeTabs({
   view: PortalCallCenterHistoryView;
 }) {
   const options: Array<{ label: string; value: PortalCallCenterHistoryRange }> = [
-    { label: "24h", value: "24h" },
-    { label: "7d", value: "7d" },
-    { label: "All", value: "all" },
+    { label: "24 hours", value: "24h" },
+    { label: "7 days", value: "7d" },
+    { label: "All time", value: "all" },
   ];
 
   return (
     <LinkSegmentedControl
-      activeClassName="bg-white text-[var(--portal-ink)]"
+      activeClassName="bg-white text-[var(--portal-ink)] shadow-sm"
       ariaLabel="History range"
-      className="border border-[var(--portal-border)] bg-[var(--portal-panel-soft)]"
+      className="w-full border border-[var(--portal-border)] bg-white/60 sm:w-fit"
       inactiveClassName="text-[var(--portal-muted)] hover:text-[var(--portal-ink)]"
-      itemClassName="px-3 py-1.5 text-xs font-semibold"
+      itemClassName="flex-1 px-3 py-1.5 text-xs font-semibold sm:flex-none"
       items={options.map((option) => ({
         href: historyHref({ page: 1, range: option.value, view }),
         label: option.label,
@@ -257,8 +253,8 @@ function PaginationControls({
           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
-      <span className="rounded-full border border-[var(--portal-border)] px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
-        {page} / {totalPages}
+      <span className="rounded-full border border-[var(--portal-border)] bg-white px-2.5 py-1 text-xs font-semibold text-[var(--portal-muted)]">
+        {page} of {totalPages}
       </span>
       {hasNext ? (
         <Button
@@ -291,73 +287,13 @@ function PaginationControls({
   );
 }
 
-function HistoryRow({ call }: { call: PortalRecentCallItem }) {
-  const isOutbound = call.direction === "OUTBOUND";
-  const patientPhone = isOutbound ? call.toPhone : call.fromPhone;
-  const DirectionIcon = isOutbound ? PhoneOutgoing : PhoneIncoming;
-  const duration = formatCallDuration(call.durationSec);
-  const numberHref = patientPhone
-    ? `/portal/app/call-center/callers/${encodeURIComponent(patientPhone)}`
-    : null;
-
-  return (
-    <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <DirectionIcon
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 text-[var(--portal-accent)]"
-          />
-          {numberHref ? (
-            <Link
-              className="block truncate text-sm font-semibold text-[var(--portal-accent)] underline-offset-2 hover:underline"
-              href={numberHref}
-            >
-              {formatPhone(patientPhone)}
-            </Link>
-          ) : (
-            <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
-              {formatPhone(patientPhone)}
-            </p>
-          )}
-        </div>
-        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-[var(--portal-muted)]">
-          <span>{historyStatusLabel(call)}</span>
-          <span aria-hidden="true">·</span>
-          <span>{formatHistoryTime(call.occurredAt)}</span>
-          {duration ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>{duration}</span>
-            </>
-          ) : null}
-          {call.answeredBy ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>{call.answeredBy}</span>
-            </>
-          ) : null}
-        </p>
-      </div>
-      {numberHref ? (
-        <Button asChild className="w-fit" size="sm" variant="ghost">
-          <Link href={numberHref}>
-            <ExternalLink className="h-4 w-4" aria-hidden="true" />
-            Number history
-          </Link>
-        </Button>
-      ) : null}
-    </li>
-  );
-}
-
 function SummaryMetric({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-xl border border-[var(--portal-border)] bg-white px-4 py-3 shadow-sm">
-      <p className="text-xs font-medium text-[var(--portal-muted)]">{label}</p>
-      <p className="mt-1 truncate text-sm font-semibold text-[var(--portal-ink)]">
+    <div className="bg-white px-5 py-4">
+      <p className="truncate text-2xl font-semibold tabular-nums text-[var(--portal-ink)]">
         {value}
       </p>
+      <p className="mt-1 text-xs font-medium text-[var(--portal-muted)]">{label}</p>
     </div>
   );
 }
@@ -417,52 +353,4 @@ function historyRangeLabel(range: PortalCallCenterHistoryRange) {
   if (range === "24h") return "Last 24 hours";
   if (range === "7d") return "Last 7 days";
   return "All time";
-}
-
-function formatPhone(phone: string | null) {
-  const digits = (phone || "").replace(/\D/g, "");
-
-  if (digits.length === 11 && digits.startsWith("1")) {
-    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
-  }
-
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-  }
-
-  return phone || "Unknown number";
-}
-
-function formatHistoryTime(date: Date) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    timeZone: "America/New_York",
-  }).format(new Date(date));
-}
-
-function historyStatusLabel(call: PortalRecentCallItem) {
-  const direction = call.direction === "OUTBOUND" ? "Outbound" : "Inbound";
-  const status =
-    call.status === "ACTIVE"
-      ? "Connected"
-      : call.status === "MISSED"
-        ? "Missed"
-        : call.status.charAt(0) + call.status.slice(1).toLowerCase();
-  return `${direction} · ${status}`;
-}
-
-function formatCallDuration(seconds: number | null) {
-  if (seconds == null || seconds < 0) {
-    return null;
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-
-  return minutes > 0
-    ? `${minutes}m ${remainingSeconds.toString().padStart(2, "0")}s`
-    : `${remainingSeconds}s`;
 }

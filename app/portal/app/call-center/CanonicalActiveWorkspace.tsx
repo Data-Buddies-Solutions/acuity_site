@@ -55,7 +55,7 @@ import {
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
 } from "./canonical-active-call-center";
-import ActivityRail from "./ActivityRail";
+import { ActivityRail } from "./ActivityRail";
 import { CallCenterLeaveGuard } from "./CallCenterLeaveGuard";
 import { callCounterpartyPhone } from "./canonical-call-presentation";
 import { IncomingCallHeadsUp } from "./IncomingCallHeadsUp";
@@ -1076,45 +1076,47 @@ function CanonicalActivity({
         queueId={queueId}
       />
 
-      <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
-        <header className="flex items-center gap-3 border-b border-[var(--portal-border)] px-4 py-3">
+      <section
+        aria-labelledby="recent-calls-heading"
+        className="overflow-hidden rounded-2xl border border-[var(--portal-border)] bg-white shadow-sm"
+      >
+        <header className="flex items-center gap-3 border-b border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-4 py-4 sm:px-5">
           <button
             aria-expanded={connectionsOpen}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]/30"
             onClick={() => setConnectionsOpen((current) => !current)}
             type="button"
           >
-            {connectionsOpen ? (
-              <ChevronDown
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
-              />
-            ) : (
-              <ChevronRight
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
-              />
-            )}
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-[var(--portal-muted)] shadow-sm ring-1 ring-[var(--portal-border)]">
+              {connectionsOpen ? (
+                <ChevronDown aria-hidden="true" className="h-4 w-4" />
+              ) : (
+                <ChevronRight aria-hidden="true" className="h-4 w-4" />
+              )}
+            </span>
             <span className="min-w-0">
               <span className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[var(--portal-ink)]">
+                <span
+                  className="text-sm font-semibold text-[var(--portal-ink)]"
+                  id="recent-calls-heading"
+                >
                   Recent calls
                 </span>
-                <PortalBadge className="px-2 py-0.5 tabular-nums">
+                <PortalBadge className="px-2 py-0.5 tabular-nums" tone="soft">
                   {recentCount}
                 </PortalBadge>
               </span>
               <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
-                Inbound and outbound call outcomes.
+                Latest inbound and outbound outcomes.
               </span>
             </span>
           </button>
-          <Link
-            className="shrink-0 text-xs font-semibold text-[var(--portal-accent)] hover:underline"
-            href={historyHref}
-          >
-            View all
-          </Link>
+          <Button asChild className="shrink-0" size="compact" variant="ghost">
+            <Link href={historyHref}>
+              Call history
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
         </header>
 
         {!connectionsOpen ? null : visibleRecentCalls.length ? (
@@ -1130,17 +1132,23 @@ function CanonicalActivity({
 
               return (
                 <li
-                  className="flex items-center justify-between gap-4 px-5 py-3.5"
+                  className="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-[var(--portal-panel-soft)] sm:px-5"
                   key={call.id}
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]">
+                    <div
+                      className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${
+                        call.direction === "OUTBOUND"
+                          ? "bg-blue-50 text-blue-700"
+                          : "bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
+                      }`}
+                    >
                       <DirectionIcon className="h-4 w-4" aria-hidden="true" />
                     </div>
                     <div className="min-w-0">
                       {callerHref ? (
                         <Link
-                          className="block truncate text-sm font-medium text-[var(--portal-accent)] underline-offset-2 hover:underline"
+                          className="block truncate text-sm font-semibold text-[var(--portal-ink)] underline-offset-2 hover:text-[var(--portal-accent)] hover:underline"
                           href={callerHref}
                         >
                           {call.callerName || phone}
@@ -1150,7 +1158,7 @@ function CanonicalActivity({
                           {call.callerName || phone}
                         </p>
                       )}
-                      <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
+                      <p className="mt-1 truncate text-xs text-[var(--portal-muted)]">
                         {call.callerName ? `${phone} · ` : ""}
                         {call.direction === "OUTBOUND" ? "Outbound" : "Inbound"}
                         {` · ${formatRelativeTime(call.endedAt || call.receivedAt)}`}
@@ -1165,8 +1173,13 @@ function CanonicalActivity({
             })}
           </ul>
         ) : (
-          <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
-            No recent calls yet.
+          <div className="px-5 py-9 text-center">
+            <p className="text-sm font-medium text-[var(--portal-ink)]">
+              No recent calls.
+            </p>
+            <p className="mt-1 text-xs text-[var(--portal-muted)]">
+              Recent call outcomes will appear here.
+            </p>
           </div>
         )}
       </section>
