@@ -54,7 +54,7 @@ export default async function PortalCallCenterPage({
     <div className="mx-auto max-w-6xl space-y-6">
       <PracticePageHeader
         branding={data.branding}
-        logoMeta="Answer and place patient calls."
+        logoMeta="Answer and place calls."
         practiceName={data.practiceName}
         showLogo={false}
         size="compact"

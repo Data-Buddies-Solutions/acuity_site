@@ -108,16 +108,16 @@ export function CallCenterLeaveGuard({ active }: { active: boolean }) {
       >
         <AlertDialogTitle>Leave the Call Center?</AlertDialogTitle>
         <AlertDialogDescription>
-          This call still needs your attention. Stay here to keep the live controls
-          available, or leave intentionally.
+          This call still needs your attention. If you leave, you will lose access to its
+          controls.
         </AlertDialogDescription>
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <AlertDialogCancel asChild>
-            <Button variant="secondary">Stay in Call Center</Button>
+            <Button variant="secondary">Stay</Button>
           </AlertDialogCancel>
           <AlertDialogAction asChild>
             <Button onClick={leave} variant="destructive">
-              Leave Call Center
+              Leave anyway
             </Button>
           </AlertDialogAction>
         </div>

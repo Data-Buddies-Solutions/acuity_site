@@ -260,7 +260,7 @@ function useSoftphoneMediaEngine({
 
       if (!microphoneAllowed) return false;
       if (!audioReady) {
-        setSetupError("Browser sound is blocked. Select Ready and allow audio playback.");
+        setSetupError("Browser sound is blocked. Allow sound, then try again.");
         return false;
       }
 

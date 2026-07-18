@@ -74,11 +74,11 @@ export function IncomingCallHeadsUp({
       </div>
       {canRespond ? (
         <p className="mt-2 text-xs leading-relaxed text-[var(--portal-muted)]">
-          Decline releases only your offer; the caller stays in queue.
+          Decline means you will not answer this call. It does not end the caller’s call.
         </p>
       ) : (
         <p className="mt-2 text-xs leading-relaxed text-[var(--portal-warning)]">
-          Calling is recovering. Answer and Decline will return when it is ready.
+          Calling is not ready yet. Answer and Decline will be available when it is.
         </p>
       )}
     </section>
