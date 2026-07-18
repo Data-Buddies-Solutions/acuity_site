@@ -100,6 +100,7 @@ export type PortalCallerTimeline = {
   phone: string;
   practiceName: string;
   range: PortalCallCenterHistoryRange;
+  textInboxId: string | null;
   totalPages: number;
   totals: {
     inboundItems: number;

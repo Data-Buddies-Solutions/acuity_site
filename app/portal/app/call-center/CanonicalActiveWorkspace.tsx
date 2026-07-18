@@ -130,11 +130,7 @@ export function CallConnectionStatus({
           restoring ? "bg-amber-500" : connected ? "bg-emerald-500" : "bg-slate-400"
         }`}
       />
-      {restoring
-        ? "Restoring calling…"
-        : connected
-          ? "Connected"
-          : "Phone disconnected — reconnecting"}
+      {restoring ? "Restoring calling…" : connected ? "Connected" : "Phone disconnected"}
     </PortalBadge>
   );
 }
@@ -155,6 +151,50 @@ function formatCallDuration(seconds: number) {
   const remainingSeconds = (seconds % 60).toString().padStart(2, "0");
 
   return `${minutes}:${remainingSeconds}`;
+}
+
+export function selectCanonicalLocalCallPresentation({
+  calls,
+  mediaObservations,
+  offeredMediaLegId,
+  session,
+  takingMediaLegId,
+}: {
+  calls: readonly CallView[];
+  mediaObservations: ReturnType<typeof useSoftphoneMedia>["observations"];
+  offeredMediaLegId: string | null;
+  session: AgentSessionView | null;
+  takingMediaLegId: string | null;
+}) {
+  let headsUpOffer: {
+    call: CallView;
+    match: NonNullable<ReturnType<typeof selectCanonicalBrowserMediaLeg>>;
+  } | null = null;
+  let localCall: CallView | null = null;
+
+  if (!session) return { headsUpOffer, localCall };
+
+  for (const call of calls) {
+    const match = selectCanonicalBrowserMediaLeg(
+      call,
+      session.id,
+      session.endpointId,
+      mediaObservations,
+    );
+    if (!match) continue;
+
+    if (match.observation.mediaLegId === offeredMediaLegId) {
+      headsUpOffer = { call, match };
+    }
+    if (
+      match.observation.mediaLegId === takingMediaLegId ||
+      ["ACTIVE", "HELD"].includes(match.observation.state)
+    ) {
+      localCall ??= call;
+    }
+  }
+
+  return { headsUpOffer, localCall };
 }
 
 export function CanonicalActiveWorkspace({
@@ -225,6 +265,11 @@ function ConnectedCanonicalActiveWorkspace({
   const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [decliningMediaLegId, setDecliningMediaLegId] = useState<string | null>(null);
   const [numberChoice, setNumberChoice] = useState("");
+  const [outboundConnecting, setOutboundConnecting] = useState<{
+    callId: string;
+    mediaLegId: string;
+    phone: string;
+  } | null>(null);
   const [startingOutbound, setStartingOutbound] = useState(false);
   const outboundMediaLegsRef = useRef(new Set<string>());
   const outboundStartingRef = useRef(false);
@@ -276,40 +321,55 @@ function ConnectedCanonicalActiveWorkspace({
 
   const incomingCalls = useMemo(() => (state ? selectIncomingCalls(state) : []), [state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
-  const headsUpOffer = useMemo(() => {
-    if (!session) return null;
-
-    for (const call of incomingCalls) {
-      const match = selectCanonicalBrowserMediaLeg(
-        call,
-        session.id,
-        session.endpointId,
-        mediaObservations,
-      );
-      if (
-        match?.observation.direction === "INBOUND" &&
-        ["CONNECTING", "RINGING"].includes(match.observation.state)
-      ) {
-        return { call, match };
-      }
-    }
-
-    return null;
-  }, [incomingCalls, mediaObservations, session]);
+  const localPresentation = selectCanonicalLocalCallPresentation({
+    calls: incomingCalls,
+    mediaObservations,
+    offeredMediaLegId: runtime.offeredMediaLegId,
+    session,
+    takingMediaLegId: runtime.takingMediaLegId,
+  });
+  const headsUpOffer = localPresentation.headsUpOffer;
+  const displayedCall = activeCall ?? localPresentation.localCall;
+  const outboundCall = outboundConnecting
+    ? state?.calls.find(({ id }) => id === outboundConnecting.callId)
+    : null;
+  const visibleOutboundConnecting =
+    outboundConnecting &&
+    !displayedCall &&
+    !(
+      outboundCall &&
+      ["ABANDONED", "COMPLETED", "FAILED", "VOICEMAIL"].includes(outboundCall.status)
+    )
+      ? outboundConnecting
+      : null;
 
   const callingReady = Boolean(session && isAgentSessionViewReady(session));
+  const visibleDecliningMediaLegId =
+    decliningMediaLegId &&
+    mediaObservations.some(
+      ({ mediaLegId, state: mediaState }) =>
+        mediaLegId === decliningMediaLegId &&
+        ["CONNECTING", "RINGING"].includes(mediaState),
+    )
+      ? decliningMediaLegId
+      : null;
   const canRespondToOffer = Boolean(
     headsUpOffer &&
     state?.connection === "CONNECTED" &&
     callingReady &&
-    !activeCall &&
+    !displayedCall &&
     !runtime.takingMediaLegId &&
-    !decliningMediaLegId,
+    !visibleDecliningMediaLegId,
   );
 
   useEffect(() => {
-    setCallCenterCurrentCallGuard(activeCall?.id ?? null);
-  }, [activeCall?.id]);
+    setCallCenterCurrentCallGuard(
+      displayedCall?.id ??
+        headsUpOffer?.call.id ??
+        visibleOutboundConnecting?.callId ??
+        null,
+    );
+  }, [displayedCall?.id, headsUpOffer?.call.id, visibleOutboundConnecting?.callId]);
 
   const recentCalls = useMemo(
     () =>
@@ -362,7 +422,6 @@ function ConnectedCanonicalActiveWorkspace({
         await Promise.resolve(media.decline(mediaLegId));
       } catch {
         setActionError("The incoming call could not be declined.");
-      } finally {
         setDecliningMediaLegId((current) => (current === mediaLegId ? null : current));
       }
     },
@@ -423,13 +482,17 @@ function ConnectedCanonicalActiveWorkspace({
       ) {
         throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
-      setCallCenterCurrentCallGuard(body.callId);
       const mediaLegId = dialMediaLeg({
         callerNumber: body.from,
         clientState: body.clientState,
         destinationNumber: body.to,
       });
       outboundMediaLegsRef.current.add(mediaLegId);
+      setOutboundConnecting({
+        callId: body.callId,
+        mediaLegId,
+        phone: body.to,
+      });
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
@@ -452,28 +515,33 @@ function ConnectedCanonicalActiveWorkspace({
     return <CanonicalUnavailable message="Connecting to the call center…" />;
   }
 
-  const outboundHelp = activeCall
+  const outboundHelp = displayedCall
     ? "Finish the current call before starting another."
-    : headsUpOffer
-      ? "Answer or decline the incoming call before placing another call."
-      : !callingReady
-        ? "Calling is not ready yet."
-        : !selectedNumberId
-          ? "No practice number is configured."
-          : "Enter a phone number to call.";
+    : visibleOutboundConnecting
+      ? "Connecting your call."
+      : headsUpOffer
+        ? "Answer or decline the incoming call before placing another call."
+        : !callingReady
+          ? "Calling is not ready yet."
+          : !selectedNumberId
+            ? "No practice number is configured."
+            : "Enter a phone number to call.";
   const canStartOutbound = Boolean(
     callingReady &&
-    !activeCall &&
+    !displayedCall &&
+    !visibleOutboundConnecting &&
     !headsUpOffer &&
     selectedNumberId &&
     destination.trim() &&
     !startingOutbound,
   );
-  const queueName = office || "Call center";
+  const queueName = state.queue.name;
 
   return (
     <div className="space-y-4 pb-64 lg:pb-0">
-      <CallCenterLeaveGuard active={Boolean(headsUpOffer || activeCall)} />
+      <CallCenterLeaveGuard
+        active={Boolean(headsUpOffer || displayedCall || visibleOutboundConnecting)}
+      />
       <IncomingOfferAnnouncement
         call={headsUpOffer?.call ?? null}
         queueName={queueName}
@@ -492,7 +560,8 @@ function ConnectedCanonicalActiveWorkspace({
               pending={
                 runtime.takingMediaLegId === headsUpOffer.match.observation.mediaLegId
                   ? "answer"
-                  : decliningMediaLegId === headsUpOffer.match.observation.mediaLegId
+                  : visibleDecliningMediaLegId ===
+                      headsUpOffer.match.observation.mediaLegId
                     ? "decline"
                     : null
               }
@@ -521,8 +590,12 @@ function ConnectedCanonicalActiveWorkspace({
           className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
           role="alert"
         >
-          <p>{session ? "Phone disconnected — reconnecting" : runtime.error}</p>
-          {!session ? (
+          <p>{session ? "Phone disconnected" : runtime.error}</p>
+          {session ? (
+            <Button onClick={media.reconnect} size="sm" variant="secondary">
+              Retry calling
+            </Button>
+          ) : (
             <Button
               onClick={() =>
                 void runtime.takeover().catch(() => {
@@ -534,7 +607,7 @@ function ConnectedCanonicalActiveWorkspace({
             >
               Use phone here
             </Button>
-          ) : null}
+          )}
         </section>
       ) : null}
 
@@ -597,10 +670,16 @@ function ConnectedCanonicalActiveWorkspace({
                     : null;
                   const taking =
                     match?.observation.mediaLegId === runtime.takingMediaLegId;
-                  const declining = match?.observation.mediaLegId === decliningMediaLegId;
+                  const declining =
+                    match?.observation.mediaLegId === visibleDecliningMediaLegId;
                   const phone = formatPhone(callCounterpartyPhone(call));
                   const caller = call.callerName || phone;
-                  const offered = Boolean(match);
+                  const offered = Boolean(
+                    match &&
+                    headsUpOffer?.call.id === call.id &&
+                    headsUpOffer.match.observation.mediaLegId ===
+                      match.observation.mediaLegId,
+                  );
                   const status = declining
                     ? "Declining…"
                     : taking
@@ -644,7 +723,7 @@ function ConnectedCanonicalActiveWorkspace({
                           </p>
                         </div>
                       </div>
-                      {match ? (
+                      {offered ? (
                         <Button
                           aria-label={`Answer ${caller}`}
                           className="w-fit"
@@ -718,7 +797,9 @@ function ConnectedCanonicalActiveWorkspace({
                 <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--portal-ink)]">
                   Practice number
                   <PortalSelect
-                    disabled={Boolean(activeCall || headsUpOffer)}
+                    disabled={Boolean(
+                      displayedCall || headsUpOffer || visibleOutboundConnecting,
+                    )}
                     onChange={(event) => {
                       const value = event.target.value;
                       setNumberChoice(value);
@@ -739,13 +820,20 @@ function ConnectedCanonicalActiveWorkspace({
                 </label>
               ) : null}
 
-              {activeCall ? (
+              {displayedCall ? (
                 <CanonicalActiveCall
-                  call={activeCall}
+                  call={displayedCall}
                   endpointId={agentProfileId}
-                  key={activeCall.id}
+                  key={displayedCall.id}
                   media={media}
                   sessionId={session?.id ?? null}
+                />
+              ) : visibleOutboundConnecting ? (
+                <CanonicalConnectingOutbound
+                  key={visibleOutboundConnecting.callId}
+                  media={media}
+                  mediaLegId={visibleOutboundConnecting.mediaLegId}
+                  phone={visibleOutboundConnecting.phone}
                 />
               ) : (
                 <div className="space-y-3">
@@ -793,8 +881,8 @@ function ConnectedCanonicalActiveWorkspace({
                         </Button>
                       </SheetTrigger>
                       <SheetContent
-                        className="portal-platform overflow-y-auto"
-                        side="right"
+                        className="portal-platform overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+                        side="bottom"
                       >
                         <SheetHeader className="pr-12">
                           <SheetTitle>Dialing controls</SheetTitle>
@@ -826,6 +914,60 @@ function ConnectedCanonicalActiveWorkspace({
   );
 }
 
+export function CanonicalConnectingOutbound({
+  media,
+  mediaLegId,
+  phone,
+}: {
+  media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
+  mediaLegId: string;
+  phone: string;
+}) {
+  const [ending, setEnding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const endCall = async () => {
+    if (ending) return;
+    setEnding(true);
+    try {
+      await Promise.resolve(media.hangup(mediaLegId));
+    } catch (endError) {
+      setError(errorMessage(endError, "end"));
+      setEnding(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
+      {error ? (
+        <p className="mb-3 text-sm text-[var(--portal-danger)]" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
+            {formatPhone(phone)}
+          </p>
+          <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--portal-muted)]">
+            Outbound call
+          </p>
+        </div>
+        <PortalBadge tone="accent">Connecting…</PortalBadge>
+      </div>
+      <Button
+        className="mt-4 w-full"
+        disabled={ending}
+        onClick={() => void endCall()}
+        variant="destructive"
+      >
+        <PhoneOff className="h-4 w-4" aria-hidden="true" />
+        {ending ? "Ending…" : "End"}
+      </Button>
+    </div>
+  );
+}
+
 export function CanonicalActiveCall({
   call,
   endpointId,
@@ -840,12 +982,13 @@ export function CanonicalActiveCall({
   const [callDuration, setCallDuration] = useState(0);
   const [controlError, setControlError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+  const [holdPending, setHoldPending] = useState<"hold" | "resume" | null>(null);
   const [isMuted, setMuted] = useState(false);
   const match = sessionId
     ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
     : null;
   const canEnd = Boolean(match);
-  const phone = formatPhone(callPhone(call));
+  const phone = formatPhone(callCounterpartyPhone(call));
   const connected = call.status === "CONNECTED";
   const mediaLegId = match?.observation.mediaLegId ?? null;
   const isHeld = match?.observation.state === "HELD";
@@ -854,6 +997,10 @@ export function CanonicalActiveCall({
     (match?.leg.status === "BRIDGED" ||
       ["ACTIVE", "HELD"].includes(match?.observation.state ?? "")),
   );
+  const visibleHoldPending =
+    (holdPending === "hold" && isHeld) || (holdPending === "resume" && !isHeld)
+      ? null
+      : holdPending;
 
   useEffect(() => {
     if (!connected) return;
@@ -889,13 +1036,16 @@ export function CanonicalActiveCall({
   };
 
   const toggleHold = async () => {
-    if (!mediaLegId) return;
+    if (!mediaLegId || visibleHoldPending) return;
 
+    const action = isHeld ? "resume" : "hold";
+    setHoldPending(action);
     try {
       await Promise.resolve(media.hold(mediaLegId, !isHeld));
       setControlError(null);
     } catch (error) {
       showControlError(error, "hold");
+      setHoldPending(null);
     }
   };
 
@@ -915,7 +1065,7 @@ export function CanonicalActiveCall({
 
     setEnding(true);
     try {
-      media.hangup(mediaLegId);
+      await Promise.resolve(media.hangup(mediaLegId));
       setControlError(null);
     } catch (error) {
       showControlError(error, "end");
@@ -950,7 +1100,7 @@ export function CanonicalActiveCall({
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Button
             aria-pressed={isHeld}
-            disabled={!controlsEnabled || ending}
+            disabled={!controlsEnabled || ending || Boolean(visibleHoldPending)}
             onClick={() => void toggleHold()}
             variant={isHeld ? "default" : "secondary"}
           >
@@ -959,7 +1109,13 @@ export function CanonicalActiveCall({
             ) : (
               <Pause className="h-4 w-4" aria-hidden="true" />
             )}
-            {isHeld ? "Resume" : "Hold"}
+            {visibleHoldPending === "hold"
+              ? "Holding…"
+              : visibleHoldPending === "resume"
+                ? "Resuming…"
+                : isHeld
+                  ? "Resume"
+                  : "Hold"}
           </Button>
           <Button
             aria-pressed={isMuted}
@@ -981,7 +1137,10 @@ export function CanonicalActiveCall({
                 Keypad
               </Button>
             </SheetTrigger>
-            <SheetContent className="portal-platform overflow-y-auto" side="right">
+            <SheetContent
+              className="portal-platform overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+              side="bottom"
+            >
               <SheetHeader className="pr-12">
                 <SheetTitle>Call keypad</SheetTitle>
                 <SheetDescription>Send a keypad tone during this call.</SheetDescription>
@@ -1023,6 +1182,9 @@ export function CanonicalActiveCall({
             {call.direction === "OUTBOUND" ? "Outbound call" : "Inbound call"}
             {call.callerName ? ` · ${phone}` : ""}
           </p>
+          <PortalBadge className="mt-2" tone="accent">
+            Connecting…
+          </PortalBadge>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -1232,10 +1394,6 @@ function formatRelativeTime(value: string, now = Date.now()) {
 
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
-}
-
-function callPhone(call: CallView) {
-  return call.direction === "OUTBOUND" ? call.toPhone : call.fromPhone;
 }
 
 function CanonicalUnavailable({

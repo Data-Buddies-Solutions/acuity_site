@@ -101,7 +101,9 @@ export default async function PortalCallCenterCallerPage({
   const subtitle = timeline.callerName ? formatPhone(timeline.phone) : null;
   const rangeLabel = historyRangeLabel(selectedRange);
   const callHref = commandCenterHref({ call: timeline.phone, office });
-  const textHref = `/portal/app/two-way-texting?to=${encodeURIComponent(timeline.phone)}`;
+  const textParams = new URLSearchParams({ to: timeline.phone });
+  if (timeline.textInboxId) textParams.set("inbox", timeline.textInboxId);
+  const textHref = `/portal/app/two-way-texting?${textParams.toString()}`;
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">

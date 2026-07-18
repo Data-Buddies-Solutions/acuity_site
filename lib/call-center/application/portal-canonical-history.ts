@@ -16,7 +16,7 @@ import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { getPracticeBranding } from "@/lib/practice-branding";
 import { prisma } from "@/lib/prisma";
 import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
-import { getAllowedSmsPracticeNumberIdsForContext } from "@/lib/sms/service";
+import { getAllowedSmsPracticeNumbersForContext } from "@/lib/sms/service";
 
 type PortalContext = NonNullable<
   Awaited<ReturnType<typeof getCurrentPortalPracticeContext>>
@@ -32,7 +32,7 @@ type CanonicalHistoryDatabase = Pick<
 >;
 type CanonicalHistoryDependencies = {
   database?: CanonicalHistoryDatabase;
-  getAllowedSmsNumberIds?: typeof getAllowedSmsPracticeNumberIdsForContext;
+  getAllowedSmsNumbers?: typeof getAllowedSmsPracticeNumbersForContext;
   getContext?: typeof getCurrentPortalPracticeContext;
 };
 
@@ -500,20 +500,20 @@ export async function readCanonicalCallerTimeline(
   } = {},
   {
     database = prisma,
-    getAllowedSmsNumberIds = getAllowedSmsPracticeNumberIdsForContext,
+    getAllowedSmsNumbers = getAllowedSmsPracticeNumbersForContext,
     getContext = getCurrentPortalPracticeContext,
   }: CanonicalHistoryDependencies = {},
 ): Promise<PortalCallerTimeline | null> {
   const context = await getContext();
   if (!context) return null;
-  const allowedSmsNumberIds = await getAllowedSmsNumberIds(context);
+  const allowedSmsNumbers = await getAllowedSmsNumbers(context);
   const normalizedPhone = normalizePhone(phone) || phone.trim();
   const variants = phoneLookupVariants(normalizedPhone).filter(Boolean);
   const pageSize = Math.min(100, Math.max(25, Math.round(options.pageSize ?? 100)));
   const range = options.range ?? "all";
   const empty = {
     branding: getPracticeBranding(context.practice),
-    canText: allowedSmsNumberIds.length > 0,
+    canText: false,
     callerName: null,
     items: [],
     latestItem: null,
@@ -523,6 +523,7 @@ export async function readCanonicalCallerTimeline(
     phone: normalizedPhone,
     practiceName: context.practice.name,
     range,
+    textInboxId: null,
     totalPages: 1,
     totals: {
       inboundItems: 0,
@@ -535,6 +536,14 @@ export async function readCanonicalCallerTimeline(
 
   const cutoff = rangeCutoff(range, options.now ?? new Date());
   const access = canonicalCallAccessWhere(context, options.locationIds ?? []);
+  const smsLocationIds = accessibleLocationIds(context, options.locationIds ?? []);
+  const allowedSmsNumberIds = allowedSmsNumbers
+    .filter(
+      ({ locationId }) =>
+        smsLocationIds === null ||
+        (locationId !== null && smsLocationIds.includes(locationId)),
+    )
+    .map(({ id }) => id);
   const phoneWhere: Prisma.CallCenterCallWhereInput = {
     OR: [{ fromPhone: { in: variants } }, { toPhone: { in: variants } }],
   };
@@ -568,6 +577,11 @@ export async function readCanonicalCallerTimeline(
       patientPhoneNumber: { in: variants },
       practiceId: context.practice.id,
       practiceNumberId: { in: allowedSmsNumberIds },
+      ...(smsLocationIds === null
+        ? {}
+        : smsLocationIds.length
+          ? { locationId: { in: smsLocationIds } }
+          : { id: { in: [] } }),
     },
     ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
   };
@@ -663,6 +677,7 @@ export async function readCanonicalCallerTimeline(
     phone: normalizedPhone,
     practiceName: context.practice.name,
     range,
+    textInboxId: allowedSmsNumberIds[0] ?? null,
     totalPages,
     totals: {
       inboundItems: inboundCallCount + inboundTaskCount + inboundSmsCount,

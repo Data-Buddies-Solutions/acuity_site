@@ -47,7 +47,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     retryable: true,
   },
   CALL_ALREADY_CLAIMED: {
-    message: "Call taken by another agent",
+    message: "Call answered by another operator",
     presentation: "inline",
     includeReference: false,
   },

@@ -46,11 +46,9 @@ export default async function PortalTwoWayTextingPage({
   const requestedConversationId = firstParam(params.conversation);
   const requestedRecipientPhone = firstParam(params.to)?.trim() ?? "";
   const initialFilter = parseConversationFilter(firstParam(params.filter));
-  const initialSearchQuery = firstParam(params.search)?.trim() ?? "";
-  const inbox = await getSmsInbox(
-    selectedInboxId,
-    requestedRecipientPhone || initialSearchQuery,
-  );
+  const initialSearchQuery =
+    requestedRecipientPhone || firstParam(params.search)?.trim() || "";
+  const inbox = await getSmsInbox(selectedInboxId, initialSearchQuery);
 
   if (!inbox) {
     redirect("/portal");

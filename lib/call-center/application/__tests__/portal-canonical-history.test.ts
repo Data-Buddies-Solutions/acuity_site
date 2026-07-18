@@ -169,10 +169,12 @@ describe("canonical portal history", () => {
 
     const result = await readCanonicalCallerTimeline(
       "+15555550123",
-      { range: "all" },
+      { locationIds: ["location-1"], range: "all" },
       {
         database: database as never,
-        getAllowedSmsNumberIds: async () => ["sms-number-1"],
+        getAllowedSmsNumbers: async () => [
+          { id: "sms-number-1", locationId: "location-1" },
+        ],
         getContext: async () => context as never,
       },
     );
@@ -180,6 +182,7 @@ describe("canonical portal history", () => {
     expect(smsQuery).toMatchObject({
       where: {
         conversation: {
+          locationId: { in: ["location-1"] },
           practiceId: "practice-1",
           practiceNumberId: { in: ["sms-number-1"] },
         },
@@ -192,6 +195,7 @@ describe("canonical portal history", () => {
         { body: "Second at the same time", id: "sms:message-2", kind: "text" },
       ],
       totals: { inboundItems: 1, totalItems: 2 },
+      textInboxId: "sms-number-1",
     });
   });
 });

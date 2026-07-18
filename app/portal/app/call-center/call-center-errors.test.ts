@@ -16,7 +16,7 @@ describe("call-center operator error catalog", () => {
     );
 
     expect(copy).toEqual({
-      message: "Call taken by another agent",
+      message: "Call answered by another operator",
       presentation: "inline",
       retryable: false,
     });
