@@ -7,6 +7,11 @@ on:
         description: "Type DEPLOY to run pending Prisma migrations against production."
         required: true
         type: string
+      repair_failed_call_center_cleanup:
+        description: "One-time recovery: mark the failed canonical cleanup attempt rolled back before retrying it."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -43,6 +48,12 @@ jobs:
       - name: Check migration status before deploy
         continue-on-error: true
         run: bunx prisma migrate status
+
+      - name: Resolve failed canonical cleanup attempt
+        if: ${{ inputs.repair_failed_call_center_cleanup }}
+        run: >-
+          bunx prisma migrate resolve --rolled-back
+          20260715120000_canonical_call_center_cleanup
 
       - name: Deploy pending migrations
         run: bunx prisma migrate deploy

@@ -79,12 +79,21 @@ async function dispatchCommittedCommands(
   }
 }
 
-function categoricalErrorCode(error: unknown) {
+export function canonicalProjectionErrorCode(error: unknown) {
   if (
     error instanceof CanonicalProjectionError ||
     error instanceof CanonicalTelnyxFactError
   ) {
     return error.code;
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    /^P\d{4}$/.test(error.code)
+  ) {
+    return `CANONICAL_PRISMA_${error.code}`;
   }
   return "CANONICAL_PROJECTION_FAILED";
 }
@@ -130,7 +139,7 @@ export function createCanonicalTelnyxEventProcessor({
           error = completionError;
         }
       }
-      const errorCode = categoricalErrorCode(error);
+      const errorCode = canonicalProjectionErrorCode(error);
       await inbox.fail(event, errorCode);
       logger.warn("canonical webhook projection failed", {
         errorCode,
