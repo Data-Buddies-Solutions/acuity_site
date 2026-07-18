@@ -76,10 +76,6 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
   },
   "Call was already answered": { code: "CALL_ALREADY_CLAIMED", retryable: false },
   "Call center queue not found": { code: "QUEUE_UNAVAILABLE", retryable: false },
-  "Call center is not enabled for this practice": {
-    code: "CALL_CENTER_DISABLED",
-    retryable: false,
-  },
   "Calling is not configured for this agent": {
     code: "CALLING_NOT_CONFIGURED",
     retryable: false,
@@ -97,10 +93,6 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     retryable: true,
   },
   "Canonical agent session not found": { code: "SESSION_EXPIRED", retryable: true },
-  "Canonical call center is not active": {
-    code: "CALL_CENTER_NOT_ACTIVE",
-    retryable: false,
-  },
   "Canonical call not found": { code: "CALL_NOT_FOUND", retryable: false },
   "Canonical routing does not own this call": {
     code: "CALL_NOT_FOUND",
@@ -147,7 +139,7 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     retryable: false,
   },
   "This user is already active in another browser": {
-    code: "CALL_CENTER_STATION_IN_USE",
+    code: "CALL_CENTER_SESSION_IN_USE",
     retryable: false,
   },
   "Transfer target changed; refresh and try again": {

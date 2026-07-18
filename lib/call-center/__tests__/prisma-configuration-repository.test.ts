@@ -20,7 +20,6 @@ function configuration(): ValidatedCallCenterConfiguration {
         id: "queue-1",
         name: "Optical",
         enabled: true,
-        routingMode: "LEGACY",
         ringTimeoutSec: 20,
         maxWaitSec: 30,
         wrapUpSec: 0,
@@ -34,7 +33,6 @@ function configuration(): ValidatedCallCenterConfiguration {
         id: "queue-2",
         name: "Overflow",
         enabled: false,
-        routingMode: "LEGACY",
         ringTimeoutSec: 20,
         maxWaitSec: 30,
         wrapUpSec: 0,
@@ -145,7 +143,6 @@ describe("Prisma call-center configuration persistence", () => {
           data: {
             counts: { endpoints: 1, memberships: 1, numbers: 1, queues: 2 },
             fromVersion: "version-1",
-            routingModes: { ACTIVE: 0, LEGACY: 2, SHADOW: 0 },
             toVersion: expect.stringMatching(/^[a-f0-9]{64}$/),
           },
           type: "CONFIGURATION_UPDATED",
@@ -173,44 +170,6 @@ describe("Prisma call-center configuration persistence", () => {
       ),
     ).rejects.toThrow("simulated write failure");
     expect(committed).toEqual([]);
-  });
-
-  it("records the protected workflow identity for a legacy bootstrap", async () => {
-    const { committed, runner } = recordingRunner();
-    const repository = new PrismaCallCenterConfigurationRepository(runner);
-
-    await repository.transaction((transaction) =>
-      transaction.persistValidatedSnapshot(configuration(), {
-        actorUserId: null,
-        automation: {
-          actor: "original-user",
-          triggeringActor: "rerun-user",
-          runId: "123456789",
-          runAttempt: 2,
-        },
-        previousVersion: "version-1",
-        source: "LEGACY_BOOTSTRAP",
-      }),
-    );
-
-    expect(committed.find(({ name }) => name === "callCenterEvent.create")).toMatchObject(
-      {
-        input: {
-          data: {
-            actorUserId: null,
-            data: {
-              actorSource: "LEGACY_BOOTSTRAP",
-              automation: {
-                actor: "original-user",
-                triggeringActor: "rerun-user",
-                runId: "123456789",
-                runAttempt: 2,
-              },
-            },
-          },
-        },
-      },
-    );
   });
 
   it("locks the practice before loading tenant and global ownership", async () => {

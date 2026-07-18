@@ -50,23 +50,9 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
       "This call was already answered by another team member. Choose another call.",
     presentation: "inline",
   },
-  CALL_CENTER_DISABLED: {
+  CALL_CENTER_SESSION_IN_USE: {
     message:
-      "Calling is turned off for this practice. Ask an administrator to enable it.",
-    presentation: "banner",
-  },
-  CALL_CENTER_NOT_ACTIVE: {
-    message: "Calling is temporarily unavailable. Wait a moment, then try again.",
-    presentation: "banner",
-    retryable: true,
-  },
-  CALL_CENTER_STATION_IN_USE: {
-    message:
-      "This calling station is open in another browser. Close it there or use another station.",
-    presentation: "banner",
-  },
-  CALL_CENTER_STATION_NOT_FOUND: {
-    message: "This calling station is no longer available. Choose another station.",
+      "Your calling session is open in another browser. Close it there, then try again.",
     presentation: "banner",
   },
   CALL_NOT_CONNECTED: {
@@ -78,13 +64,13 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     presentation: "inline",
   },
   CALL_NOT_READY: {
-    message: "This station is not ready for calls. Select Ready, then try again.",
+    message: "You are not ready for calls. Select Ready, then try again.",
     presentation: "inline",
     retryable: true,
   },
   CALLING_NOT_CONFIGURED: {
     message:
-      "Calling is not configured for this login. Ask an administrator to assign a calling station.",
+      "Calling is not configured for this login. Ask an administrator to assign your calling endpoint and queue access.",
     presentation: "banner",
   },
   INVALID_REQUEST: {
@@ -166,7 +152,7 @@ const actionPhrase: Record<CallCenterAction, string> = {
   mute: "update mute",
   outbound: "start this call",
   queue: "complete that queue action",
-  readiness: "get this station ready",
+  readiness: "get ready for calls",
   save: "save that update",
   take: "answer this call",
   transfer: "transfer this call",

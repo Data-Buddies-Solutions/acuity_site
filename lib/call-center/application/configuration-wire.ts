@@ -23,7 +23,6 @@ const queueSchema = z
     id: idSchema,
     name: z.string().trim().min(1).max(100),
     enabled: z.boolean(),
-    routingMode: z.enum(["LEGACY", "SHADOW", "ACTIVE"]),
     ringTimeoutSec: z.number().int(),
     maxWaitSec: z.number().int(),
     wrapUpSec: z.number().int(),

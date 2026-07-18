@@ -16,7 +16,6 @@ import {
   processedWinningAgentLegId,
   projectedCallDeadline,
   retainedAgentSessionIds,
-  resolveCanonicalAgentLink,
   requireCanonicalProjectionEffectOwner,
   resolveCanonicalPeerAgentLeg,
   selectCanonicalProviderCommand,
@@ -491,7 +490,6 @@ describe("canonical browser peer legs", () => {
       effectOwner: "CANONICAL",
       id: "call-1",
       practiceId: "practice-1",
-      queue: { routingMode: "ACTIVE" },
       status: "CONNECTED",
     };
     const plannedLegs = [
@@ -562,7 +560,6 @@ describe("canonical browser peer legs", () => {
         findUnique: async () => ({
           id: "call-1",
           practiceId: "practice-1",
-          queue: { routingMode: "ACTIVE" },
         }),
       },
       callCenterCallLeg: { findFirst: async () => null },
@@ -653,12 +650,6 @@ describe("canonical projection enrichment", () => {
 });
 
 describe("canonical provider linkage", () => {
-  const context = {
-    callerSession: { telnyxCallSessionId: "customer-session" },
-    id: "queue-1",
-    practiceId: "practice-1",
-  };
-
   it("requires every supplied provider identity to agree with the matched leg", () => {
     const existing = {
       providerCallControlId: "control-1",
@@ -708,47 +699,6 @@ describe("canonical provider linkage", () => {
         providerCallSessionId: "session-other",
       }),
     ).toThrow("CANONICAL_LEG_IDENTITY_MISMATCH");
-  });
-
-  it("never falls back when a supplied ring attempt is missing", () => {
-    expect(() =>
-      resolveCanonicalAgentLink({
-        queueItem: context,
-        requestedQueueItemId: context.id,
-        requestedRingAttemptId: "attempt-missing",
-        ringAttempt: null,
-      }),
-    ).toThrow("CANONICAL_RING_ATTEMPT_NOT_FOUND");
-  });
-
-  it("requires a supplied ring attempt to own the supplied queue item", () => {
-    expect(() =>
-      resolveCanonicalAgentLink({
-        queueItem: null,
-        requestedQueueItemId: "queue-other",
-        requestedRingAttemptId: "attempt-1",
-        ringAttempt: { queueItem: context },
-      }),
-    ).toThrow("CANONICAL_QUEUE_LINK_MISMATCH");
-    expect(
-      resolveCanonicalAgentLink({
-        queueItem: null,
-        requestedQueueItemId: context.id,
-        requestedRingAttemptId: "attempt-1",
-        ringAttempt: { queueItem: context },
-      }),
-    ).toBe(context);
-  });
-
-  it("uses queue fallback only when ring-attempt identity is omitted", () => {
-    expect(
-      resolveCanonicalAgentLink({
-        queueItem: context,
-        requestedQueueItemId: context.id,
-        requestedRingAttemptId: null,
-        ringAttempt: null,
-      }),
-    ).toBe(context);
   });
 });
 

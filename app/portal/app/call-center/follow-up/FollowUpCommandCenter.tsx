@@ -14,7 +14,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
-import type { PortalNeedsActionGroup } from "@/lib/call-center";
+import type { PortalNeedsActionGroup } from "@/lib/call-center/portal-model";
 import { cn } from "@/lib/utils";
 
 import { resolveNeedsActionGroupAction } from "../actions";

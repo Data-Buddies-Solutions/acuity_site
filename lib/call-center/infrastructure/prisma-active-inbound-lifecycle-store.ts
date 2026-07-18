@@ -1,9 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import type {
   ActiveInboundReconciliationInput,
-  ActiveInboundReconciliationResult,
   ActiveInboundReconciliationSuccess,
-  ActiveInboundReconciliationStore,
 } from "@/lib/call-center/application/reconcile-active-inbound";
 import { ACTIVE_INBOUND_ROUTING_EVENT } from "@/lib/call-center/application/active-inbound-routing";
 import {
@@ -15,12 +13,8 @@ import { canonicalVoicemailGreetingDeadline } from "@/lib/call-center/domain/can
 import { persistCanonicalUnansweredTask } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
 import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
-import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
-type TransactionRunner = <T>(
-  operation: (transaction: Transaction) => Promise<T>,
-) => Promise<T>;
 
 const ACTIVE_STATUSES = ["RECEIVED", "QUEUED", "RINGING", "CONNECTED"] as const;
 const LIVE_LEG_STATUSES = [
@@ -35,7 +29,6 @@ const OVERFLOW_EVENT = "CALL_ACTIVE_OVERFLOWED";
 
 type RouteQueueRound = typeof routeActiveInboundCallInTransaction;
 type SettleAgentLegs = typeof settleCanonicalCallLegs;
-type DueCall = { callId: string; practiceId: string };
 
 type LifecycleCall = NonNullable<Awaited<ReturnType<typeof loadLifecycleCall>>>;
 
@@ -374,8 +367,8 @@ async function reconcileLockedCall(
   settleAgentLegs: SettleAgentLegs,
 ): Promise<ActiveInboundReconciliationSuccess> {
   const call = await loadLifecycleCall(transaction, input.practiceId, input.callId);
-  // CANONICAL ownership is the durable admission decision. Mutable activation
-  // switches may stop new admission, but must not strand an admitted call.
+  // CANONICAL ownership is the durable admission decision. Recovery must not
+  // strand a call after that decision has been persisted.
   if (
     !call ||
     call.direction !== "INBOUND" ||
@@ -524,112 +517,6 @@ async function reconcileLockedCall(
 
   return { callId: call.id, commandIds, decision, status: "APPLIED" };
 }
-
-export class PrismaActiveInboundLifecycleStore implements ActiveInboundReconciliationStore {
-  constructor(
-    private readonly runTransaction: TransactionRunner = (operation) =>
-      prisma.$transaction(operation),
-    private readonly routeQueueRound: RouteQueueRound = routeActiveInboundCallInTransaction,
-    private readonly settleAgentLegs: SettleAgentLegs = settleCanonicalCallLegs,
-  ) {}
-
-  reconcile(input: ActiveInboundReconciliationInput, now: Date) {
-    return this.runTransaction(async (transaction) => {
-      return reconcileActiveInboundCallInTransaction(
-        transaction,
-        input,
-        now,
-        this.routeQueueRound,
-        this.settleAgentLegs,
-      );
-    });
-  }
-
-  async reconcileDue({ limit, now }: { limit: number; now: Date }) {
-    const boundedLimit = Number.isFinite(limit) ? Math.max(0, Math.trunc(limit)) : 0;
-    const attemptedCallIds: string[] = [];
-    const results: ActiveInboundReconciliationResult[] = [];
-
-    while (results.length < boundedLimit) {
-      const attempt: { selectedCall: DueCall | null } = { selectedCall: null };
-      try {
-        const result = await this.runTransaction(async (transaction) => {
-          const excluded =
-            attemptedCallIds.length === 0
-              ? Prisma.sql``
-              : Prisma.sql`AND call."id" NOT IN (${Prisma.join(attemptedCallIds)})`;
-          const [call] = await transaction.$queryRaw<DueCall[]>(Prisma.sql`
-            SELECT call."id" AS "callId", call."practiceId"
-            FROM "call_center_call" AS call
-            WHERE call."direction" = CAST('INBOUND' AS "CallCenterCallDirection")
-              AND call."effectOwner" = CAST('CANONICAL' AS "CallCenterEffectOwner")
-              AND (
-                call."status" IN (
-                  CAST('RECEIVED' AS "CallCenterCallStatus"),
-                  CAST('QUEUED' AS "CallCenterCallStatus"),
-                  CAST('RINGING' AS "CallCenterCallStatus")
-                )
-                OR (
-                  call."status" = CAST('CONNECTED' AS "CallCenterCallStatus")
-                  AND call."winningLegId" IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1
-                    FROM "call_center_call_leg" AS leg
-                    JOIN "call_center_command" AS command
-                      ON command."legId" = leg."id"
-                    WHERE leg."callId" = call."id"
-                      AND leg."status" IN (
-                        CAST('CREATED' AS "CallCenterLegStatus"),
-                        CAST('DIALING' AS "CallCenterLegStatus"),
-                        CAST('RINGING' AS "CallCenterLegStatus"),
-                        CAST('ANSWERED' AS "CallCenterLegStatus")
-                      )
-                      AND command."type" = CAST('DIAL_AGENT' AS "CallCenterCommandType")
-                      AND command."arguments" ->> 'replacesLegId' = call."winningLegId"
-                  )
-                )
-              )
-              AND call."deadlineAt" <= ${now}
-              ${excluded}
-            ORDER BY call."deadlineAt" ASC, call."receivedAt" ASC, call."id" ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-          `);
-          if (!call) return null;
-
-          attempt.selectedCall = call;
-          return reconcileLockedCall(
-            transaction,
-            { ...call, processedBridgeLegId: null },
-            now,
-            this.routeQueueRound,
-            this.settleAgentLegs,
-          );
-        });
-        if (!result) break;
-
-        attemptedCallIds.push(result.callId);
-        results.push(result);
-      } catch {
-        const selectedCall = attempt.selectedCall;
-        if (!selectedCall) throw new Error("ACTIVE_INBOUND_RECOVERY_SELECTION_FAILED");
-
-        attemptedCallIds.push(selectedCall.callId);
-        results.push({
-          callId: selectedCall.callId,
-          commandIds: [],
-          decision: null,
-          errorCode: "ACTIVE_INBOUND_RECONCILIATION_FAILED",
-          status: "FAILED",
-        });
-      }
-    }
-
-    return results;
-  }
-}
-
-export const prismaActiveInboundLifecycleStore = new PrismaActiveInboundLifecycleStore();
 
 /** Reconciles one call inside the projector or planner's existing transaction. */
 export async function reconcileActiveInboundCallInTransaction(

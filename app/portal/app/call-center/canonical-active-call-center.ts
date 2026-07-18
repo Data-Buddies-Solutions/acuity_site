@@ -10,8 +10,8 @@ import type { MediaObservation } from "./softphone-media-adapter";
 
 const OUTBOUND_OPERATION_STORAGE_KEY = "acuity-call-center:outbound-operation";
 
-export const OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE =
-  "Calling is temporarily unavailable. We couldn’t restore the station automatically. Refresh the page.";
+export const OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE =
+  "Calling is temporarily unavailable. We couldn’t restore your session automatically. Refresh the page.";
 
 type OutboundOperationStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
@@ -56,7 +56,7 @@ export async function runOutboundWithExpiredLeaseRefresh<T>({
     return await operation();
   } catch (error) {
     if (isActionableReadinessError(error)) throw error;
-    throw new Error(OUTBOUND_STATION_RECOVERY_FAILURE_MESSAGE);
+    throw new Error(OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE);
   }
 }
 

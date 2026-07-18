@@ -30,11 +30,6 @@ function fakeDatabase({
       }
     : null;
   const transaction = {
-    callCenterCall: {
-      findUnique: async () => ({
-        number: { practicePhoneNumber: { locationId: "location-1" } },
-      }),
-    },
     callCenterTask: {
       upsert: async ({
         create,
@@ -84,7 +79,6 @@ function fakeDatabase({
         expect(data).toMatchObject({
           callCenterCallId: "call-1",
           durationSec: 12,
-          locationId: "location-1",
           recordingId: "recording-1",
           recordingUrl: "https://example.test/voicemail.mp3",
         });

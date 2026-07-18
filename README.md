@@ -1,4 +1,4 @@
-# Acuity Health Portal 
+# Acuity Health Portal
 
 Private internal application for Acuity Health. This repo contains the public
 marketing site, the practice portal, the internal admin command center, and the
@@ -26,7 +26,7 @@ Telnyx call-center state should live in this database.
 - `/portal/app`: practice workspace shell. Routes launched practices to overview and setup practices to onboarding.
 - `/portal/app/onboarding`: setup flow for practice basics, locations, providers, insurance, and knowledge base.
 - `/portal/app/overview`: customer-facing operational call summary.
-- `/portal/app/call-center`: opt-in Telnyx browser softphone, active-session count, missed callbacks, and voicemail inbox.
+- `/portal/app/call-center`: canonical inbound queue, browser calling, outbound dialing, follow-up tasks, and call history.
 - `/portal/app/knowledge-base`: launched-practice markdown knowledge bases, split by location, with admin-reviewed edits.
 - `/portal/app/insurance-crosswalk`: launched-practice Insurance Rules, split by location, with structured JSON edits and admin review.
 - `/admin/practices`: internal practice command center and analytics.
@@ -61,8 +61,11 @@ Call analytics tables:
 Call-center tables:
 
 - `PracticeCallCenterSettings`
-- `CallCenterSession`
-- `CallCenterMissedCall`
+- `CallCenterQueue`, `CallCenterQueueLocation`, `CallCenterQueueMember`
+- `CallCenterNumber`, `CallCenterEndpoint`, `CallCenterAgentSession`
+- `CallCenterCall`, `CallCenterCallLeg`, `CallCenterHandoff`
+- `CallCenterCommand`, `CallCenterEvent`, `ProviderWebhookEvent`
+- `CallCenterTask`
 - `CallCenterVoicemail`
 
 Branding fields live directly on `Practice`:
@@ -115,30 +118,22 @@ webhook must be resolved to a practice by phone number. Prefer explicit
 
 ### Telnyx Call Center
 
-1. A practice opts in through `PracticeCallCenterSettings.enabled`.
-2. The call-center page requests a Telnyx login token from `/api/portal/call-center/telnyx-token`.
-3. The browser softphone registers through `@telnyx/webrtc`.
-4. Telnyx posts call-control events to `POST /api/telnyx/webhooks`.
-5. Webhooks are verified with `TELNYX_PUBLIC_KEY`.
-6. Webhook tenant resolution uses the practice-owned `to` number for inbound events and the practice-owned `from` number for outbound events.
-7. Connection-ID fallback only applies when no usable phone number is present and exactly one enabled settings row matches the connection.
-8. The portal stores active sessions, missed callbacks, voicemails, queue items, station presence, and ring attempts in call-center tables.
-9. Staff stations are practice/location-scoped. Use one Telnyx WebRTC credential per active station.
+1. An enabled `CallCenterNumber` maps each inbound number to one enabled queue.
+2. An enabled `CallCenterEndpoint` assigns one Telnyx WebRTC identity to one
+   portal user; queue membership determines which calls that user may answer.
+3. The portal acquires a short browser lease and requests provider credentials
+   through the canonical agent-session APIs.
+4. Verified Telnyx callbacks enter the durable webhook inbox and update the
+   canonical call, leg, event, task, and voicemail tables.
+5. The ordered SSE stream updates every eligible browser. `Take` atomically
+   claims one call; ringing alone does not make the user busy.
+6. Outbound caller IDs and direct-handoff routing come from the same database
+   configuration. Provider credentials and webhook verification keys remain
+   operational secrets.
 
-For practices where the AI agent owns the public inbound line, keep that AI/SIP
-number as `TELNYX_PHONE_NUMBER` so staff outbound calls present the same caller
-ID. Use `TELNYX_INBOUND_NUMBER` for the portal softphone line that the AI
-transfers to when staff should answer in the browser.
-
-Inbound calls only pop in the browser when Telnyx routes the called number to the
-call-control connection, the deployed webhook route is reachable, and at least
-one location station is Available in the portal.
-
-Use the station script for one-off setup:
-
-```bash
-bun scripts/upsert-call-center-seat.mjs demo@acuity.local "Spring Hill" "Emma" 101 telnyx-credential-id sip-username
-```
+Use the admin practice configuration API/UI for call-center setup. The complete
+runtime and deployment contract is documented in
+`CALL_CENTER_PLATFORM_SPEC.md` and `CALL_CENTER_ROLLOUT_RUNBOOK.md`.
 
 ### Practice Branding
 
@@ -176,11 +171,10 @@ LIVEKIT_FORWARD_SYNC_SECRET=""
 WEBHOOK_SECRET=""
 TELNYX_API_KEY=""
 TELNYX_PUBLIC_KEY=""
-TELNYX_CONNECTION_ID=""
-TELNYX_CREDENTIAL_ID=""
-TELNYX_PHONE_NUMBER="" # Outbound caller ID, e.g. the AI/SIP public line.
-TELNYX_INBOUND_NUMBER="" # Staff browser softphone target, e.g. the transfer line.
 TELNYX_ALLOW_UNVERIFIED_WEBHOOKS="false"
+CALL_CENTER_DIRECT_HANDOFF_SIP_URI=""
+CALL_CENTER_HANDOFF_ABITA_PRACTICE_ID=""
+CALL_CENTER_HANDOFF_ABITA_SECRET=""
 ```
 
 Use `TELNYX_ALLOW_UNVERIFIED_WEBHOOKS=true` only for local webhook testing
@@ -318,11 +312,12 @@ are deployed separately through GitHub Actions.
 ### Enable Call Center
 
 1. Add/update `PracticePhoneNumber` rows for the practice-owned numbers.
-2. Upsert `PracticeCallCenterSettings` with Telnyx connection ID, credential ID, inbound number, and outbound caller number.
-3. Set `enabled=true`.
-4. Confirm Telnyx routes the target phone number to the correct WebRTC connection.
-5. Confirm `POST /api/telnyx/webhooks` is reachable from Telnyx.
-6. Sign into `/portal/app/call-center` and verify the softphone reaches `Ready`.
+2. Configure enabled `CallCenterNumber` rows and map every inbound number to one enabled queue.
+3. Assign each portal user one enabled `CallCenterEndpoint` with a Telnyx credential and SIP username.
+4. Add the user to each queue they may answer and associate the queue with the allowed locations.
+5. Choose the practice default outbound number and confirm every enabled number has the intended inbound/outbound capability.
+6. Confirm Telnyx sends signed callbacks to `POST /api/telnyx/webhooks`.
+7. Sign into `/portal/app/call-center`, enable calling, and verify inbound Take/bridge plus outbound dialing.
 
 ### Backfill Abita Analytics
 
@@ -359,7 +354,6 @@ bun scripts/set-practice-branding.mjs demo@acuity.local https://vy2zxpar1av2q12e
 
 ## Current Gaps
 
-- Branding and call-center settings should move into admin UI instead of one-off scripts.
 - Review worker output should write directly to `AgentCall.reviewResult`, `reviewStatus`, and `needsReview`.
 - LiveKit forward sync should send explicit `practiceId` where possible.
 - Add higher-level smoke tests for portal login, overview, call-center enablement, and a sample call ingestion payload.
@@ -371,7 +365,6 @@ Planning, product, and research documents live in [`docs/`](docs/):
 
 - [Customer Portal MVP](docs/CUSTOMER_PORTAL_MVP.md)
 - [Customer Portal Product Vision and Next Steps](docs/CUSTOMER_PORTAL_PRODUCT_VISION_AND_NEXT_STEPS.md)
-- [Call Center Visibility Plan](docs/CALL_CENTER_VISIBILITY_PLAN.md)
 - [Practice Portal Data Pipeline](docs/PRACTICE_PORTAL_DATA_PIPELINE.md)
 - [SEO Implementation Plan](docs/SEO_IMPLEMENTATION_PLAN.md)
 - [SEO Research Plan](docs/SEO_RESEARCH_PLAN.md)

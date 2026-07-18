@@ -163,11 +163,7 @@ function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapsho
   if (typeof value.revision !== "string" || parseRevision(value.revision) === null) {
     return false;
   }
-  if (
-    !isRecord(value.queue) ||
-    value.queue.id !== queueId ||
-    !["ACTIVE", "LEGACY", "SHADOW"].includes(String(value.queue.routingMode))
-  ) {
+  if (!isRecord(value.queue) || value.queue.id !== queueId) {
     return false;
   }
   return (

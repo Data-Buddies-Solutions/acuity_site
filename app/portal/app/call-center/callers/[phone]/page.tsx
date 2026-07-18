@@ -16,11 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/app/components/ui/card";
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
-import {
-  getPortalCallCenterData,
-  type PortalCallerTimelineItem,
-} from "@/lib/call-center";
-import { readCombinedCallerTimeline } from "@/lib/call-center/application/portal-combined-call-center-reads";
+import { type PortalCallerTimelineItem } from "@/lib/call-center/portal-model";
+import { readCanonicalCallerTimeline } from "@/lib/call-center/application/portal-canonical-history";
+import { readPortalCallCenterShell } from "@/lib/call-center/application/portal-canonical-workspace";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { cn } from "@/lib/utils";
 
@@ -57,7 +55,7 @@ export default async function PortalCallCenterCallerPage({
   );
   const page = parseHistoryPage(Array.isArray(query.page) ? query.page[0] : query.page);
   const office = firstQueryValue(query.office);
-  const resolvedLocationData = await getPortalCallCenterData({ locationId: office });
+  const resolvedLocationData = await readPortalCallCenterShell(office);
   const locationData =
     office && resolvedLocationData?.selectedLocation?.id !== office
       ? null
@@ -68,8 +66,7 @@ export default async function PortalCallCenterCallerPage({
       ? [locationData.selectedLocation.locationId]
       : [];
   const timeline = locationData
-    ? await readCombinedCallerTimeline(phone, {
-        locationId: office,
+    ? await readCanonicalCallerTimeline(phone, {
         locationIds: selectedCanonicalLocationIds,
         page,
         pageSize: CALLER_TIMELINE_PAGE_SIZE,
@@ -461,10 +458,10 @@ function TimelineRowContent({
             <span>{item.locationName}</span>
           </>
         ) : null}
-        {item.stationLabel ? (
+        {item.agentLabel ? (
           <>
             <span aria-hidden="true">·</span>
-            <span>{item.stationLabel}</span>
+            <span>{item.agentLabel}</span>
           </>
         ) : null}
       </p>

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  AgentSessionCredentialError,
-  type authorizeAgentSessionCredential,
-} from "@/lib/call-center/application/agent-session-credentials";
+import { type authorizeAgentSessionCredential } from "@/lib/call-center/application/agent-session-credentials";
 
 import { createCanonicalAgentSessionTokenHandler } from "./handler";
 
@@ -26,7 +23,7 @@ function request(body: unknown) {
 describe("canonical agent-session token route", () => {
   it("mints a token only after exact lease authorization", async () => {
     let authorized: unknown;
-    let credentialId = "";
+    const checkedAt = new Date("2026-07-12T12:00:00.000Z");
     const authorize: typeof authorizeAgentSessionCredential = async (
       _store,
       receivedActor,
@@ -36,99 +33,35 @@ describe("canonical agent-session token route", () => {
       authorized = { actor: receivedActor, input, now };
       return { agentLabel: "Maria", providerCredentialId: "credential-1" };
     };
-    const checkedAt = new Date("2026-07-12T12:00:00.000Z");
     const POST = createCanonicalAgentSessionTokenHandler({
       authorize,
       clock: () => checkedAt,
-      createToken: async (received) => {
-        credentialId = received;
-        return "login-token";
-      },
-      getActivation: () => ({ enabled: true }),
+      createToken: async () => "login-token",
       getActor: async () => actor,
     });
 
     const response = await POST(request({ clientInstanceId: " browser-1 " }), context);
-
     expect(response.status).toBe(200);
     expect(authorized).toEqual({
       actor,
-      input: {
-        activationEnabled: true,
-        clientInstanceId: "browser-1",
-        sessionId: "session-1",
-      },
+      input: { clientInstanceId: "browser-1", sessionId: "session-1" },
       now: checkedAt,
     });
-    expect(credentialId).toBe("credential-1");
-    expect(await response.json()).toEqual({
-      agentLabel: "Maria",
-      token: "login-token",
-    });
+    expect(await response.json()).toEqual({ agentLabel: "Maria", token: "login-token" });
   });
 
-  it("rejects legacy or incomplete identity before token creation", async () => {
+  it("rejects incomplete client identity before authorization", async () => {
     let authorized = false;
-    let tokens = 0;
     const POST = createCanonicalAgentSessionTokenHandler({
       authorize: async () => {
         authorized = true;
         throw new Error("not reached");
       },
-      createToken: async () => {
-        tokens += 1;
-        return "token";
-      },
-      getActivation: () => ({ enabled: false }),
+      createToken: async () => "token",
       getActor: async () => actor,
     });
-
     const response = await POST(request({ browserSessionId: "browser-1" }), context);
     expect(response.status).toBe(422);
     expect(authorized).toBe(false);
-    expect(tokens).toBe(0);
-  });
-
-  it("passes rollback ownership policy before minting a drain token", async () => {
-    let authorized: unknown;
-    const POST = createCanonicalAgentSessionTokenHandler({
-      authorize: async (_store, _actor, input) => {
-        authorized = input;
-        return { agentLabel: "Maria", providerCredentialId: "credential-1" };
-      },
-      createToken: async () => "drain-token",
-      getActivation: () => ({ enabled: false }),
-      getActor: async () => actor,
-    });
-
-    const response = await POST(request({ clientInstanceId: "browser-1" }), context);
-
-    expect(response.status).toBe(200);
-    expect(authorized).toEqual({
-      activationEnabled: false,
-      clientInstanceId: "browser-1",
-      sessionId: "session-1",
-    });
-  });
-
-  it("rejects token creation while off when the exact session has no drain call", async () => {
-    let tokens = 0;
-    const POST = createCanonicalAgentSessionTokenHandler({
-      authorize: async (_store, _actor, input) => {
-        expect(input.activationEnabled).toBe(false);
-        throw new AgentSessionCredentialError();
-      },
-      createToken: async () => {
-        tokens += 1;
-        return "not-issued";
-      },
-      getActivation: () => ({ enabled: false }),
-      getActor: async () => actor,
-    });
-
-    const response = await POST(request({ clientInstanceId: "browser-1" }), context);
-
-    expect(response.status).toBe(404);
-    expect(tokens).toBe(0);
   });
 });

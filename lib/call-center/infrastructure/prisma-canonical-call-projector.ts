@@ -49,7 +49,6 @@ export type CanonicalProjectionResult = {
   legId: string;
   legStatus: string;
   practiceId: string;
-  routingMode: "LEGACY" | "SHADOW" | "ACTIVE" | null;
 };
 
 type CallCenterEffectOwner = "CANONICAL" | "LEGACY";
@@ -214,40 +213,6 @@ export function assertCanonicalProviderLegIdentity(
   }
 }
 
-type AgentLinkContext = {
-  callerSession: { telnyxCallSessionId: string | null } | null;
-  id: string;
-  practiceId: string;
-};
-
-export function resolveCanonicalAgentLink(input: {
-  queueItem: AgentLinkContext | null;
-  requestedQueueItemId: string | null;
-  requestedRingAttemptId: string | null;
-  ringAttempt: { queueItem: AgentLinkContext } | null;
-}) {
-  if (input.requestedRingAttemptId) {
-    if (!input.ringAttempt) {
-      throw new CanonicalProjectionError("CANONICAL_RING_ATTEMPT_NOT_FOUND");
-    }
-    if (
-      input.requestedQueueItemId &&
-      input.ringAttempt.queueItem.id !== input.requestedQueueItemId
-    ) {
-      throw new CanonicalProjectionError("CANONICAL_QUEUE_LINK_MISMATCH");
-    }
-    return input.ringAttempt.queueItem;
-  }
-
-  if (input.requestedQueueItemId && !input.queueItem) {
-    throw new CanonicalProjectionError("CANONICAL_QUEUE_ITEM_NOT_FOUND");
-  }
-  if (!input.queueItem) {
-    throw new CanonicalProjectionError("CANONICAL_AGENT_LINK_NOT_FOUND");
-  }
-  return input.queueItem;
-}
-
 async function existingLeg(tx: Transaction, fact: CanonicalTelnyxCallFact) {
   const identity = [
     ...(fact.canonicalLegId ? [{ id: fact.canonicalLegId }] : []),
@@ -319,7 +284,6 @@ export async function resolveCanonicalPeerAgentLeg(
 
   const endpoint = endpoints[0]!;
   const call = await tx.callCenterCall.findUnique({
-    include: { queue: { select: { routingMode: true } } },
     where: { providerCallSessionId: fact.providerCallSessionId },
   });
   if (!call) throw new CanonicalProjectionError("CANONICAL_CALL_NOT_FOUND");
@@ -369,64 +333,7 @@ async function resolveAgentContext(
     return { call: leg.call, endpointId: leg.endpointId };
   }
 
-  const ringAttempt = fact.clientRingAttemptId
-    ? await tx.callCenterRingAttempt.findUnique({
-        select: {
-          queueItem: {
-            select: {
-              callerSession: { select: { telnyxCallSessionId: true } },
-              id: true,
-              practiceId: true,
-            },
-          },
-          seatId: true,
-        },
-        where: { id: fact.clientRingAttemptId },
-      })
-    : null;
-  const queueItem =
-    !fact.clientRingAttemptId && fact.clientQueueItemId
-      ? await tx.callCenterQueueItem.findUnique({
-          select: {
-            callerSession: { select: { telnyxCallSessionId: true } },
-            id: true,
-            practiceId: true,
-          },
-          where: { id: fact.clientQueueItemId },
-        })
-      : null;
-  const context = resolveCanonicalAgentLink({
-    queueItem,
-    requestedQueueItemId: fact.clientQueueItemId,
-    requestedRingAttemptId: fact.clientRingAttemptId,
-    ringAttempt,
-  });
-  const endpointId = fact.endpointId ?? ringAttempt?.seatId ?? null;
-
-  if (ringAttempt && fact.endpointId && ringAttempt.seatId !== fact.endpointId) {
-    throw new CanonicalProjectionError("CANONICAL_ENDPOINT_LINK_MISMATCH");
-  }
-  if (!endpointId) throw new CanonicalProjectionError("CANONICAL_ENDPOINT_NOT_FOUND");
-
-  const endpoint = await tx.callCenterEndpoint.findFirst({
-    select: { id: true },
-    where: { id: endpointId, practiceId: context.practiceId },
-  });
-  if (!endpoint) throw new CanonicalProjectionError("CANONICAL_ENDPOINT_NOT_FOUND");
-
-  const customerSessionId = context.callerSession?.telnyxCallSessionId;
-  if (!customerSessionId) {
-    throw new CanonicalProjectionError("CANONICAL_CUSTOMER_SESSION_NOT_FOUND");
-  }
-
-  const call = await tx.callCenterCall.findUnique({
-    where: { providerCallSessionId: customerSessionId },
-  });
-  if (!call || call.practiceId !== context.practiceId) {
-    throw new CanonicalProjectionError("CANONICAL_CALL_NOT_FOUND");
-  }
-
-  return { call, endpointId: endpoint.id };
+  throw new CanonicalProjectionError("CANONICAL_AGENT_LINK_NOT_FOUND");
 }
 
 export async function confirmProviderCommand(
@@ -937,11 +844,7 @@ async function lockCall(tx: Transaction, callId: string) {
   await tx.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${callId} FOR UPDATE`,
   );
-  const { queue, ...call } = await tx.callCenterCall.findUniqueOrThrow({
-    include: { queue: { select: { routingMode: true } } },
-    where: { id: callId },
-  });
-  return { call, routingMode: queue?.routingMode ?? null };
+  return tx.callCenterCall.findUniqueOrThrow({ where: { id: callId } });
 }
 
 export function canonicalCallObservation(
@@ -1061,7 +964,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           legId: peerAgent.leg.id,
           legStatus: peerAgent.leg.status,
           practiceId: peerAgent.call.practiceId,
-          routingMode: peerAgent.call.queue?.routingMode ?? null,
         };
       }
 
@@ -1090,8 +992,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
               call: await resolveCustomerCall(tx, resolvedFact, effectOwner),
               endpointId: null,
             };
-      const locked = await lockCall(tx, resolved.call.id);
-      let call = locked.call;
+      let call = await lockCall(tx, resolved.call.id);
 
       assertCanonicalCallEffectOwner(call, effectOwner);
       if (call.practiceId !== resolved.call.practiceId) {
@@ -1123,7 +1024,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           legId: leg.id,
           legStatus: leg.status,
           practiceId: call.practiceId,
-          routingMode: locked.routingMode,
         };
       }
 
@@ -1434,7 +1334,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         legId: leg.id,
         legStatus: leg.status,
         practiceId: call.practiceId,
-        routingMode: locked.routingMode,
       };
     });
   },

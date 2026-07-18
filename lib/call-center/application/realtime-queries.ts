@@ -87,7 +87,7 @@ const sessionSelect = {
 
 const taskSelect = {
   callId: true,
-  callerPhone: true,
+  call: { select: { direction: true, fromPhone: true, toPhone: true } },
   createdAt: true,
   id: true,
   kind: true,
@@ -408,7 +408,12 @@ export function serializeAgentSession(session: SelectedSession): AgentSessionVie
 }
 
 export function serializeTask(task: SelectedTask): TaskView {
-  return { ...task, createdAt: task.createdAt.toISOString() };
+  const { call, ...view } = task;
+  return {
+    ...view,
+    callerPhone: call.direction === "OUTBOUND" ? call.toPhone : call.fromPhone,
+    createdAt: task.createdAt.toISOString(),
+  };
 }
 
 export function serializeReadyTransferTargets(candidates: TransferTargetCandidate[]) {
@@ -671,7 +676,6 @@ export async function readCallCenterSnapshot(
           maxWaitSec: queue.maxWaitSec,
           name: queue.name,
           ringTimeoutSec: queue.ringTimeoutSec,
-          routingMode: queue.routingMode,
         },
         revision: revisionString(highWater._max.revision ?? BigInt(0)),
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,

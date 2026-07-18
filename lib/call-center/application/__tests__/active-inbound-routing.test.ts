@@ -50,7 +50,6 @@ function context(overrides: Partial<ActiveRoutingContext> = {}): ActiveRoutingCo
         },
       ],
       ringTimeoutSec: 20,
-      routingMode: "ACTIVE",
     },
     status: "RECEIVED",
     ...overrides,
@@ -172,9 +171,7 @@ describe("canonical active inbound routing", () => {
     ).resolves.toMatchObject({ status: "SKIPPED" });
     expect(legacy.calls).not.toContain("routing.start");
 
-    const canonical = fakeTransaction(
-      context({ queue: { ...context().queue!, routingMode: "LEGACY" } }),
-    );
+    const canonical = fakeTransaction(context());
     await expect(
       routeActiveInboundCall(
         {

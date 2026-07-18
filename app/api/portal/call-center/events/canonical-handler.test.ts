@@ -18,7 +18,6 @@ const queue = {
   maxWaitSec: 30,
   name: "Optical",
   ringTimeoutSec: 20,
-  routingMode: "LEGACY" as const,
 };
 
 async function body(response: Response) {

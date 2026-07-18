@@ -219,7 +219,6 @@ export async function persistConfigurationSnapshot(
       name: queue.name,
       overflowQueueId: null,
       ringTimeoutSec: queue.ringTimeoutSec,
-      routingMode: queue.routingMode,
       voicemailEnabled: queue.voicemailEnabled,
       voicemailGreeting: queue.voicemailGreeting,
       wrapUpSec: queue.wrapUpSec,
@@ -310,13 +309,6 @@ export async function persistConfigurationSnapshot(
     where: { practiceId: configuration.practiceId },
   });
 
-  const routingModes = configuration.queues.reduce(
-    (counts, queue) => {
-      counts[queue.routingMode] += 1;
-      return counts;
-    },
-    { ACTIVE: 0, LEGACY: 0, SHADOW: 0 },
-  );
   const nextVersion = callCenterConfigurationVersion(configuration);
   await transaction.callCenterEvent.create({
     data: {
@@ -334,9 +326,6 @@ export async function persistConfigurationSnapshot(
           queues: configuration.queues.length,
         },
         fromVersion: audit.previousVersion,
-        actorSource: audit.source ?? "ADMIN_API",
-        automation: audit.automation ?? null,
-        routingModes,
         toVersion: nextVersion,
       },
       practiceId: configuration.practiceId,
@@ -386,7 +375,6 @@ export async function readCallCenterConfiguration(
           id: true,
           name: true,
           enabled: true,
-          routingMode: true,
           ringTimeoutSec: true,
           maxWaitSec: true,
           wrapUpSec: true,

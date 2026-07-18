@@ -1,10 +1,4 @@
-import {
-  CallCenterNoteDisposition,
-  type CallCenterCallStatus,
-  CallCenterSessionDirection,
-  CallCenterSessionStatus,
-  type Prisma,
-} from "@/generated/prisma/client";
+import { type CallCenterCallStatus, type Prisma } from "@/generated/prisma/client";
 import {
   buildPortalNeedsActionGroups,
   portalNeedsActionGroupId,
@@ -16,7 +10,7 @@ import {
   type PortalCallerTimelineItem,
   type PortalNeedsActionGroup,
   type PortalRecentCallItem,
-} from "@/lib/call-center";
+} from "@/lib/call-center/portal-model";
 import { canonicalCallOutcome } from "@/lib/call-center/domain/canonical-call-outcome";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { getPracticeBranding } from "@/lib/practice-branding";
@@ -52,7 +46,6 @@ export function canonicalCallAccessWhere(
 ): Prisma.CallCenterCallWhereInput {
   const locationIds = accessibleLocationIds(context, requestedLocationIds);
   return {
-    effectOwner: "CANONICAL",
     practiceId: context.practice.id,
     ...(locationIds === null
       ? {}
@@ -78,7 +71,7 @@ function rangeCutoff(range: PortalCallCenterHistoryRange, now: Date) {
 
 const connectedHistoryStatuses = ["CONNECTED", "WRAP_UP", "COMPLETED"] as const;
 
-function legacyStatus(call: {
+function portalStatus(call: {
   answeredAt: Date | null;
   direction: "INBOUND" | "OUTBOUND";
   status: CallCenterCallStatus;
@@ -89,24 +82,24 @@ function legacyStatus(call: {
   } | null;
 }) {
   const outcome = canonicalCallOutcome(call);
-  if (outcome === "MISSED_CALL") return CallCenterSessionStatus.MISSED;
-  if (outcome === "VOICEMAIL") return CallCenterSessionStatus.VOICEMAIL;
+  if (outcome === "MISSED_CALL") return "MISSED" as const;
+  if (outcome === "VOICEMAIL") return "VOICEMAIL" as const;
   switch (call.status) {
     case "RECEIVED":
     case "QUEUED":
     case "RINGING":
-      return CallCenterSessionStatus.RINGING;
+      return "RINGING" as const;
     case "CONNECTED":
     case "WRAP_UP":
-      return CallCenterSessionStatus.ACTIVE;
+      return "ACTIVE" as const;
     case "COMPLETED":
-      return CallCenterSessionStatus.COMPLETED;
+      return "COMPLETED" as const;
     case "VOICEMAIL":
-      return CallCenterSessionStatus.VOICEMAIL;
+      return "VOICEMAIL" as const;
     case "ABANDONED":
-      return CallCenterSessionStatus.MISSED;
+      return "MISSED" as const;
     case "FAILED":
-      return CallCenterSessionStatus.FAILED;
+      return "FAILED" as const;
   }
 }
 
@@ -210,19 +203,15 @@ export async function readCanonicalCallCenterHistory(
         connectedHistoryStatuses.includes(
           call.status as (typeof connectedHistoryStatuses)[number],
         ),
-      direction:
-        call.direction === "OUTBOUND"
-          ? CallCenterSessionDirection.OUTBOUND
-          : CallCenterSessionDirection.INBOUND,
+      direction: call.direction === "OUTBOUND" ? "OUTBOUND" : "INBOUND",
       durationSec: callDurationSec(call),
       fromPhone: call.fromPhone,
       id: call.id,
       locationName: call.number.practicePhoneNumber.location?.name ?? null,
       occurredAt: call.endedAt ?? call.answeredAt ?? call.receivedAt,
       providerCallSessionId: call.providerCallSessionId,
-      recordSource: "CANONICAL",
       startedAt: call.receivedAt,
-      status: legacyStatus(call),
+      status: portalStatus(call),
       toPhone: call.toPhone,
     })),
     page,
@@ -246,16 +235,17 @@ function taskActivity(task: {
     fromPhone: string;
     number: { practicePhoneNumber: { location: { name: string } | null } };
     status: CallCenterCallStatus;
+    toPhone: string;
     voicemail: {
       durationSec: number;
       recordingId: string;
       recordingUrl: string;
     } | null;
-  } | null;
-  callerPhone: string | null;
+  };
   createdAt: Date;
   id: string;
-  kind: "CALLBACK" | "FOLLOW_UP" | "MISSED_CALL" | "VOICEMAIL";
+  kind: "CALLBACK" | "FOLLOW_UP" | "MISSED_CALL" | "NOTE" | "VOICEMAIL";
+  note: string | null;
 }): PortalCallActivityItem {
   const storedUnanswered = task.kind === "VOICEMAIL" || task.kind === "MISSED_CALL";
   const outcome =
@@ -269,22 +259,22 @@ function taskActivity(task: {
   const voicemail = outcome === "VOICEMAIL";
   const missed = outcome === "MISSED_CALL";
   return {
-    callerName: task.call?.callerName ?? null,
+    callerName: task.call.callerName,
     createdAt: task.createdAt,
     disposition:
       task.kind === "CALLBACK"
-        ? CallCenterNoteDisposition.CALLBACK_NEEDED
+        ? "CALLBACK_NEEDED"
         : task.kind === "FOLLOW_UP"
-          ? CallCenterNoteDisposition.FOLLOW_UP_REQUIRED
-          : null,
-    durationSec: voicemail ? (task.call?.voicemail?.durationSec ?? null) : null,
-    fromPhone: task.callerPhone ?? task.call?.fromPhone ?? null,
-    id: `canonical-task:${task.id}`,
+          ? "FOLLOW_UP_REQUIRED"
+          : task.kind === "NOTE"
+            ? "OTHER"
+            : null,
+    durationSec: voicemail ? (task.call.voicemail?.durationSec ?? null) : null,
+    fromPhone:
+      task.call.direction === "OUTBOUND" ? task.call.toPhone : task.call.fromPhone,
     kind: voicemail ? "voicemail" : missed ? "missed" : "note",
-    locationName: task.call?.number.practicePhoneNumber.location?.name ?? null,
+    locationName: task.call.number.practicePhoneNumber.location?.name ?? null,
     recordingId: voicemail ? (task.call?.voicemail?.recordingId ?? null) : null,
-    recordId: task.id,
-    resolved: false,
   };
 }
 
@@ -300,7 +290,6 @@ export async function readCanonicalNeedsAction(
     getContext = getCurrentPortalPracticeContext,
   }: CanonicalHistoryDependencies = {},
 ): Promise<{
-  groupIds?: string[];
   groups: PortalNeedsActionGroup[];
   total: number;
 } | null> {
@@ -317,62 +306,6 @@ export async function readCanonicalNeedsAction(
     practiceId: context.practice.id,
     status: "OPEN",
   };
-  const [phoneGroups, legacyNullPhoneTasks] = await Promise.all([
-    database.callCenterTask.groupBy({
-      _max: { createdAt: true },
-      by: ["callerPhone"],
-      where: { ...taskWhere, callerPhone: { not: null } },
-    }),
-    database.callCenterTask.findMany({
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      select: {
-        call: { select: { fromPhone: true } },
-        createdAt: true,
-        id: true,
-      },
-      where: { ...taskWhere, callerPhone: null },
-    }),
-  ]);
-  const groupsById = new Map<
-    string,
-    { latestAt: Date; legacyNullTaskIds: string[]; phones: string[] }
-  >();
-  for (const group of phoneGroups) {
-    if (!group.callerPhone || !group._max.createdAt) continue;
-    const id = portalNeedsActionGroupId(group.callerPhone);
-    const existing = groupsById.get(id);
-    groupsById.set(id, {
-      latestAt:
-        existing && existing.latestAt > group._max.createdAt
-          ? existing.latestAt
-          : group._max.createdAt,
-      legacyNullTaskIds: existing?.legacyNullTaskIds ?? [],
-      phones: [...new Set([...(existing?.phones ?? []), group.callerPhone])],
-    });
-  }
-  for (const task of legacyNullPhoneTasks) {
-    const phone = task.call?.fromPhone;
-    if (!phone) continue;
-    const id = portalNeedsActionGroupId(phone);
-    const existing = groupsById.get(id);
-    groupsById.set(id, {
-      latestAt:
-        existing && existing.latestAt > task.createdAt
-          ? existing.latestAt
-          : task.createdAt,
-      legacyNullTaskIds: [...(existing?.legacyNullTaskIds ?? []), task.id],
-      phones: [...new Set([...(existing?.phones ?? []), phone])],
-    });
-  }
-  const allGroups = [...groupsById.entries()].sort(
-    ([leftId, left], [rightId, right]) =>
-      right.latestAt.getTime() - left.latestAt.getTime() || leftId.localeCompare(rightId),
-  );
-  const groupIds = allGroups.map(([id]) => id);
-  const pageGroups = allGroups.slice((page - 1) * pageSize, page * pageSize);
-  const phones = pageGroups.flatMap(([, group]) => group.phones);
-  const legacyNullTaskIds = pageGroups.flatMap(([, group]) => group.legacyNullTaskIds);
-  if (!phones.length) return { groupIds, groups: [], total: allGroups.length };
   const tasks = await database.callCenterTask.findMany({
     include: {
       call: {
@@ -385,27 +318,12 @@ export async function readCanonicalNeedsAction(
       },
     },
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-    where: {
-      ...taskWhere,
-      OR: [
-        { callerPhone: { in: phones } },
-        ...(legacyNullTaskIds.length ? [{ id: { in: legacyNullTaskIds } }] : []),
-      ],
-    },
+    where: taskWhere,
   });
-  const byPhone = new Map(
-    buildPortalNeedsActionGroups(tasks.map(taskActivity)).map((group) => [
-      group.id,
-      group,
-    ]),
-  );
+  const groups = buildPortalNeedsActionGroups(tasks.map(taskActivity));
   return {
-    groupIds,
-    groups: pageGroups.flatMap(([id]) => {
-      const group = byPhone.get(id);
-      return group ? [group] : [];
-    }),
-    total: allGroups.length,
+    groups: groups.slice((page - 1) * pageSize, page * pageSize),
+    total: groups.length,
   };
 }
 
@@ -440,10 +358,10 @@ const callerCallSelect = {
 
 const callerTaskSelect = {
   call: { select: callerCallSelect },
-  callerPhone: true,
   createdAt: true,
   id: true,
   kind: true,
+  note: true,
   resolvedAt: true,
   status: true,
 } satisfies Prisma.CallCenterTaskSelect;
@@ -469,10 +387,9 @@ function callerCallItem(call: CallerCall): PortalCallerTimelineItem {
     occurredAt: call.endedAt ?? call.answeredAt ?? call.receivedAt,
     phone: outbound ? call.toPhone : call.fromPhone,
     providerCallSessionId: call.providerCallSessionId,
-    recordSource: "CANONICAL",
     recordId: call.id,
     recordingId: voicemail ? (call.voicemail?.recordingId ?? null) : null,
-    stationLabel: call.winningLeg?.endpoint?.label ?? null,
+    agentLabel: call.winningLeg?.endpoint?.label ?? null,
     status: call.status,
     title: voicemail
       ? "Voicemail"
@@ -491,25 +408,24 @@ function callerTaskItem(task: CallerTask): PortalCallerTimelineItem {
   const missed = activity.kind === "missed";
   const status = open
     ? task.kind === "CALLBACK"
-      ? CallCenterNoteDisposition.CALLBACK_NEEDED
+      ? "CALLBACK_NEEDED"
       : task.kind === "FOLLOW_UP"
-        ? CallCenterNoteDisposition.FOLLOW_UP_REQUIRED
+        ? "FOLLOW_UP_REQUIRED"
         : "NEEDS_ACTION"
-    : CallCenterNoteDisposition.RESOLVED;
+    : "RESOLVED";
   return {
-    body: null,
+    body: task.note,
     direction: voicemail || missed ? "inbound" : null,
     durationSec: activity.durationSec,
-    id: activity.id,
+    id: `canonical-task:${task.id}`,
     kind: activity.kind,
     locationName: activity.locationName,
-    note: open ? null : "Resolved",
+    note: task.note ?? (open ? null : "Resolved"),
     occurredAt: activity.createdAt,
     phone: activity.fromPhone,
-    recordSource: "CANONICAL",
     recordId: task.id,
     recordingId: activity.recordingId,
-    stationLabel: null,
+    agentLabel: null,
     status,
     title: voicemail
       ? "Voicemail"
@@ -517,7 +433,9 @@ function callerTaskItem(task: CallerTask): PortalCallerTimelineItem {
         ? "Missed call"
         : task.kind === "CALLBACK"
           ? "Callback needed"
-          : "Follow-up required",
+          : task.kind === "FOLLOW_UP"
+            ? "Follow-up required"
+            : "Note",
   };
 }
 
@@ -585,22 +503,17 @@ export async function readCanonicalCallerTimeline(
     ...(cutoff ? { receivedAt: { gte: cutoff } } : {}),
   };
   const taskPhoneWhere: Prisma.CallCenterTaskWhereInput = {
-    OR: [
-      { callerPhone: { in: variants } },
-      {
-        call: { ...access, fromPhone: { in: variants } },
-        callerPhone: null,
-      },
-    ],
+    call: {
+      ...access,
+      OR: [{ fromPhone: { in: variants } }, { toPhone: { in: variants } }],
+    },
   };
   const taskWhere: Prisma.CallCenterTaskWhereInput = {
-    call: access,
     ...taskPhoneWhere,
     practiceId: context.practice.id,
     ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
   };
   const openTaskWhere: Prisma.CallCenterTaskWhereInput = {
-    call: access,
     ...taskPhoneWhere,
     practiceId: context.practice.id,
     status: "OPEN",

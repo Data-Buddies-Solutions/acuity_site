@@ -55,7 +55,6 @@ function snapshot(revision = "10", queueId = "queue-1"): CallCenterSnapshot {
       maxWaitSec: 30,
       name: "Optical",
       ringTimeoutSec: 20,
-      routingMode: "SHADOW",
     },
     revision,
     schemaVersion: CALL_CENTER_SCHEMA_VERSION,

@@ -35,7 +35,6 @@ function store(
     completeIgnored: async () => true,
     fail: async () => true,
     hasIgnoredLegacySession: async () => false,
-    listRecoverable: async () => [],
     ...overrides,
   };
 }
@@ -47,30 +46,19 @@ describe("canonical projection inbox", () => {
     });
   });
 
-  it("claims and lists with an independent bounded lease", async () => {
+  it("claims with an independent bounded lease", async () => {
     const claims: unknown[] = [];
-    const listings: unknown[] = [];
     const inbox = createCanonicalProjectionInbox(
       store({
         claim: async (input) => (claims.push(input), event()),
-        listRecoverable: async (input) => (listings.push(input), [event()]),
       }),
       { clock: () => now },
     );
 
     await expect(inbox.claim("event-1")).resolves.toEqual(event());
-    await expect(inbox.listRecoverable(10_000)).resolves.toEqual([event()]);
     expect(claims).toEqual([
       {
         eventId: "event-1",
-        maxAttempts: 8,
-        now,
-        staleBefore: new Date("2026-07-11T11:55:00.000Z"),
-      },
-    ]);
-    expect(listings).toEqual([
-      {
-        limit: 25,
         maxAttempts: 8,
         now,
         staleBefore: new Date("2026-07-11T11:55:00.000Z"),

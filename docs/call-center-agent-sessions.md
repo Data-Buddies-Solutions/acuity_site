@@ -1,7 +1,7 @@
 # Canonical call-center agent sessions
 
-This phase adds the canonical browser-to-endpoint lease boundary without changing
-legacy call routing, ringing, presence, or Take ownership.
+Agent sessions are the browser-to-endpoint lease boundary for the production
+call center.
 
 ## Contract
 
@@ -33,8 +33,7 @@ Endpoint acquisition locks the durable endpoint row. Inside that transaction it:
 
 The existing partial unique index on active endpoint sessions is the database
 backstop. The endpoint row lock orders concurrent requests before they reach it.
-The endpoint ID is used unchanged, preserving legacy seat-ID correlation created
-by the configuration backfill.
+The endpoint ID remains stable across reconnects and configuration edits.
 
 `AVAILABLE` is accepted only when the provider connection is `READY`, microphone
 and browser audio are ready, and no current call is attached. The UI should
@@ -56,11 +55,9 @@ failure cannot hide a committed lease from the browser that must release it.
 Database `ERROR` and `CLOSED` states serialize to realtime `FAILED` and
 `DISCONNECTED`; database enum names do not leak into the canonical contract.
 
-## Rollout boundary
+## Runtime ownership
 
-These routes are passive foundations. The current legacy presence API and
-routing engine remain the only production effect owners until the coordinated
-backend/frontend cutover. Do not wire the UI to canonical availability in a
-separate deployment from canonical snapshot and routing ownership. The SHADOW
-shell may mirror legacy readiness into this lease, but it must not request
-provider credentials or create another media owner.
+These routes are the only production presence boundary. The call-center UI uses
+the session-bound credential endpoint for provider media, and routing uses the
+same session readiness when selecting an endpoint. No second presence or media
+owner runs beside it.

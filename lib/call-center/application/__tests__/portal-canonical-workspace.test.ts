@@ -6,18 +6,13 @@ import {
   selectCanonicalWorkspaceQueue,
 } from "../portal-canonical-workspace";
 
-function queue(
-  id: string,
-  locationIds: string[],
-  routingMode: "LEGACY" | "SHADOW" = "SHADOW",
-) {
+function queue(id: string, locationIds: string[]) {
   return {
     id,
     locations: locationIds.map((locationId) => ({ locationId })),
     maxWaitSec: 30,
     name: id,
     ringTimeoutSec: 20,
-    routingMode,
   };
 }
 
@@ -34,26 +29,22 @@ describe("portal canonical workspace queue selection", () => {
   it("selects a deterministic default or the explicit accessible queue", () => {
     const queues = [queue("queue-1", ["location-1"]), queue("queue-2", ["location-1"])];
     expect(selectCanonicalWorkspaceQueue(queues, ["location-1"])?.id).toBe("queue-1");
-    expect(
-      selectCanonicalWorkspaceQueue(queues, ["location-1"], false, new Set(), "queue-2")
-        ?.id,
-    ).toBe("queue-2");
+    expect(selectCanonicalWorkspaceQueue(queues, ["location-1"], "queue-2")?.id).toBe(
+      "queue-2",
+    );
     expect(selectCanonicalWorkspaceQueue(queues, ["location-2"])).toBeNull();
   });
 
-  it("ignores legacy queues and keeps a practice-wide shadow selectable", () => {
+  it("selects configured queues without rollout modes", () => {
     expect(
       selectCanonicalWorkspaceQueue(
-        [queue("legacy", ["location-1"], "LEGACY"), queue("shadow", [], "SHADOW")],
+        [queue("location", ["location-1"]), queue("practice-wide", [])],
         ["location-1"],
       )?.id,
-    ).toBe("shadow");
+    ).toBe("location");
     expect(
-      selectCanonicalWorkspaceQueue(
-        [queue("legacy", [], "LEGACY"), queue("shadow", [], "SHADOW")],
-        [],
-      )?.id,
-    ).toBe("shadow");
+      selectCanonicalWorkspaceQueue([queue("first", []), queue("second", [])], [])?.id,
+    ).toBe("first");
   });
 
   it("lists every location-specific and practice-wide choice deterministically", () => {
@@ -67,41 +58,6 @@ describe("portal canonical workspace queue selection", () => {
     ).toEqual(["optical", "practice-wide"]);
   });
 
-  it("selects one accessible queue regardless of diagnostic mode after global activation", () => {
-    expect(
-      selectCanonicalWorkspaceQueue(
-        [queue("legacy", ["location-1"], "LEGACY")],
-        ["location-1"],
-        true,
-      )?.id,
-    ).toBe("legacy");
-  });
-
-  it("keeps an already-admitted canonical queue visible after global rollback", () => {
-    expect(
-      selectCanonicalWorkspaceQueue(
-        [queue("legacy", ["location-1"], "LEGACY")],
-        ["location-1"],
-        false,
-        new Set(["legacy"]),
-      )?.id,
-    ).toBe("legacy");
-  });
-
-  it("prefers the draining queue over diagnostic shadow queues after rollback", () => {
-    expect(
-      selectCanonicalWorkspaceQueue(
-        [
-          queue("draining", ["location-1"], "LEGACY"),
-          queue("shadow", ["location-1"], "SHADOW"),
-        ],
-        ["location-1"],
-        false,
-        new Set(["draining"]),
-      )?.id,
-    ).toBe("draining");
-  });
-
   it("keeps practice-wide queues eligible for canonical outbound numbers", async () => {
     let where: unknown;
     const numbers = await listCanonicalOutboundNumbers(
@@ -110,7 +66,7 @@ describe("portal canonical workspace queue selection", () => {
         hasAllLocationAccess: true,
         practiceId: "practice-1",
       },
-      queue("practice-wide", [], "LEGACY"),
+      queue("practice-wide", []),
       {
         callCenterNumber: {
           findMany: async (input: { where: unknown }) => {

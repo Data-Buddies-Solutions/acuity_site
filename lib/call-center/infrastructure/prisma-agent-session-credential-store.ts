@@ -8,14 +8,6 @@ import { prisma } from "@/lib/prisma";
 
 type Database = Pick<PrismaClient, "$transaction">;
 
-const NONTERMINAL_CALL_STATUSES = [
-  "RECEIVED",
-  "QUEUED",
-  "RINGING",
-  "CONNECTED",
-  "WRAP_UP",
-] as const;
-
 function queueLocationWhere(locationId: string | null) {
   return locationId
     ? {
@@ -63,28 +55,6 @@ export class PrismaAgentSessionCredentialStore implements AgentSessionCredential
           practiceId: actor.practiceId,
           presence: { not: "OFFLINE" },
           userId: actor.userId,
-          ...(input.activationEnabled
-            ? {}
-            : {
-                OR: [
-                  {
-                    currentCall: {
-                      is: {
-                        effectOwner: "CANONICAL",
-                        status: { in: [...NONTERMINAL_CALL_STATUSES] },
-                      },
-                    },
-                  },
-                  {
-                    offeredCall: {
-                      is: {
-                        effectOwner: "CANONICAL",
-                        status: { in: [...NONTERMINAL_CALL_STATUSES] },
-                      },
-                    },
-                  },
-                ],
-              }),
         },
       });
       const endpoint = session?.endpoint;

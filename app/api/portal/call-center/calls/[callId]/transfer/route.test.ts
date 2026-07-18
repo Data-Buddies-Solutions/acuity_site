@@ -24,29 +24,11 @@ function request(body: unknown, key = "transfer-1") {
 }
 
 describe("canonical transfer route", () => {
-  it("stops new transfer commands when global activation is off", async () => {
-    let calls = 0;
-    const POST = createTransferCallHandler({
-      getActor: async () => actor,
-      isCanonicalActive: () => false,
-      transfer: async () => {
-        calls += 1;
-        throw new Error("not reached");
-      },
-    });
-
-    const response = await POST(request({ targetUserId: "target-user-1" }), routeContext);
-
-    expect(response.status).toBe(409);
-    expect(calls).toBe(0);
-  });
-
   it("uses authenticated scope and schedules only the committed target dial", async () => {
     let captured: unknown;
     const scheduled: string[] = [];
     const POST = createTransferCallHandler({
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       scheduleCommand: (id) => scheduled.push(id),
       transfer: async (_store, transferActor, input) => {
         captured = { actor: transferActor, input };
@@ -88,7 +70,6 @@ describe("canonical transfer route", () => {
     const scheduled: string[] = [];
     const POST = createTransferCallHandler({
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       scheduleCommand: (id) => scheduled.push(id),
       transfer: async () => ({
         callId: "call-1",
@@ -115,7 +96,6 @@ describe("canonical transfer route", () => {
     const scheduled: string[] = [];
     const POST = createTransferCallHandler({
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       scheduleCommand: (id) => scheduled.push(id),
       transfer: async () => ({
         callId: "call-1",
@@ -144,7 +124,6 @@ describe("canonical transfer route", () => {
     let calls = 0;
     const POST = createTransferCallHandler({
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       transfer: async () => {
         calls += 1;
         throw new Error("not reached");

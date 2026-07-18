@@ -4,7 +4,6 @@ import { createDirectHandoffHandler } from "./handler";
 
 const now = new Date("2026-07-13T20:00:00.000Z");
 const config = () => ({
-  enabled: true as const,
   practiceId: "practice-1",
   secret: "test-secret",
   sipUri: "sip:acuity-ingress@sip.telnyx.com",
@@ -27,11 +26,6 @@ function request(options: { authorization?: string; idempotencyKey?: string } = 
 }
 
 describe("direct handoff handler", () => {
-  it("fails closed while the global switch is disabled", async () => {
-    const handler = createDirectHandoffHandler({ config: () => ({ enabled: false }) });
-    await expect(handler(request())).rejects.toMatchObject({ status: 503 });
-  });
-
   it("rejects the wrong service credential before reading the body", async () => {
     const handler = createDirectHandoffHandler({ config });
     await expect(

@@ -51,40 +51,12 @@ export type ProviderWebhookInboxStore = {
   receive(envelope: TelnyxVoiceWebhookEnvelope): Promise<ProviderWebhookRecord>;
 };
 
-export type ProviderWebhookInboxMaintenanceStore = {
-  listRecoverable(input: {
-    limit: number;
-    maxAttempts: number;
-    now: Date;
-    staleBefore: Date;
-  }): Promise<ProviderWebhookRecord[]>;
-  redactPayloads(input: {
-    before: Date;
-    canonicalProjectionEnabled: boolean;
-    limit: number;
-    maxAttempts: number;
-    redactedAt: Date;
-  }): Promise<number>;
-};
-
 export type ProviderWebhookInbox = ReturnType<typeof createProviderWebhookInbox>;
 
 const MAX_ATTEMPTS = 8;
-const DEFAULT_BATCH_SIZE = 100;
-const MAX_BATCH_SIZE = 500;
 const PROCESSING_LEASE_MS = 5 * 60_000;
 const RETRY_BASE_MS = 5_000;
 const RETRY_MAX_MS = 5 * 60_000;
-
-export const PROVIDER_WEBHOOK_REDACTED_PAYLOAD = { redacted: true } as const;
-
-function boundedBatchSize(limit = DEFAULT_BATCH_SIZE) {
-  if (!Number.isFinite(limit)) {
-    return DEFAULT_BATCH_SIZE;
-  }
-
-  return Math.min(MAX_BATCH_SIZE, Math.max(1, Math.trunc(limit)));
-}
 
 export function decideProviderWebhookClaim(
   event: Pick<
@@ -140,7 +112,7 @@ export function providerWebhookRetryAt(
 }
 
 export function createProviderWebhookInbox(
-  store: ProviderWebhookInboxStore & Partial<ProviderWebhookInboxMaintenanceStore>,
+  store: ProviderWebhookInboxStore,
   {
     clock = () => new Date(),
     maxAttempts = MAX_ATTEMPTS,
@@ -156,41 +128,6 @@ export function createProviderWebhookInbox(
     fail: store.fail,
     receive: store.receive,
     retryAt: (attemptCount: number) => providerWebhookRetryAt(attemptCount, clock()),
-    async listRecoverable(limit: number) {
-      if (!store.listRecoverable) {
-        throw new Error("Provider webhook recovery is not configured");
-      }
-
-      const now = clock();
-
-      return store.listRecoverable({
-        limit: boundedBatchSize(limit),
-        maxAttempts,
-        now,
-        staleBefore: new Date(now.getTime() - processingLeaseMs),
-      });
-    },
-    async redactPayloads({
-      before,
-      canonicalProjectionEnabled,
-      limit,
-    }: {
-      before: Date;
-      canonicalProjectionEnabled: boolean;
-      limit?: number;
-    }) {
-      if (!store.redactPayloads) {
-        throw new Error("Provider webhook payload redaction is not configured");
-      }
-
-      return store.redactPayloads({
-        before,
-        canonicalProjectionEnabled,
-        limit: boundedBatchSize(limit),
-        maxAttempts,
-        redactedAt: clock(),
-      });
-    },
     async claim(event: ProviderWebhookRecord) {
       const now = clock();
       const decision = decideProviderWebhookClaim(event, now, {
@@ -274,49 +211,7 @@ function providerCallSessionId(body: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function providerWebhookPayloadRetentionWhere(
-  before: Date,
-  maxAttempts: number,
-  canonicalProjectionEnabled: boolean,
-): Prisma.ProviderWebhookEventWhereInput {
-  const redactedPayload = jsonInput(PROVIDER_WEBHOOK_REDACTED_PAYLOAD);
-  return {
-    NOT: { payload: { equals: redactedPayload } },
-    AND: [
-      {
-        OR: [
-          { processingStatus: { in: ["PROCESSED", "IGNORED"] as const } },
-          {
-            attemptCount: { gte: maxAttempts },
-            processingStatus: "FAILED" as const,
-          },
-        ],
-      },
-      ...(canonicalProjectionEnabled
-        ? [
-            {
-              OR: [
-                {
-                  canonicalProjectionStatus: {
-                    in: ["PROCESSED", "IGNORED"] as Array<"PROCESSED" | "IGNORED">,
-                  },
-                },
-                {
-                  canonicalProjectionAttemptCount: { gte: maxAttempts },
-                  canonicalProjectionStatus: "FAILED" as const,
-                },
-              ],
-            },
-          ]
-        : []),
-    ],
-    provider: "TELNYX" as const,
-    receivedAt: { lt: before },
-  };
-}
-
-export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
-  ProviderWebhookInboxMaintenanceStore = {
+export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore = {
   async claim({ eventId, maxAttempts, now, staleBefore }) {
     const claimed = await prisma.providerWebhookEvent.updateMany({
       data: {
@@ -393,28 +288,6 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
 
     return failed.count === 1;
   },
-  async listRecoverable({ limit, maxAttempts, now, staleBefore }) {
-    return prisma.providerWebhookEvent.findMany({
-      orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
-      select: selectedFields,
-      take: limit,
-      where: {
-        attemptCount: { lt: maxAttempts },
-        provider: "TELNYX",
-        OR: [
-          { processingStatus: "RECEIVED" },
-          {
-            processingStatus: "FAILED",
-            OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
-          },
-          {
-            processingStatus: "PROCESSING",
-            updatedAt: { lte: staleBefore },
-          },
-        ],
-      },
-    });
-  },
   async receive(envelope) {
     const sanitized = sanitizedProviderWebhookBody(envelope.body);
     await prisma.providerWebhookEvent.createMany({
@@ -442,66 +315,6 @@ export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore &
         },
       },
     });
-  },
-  async redactPayloads({
-    before,
-    canonicalProjectionEnabled,
-    limit,
-    maxAttempts,
-    redactedAt,
-  }) {
-    const redactedPayload = jsonInput(PROVIDER_WEBHOOK_REDACTED_PAYLOAD);
-    const eligible = providerWebhookPayloadRetentionWhere(
-      before,
-      maxAttempts,
-      canonicalProjectionEnabled,
-    );
-    const events = await prisma.providerWebhookEvent.findMany({
-      orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
-      select: { id: true },
-      take: limit,
-      where: eligible,
-    });
-
-    if (events.length === 0) {
-      return 0;
-    }
-
-    const ids = events.map((event) => event.id);
-    if (canonicalProjectionEnabled) {
-      const redacted = await prisma.providerWebhookEvent.updateMany({
-        data: { payload: redactedPayload },
-        where: { ...eligible, id: { in: ids } },
-      });
-      return redacted.count;
-    }
-
-    const [terminal, skipped] = await prisma.$transaction([
-      prisma.providerWebhookEvent.updateMany({
-        data: { payload: redactedPayload },
-        where: {
-          ...eligible,
-          canonicalProjectionStatus: { in: ["PROCESSED", "IGNORED"] },
-          id: { in: ids },
-        },
-      }),
-      prisma.providerWebhookEvent.updateMany({
-        data: {
-          canonicalProjectedAt: redactedAt,
-          canonicalProjectionErrorCode: null,
-          canonicalProjectionNextAttemptAt: null,
-          canonicalProjectionStatus: "IGNORED",
-          payload: redactedPayload,
-        },
-        where: {
-          ...eligible,
-          canonicalProjectionStatus: { in: ["RECEIVED", "PROCESSING", "FAILED"] },
-          id: { in: ids },
-        },
-      }),
-    ]);
-
-    return terminal.count + skipped.count;
   },
 };
 

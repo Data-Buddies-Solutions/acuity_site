@@ -24,32 +24,6 @@ function request(body: unknown, idempotencyKey?: string) {
 }
 
 describe("canonical claim route", () => {
-  it("stops new claim commands when global activation is off", async () => {
-    let calls = 0;
-    const POST = createClaimCallHandler({
-      claim: async () => {
-        calls += 1;
-        throw new Error("must not run");
-      },
-      getActor: async () => actor,
-      isCanonicalActive: () => false,
-    });
-
-    const response = await POST(
-      request(
-        {
-          clientInstanceId: "browser-1",
-          expectedSessionStateVersion: 2,
-        },
-        "operation-1",
-      ),
-      routeContext,
-    );
-
-    expect(response.status).toBe(409);
-    expect(calls).toBe(0);
-  });
-
   it("passes only authenticated identity and bounded canonical input", async () => {
     let captured: unknown;
     const scheduled: string[] = [];
@@ -71,7 +45,6 @@ describe("canonical claim route", () => {
         };
       },
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       scheduleCommand: (commandId) => scheduled.push(commandId),
     });
     const response = await POST(
@@ -115,7 +88,6 @@ describe("canonical claim route", () => {
         status: "CONFIRMED",
       }),
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       scheduleCommand: (commandId) => scheduled.push(commandId),
     });
 
@@ -135,7 +107,7 @@ describe("canonical claim route", () => {
     expect(scheduled).toEqual([]);
   });
 
-  it("reschedules a pending replay while cron remains the durable fallback", async () => {
+  it("reschedules a pending replay after a lost immediate wakeup", async () => {
     const scheduled: string[] = [];
     const POST = createClaimCallHandler({
       claim: async () => ({
@@ -152,7 +124,6 @@ describe("canonical claim route", () => {
         status: "PENDING",
       }),
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       scheduleCommand: (commandId) => scheduled.push(commandId),
     });
 
@@ -188,7 +159,6 @@ describe("canonical claim route", () => {
         status: "ALREADY_CLAIMED",
       }),
       getActor: async () => actor,
-      isCanonicalActive: () => true,
       scheduleCommand: (commandId) => scheduled.push(commandId),
     });
 
@@ -221,7 +191,6 @@ describe("canonical claim route", () => {
         throw new Error("must not run");
       },
       getActor: async () => actor,
-      isCanonicalActive: () => true,
     });
     const missingKey = await POST(
       request({

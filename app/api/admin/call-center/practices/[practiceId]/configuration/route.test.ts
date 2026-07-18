@@ -42,9 +42,6 @@ function adminDependencies() {
       user: { id: "admin-1", email: "admin@example.com" },
     }),
     isAdmin: () => true,
-    readMigrationReport: async () => ({
-      overallReadiness: "READY_FOR_MANUAL_REVIEW" as const,
-    }),
   };
 }
 
@@ -130,47 +127,6 @@ describe("admin call-center configuration route", () => {
     );
 
     expect(response.status).toBe(412);
-  });
-
-  it("blocks the first write until discovery is ready for manual review", async () => {
-    let writes = 0;
-    const { PUT } = createConfigurationHandlers({
-      ...adminDependencies(),
-      readConfiguration: async () => ({
-        version,
-        configuration: {
-          practiceId: "practice-1",
-          defaultOutboundNumberId: null,
-          queues: [],
-          numbers: [],
-          endpoints: [],
-        },
-      }),
-      readMigrationReport: async () => ({ overallReadiness: "BLOCKED" }),
-      saveConfiguration: async () => {
-        writes += 1;
-        return savedConfiguration();
-      },
-    });
-    const response = await PUT(
-      new Request("https://example.test", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "If-Match": `"${version}"` },
-        body: JSON.stringify({
-          defaultOutboundNumberId: null,
-          queues: [],
-          numbers: [],
-          endpoints: [],
-        }),
-      }),
-      context,
-    );
-
-    expect(response.status).toBe(422);
-    expect(writes).toBe(0);
-    expect(await response.json()).toMatchObject({
-      issues: [{ code: "MIGRATION_REPORT_BLOCKED" }],
-    });
   });
 
   it("returns the committed redacted snapshot and new ETag", async () => {

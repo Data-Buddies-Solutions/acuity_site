@@ -66,7 +66,6 @@ function fakeDatabase({ failedReservation = false } = {}) {
       { enabled: true, userId: "user-2" },
     ],
     ringTimeoutSec: 20,
-    routingMode: "ACTIVE" as const,
   };
   const transaction = {
     $queryRaw: async (query: { strings: readonly string[] }) => {

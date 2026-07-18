@@ -37,7 +37,7 @@ describe("Telnyx provider command sender", () => {
       canonicalCommand: true,
       commandId: "command-1",
       endpointId: "endpoint-1",
-      internalSeatLeg: true,
+      internalAgentLeg: true,
       legId: "leg-1",
     });
   });
@@ -95,7 +95,7 @@ describe("Telnyx provider command sender", () => {
       canonicalCommand: true,
       commandId: "command-1",
       endpointId: "endpoint-1",
-      internalSeatLeg: true,
+      internalAgentLeg: true,
       legId: "leg-1",
     });
   });

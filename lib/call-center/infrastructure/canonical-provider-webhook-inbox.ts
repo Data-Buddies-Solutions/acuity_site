@@ -37,12 +37,6 @@ export type CanonicalProjectionInboxStore = {
     eventId: string;
     nextAttemptAt: Date | null;
   }): Promise<boolean>;
-  listRecoverable(input: {
-    limit: number;
-    maxAttempts: number;
-    now: Date;
-    staleBefore: Date;
-  }): Promise<CanonicalProjectionRecord[]>;
   hasIgnoredLegacySession(input: {
     eventId: string;
     providerCallSessionId: string;
@@ -53,7 +47,6 @@ export const CANONICAL_PROJECTION_MAX_ATTEMPTS = 8;
 const PROCESSING_LEASE_MS = 5 * 60_000;
 const RETRY_BASE_MS = 5_000;
 const RETRY_MAX_MS = 5 * 60_000;
-const MAX_BATCH_SIZE = 25;
 
 export const PASSIVE_LEGACY_OUT_OF_SCOPE_CODE = "LEGACY_OUT_OF_SCOPE";
 
@@ -98,15 +91,6 @@ export function createCanonicalProjectionInbox(
           event.canonicalProjectionAttemptCount,
           now,
         ),
-      });
-    },
-    async listRecoverable(limit: number) {
-      const now = clock();
-      return store.listRecoverable({
-        limit: Math.max(1, Math.min(MAX_BATCH_SIZE, Math.trunc(limit))),
-        maxAttempts: CANONICAL_PROJECTION_MAX_ATTEMPTS,
-        now,
-        staleBefore: new Date(now.getTime() - PROCESSING_LEASE_MS),
       });
     },
   };
@@ -223,34 +207,6 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
       },
     });
     return failed.count === 1;
-  },
-  async listRecoverable({ limit, maxAttempts, now, staleBefore }) {
-    const events = await prisma.providerWebhookEvent.findMany({
-      orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
-      select: selectedFields,
-      take: limit,
-      where: {
-        canonicalProjectionAttemptCount: { lt: maxAttempts },
-        effectOwner: { not: null },
-        ...canonicalProjectionMainLaneWhere,
-        provider: "TELNYX",
-        OR: [
-          { canonicalProjectionStatus: "RECEIVED" },
-          {
-            canonicalProjectionStatus: "FAILED",
-            OR: [
-              { canonicalProjectionNextAttemptAt: null },
-              { canonicalProjectionNextAttemptAt: { lte: now } },
-            ],
-          },
-          {
-            canonicalProjectionStatus: "PROCESSING",
-            updatedAt: { lte: staleBefore },
-          },
-        ],
-      },
-    });
-    return events.map(requireEffectOwner);
   },
 };
 

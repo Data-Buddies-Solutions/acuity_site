@@ -64,7 +64,6 @@ const queueAccessSelect = {
   maxWaitSec: true,
   name: true,
   ringTimeoutSec: true,
-  routingMode: true,
 } satisfies Prisma.CallCenterQueueSelect;
 
 export async function resolveQueueAccess(

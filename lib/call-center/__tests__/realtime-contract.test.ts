@@ -47,7 +47,6 @@ function snapshot(calls: CallView[] = []): CallCenterSnapshot {
       maxWaitSec: 30,
       name: "Optical",
       ringTimeoutSec: 20,
-      routingMode: "LEGACY",
     },
     revision: "10",
     schemaVersion: 1,

@@ -3,9 +3,9 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { getPortalCallCenterData } from "@/lib/call-center";
-import { readCombinedNeedsAction } from "@/lib/call-center/application/portal-combined-call-center-reads";
+import { readCanonicalNeedsAction } from "@/lib/call-center/application/portal-canonical-history";
 import { readPortalCanonicalWorkspace } from "@/lib/call-center/application/portal-canonical-workspace";
+import { readPortalCallCenterShell } from "@/lib/call-center/application/portal-canonical-workspace";
 import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import LocationPicker from "../LocationPicker";
@@ -37,12 +37,7 @@ export default async function PortalCallCenterFollowUpPage({
   const page = parseFollowUpPage(
     Array.isArray(params.page) ? params.page[0] : params.page,
   );
-  const data = await getPortalCallCenterData({
-    excludeCanonicalLinkedActivity: true,
-    locationId: selectedLocationId,
-    needsActionPage: 1,
-    needsActionPageSize: 100,
-  });
+  const data = await readPortalCallCenterShell(selectedLocationId);
 
   if (!data) {
     redirect("/portal");
@@ -55,11 +50,7 @@ export default async function PortalCallCenterFollowUpPage({
       : [];
   const selectedOfficeId = data.selectedLocation?.id ?? selectedLocationId;
   const canonicalWorkspace = requestedQueueId
-    ? await readPortalCanonicalWorkspace(
-        selectedCanonicalLocationIds,
-        true,
-        requestedQueueId,
-      )
+    ? await readPortalCanonicalWorkspace(selectedCanonicalLocationIds, requestedQueueId)
     : null;
   const invalidRequestedQueue = Boolean(
     requestedQueueId && canonicalWorkspace?.queueId !== requestedQueueId,
@@ -74,35 +65,17 @@ export default async function PortalCallCenterFollowUpPage({
     );
   }
   const selectedQueueId = invalidRequestedQueue ? undefined : requestedQueueId;
-  const combinedNeedsAction = await readCombinedNeedsAction(
-    {
-      legacyGroups: data.needsAction,
-      legacyGroupIds: data.needsActionIds,
-      legacyTotal: data.needsActionTotal,
-      locationIds: selectedCanonicalLocationIds,
-      page,
-      pageSize: FOLLOW_UP_PAGE_SIZE,
-      queueId: selectedQueueId,
-    },
-    {
-      ...(invalidRequestedQueue ? { readCanonical: async () => null } : {}),
-      readLegacy: async (legacyPage, pageSize) => {
-        const result = await getPortalCallCenterData({
-          excludeCanonicalLinkedActivity: true,
-          locationId: selectedLocationId,
-          needsActionPage: legacyPage,
-          needsActionPageSize: pageSize,
-        });
-        return {
-          items: result?.needsAction ?? [],
-          total: result?.needsActionTotal ?? 0,
-        };
-      },
-    },
-  );
+  const canonicalNeedsAction = invalidRequestedQueue
+    ? null
+    : await readCanonicalNeedsAction({
+        locationIds: selectedCanonicalLocationIds,
+        page,
+        pageSize: FOLLOW_UP_PAGE_SIZE,
+        queueId: selectedQueueId,
+      });
 
-  const threads = combinedNeedsAction.groups;
-  const totalThreads = combinedNeedsAction.total;
+  const threads = canonicalNeedsAction?.groups ?? [];
+  const totalThreads = canonicalNeedsAction?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalThreads / FOLLOW_UP_PAGE_SIZE));
 
   if (totalThreads > 0 && page > totalPages) {

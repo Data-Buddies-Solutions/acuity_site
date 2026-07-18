@@ -18,7 +18,6 @@ function validWireInput() {
         id: " queue-1 ",
         name: " Optical ",
         enabled: false,
-        routingMode: "LEGACY",
         ringTimeoutSec: 20,
         maxWaitSec: 30,
         wrapUpSec: 0,

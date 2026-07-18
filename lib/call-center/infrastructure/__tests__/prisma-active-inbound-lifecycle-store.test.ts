@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { Prisma } from "@/generated/prisma/client";
 
-import { PrismaActiveInboundLifecycleStore } from "../prisma-active-inbound-lifecycle-store";
+import { reconcileActiveInboundCallInTransaction } from "../prisma-active-inbound-lifecycle-store";
 
 const now = new Date("2026-07-12T12:00:20.000Z");
 
@@ -121,62 +121,76 @@ function fakeDatabase({
     },
   } as unknown as Prisma.TransactionClient;
   const routed: Array<Record<string, unknown>> = [];
-  const store = new PrismaActiveInboundLifecycleStore(
-    (operation) => operation(transaction),
-    async (_transaction, input) => {
-      routed.push(input);
-      return {
-        answerCommandId: "route-answer",
-        callId: "call-1",
-        commandIds: overflowRoutesAgent ? ["route-dial"] : [],
-        deadlineAt: "2026-07-12T12:00:40.000Z",
-        dialCommandIds: overflowRoutesAgent ? ["route-dial"] : [],
-        eligible: [],
-        exclusions: {} as never,
-        occurredAt: now.toISOString(),
-        queueDeadlineAt: "2026-07-12T12:01:00.000Z",
-        queueId: "queue-2",
-        replayed: false,
-        revision: "20",
-        routed: overflowRoutesAgent
-          ? [
-              {
-                agentSessionId: "session-2",
-                commandId: "route-dial",
-                endpointId: "endpoint-2",
-                legId: "leg-2",
-                userId: "user-2",
-              },
-            ]
-          : [],
-        startRingbackCommandId: "route-ringback",
-        stateVersion: 6,
+  const routeQueueRound: Parameters<
+    typeof reconcileActiveInboundCallInTransaction
+  >[3] = async (_transaction, input) => {
+    routed.push(input);
+    return {
+      answerCommandId: "route-answer",
+      callId: "call-1",
+      commandIds: overflowRoutesAgent ? ["route-dial"] : [],
+      deadlineAt: "2026-07-12T12:00:40.000Z",
+      dialCommandIds: overflowRoutesAgent ? ["route-dial"] : [],
+      eligible: [],
+      exclusions: {} as never,
+      occurredAt: now.toISOString(),
+      queueDeadlineAt: "2026-07-12T12:01:00.000Z",
+      queueId: "queue-2",
+      replayed: false,
+      revision: "20",
+      routed: overflowRoutesAgent
+        ? [
+            {
+              agentSessionId: "session-2",
+              commandId: "route-dial",
+              endpointId: "endpoint-2",
+              legId: "leg-2",
+              userId: "user-2",
+            },
+          ]
+        : [],
+      startRingbackCommandId: "route-ringback",
+      stateVersion: 6,
+    };
+  };
+  const settleAgentLegs: Parameters<
+    typeof reconcileActiveInboundCallInTransaction
+  >[4] = async (_transaction, input) => {
+    const released = call.legs.filter(
+      (leg) => leg.kind === "AGENT" && input.legIds?.includes(leg.id),
+    );
+    for (const leg of released) {
+      leg.status = input.terminalLegStatus ?? "ENDED";
+      const idempotencyKey =
+        input.hangupIdempotencyKeys?.[leg.id] ??
+        `settle:${input.callId}:hangup:${leg.id}`;
+      const key = `HANGUP_LEG:${idempotencyKey}`;
+      const command = commands.get(key) ?? {
+        id: `command-${commands.size + 1}`,
+        idempotencyKey,
+        legId: leg.id,
+        type: "HANGUP_LEG",
       };
-    },
-    async (_transaction, input) => {
-      const released = call.legs.filter(
-        (leg) => leg.kind === "AGENT" && input.legIds?.includes(leg.id),
-      );
-      for (const leg of released) {
-        leg.status = input.terminalLegStatus ?? "ENDED";
-        const idempotencyKey =
-          input.hangupIdempotencyKeys?.[leg.id] ??
-          `settle:${input.callId}:hangup:${leg.id}`;
-        const key = `HANGUP_LEG:${idempotencyKey}`;
-        const command = commands.get(key) ?? {
-          id: `command-${commands.size + 1}`,
-          idempotencyKey,
-          legId: leg.id,
-          type: "HANGUP_LEG",
-        };
-        commands.set(key, command);
-      }
-      operations.push(`agent.settle:${released.map(({ id }) => id).join(",")}`);
-      return released.map(({ id }) =>
-        String([...commands.values()].find((command) => command.legId === id)?.id),
-      );
-    },
-  );
+      commands.set(key, command);
+    }
+    operations.push(`agent.settle:${released.map(({ id }) => id).join(",")}`);
+    return released.map(({ id }) =>
+      String([...commands.values()].find((command) => command.legId === id)?.id),
+    );
+  };
+  const store = {
+    reconcile: (
+      input: Parameters<typeof reconcileActiveInboundCallInTransaction>[1],
+      at: Date,
+    ) =>
+      reconcileActiveInboundCallInTransaction(
+        transaction,
+        input,
+        at,
+        routeQueueRound,
+        settleAgentLegs,
+      ),
+  };
   return { call, commands, operations, routed, store, tasks };
 }
 
@@ -252,36 +266,6 @@ describe("Prisma ACTIVE inbound lifecycle", () => {
     );
   });
 
-  it("recovers a timed-out transfer target without ending its source", async () => {
-    const fake = fakeDatabase({
-      agentLegs: [
-        { id: "source", kind: "AGENT", status: "BRIDGED" },
-        {
-          id: "target",
-          kind: "AGENT",
-          replacesLegId: "source",
-          status: "RINGING",
-        },
-      ],
-      deadlineAt: now,
-      winningLegId: "source",
-    });
-
-    await fake.store.reconcileDue({ limit: 1, now });
-
-    expect(fake.operations[0]).toContain("CAST('CONNECTED' AS");
-    expect(fake.operations[0]).toContain("replacesLegId");
-    expect(fake.call.winningLegId).toBe("source");
-    expect(fake.call.status).toBe("CONNECTED");
-    expect(fake.call.deadlineAt).toBeNull();
-    expect([...fake.commands.values()]).toContainEqual(
-      expect.objectContaining({ legId: "target", type: "HANGUP_LEG" }),
-    );
-    expect([...fake.commands.values()]).not.toContainEqual(
-      expect.objectContaining({ legId: "source", type: "HANGUP_LEG" }),
-    );
-  });
-
   it("elects the bridge processed under the call lock without timestamp ordering", async () => {
     const fake = fakeDatabase({
       agentLegs: [
@@ -301,76 +285,6 @@ describe("Prisma ACTIVE inbound lifecycle", () => {
     );
 
     expect(fake.call.winningLegId).toBe("processed-first");
-  });
-
-  it("claims due calls with SKIP LOCKED and starts voicemail after all legs end", async () => {
-    const fake = fakeDatabase();
-
-    const [result] = await fake.store.reconcileDue({ limit: 5, now });
-
-    expect(result?.decision?.disposition).toBe("VOICEMAIL");
-    expect(fake.call.deadlineAt).toEqual(new Date("2026-07-12T12:01:20.000Z"));
-    expect(fake.call.status).toBe("VOICEMAIL");
-    expect(fake.operations[0]).toContain("FOR UPDATE SKIP LOCKED");
-    expect([...fake.commands.values()]).toEqual([
-      expect.objectContaining({
-        dependsOnCommandId: "initial-ringback",
-        legId: "customer-leg",
-        type: "STOP_PLAYBACK",
-      }),
-      expect.objectContaining({
-        arguments: { greeting: "Leave a message." },
-        dependsOnCommandId: "command-1",
-        legId: "customer-leg",
-        type: "PLAY_VOICEMAIL_GREETING",
-      }),
-    ]);
-  });
-
-  it("isolates a poison call and continues the bounded recovery batch", async () => {
-    const candidates = ["call-poison", "call-healthy"];
-    const selectedCallIds: string[] = [];
-    let transactions = 0;
-    const transaction = {
-      $queryRaw: async (query: {
-        strings: readonly string[];
-        values: readonly unknown[];
-      }) => {
-        const callId = candidates.find((id) => !query.values.includes(id));
-        if (!callId) return [];
-
-        selectedCallIds.push(callId);
-        return [{ callId, practiceId: "practice-1" }];
-      },
-      callCenterCall: {
-        findFirst: async ({ where }: { where: { id: string } }) => {
-          if (where.id === "call-poison") throw new Error("poison call");
-          return null;
-        },
-      },
-    } as unknown as Prisma.TransactionClient;
-    const store = new PrismaActiveInboundLifecycleStore((operation) => {
-      transactions += 1;
-      return operation(transaction);
-    });
-
-    await expect(store.reconcileDue({ limit: 5, now })).resolves.toEqual([
-      {
-        callId: "call-poison",
-        commandIds: [],
-        decision: null,
-        errorCode: "ACTIVE_INBOUND_RECONCILIATION_FAILED",
-        status: "FAILED",
-      },
-      {
-        callId: "call-healthy",
-        commandIds: [],
-        decision: null,
-        status: "SKIPPED",
-      },
-    ]);
-    expect(selectedCallIds).toEqual(["call-poison", "call-healthy"]);
-    expect(transactions).toBe(3);
   });
 
   it("moves to a configured overflow queue then reuses the queue-round planner", async () => {

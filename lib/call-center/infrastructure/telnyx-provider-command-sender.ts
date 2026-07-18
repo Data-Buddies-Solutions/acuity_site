@@ -24,7 +24,7 @@ export function canonicalCommandClientState(command: ProviderCommandDispatchData
       ...(command.type === "DIAL_AGENT"
         ? {
             endpointId: command.arguments.endpointId,
-            internalSeatLeg: true,
+            internalAgentLeg: true,
           }
         : {}),
       legId: command.legId,
