@@ -7,17 +7,13 @@ import {
   ChevronDown,
   ChevronRight,
   Delete,
-  Grid3X3,
   Headphones,
   Mic,
   MicOff,
-  Pause,
   Phone,
-  PhoneForwarded,
   PhoneIncoming,
   PhoneOff,
   PhoneOutgoing,
-  Play,
 } from "lucide-react";
 
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
@@ -27,20 +23,13 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { PortalNeedsActionGroup } from "@/lib/call-center/portal-model";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
-import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import {
   selectIncomingCalls,
   type AgentSessionView,
   type CallView,
-  type OperationView,
-  type TransferTargetView,
 } from "@/lib/call-center/realtime-contract";
 import { formatPhone } from "@/lib/format";
 
-import {
-  claimCallCenterClientInstance,
-  type CallCenterClientInstance,
-} from "./call-center-client-instance";
 import {
   callCenterResponse,
   localCallCenterError,
@@ -50,35 +39,16 @@ import {
 import { setCallCenterCurrentCallGuard } from "./call-center-current-call-guard";
 import { canonicalTaskSignal } from "./canonical-task-signal";
 import {
-  beginCanonicalTransfer,
-  beginCanonicalTake,
-  answerCanonicalMediaOnce,
   canonicalOutboundIdempotencyKey,
-  canonicalClaimIdempotencyKey,
-  canonicalTransferAttemptNumber,
-  canonicalTransferIdempotencyKey,
   completeCanonicalOutboundOperation,
-  operationShouldAnswerMedia,
-  OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE,
-  runOutboundWithExpiredLeaseRefresh,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
-  selectCanonicalTransferSource,
-  selectCanonicalTransferTakeCandidate,
-  selectLatestClaimOperation,
-  selectLatestTransferOperation,
 } from "./canonical-active-call-center";
 import ActivityRail from "./ActivityRail";
-import {
-  type CanonicalAgentConnectionState,
-  useCanonicalAgentSession,
-} from "./use-canonical-agent-session";
+import type { CanonicalAgentConnectionState } from "./use-canonical-agent-session";
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
-import {
-  selectIncomingRingtoneOffer,
-  useIncomingCallRingtone,
-} from "./use-incoming-call-ringtone";
 import { useSoftphoneMedia } from "./use-softphone";
+import { useSoftphoneRuntime } from "../SoftphoneRuntime";
 
 type CanonicalActiveWorkspaceProps = {
   followUpHref: string;
@@ -92,6 +62,7 @@ type CanonicalActiveWorkspaceProps = {
 };
 
 const keypadDigits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+const OUTBOUND_NUMBER_STORAGE_KEY = "acuity-call-center:outbound-number-id";
 
 function errorMessage(error: unknown, action: CallCenterAction) {
   return operatorErrorCopy(error, action).message;
@@ -102,9 +73,7 @@ function isAgentSessionViewReady(session: AgentSessionView) {
     session.presence === "AVAILABLE" &&
     session.connectionState === "READY" &&
     session.microphoneReady &&
-    session.audioReady &&
-    session.offeredCallId === null &&
-    session.currentCallId === null
+    session.audioReady
   );
 }
 
@@ -145,7 +114,11 @@ export function CallConnectionStatus({
           restoring ? "bg-amber-500" : connected ? "bg-emerald-500" : "bg-slate-400"
         }`}
       />
-      {restoring ? "Restoring calling…" : connected ? "Connected" : "Not connected"}
+      {restoring
+        ? "Restoring calling…"
+        : connected
+          ? "Connected"
+          : "Phone disconnected — reconnecting"}
     </PortalBadge>
   );
 }
@@ -168,15 +141,6 @@ function formatCallDuration(seconds: number) {
   return `${minutes}:${remainingSeconds}`;
 }
 
-function canonicalConnectionState(
-  state: ReturnType<typeof useSoftphoneMedia>["connection"],
-): CanonicalAgentConnectionState {
-  if (state === "READY") return "READY";
-  if (state === "CONNECTING") return "CONNECTING";
-  if (state === "FAILED") return "ERROR";
-  return "CLOSED";
-}
-
 export function CanonicalActiveWorkspace({
   followUpHref,
   historyHref,
@@ -187,45 +151,23 @@ export function CanonicalActiveWorkspace({
   outboundNumbers,
   queueId,
 }: CanonicalActiveWorkspaceProps) {
-  const [client, setClient] = useState<CallCenterClientInstance | null>(null);
-  const [identityError, setIdentityError] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    let claimed: CallCenterClientInstance | null = null;
-    void claimCallCenterClientInstance()
-      .then((next) => {
-        if (!active) {
-          next.release();
-          return;
-        }
-        claimed = next;
-        setClient(next);
-      })
-      .catch(() => {
-        if (active) setIdentityError(true);
-      });
-    return () => {
-      active = false;
-      claimed?.release();
-    };
-  }, []);
+  const runtime = useSoftphoneRuntime();
 
   if (!queueId) {
     return (
       <CanonicalUnavailable message="Calling is not configured for this location." />
     );
   }
-  if (identityError) {
-    return (
-      <CanonicalUnavailable message="This browser could not start calling. Refresh and try again." />
-    );
+  if (runtime.error && !runtime.clientInstanceId) {
+    return <CanonicalUnavailable message={runtime.error} />;
   }
-  if (!client) return <CanonicalUnavailable message="Connecting to the call center…" />;
+  if (!runtime.clientInstanceId) {
+    return <CanonicalUnavailable message="Connecting to the call center…" />;
+  }
 
   return (
     <ConnectedCanonicalActiveWorkspace
-      clientInstanceId={client.clientInstanceId}
+      clientInstanceId={runtime.clientInstanceId}
       followUpHref={followUpHref}
       historyHref={historyHref}
       initialDialNumber={initialDialNumber}
@@ -260,27 +202,29 @@ function ConnectedCanonicalActiveWorkspace({
   queueId: string;
 }) {
   const router = useRouter();
+  const runtime = useSoftphoneRuntime();
   const realtime = useCanonicalCallCenter({ clientInstanceId, queueId });
   const refreshSnapshot = realtime.refetch;
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [numberChoice, setNumberChoice] = useState("");
-  const [recoveringOutbound, setRecoveringOutbound] = useState(false);
   const [startingOutbound, setStartingOutbound] = useState(false);
-  const [mediaReadiness, setMediaReadiness] = useState({
-    audioReady: false,
-    connectionState: "CLOSED" as CanonicalAgentConnectionState,
-    microphoneReady: false,
-  });
-  const takingRef = useRef(new Set<string>());
-  const transferringRef = useRef(new Set<string>());
-  const answeredMediaRef = useRef(new Set<string>());
   const outboundMediaLegsRef = useRef(new Set<string>());
   const outboundStartingRef = useRef(false);
   const taskSignalRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      try {
+        setNumberChoice(window.localStorage.getItem(OUTBOUND_NUMBER_STORAGE_KEY) ?? "");
+      } catch {
+        // Storage is a convenience; server authorization remains authoritative.
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
   const agentProfileId = realtime.state?.agentProfile?.id ?? "";
-  const shouldConnect = Boolean(agentProfileId);
   const eligibleOutboundNumbers = outboundNumbers;
   const selectedNumberId = eligibleOutboundNumbers.some(({ id }) => id === numberChoice)
     ? numberChoice
@@ -292,56 +236,13 @@ function ConnectedCanonicalActiveWorkspace({
   const taskSignal = state
     ? canonicalTaskSignal(state.counts.openTasks, state.tasks)
     : undefined;
-  const projectedSession =
-    state?.agentSession?.clientInstanceId === clientInstanceId &&
-    state.agentSession.endpointId === agentProfileId
-      ? state.agentSession
-      : null;
-  const sessionConnectionState = canonicalSessionConnectionState(
-    mediaReadiness.connectionState,
-    shouldConnect,
-  );
-  const canonicalSession = useCanonicalAgentSession({
-    audioReady: mediaReadiness.audioReady,
-    clientInstanceId,
-    connectionState: sessionConnectionState,
-    microphoneReady: mediaReadiness.microphoneReady,
-    presence: !shouldConnect
-      ? "OFFLINE"
-      : sessionConnectionState === "READY" &&
-          mediaReadiness.audioReady &&
-          mediaReadiness.microphoneReady
-        ? "AVAILABLE"
-        : "PAUSED",
-    projectedSession,
-  });
-  const leasedSession = canonicalSession.session;
-  const leasedSessionId = leasedSession?.id ?? null;
-  const leasedCurrentCallId = leasedSession?.currentCallId ?? null;
-  const leasedOfferedCallId = leasedSession?.offeredCallId ?? null;
-  const media = useSoftphoneMedia({
-    agentSessionId: leasedSessionId,
-    autoPrepare: shouldConnect,
-    browserSessionId: clientInstanceId,
-    enabled: Boolean(
-      shouldConnect && agentProfileId && leasedSession?.endpointId === agentProfileId,
-    ),
-  });
+  const session = runtime.session;
+  const media = runtime.media;
   const {
     activate: activateMedia,
-    answer: answerMediaLeg,
-    connection: mediaConnection,
     dial: dialMediaLeg,
-    microphoneReady: mediaMicrophoneReady,
     observations: mediaObservations,
-    setRemoteAudioElement,
-    soundReady: mediaSoundReady,
   } = media;
-  const {
-    refresh: refreshCanonicalSession,
-    start: startCanonicalSession,
-    stop: stopCanonicalSession,
-  } = canonicalSession;
 
   useEffect(() => {
     if (taskSignal === undefined) return;
@@ -356,89 +257,14 @@ function ConnectedCanonicalActiveWorkspace({
     }
   }, [router, taskSignal]);
 
-  useEffect(() => {
-    const next = {
-      audioReady: mediaSoundReady,
-      connectionState: canonicalConnectionState(mediaConnection),
-      microphoneReady: mediaMicrophoneReady,
-    };
-    // The provider connection starts only after the server lease exists, so its
-    // readiness is intentionally fed into the next lease update.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMediaReadiness((current) =>
-      current.audioReady === next.audioReady &&
-      current.connectionState === next.connectionState &&
-      current.microphoneReady === next.microphoneReady
-        ? current
-        : next,
-    );
-  }, [mediaConnection, mediaMicrophoneReady, mediaSoundReady]);
-
-  useEffect(() => {
-    if (shouldConnect) {
-      void startCanonicalSession();
-    } else {
-      void stopCanonicalSession();
-    }
-    return () => {
-      void stopCanonicalSession();
-    };
-  }, [shouldConnect, startCanonicalSession, stopCanonicalSession]);
-
-  const session = leasedSession;
-
-  useEffect(() => {
-    if (!state || !leasedSessionId) return;
-    setCallCenterCurrentCallGuard(
-      session?.currentCallId ??
-        session?.offeredCallId ??
-        leasedCurrentCallId ??
-        leasedOfferedCallId,
-    );
-  }, [
-    leasedCurrentCallId,
-    leasedOfferedCallId,
-    leasedSessionId,
-    session?.currentCallId,
-    session?.offeredCallId,
-    state,
-  ]);
   const incomingCalls = useMemo(() => (state ? selectIncomingCalls(state) : []), [state]);
-  const ringtoneOfferId = state
-    ? selectIncomingRingtoneOffer({
-        calls: state.calls,
-        connection: state.connection,
-        operations: state.operations,
-        queueId,
-        session: session
-          ? {
-              ...session,
-              audioReady: mediaSoundReady,
-              connectionState: mediaConnection === "READY" ? "READY" : "DISCONNECTED",
-              microphoneReady: mediaMicrophoneReady,
-            }
-          : null,
-      })
-    : null;
-  const ringtone = useIncomingCallRingtone(ringtoneOfferId);
-  const transferTakeCandidate =
-    state && session
-      ? selectCanonicalTransferTakeCandidate(
-          state.calls,
-          state.operations,
-          session,
-          mediaObservations,
-        )
-      : null;
-  const activeCall =
-    transferTakeCandidate?.call ??
-    selectCanonicalAgentActiveCall(state?.calls ?? [], session);
+  const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
 
   const callingReady = Boolean(session && isAgentSessionViewReady(session));
 
   useEffect(() => {
-    if (activeCall?.status === "CONNECTED") refreshSnapshot();
-  }, [activeCall?.id, activeCall?.status, refreshSnapshot]);
+    setCallCenterCurrentCallGuard(activeCall?.id ?? null);
+  }, [activeCall?.id]);
 
   const recentCalls = useMemo(
     () =>
@@ -459,45 +285,6 @@ function ConnectedCanonicalActiveWorkspace({
     }
   }, [activateMedia, mediaObservations]);
 
-  const answerMedia = useCallback(
-    async (mediaLegId: string) => {
-      const answered = await answerCanonicalMediaOnce(
-        answeredMediaRef.current,
-        mediaLegId,
-        () => Promise.resolve(answerMediaLeg(mediaLegId)),
-      );
-      if (answered) {
-        activateMedia(mediaLegId);
-      }
-    },
-    [activateMedia, answerMediaLeg],
-  );
-
-  useEffect(() => {
-    if (!state || !session) return;
-    for (const call of incomingCalls) {
-      const match = selectCanonicalBrowserMediaLeg(
-        call,
-        session.id,
-        session.endpointId,
-        mediaObservations,
-      );
-      if (!match || !["RINGING", "CONNECTING"].includes(match.observation.state)) {
-        continue;
-      }
-      const operation = selectLatestClaimOperation(state.operations, {
-        agentSessionId: session.id,
-        callId: call.id,
-        endpointId: session.endpointId,
-        legId: match.leg.id,
-      });
-      if (!operationShouldAnswerMedia(operation)) continue;
-      void answerMedia(match.observation.mediaLegId).catch((error) => {
-        setActionError(errorMessage(error, "take"));
-      });
-    }
-  }, [answerMedia, incomingCalls, mediaObservations, session, state]);
-
   const takeCall = useCallback(
     async (call: CallView) => {
       if (!session) return;
@@ -511,94 +298,15 @@ function ConnectedCanonicalActiveWorkspace({
         setActionError("This call is still connecting. Try again in a moment.");
         return;
       }
-      if (!beginCanonicalTake(takingRef.current, call.id)) return;
-
-      setActionError(null);
-      setCallCenterCurrentCallGuard(call.id);
-      try {
-        const response = await fetch(
-          `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/claim`,
-          {
-            body: JSON.stringify({
-              clientInstanceId,
-              expectedSessionStateVersion: session.stateVersion,
-            }),
-            headers: {
-              "Content-Type": "application/json",
-              "Idempotency-Key": canonicalClaimIdempotencyKey(call.id, session.id),
-            },
-            method: "POST",
-          },
-        );
-        await callCenterResponse(response);
-        await answerMedia(match.observation.mediaLegId);
-      } catch (error) {
-        const alreadyClaimed =
-          error instanceof CallCenterRequestError &&
-          error.operatorError.code === "CALL_ALREADY_CLAIMED";
-        setCallCenterCurrentCallGuard(alreadyClaimed ? null : session.currentCallId);
-        if (alreadyClaimed) refreshSnapshot();
-        setActionError(errorMessage(error, "take"));
-      } finally {
-        takingRef.current.delete(call.id);
-      }
-    },
-    [answerMedia, clientInstanceId, mediaObservations, refreshSnapshot, session],
-  );
-
-  const takeTransfer = useCallback(async () => {
-    if (!transferTakeCandidate) return;
-    setActionError(null);
-    try {
-      await answerMedia(transferTakeCandidate.observation.mediaLegId);
-    } catch (error) {
-      setActionError(errorMessage(error, "take"));
-    }
-  }, [answerMedia, transferTakeCandidate]);
-
-  const transferActiveCall = useCallback(
-    async (call: CallView, targetUserId: string) => {
-      if (!session) return;
-      const source = selectCanonicalTransferSource(call, session);
-      if (!source) {
-        setActionError(
-          errorMessage(localCallCenterError("CALL_NOT_CONNECTED", false), "transfer"),
-        );
-        return;
-      }
-      if (!beginCanonicalTransfer(transferringRef.current, call.id, source.id)) return;
 
       setActionError(null);
       try {
-        const response = await fetch(
-          `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/transfer`,
-          {
-            body: JSON.stringify({ targetUserId }),
-            headers: {
-              "Content-Type": "application/json",
-              "Idempotency-Key": canonicalTransferIdempotencyKey(
-                call.id,
-                source.id,
-                targetUserId,
-                canonicalTransferAttemptNumber(
-                  call,
-                  state?.operations ?? null,
-                  source.id,
-                  targetUserId,
-                ),
-              ),
-            },
-            method: "POST",
-          },
-        );
-        await callCenterResponse(response);
-      } catch (error) {
-        setActionError(errorMessage(error, "transfer"));
-      } finally {
-        transferringRef.current.delete(`${call.id}:${source.id}`);
+        await runtime.take(match.observation.mediaLegId);
+      } catch {
+        setActionError("Call ended");
       }
     },
-    [session, state],
+    [mediaObservations, runtime, session],
   );
 
   const startOutbound = useCallback(async () => {
@@ -646,12 +354,7 @@ function ConnectedCanonicalActiveWorkspace({
           to?: unknown;
         }>(response);
       };
-      const body = await runOutboundWithExpiredLeaseRefresh({
-        leaseExpiresAt: session.leaseExpiresAt,
-        onRecovering: () => setRecoveringOutbound(true),
-        operation: requestOutbound,
-        refresh: refreshCanonicalSession,
-      });
+      const body = await requestOutbound();
       if (
         typeof body?.callId !== "string" ||
         typeof body?.clientState !== "string" ||
@@ -670,26 +373,12 @@ function ConnectedCanonicalActiveWorkspace({
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
-      setActionError(
-        error instanceof Error &&
-          error.message === OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE
-          ? OUTBOUND_SESSION_RECOVERY_FAILURE_MESSAGE
-          : errorMessage(error, "outbound"),
-      );
+      setActionError(errorMessage(error, "outbound"));
     } finally {
       outboundStartingRef.current = false;
-      setRecoveringOutbound(false);
       setStartingOutbound(false);
     }
-  }, [
-    clientInstanceId,
-    destination,
-    dialMediaLeg,
-    queueId,
-    refreshCanonicalSession,
-    selectedNumberId,
-    session,
-  ]);
+  }, [clientInstanceId, destination, dialMediaLeg, queueId, selectedNumberId, session]);
 
   if (realtime.error && !state) {
     return (
@@ -703,22 +392,19 @@ function ConnectedCanonicalActiveWorkspace({
     return <CanonicalUnavailable message="Connecting to the call center…" />;
   }
 
-  const outboundHelp = recoveringOutbound
-    ? "Restoring calling and preparing your call."
-    : activeCall
-      ? "Finish the current call before starting another."
-      : !callingReady
-        ? "Start taking calls before placing an outbound call."
-        : session?.presence !== "AVAILABLE"
-          ? "Wait until you are Ready to place a call."
-          : !selectedNumberId
-            ? "No outbound caller number is configured."
-            : "Enter a patient number to begin.";
+  const outboundHelp = activeCall
+    ? "Finish the current call before starting another."
+    : !callingReady
+      ? "Start taking calls before placing an outbound call."
+      : session?.presence !== "AVAILABLE"
+        ? "Wait until you are Ready to place a call."
+        : !selectedNumberId
+          ? "No outbound caller number is configured."
+          : "Enter a patient number to begin.";
   const canStartOutbound = Boolean(
     session?.presence === "AVAILABLE" &&
     session.connectionState === "READY" &&
-    !session.currentCallId &&
-    !session.offeredCallId &&
+    !activeCall &&
     selectedNumberId &&
     destination.trim() &&
     !startingOutbound,
@@ -732,14 +418,33 @@ function ConnectedCanonicalActiveWorkspace({
           role="alert"
         >
           <div>
-            <p className="font-medium">Call center updates are unavailable.</p>
-            <p className="mt-0.5 text-amber-900/75">
-              {errorMessage(realtime.error, "connect")}
-            </p>
+            <p className="font-medium">Call activity delayed — retrying</p>
           </div>
           <Button onClick={refreshSnapshot} size="sm" variant="secondary">
             Retry
           </Button>
+        </section>
+      ) : null}
+
+      {runtime.error ? (
+        <section
+          className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+          role="alert"
+        >
+          <p>{session ? "Phone disconnected — reconnecting" : runtime.error}</p>
+          {!session ? (
+            <Button
+              onClick={() =>
+                void runtime.takeover().catch(() => {
+                  setActionError("The phone could not move to this tab");
+                })
+              }
+              size="sm"
+              variant="secondary"
+            >
+              Use phone here
+            </Button>
+          ) : null}
         </section>
       ) : null}
 
@@ -749,13 +454,13 @@ function ConnectedCanonicalActiveWorkspace({
         </p>
       ) : null}
 
-      {ringtone.blocked ? (
+      {runtime.ringtone.blocked ? (
         <section
           className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
           role="status"
         >
           <p>Incoming call waiting. Turn on sound to hear the ringtone.</p>
-          <Button onClick={ringtone.retry} size="sm" variant="secondary">
+          <Button onClick={runtime.ringtone.retry} size="sm" variant="secondary">
             Turn on sound
           </Button>
         </section>
@@ -779,25 +484,16 @@ function ConnectedCanonicalActiveWorkspace({
             {incomingCalls.length ? (
               <ul className="space-y-3">
                 {incomingCalls.map((call) => {
-                  const match =
-                    session?.offeredCallId === call.id
-                      ? selectCanonicalBrowserMediaLeg(
-                          call,
-                          session.id,
-                          session.endpointId,
-                          mediaObservations,
-                        )
-                      : null;
-                  const operation =
-                    session && match
-                      ? selectLatestClaimOperation(state.operations, {
-                          agentSessionId: session.id,
-                          callId: call.id,
-                          endpointId: session.endpointId,
-                          legId: match.leg.id,
-                        })
-                      : null;
-                  const connecting = operation && operation.status !== "FAILED";
+                  const match = session
+                    ? selectCanonicalBrowserMediaLeg(
+                        call,
+                        session.id,
+                        session.endpointId,
+                        mediaObservations,
+                      )
+                    : null;
+                  const taking =
+                    match?.observation.mediaLegId === runtime.takingMediaLegId;
                   const phone = formatPhone(callPhone(call));
 
                   return (
@@ -811,23 +507,22 @@ function ConnectedCanonicalActiveWorkspace({
                         </p>
                         <p className="mt-1 text-xs text-[var(--portal-muted)]">
                           {call.callerName ? `${phone} · ` : ""}
-                          {operation?.status === "FAILED"
-                            ? "Could not answer. Try again."
-                            : connecting
-                              ? "Connecting…"
-                              : match
-                                ? "Ringing"
-                                : "Preparing"}
+                          {taking ? "Connecting…" : match ? "Ringing" : "Preparing"}
                         </p>
                       </div>
                       <Button
                         className="w-fit"
-                        disabled={!session || !match || Boolean(connecting)}
+                        disabled={
+                          !session ||
+                          !match ||
+                          Boolean(runtime.takingMediaLegId) ||
+                          Boolean(activeCall)
+                        }
                         onClick={() => void takeCall(call)}
                         size="sm"
                         variant="primary"
                       >
-                        {connecting ? "Taking" : "Take"}
+                        {taking ? "Taking" : "Take"}
                       </Button>
                     </li>
                   );
@@ -856,7 +551,7 @@ function ConnectedCanonicalActiveWorkspace({
           <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Calling</h2>
-              <CallConnectionStatus restoring={recoveringOutbound} session={session} />
+              <CallConnectionStatus session={session} />
             </div>
           </section>
 
@@ -866,7 +561,15 @@ function ConnectedCanonicalActiveWorkspace({
                 Outbound number
                 <PortalSelect
                   disabled={!eligibleOutboundNumbers.length}
-                  onChange={(event) => setNumberChoice(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setNumberChoice(value);
+                    try {
+                      window.localStorage.setItem(OUTBOUND_NUMBER_STORAGE_KEY, value);
+                    } catch {
+                      // Storage is optional.
+                    }
+                  }}
                   value={selectedNumberId}
                 >
                   {eligibleOutboundNumbers.map((number) => (
@@ -897,16 +600,10 @@ function ConnectedCanonicalActiveWorkspace({
               {activeCall ? (
                 <CanonicalActiveCall
                   call={activeCall}
-                  clientInstanceId={clientInstanceId}
                   endpointId={agentProfileId}
                   key={activeCall.id}
                   media={media}
-                  onTakeTransfer={takeTransfer}
-                  onTransfer={transferActiveCall}
-                  operations={state.operations}
                   sessionId={session?.id ?? null}
-                  transferTargets={state.transferTargets}
-                  transferTakeCandidate={transferTakeCandidate}
                 />
               ) : (
                 <>
@@ -939,11 +636,7 @@ function ConnectedCanonicalActiveWorkspace({
                       variant="primary"
                     >
                       <Phone className="h-4 w-4" aria-hidden="true" />
-                      {recoveringOutbound
-                        ? "Preparing…"
-                        : startingOutbound
-                          ? "Calling"
-                          : "Call"}
+                      {startingOutbound ? "Calling" : "Call"}
                     </Button>
                   </div>
                   <div className="grid max-w-60 grid-cols-3 gap-2">
@@ -962,12 +655,6 @@ function ConnectedCanonicalActiveWorkspace({
                   </p>
                 </>
               )}
-              <audio
-                ref={setRemoteAudioElement}
-                autoPlay
-                className="hidden"
-                playsInline
-              />
             </div>
           </section>
         </div>
@@ -978,73 +665,26 @@ function ConnectedCanonicalActiveWorkspace({
 
 export function CanonicalActiveCall({
   call,
-  clientInstanceId,
   endpointId,
   media,
-  onTakeTransfer,
-  onTransfer,
-  operations,
   sessionId,
-  transferTargets,
-  transferTakeCandidate,
 }: {
   call: CallView;
-  clientInstanceId: string;
   endpointId: string;
-  media: ReturnType<typeof useSoftphoneMedia>;
-  onTakeTransfer: () => Promise<void>;
-  onTransfer: (call: CallView, targetUserId: string) => Promise<void>;
-  operations: readonly OperationView[] | null;
+  media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
   sessionId: string | null;
-  transferTargets: TransferTargetView[];
-  transferTakeCandidate: ReturnType<typeof selectCanonicalTransferTakeCandidate>;
 }) {
-  const [targetChoice, setTargetChoice] = useState("");
   const [callDuration, setCallDuration] = useState(0);
   const [controlError, setControlError] = useState<string | null>(null);
-  const [controlPending, setControlPending] = useState<"end" | "hold" | null>(null);
-  const [heldOverride, setHeldOverride] = useState<{
-    mediaLegId: string;
-    value: boolean;
-  } | null>(null);
+  const [ending, setEnding] = useState(false);
   const [isMuted, setMuted] = useState(false);
-  const [showKeypad, setShowKeypad] = useState(false);
   const match = sessionId
     ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
     : null;
-  const localSession = sessionId ? { endpointId, id: sessionId } : null;
-  const source = localSession ? selectCanonicalTransferSource(call, localSession) : null;
-  const selectedTargetId = transferTargets.some(({ userId }) => userId === targetChoice)
-    ? targetChoice
-    : (transferTargets[0]?.userId ?? "");
-  const transferOperation =
-    source && selectedTargetId
-      ? selectLatestTransferOperation(operations, {
-          callId: call.id,
-          sourceLegId: source.id,
-          targetUserId: selectedTargetId,
-        })
-      : null;
-  const transferTargetLeg = transferOperation?.targetLegId
-    ? (call.legs.find(({ id }) => id === transferOperation.targetLegId) ?? null)
-    : null;
-  const transferFailed = Boolean(
-    transferOperation &&
-    (transferOperation.status === "FAILED" ||
-      (transferTargetLeg &&
-        ["ENDED", "FAILED"].includes(transferTargetLeg.status) &&
-        call.winningLegId !== transferTargetLeg.id)),
-  );
-  const transferPending = Boolean(transferOperation && !transferFailed);
   const canEnd = Boolean(match);
-  const targetTransfer =
-    transferTakeCandidate?.call.id === call.id ? transferTakeCandidate : null;
   const phone = formatPhone(callPhone(call));
-  const connected = call.status === "CONNECTED" && !targetTransfer;
+  const connected = call.status === "CONNECTED";
   const mediaLegId = match?.observation.mediaLegId ?? null;
-  const observedHeld = match?.observation.state === "HELD";
-  const isHeld =
-    heldOverride?.mediaLegId === mediaLegId ? heldOverride.value : observedHeld;
   const controlsEnabled = Boolean(
     mediaLegId &&
     (match?.leg.status === "BRIDGED" || match?.observation.state === "ACTIVE"),
@@ -1083,110 +723,18 @@ export function CanonicalActiveCall({
     }
   };
 
-  const toggleHold = async () => {
-    if (!mediaLegId || controlPending) return;
-
-    const requestedHeld = !isHeld;
-    setHeldOverride({ mediaLegId, value: requestedHeld });
-    setControlPending("hold");
-    try {
-      const updated = await media.hold(mediaLegId, requestedHeld);
-      if (updated === false) {
-        throw localCallCenterError("PROVIDER_UNAVAILABLE");
-      }
-      setControlError(null);
-    } catch (error) {
-      setHeldOverride(null);
-      showControlError(error, "hold");
-    } finally {
-      setControlPending(null);
-    }
-  };
-
   const endCall = async () => {
-    if (!mediaLegId || controlPending) return;
+    if (!mediaLegId || ending) return;
 
-    setControlPending("end");
+    setEnding(true);
     try {
-      const response = await fetch(
-        `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/end`,
-        {
-          body: JSON.stringify({ clientInstanceId }),
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": `canonical-end:${call.id}:${sessionId}:${match?.leg.id}`,
-          },
-          method: "POST",
-        },
-      );
-      await callCenterResponse(response);
+      media.hangup(mediaLegId);
       setControlError(null);
     } catch (error) {
       showControlError(error, "end");
-      setControlPending(null);
+      setEnding(false);
     }
   };
-
-  const sendDigit = (digit: string) => {
-    if (!mediaLegId || !controlsEnabled || controlPending) return;
-
-    try {
-      media.sendDtmf(mediaLegId, digit);
-      setControlError(null);
-    } catch (error) {
-      showControlError(error, "keypad");
-    }
-  };
-
-  const transferControls = source ? (
-    <div className="mt-3 rounded-md border border-[var(--portal-border)] bg-white p-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <label className="min-w-0 flex-1">
-          <span className="sr-only">Transfer person</span>
-          <PortalSelect
-            disabled={transferTargets.length === 0}
-            onChange={(event) => setTargetChoice(event.target.value)}
-            value={selectedTargetId}
-          >
-            {transferTargets.length ? (
-              transferTargets.map((target) => (
-                <option key={target.userId} value={target.userId}>
-                  {target.name}
-                </option>
-              ))
-            ) : (
-              <option value="">No people available</option>
-            )}
-          </PortalSelect>
-        </label>
-        <Button
-          disabled={!selectedTargetId || transferPending}
-          onClick={() => void onTransfer(call, selectedTargetId)}
-          variant="secondary"
-        >
-          <PhoneForwarded className="h-4 w-4" aria-hidden="true" />
-          {transferFailed
-            ? "Retry transfer"
-            : transferPending
-              ? "Transferring"
-              : "Transfer"}
-        </Button>
-      </div>
-      {transferOperation ? (
-        <p
-          className={`mt-2 text-xs ${transferFailed ? "text-[var(--portal-danger)]" : "text-[var(--portal-muted)]"}`}
-        >
-          {transferFailed
-            ? "The transfer could not be completed. Try again."
-            : `Transfer ${transferOperation.status.toLowerCase()}`}
-        </p>
-      ) : transferTargets.length === 0 ? (
-        <p className="mt-2 text-xs text-[var(--portal-muted)]">
-          No other staff member is available for transfer.
-        </p>
-      ) : null}
-    </div>
-  ) : null;
 
   if (connected) {
     return (
@@ -1212,10 +760,10 @@ export function CanonicalActiveCall({
           </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2">
           <Button
             aria-pressed={isMuted}
-            disabled={!controlsEnabled || Boolean(controlPending)}
+            disabled={!controlsEnabled || ending}
             onClick={toggleMute}
             variant={isMuted ? "default" : "secondary"}
           >
@@ -1227,53 +775,14 @@ export function CanonicalActiveCall({
             {isMuted ? "Unmute" : "Mute"}
           </Button>
           <Button
-            aria-pressed={isHeld}
-            disabled={!controlsEnabled || Boolean(controlPending)}
-            onClick={() => void toggleHold()}
-            variant={isHeld ? "default" : "secondary"}
-          >
-            {isHeld ? (
-              <Play className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <Pause className="h-4 w-4" aria-hidden="true" />
-            )}
-            {controlPending === "hold" ? "Updating" : isHeld ? "Resume" : "Hold"}
-          </Button>
-          <Button
-            aria-expanded={showKeypad}
-            disabled={!controlsEnabled || Boolean(controlPending)}
-            onClick={() => setShowKeypad((current) => !current)}
-            variant={showKeypad ? "default" : "secondary"}
-          >
-            <Grid3X3 className="h-4 w-4" aria-hidden="true" />
-            Keypad
-          </Button>
-          <Button
-            disabled={!controlsEnabled || Boolean(controlPending)}
+            disabled={!controlsEnabled || ending}
             onClick={() => void endCall()}
             variant="secondary"
           >
             <PhoneOff className="h-4 w-4" aria-hidden="true" />
-            {controlPending === "end" ? "Ending" : "End"}
+            {ending ? "Ending" : "End"}
           </Button>
         </div>
-
-        {showKeypad ? (
-          <div className="mt-4 grid max-w-60 grid-cols-3 gap-2">
-            {keypadDigits.map((digit) => (
-              <Button
-                disabled={!controlsEnabled || Boolean(controlPending)}
-                key={digit}
-                onClick={() => sendDigit(digit)}
-                variant="secondary"
-              >
-                {digit}
-              </Button>
-            ))}
-          </div>
-        ) : null}
-
-        {transferControls}
       </div>
     );
   }
@@ -1292,18 +801,6 @@ export function CanonicalActiveCall({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {targetTransfer ? (
-            <Button
-              disabled={
-                !["RINGING", "CONNECTING"].includes(targetTransfer.observation.state)
-              }
-              onClick={() => void onTakeTransfer()}
-              size="sm"
-              variant="primary"
-            >
-              Take transfer
-            </Button>
-          ) : null}
           <Button
             disabled={!canEnd}
             onClick={() => void endCall()}
@@ -1315,14 +812,6 @@ export function CanonicalActiveCall({
           </Button>
         </div>
       </div>
-
-      {source ? (
-        transferControls
-      ) : targetTransfer ? (
-        <p className="mt-3 text-xs text-[var(--portal-muted)]">
-          A transferred call is ringing now.
-        </p>
-      ) : null}
     </div>
   );
 }

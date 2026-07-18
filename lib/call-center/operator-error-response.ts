@@ -129,6 +129,10 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     retryable: false,
   },
   "Only inbound calls can be claimed": { code: "CALL_NOT_FOUND", retryable: false },
+  "Phone active in another tab": {
+    code: "CALL_CENTER_SESSION_IN_USE",
+    retryable: false,
+  },
   "Queue membership is required": { code: "ACCESS_DENIED", retryable: false },
   "That staff member is not available for transfer": {
     code: "TRANSFER_TARGET_UNAVAILABLE",
@@ -140,6 +144,10 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
   },
   "This user is already active in another browser": {
     code: "CALL_CENTER_SESSION_IN_USE",
+    retryable: false,
+  },
+  "Finish the active call before using the phone here": {
+    code: "CALL_NOT_READY",
     retryable: false,
   },
   "Transfer target changed; refresh and try again": {

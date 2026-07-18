@@ -6,6 +6,7 @@ import { getPortalWorkspaceState } from "@/lib/portal-state";
 import { getPortalTasks, portalTaskCategories } from "@/lib/portal-tasks";
 
 import PortalWorkspaceShell from "./PortalWorkspaceShell";
+import { SoftphoneRuntime } from "./SoftphoneRuntime";
 
 export default async function PortalAppLayout({
   children,
@@ -38,15 +39,17 @@ export default async function PortalAppLayout({
     : 0;
 
   return (
-    <PortalWorkspaceShell
-      isLive={portalState.launched}
-      latestBookingAt={latestBookings?.bookings[0]?.callStartedAt.toISOString() ?? null}
-      outstandingTaskCount={(taskState?.totalOpenTasks ?? 0) + inProgressTaskCount}
-      practiceBranding={portalState.branding}
-      practiceName={portalState.draft.practiceName}
-      userEmail={session.user.email}
-    >
-      {children}
-    </PortalWorkspaceShell>
+    <SoftphoneRuntime>
+      <PortalWorkspaceShell
+        isLive={portalState.launched}
+        latestBookingAt={latestBookings?.bookings[0]?.callStartedAt.toISOString() ?? null}
+        outstandingTaskCount={(taskState?.totalOpenTasks ?? 0) + inProgressTaskCount}
+        practiceBranding={portalState.branding}
+        practiceName={portalState.draft.practiceName}
+        userEmail={session.user.email}
+      >
+        {children}
+      </PortalWorkspaceShell>
+    </SoftphoneRuntime>
   );
 }

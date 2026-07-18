@@ -1,5 +1,4 @@
 import { Prisma } from "@/generated/prisma/client";
-import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
 import { settleProviderCommandsForTerminalLeg } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
 
@@ -17,6 +16,7 @@ type SettlementInput = {
   callId: string;
   hangupIdempotencyKeys?: Readonly<Record<string, string>>;
   includeCustomerLegs?: boolean;
+  includeTerminalProviderLegs?: boolean;
   legIds?: readonly string[];
   now: Date;
   reason: string;
@@ -24,7 +24,7 @@ type SettlementInput = {
 };
 
 /**
- * Makes released canonical legs, reservations, and provider effects agree.
+ * Makes released canonical legs and provider effects agree.
  * The call row must already be locked by the owning transition.
  */
 export async function settleCanonicalCallLegs(
@@ -34,7 +34,6 @@ export async function settleCanonicalCallLegs(
   const legs = await transaction.callCenterCallLeg.findMany({
     orderBy: [{ startedAt: "asc" }, { id: "asc" }],
     select: {
-      agentSessionId: true,
       id: true,
       providerCallControlId: true,
       status: true,
@@ -66,7 +65,8 @@ export async function settleCanonicalCallLegs(
 
     if (
       leg.providerCallControlId &&
-      LIVE_AGENT_LEG_STATUSES.includes(leg.status as never)
+      (LIVE_AGENT_LEG_STATUSES.includes(leg.status as never) ||
+        input.includeTerminalProviderLegs)
     ) {
       const existing = await transaction.callCenterCommand.findFirst({
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -109,15 +109,6 @@ export async function settleCanonicalCallLegs(
           status: input.terminalLegStatus ?? "ENDED",
         },
         where: { id: leg.id },
-      });
-    }
-    if (leg.agentSessionId) {
-      await releaseAgentSessionReservation(transaction, {
-        agentSessionId: leg.agentSessionId,
-        callId: input.callId,
-        idempotencyKey: `settle:${input.callId}:${leg.id}:release`,
-        now: input.now,
-        reason: input.reason,
       });
     }
   }

@@ -5,7 +5,7 @@ import { settleCanonicalCallLegs } from "../prisma-call-resource-settlement";
 const now = new Date("2026-07-14T12:00:00.000Z");
 
 describe("canonical call resource settlement", () => {
-  it("terminalizes and releases a failed transfer target exactly once", async () => {
+  it("terminalizes a failed target exactly once without session pointers", async () => {
     const call = {
       deadlineAt: new Date("2026-07-14T12:00:30.000Z") as Date | null,
       practiceId: "practice-1",
@@ -17,7 +17,7 @@ describe("canonical call resource settlement", () => {
       agentSessionId: "target-session",
       errorCode: null as string | null,
       id: "target-leg",
-      providerCallControlId: "target-control",
+      providerCallControlId: null as string | null,
       status: "RINGING",
     };
     const session = {
@@ -102,18 +102,23 @@ describe("canonical call resource settlement", () => {
       reason: "TRANSFER_TIMEOUT",
     } as const;
     const first = await settleCanonicalCallLegs(transaction as never, input);
-    const replay = await settleCanonicalCallLegs(transaction as never, input);
+    leg.providerCallControlId = "target-control";
+    const late = await settleCanonicalCallLegs(transaction as never, {
+      ...input,
+      includeTerminalProviderLegs: true,
+    });
+    const replay = await settleCanonicalCallLegs(transaction as never, {
+      ...input,
+      includeTerminalProviderLegs: true,
+    });
 
-    expect(first).toEqual(["hangup-target"]);
-    expect(replay).toEqual([]);
+    expect(first).toEqual([]);
+    expect(late).toEqual(["hangup-target"]);
+    expect(replay).toEqual(["hangup-target"]);
     expect(hangupCreates).toBe(1);
     expect(leg).toMatchObject({ errorCode: "TRANSFER_TIMEOUT", status: "ENDED" });
-    expect(session).toMatchObject({
-      currentCallId: null,
-      offeredCallId: null,
-      presence: "AVAILABLE",
-    });
+    expect(session).toMatchObject({ offeredCallId: "call-1", presence: "BUSY" });
     expect(call).toMatchObject({ deadlineAt: null, stateVersion: 4 });
-    expect(releaseEvents).toBe(1);
+    expect(releaseEvents).toBe(0);
   });
 });

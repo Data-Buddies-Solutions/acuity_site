@@ -55,8 +55,11 @@ describe("canonical realtime serializers", () => {
       browserSessionId: "tab-1",
       endpointId: { in: ["endpoint-1"] },
       OR: [
-        { currentCallId: { not: null } },
-        { offeredCallId: { not: null } },
+        {
+          callLegs: {
+            some: { status: { in: ["ANSWERED", "BRIDGED"] } },
+          },
+        },
         {
           connectionState: { not: "CLOSED" },
           leaseExpiresAt: { gt: now },
@@ -72,6 +75,7 @@ describe("canonical realtime serializers", () => {
     const session = {
       audioReady: false,
       browserSessionId: "tab-1",
+      callLegs: [{ status: "BRIDGED" as const }],
       connectionState: "CLOSED" as const,
       currentCallId: "call-1",
       offeredCallId: null,
@@ -113,7 +117,7 @@ describe("canonical realtime serializers", () => {
           type: "AGENT_SESSION_LEASE_EXPIRED",
         },
       ],
-      sessions: [{ ...session, currentCallId: null }],
+      sessions: [{ ...session, callLegs: [], currentCallId: null }],
       tasks: [],
     });
 
@@ -249,6 +253,7 @@ describe("canonical realtime serializers", () => {
     const session = serializeAgentSession({
       audioReady: false,
       browserSessionId: "tab-1",
+      callLegs: [{ status: "BRIDGED" }],
       connectionState: "ERROR",
       currentCallId: "call-1",
       offeredCallId: null,

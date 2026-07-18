@@ -16,8 +16,6 @@ function session(
   return {
     audioReady: true,
     connectionState: "READY",
-    currentCallId: null,
-    offeredCallId: null,
     endpoint: {
       configured: true,
       enabled: true,
@@ -27,6 +25,7 @@ function session(
     id,
     leaseExpiresAt: new Date(now.getTime() + 30_000),
     microphoneReady: true,
+    occupied: false,
     presence: "AVAILABLE",
     ...overrides,
   };
@@ -75,7 +74,7 @@ describe("inbound routing decision", () => {
     );
   });
 
-  it("rejects expired readiness, wrong locations, and occupied sessions", () => {
+  it("allows multiple ringing offers but rejects answered or bridged occupancy", () => {
     const result = decideInboundRouting(
       queue({
         members: [
@@ -92,8 +91,8 @@ describe("inbound routing decision", () => {
                   locationId: "location-2",
                 },
               }),
-              session("offered", "endpoint-4", { offeredCallId: "call-ringing" }),
-              session("busy", "endpoint-3", { currentCallId: "call-active" }),
+              session("another-offer", "endpoint-4"),
+              session("busy", "endpoint-3", { occupied: true }),
             ],
           },
         ],
@@ -101,12 +100,17 @@ describe("inbound routing decision", () => {
       now,
     );
 
-    expect(result.eligible).toEqual([]);
+    expect(result.eligible).toEqual([
+      {
+        agentSessionId: "another-offer",
+        endpointId: "endpoint-4",
+        userId: "user-1",
+      },
+    ]);
     expect(result.exclusions).toMatchObject({
-      CURRENT_CALL: 1,
+      ACTIVE_CALL: 1,
       LEASE_EXPIRED: 1,
       LOCATION_MISMATCH: 1,
-      OFFERED_CALL: 1,
     });
   });
 

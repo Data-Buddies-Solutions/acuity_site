@@ -94,7 +94,9 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     return closed.map(toAgentSessionRecord);
   }
 
-  async createSession(input: AgentSessionRecord) {
+  async createSession(
+    input: Omit<AgentSessionRecord, "currentCallId" | "offeredCallId">,
+  ) {
     const { clientInstanceId, ...data } = input;
     const session = await this.transaction.callCenterAgentSession.create({
       data: { ...data, browserSessionId: clientInstanceId },
@@ -110,8 +112,7 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
         practiceId,
         userId,
         OR: [
-          { currentCallId: { not: null } },
-          { offeredCallId: { not: null } },
+          { callLegs: { some: { status: { in: ["ANSWERED", "BRIDGED"] } } } },
           {
             connectionState: { not: "CLOSED" },
             presence: { not: "OFFLINE" },
@@ -156,6 +157,18 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     });
 
     return endpoint as AgentSessionEndpoint | null;
+  }
+
+  async hasActiveCall(endpointId: string) {
+    const leg = await this.transaction.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        endpointId,
+        kind: "AGENT",
+        status: { in: ["ANSWERED", "BRIDGED"] },
+      },
+    });
+    return Boolean(leg);
   }
 
   async hasQueueAccess(actor: AgentSessionActor, endpoint: AgentSessionEndpoint) {

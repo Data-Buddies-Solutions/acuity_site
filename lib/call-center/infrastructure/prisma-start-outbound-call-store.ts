@@ -15,6 +15,7 @@ import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveQueueAccess } from "@/lib/call-center/auth/queue-access";
 import { isAgentSessionReady } from "@/lib/call-center/domain/agent-session-readiness";
 import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastructure/prisma-operation-receipts";
+import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import { normalizePhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
@@ -132,7 +133,14 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} AND "browserSessionId" = ${input.clientInstanceId} FOR UPDATE`,
     );
     const session = await this.transaction.callCenterAgentSession.findFirst({
-      include: { endpoint: true },
+      include: {
+        callLegs: {
+          select: { id: true },
+          take: 1,
+          where: { status: { in: ["ANSWERED", "BRIDGED"] } },
+        },
+        endpoint: true,
+      },
       where: {
         browserSessionId: input.clientInstanceId,
         endpoint: { userId: actor.userId },
@@ -154,6 +162,7 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       !session ||
       session.leaseExpiresAt <= now ||
       !isAgentSessionReady(session) ||
+      session.callLegs.length > 0 ||
       !session.endpoint.enabled ||
       session.endpoint.userId !== actor.userId ||
       !session.endpoint.providerCredentialId ||
@@ -170,6 +179,56 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     const to = normalizePhone(input.destination);
     if (!/^\+[1-9]\d{7,14}$/.test(from) || !/^\+[1-9]\d{7,14}$/.test(to)) {
       throw new StartOutboundCallError("Outbound phone numbers must be valid E.164", 422);
+    }
+
+    const ringingOffers = await this.transaction.callCenterCallLeg.findMany({
+      orderBy: [{ callId: "asc" }, { id: "asc" }],
+      select: { callId: true, id: true },
+      where: {
+        call: { direction: "INBOUND" },
+        endpointId: session.endpointId,
+        kind: "AGENT",
+        status: { in: ["CREATED", "DIALING", "RINGING"] },
+      },
+    });
+    for (const callId of [...new Set(ringingOffers.map(({ callId }) => callId))]) {
+      await this.transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${callId} FOR UPDATE`,
+      );
+    }
+    const cleanupCommandIds: string[] = [];
+    for (const offer of ringingOffers) {
+      cleanupCommandIds.push(
+        ...(await settleCanonicalCallLegs(this.transaction, {
+          callId: offer.callId,
+          hangupIdempotencyKeys: {
+            [offer.id]: `outbound:${input.idempotencyKey}:hangup:${offer.id}`,
+          },
+          legIds: [offer.id],
+          now,
+          reason: "AGENT_STARTED_OUTBOUND",
+        })),
+      );
+      await this.transaction.callCenterCall.update({
+        data: { stateVersion: { increment: 1 } },
+        where: { id: offer.callId },
+      });
+      await this.transaction.callCenterEvent.create({
+        data: {
+          actorUserId: actor.userId,
+          aggregateId: offer.callId,
+          aggregateType: "CALL",
+          data: {
+            endpointId: session.endpointId,
+            legId: offer.id,
+            reason: "AGENT_STARTED_OUTBOUND",
+          },
+          idempotencyKey: `outbound:${input.idempotencyKey}:settle:${offer.id}`,
+          occurredAt: now,
+          practiceId: actor.practiceId,
+          type: "CALL_AGENT_OFFER_ENDED",
+        },
+      });
     }
 
     const callId = randomUUID();
@@ -194,6 +253,7 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     await this.transaction.callCenterCallLeg.create({
       data: {
         agentSessionId: session.id,
+        agentKey: `${call.id}:${session.endpointId}`,
         callId: call.id,
         endpointId: session.endpointId,
         id: legId,
@@ -201,15 +261,6 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
         startedAt: now,
         status: "CREATED",
       },
-    });
-    const updatedSession = await this.transaction.callCenterAgentSession.update({
-      data: {
-        offeredCallId: call.id,
-        readyAt: null,
-        stateVersion: { increment: 1 },
-      },
-      select: { stateVersion: true },
-      where: { id: session.id },
     });
     await this.transaction.callCenterEvent.create({
       data: {
@@ -229,28 +280,12 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
         type: "CALL_OUTBOUND_CREATED",
       },
     });
-    await this.transaction.callCenterEvent.create({
-      data: {
-        actorUserId: actor.userId,
-        aggregateId: session.id,
-        aggregateType: "AGENT_SESSION",
-        data: {
-          callId: call.id,
-          presence: "AVAILABLE",
-          stateVersion: updatedSession.stateVersion,
-        },
-        idempotencyKey: `outbound-session:${call.id}`,
-        occurredAt: now,
-        practiceId: actor.practiceId,
-        type: "AGENT_SESSION_CALL_OFFERED",
-      },
-    });
-
     return {
       aggregateId: call.id,
       data: {
         agentSessionId: session.id,
         callId: call.id,
+        cleanupCommandIds: JSON.stringify([...new Set(cleanupCommandIds)]),
         clientState: canonicalOutboundClientState({
           practiceId: actor.practiceId,
           token: clientStateToken,

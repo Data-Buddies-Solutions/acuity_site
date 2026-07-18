@@ -101,13 +101,35 @@ describe("canonical agent-session route", () => {
     expect(acquired).toBe(true);
     const body = await response.json();
     expect(body).toEqual({
-      leaseDurationMs: 60_000,
+      leaseDurationMs: 30_000,
       session: expect.objectContaining({
         clientInstanceId: "browser-1",
         stateVersion: 0,
       }),
     });
     expect(body.session.browserSessionId).toBeUndefined();
+  });
+
+  it("passes an explicit phone takeover to the session owner", async () => {
+    let takeover = false;
+    const acquire: typeof acquireAgentSession = async (_store, _actor, input) => {
+      takeover = input.takeover === true;
+      return acquisition();
+    };
+    const { POST } = createAgentSessionHandlers({
+      acquire,
+      getContext: context,
+    });
+
+    const response = await POST(
+      request("POST", {
+        clientInstanceId: "browser-2",
+        takeover: true,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(takeover).toBe(true);
   });
 
   it("accepts only the canonical clientInstanceId wire field", async () => {

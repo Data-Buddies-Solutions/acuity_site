@@ -15,6 +15,7 @@ import type { RoutingDecision } from "@/lib/call-center/domain/routing-decision"
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
+const INBOUND_RING_WINDOW_SEC = 20;
 export type ActiveRoutingTransactionRunner = <T>(
   operation: (transaction: Transaction) => Promise<T>,
 ) => Promise<T>;
@@ -77,12 +78,10 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
         enabled: true,
         id: true,
         locations: { select: { locationId: true } },
-        maxWaitSec: true,
         members: {
           select: { enabled: true, userId: true },
           where: { role: "AGENT" },
         },
-        ringTimeoutSec: true,
       },
       where: { id: call.queueId, practiceId },
     });
@@ -95,9 +94,12 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
         : await this.transaction.callCenterAgentSession.findMany({
             select: {
               audioReady: true,
+              callLegs: {
+                select: { id: true },
+                take: 1,
+                where: { status: { in: ["ANSWERED", "BRIDGED"] } },
+              },
               connectionState: true,
-              currentCallId: true,
-              offeredCallId: true,
               endpoint: {
                 select: {
                   enabled: true,
@@ -131,7 +133,7 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
         enabled: queue.enabled,
         id: queue.id,
         locationIds: queue.locations.map(({ locationId }) => locationId),
-        maxWaitSec: queue.maxWaitSec,
+        maxWaitSec: INBOUND_RING_WINDOW_SEC,
         members: queue.members.map((member) => ({
           enabled: member.enabled,
           sessions: sessions
@@ -143,8 +145,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
             .map((session) => ({
               audioReady: session.audioReady,
               connectionState: session.connectionState,
-              currentCallId: session.currentCallId,
-              offeredCallId: session.offeredCallId,
               endpoint: {
                 configured: Boolean(
                   session.endpoint.providerCredentialId && session.endpoint.sipUsername,
@@ -156,12 +156,13 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
               id: session.id,
               leaseExpiresAt: session.leaseExpiresAt,
               microphoneReady: session.microphoneReady,
+              occupied: session.callLegs.length > 0,
               presence: session.presence,
               stateVersion: session.stateVersion,
             })),
           userId: member.userId,
         })),
-        ringTimeoutSec: queue.ringTimeoutSec,
+        ringTimeoutSec: INBOUND_RING_WINDOW_SEC,
       },
       status: call.status,
     } satisfies ActiveRoutingContext;
@@ -298,17 +299,15 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       const session = sessions.get(selection.agentSessionId);
       if (!session || session.endpoint.id !== selection.endpointId) continue;
 
-      const reserved = await this.transaction.callCenterAgentSession.updateMany({
-        data: {
-          offeredCallId: context.callId,
-          readyAt: null,
-          stateVersion: { increment: 1 },
-        },
+      await this.transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${selection.endpointId} FOR UPDATE`,
+      );
+      const ready = await this.transaction.callCenterAgentSession.findFirst({
+        select: { id: true },
         where: {
           audioReady: true,
+          callLegs: { none: { status: { in: ["ANSWERED", "BRIDGED"] } } },
           connectionState: "READY",
-          currentCallId: null,
-          offeredCallId: null,
           endpoint: {
             enabled: true,
             id: selection.endpointId,
@@ -327,20 +326,34 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
           userId: selection.userId,
         },
       });
-      if (reserved.count !== 1) continue;
+      if (!ready) continue;
 
-      const leg = await this.transaction.callCenterCallLeg.create({
-        data: {
-          agentSessionId: selection.agentSessionId,
-          attemptNumber: priorAttempts + routed.length + 1,
-          callId: context.callId,
-          endpointId: selection.endpointId,
-          kind: "AGENT",
-          startedAt: now,
-          status: "CREATED",
-        },
-        select: { id: true },
-      });
+      let leg: { id: string };
+      try {
+        leg = await this.transaction.callCenterCallLeg.create({
+          data: {
+            agentSessionId: selection.agentSessionId,
+            agentKey: `${context.callId}:${selection.endpointId}`,
+            attemptNumber: priorAttempts + routed.length + 1,
+            callId: context.callId,
+            endpointId: selection.endpointId,
+            kind: "AGENT",
+            startedAt: now,
+            status: "CREATED",
+          },
+          select: { id: true },
+        });
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "P2002"
+        ) {
+          continue;
+        }
+        throw error;
+      }
       const command = await this.transaction.callCenterCommand.create({
         data: {
           arguments: {
@@ -349,27 +362,12 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
           },
           callId: context.callId,
           dependsOnCommandId: startRingbackCommandId,
-          idempotencyKey: `route:${routingKey}:dial:${selection.agentSessionId}`,
+          idempotencyKey: `call:${context.callId}:dial:${selection.endpointId}`,
           legId: leg.id,
           practiceId: context.practiceId,
           type: "DIAL_AGENT",
         },
         select: { id: true },
-      });
-      await this.transaction.callCenterEvent.create({
-        data: {
-          aggregateId: selection.agentSessionId,
-          aggregateType: "AGENT_SESSION",
-          data: {
-            callId: context.callId,
-            presence: "AVAILABLE",
-            stateVersion: session.stateVersion + 1,
-          },
-          idempotencyKey: `route:${routingKey}:offer:${selection.agentSessionId}`,
-          occurredAt: now,
-          practiceId: context.practiceId,
-          type: "AGENT_SESSION_CALL_OFFERED",
-        },
       });
       routed.push({ ...selection, commandId: command.id, legId: leg.id });
     }

@@ -178,8 +178,6 @@ describe("useSoftphoneMedia canonical credentials", () => {
     );
 
     await waitFor(() => expect(result.current.connection).toBe("FAILED"));
-    expect(result.current.error).toBe(
-      "Your calling session is open in another browser. Close it there, then try again. Reference: ABC123.",
-    );
+    expect(result.current.error).toBe("Phone active in another tab");
   });
 });

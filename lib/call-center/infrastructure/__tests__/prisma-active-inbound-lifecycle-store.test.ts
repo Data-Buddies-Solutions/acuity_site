@@ -15,8 +15,6 @@ function fakeDatabase({
       "CREATED" | "DIALING" | "RINGING" | "ANSWERED" | "BRIDGED" | "ENDED" | "FAILED";
   }>,
   deadlineAt = now as Date | null,
-  overflowRoutesAgent = true,
-  overflowQueueId = null as string | null,
   voicemailEnabled = true,
   winningLegId = null as string | null,
 } = {}) {
@@ -48,12 +46,10 @@ function fakeDatabase({
       enabled: true,
       id: "queue-1",
       locations: [],
-      maxWaitSec: 60,
+      maxWaitSec: 20,
       members: [],
-      overflowQueue: overflowQueueId
-        ? { enabled: true, id: overflowQueueId, practiceId: "practice-1" }
-        : null,
-      overflowQueueId,
+      overflowQueue: null,
+      overflowQueueId: null,
       ringTimeoutSec: 20,
       voicemailEnabled,
       voicemailGreeting: "Leave a message.",
@@ -120,38 +116,10 @@ function fakeDatabase({
       },
     },
   } as unknown as Prisma.TransactionClient;
-  const routed: Array<Record<string, unknown>> = [];
   const routeQueueRound: Parameters<
     typeof reconcileActiveInboundCallInTransaction
-  >[3] = async (_transaction, input) => {
-    routed.push(input);
-    return {
-      answerCommandId: "route-answer",
-      callId: "call-1",
-      commandIds: overflowRoutesAgent ? ["route-dial"] : [],
-      deadlineAt: "2026-07-12T12:00:40.000Z",
-      dialCommandIds: overflowRoutesAgent ? ["route-dial"] : [],
-      eligible: [],
-      exclusions: {} as never,
-      occurredAt: now.toISOString(),
-      queueDeadlineAt: "2026-07-12T12:01:00.000Z",
-      queueId: "queue-2",
-      replayed: false,
-      revision: "20",
-      routed: overflowRoutesAgent
-        ? [
-            {
-              agentSessionId: "session-2",
-              commandId: "route-dial",
-              endpointId: "endpoint-2",
-              legId: "leg-2",
-              userId: "user-2",
-            },
-          ]
-        : [],
-      startRingbackCommandId: "route-ringback",
-      stateVersion: 6,
-    };
+  >[3] = async () => {
+    throw new Error("Overflow routing is outside the call-center runtime");
   };
   const settleAgentLegs: Parameters<
     typeof reconcileActiveInboundCallInTransaction
@@ -191,7 +159,7 @@ function fakeDatabase({
         settleAgentLegs,
       ),
   };
-  return { call, commands, operations, routed, store, tasks };
+  return { call, commands, operations, store, tasks };
 }
 
 describe("Prisma ACTIVE inbound lifecycle", () => {
@@ -285,57 +253,6 @@ describe("Prisma ACTIVE inbound lifecycle", () => {
     );
 
     expect(fake.call.winningLegId).toBe("processed-first");
-  });
-
-  it("moves to a configured overflow queue then reuses the queue-round planner", async () => {
-    const fake = fakeDatabase({
-      deadlineAt: new Date("2026-07-12T12:00:40.000Z"),
-      overflowQueueId: "queue-2",
-    });
-
-    const result = await fake.store.reconcile(
-      {
-        callId: "call-1",
-        practiceId: "practice-1",
-        processedBridgeLegId: null,
-      },
-      now,
-    );
-
-    expect(result.commandIds).toEqual(["route-dial"]);
-    expect(fake.call.queueId).toBe("queue-2");
-    expect(fake.routed).toEqual([
-      {
-        callId: "call-1",
-        practiceId: "practice-1",
-        prerequisite: {
-          answerCommandId: "initial-answer",
-          startRingbackCommandId: "initial-ringback",
-        },
-        routingKey: "overflow:call-1:queue-1:queue-2",
-      },
-    ]);
-  });
-
-  it("falls through a zero-dial overflow round in the same transaction", async () => {
-    const fake = fakeDatabase({
-      deadlineAt: new Date("2026-07-12T12:00:40.000Z"),
-      overflowQueueId: "queue-2",
-      overflowRoutesAgent: false,
-    });
-
-    const result = await fake.store.reconcile(
-      {
-        callId: "call-1",
-        practiceId: "practice-1",
-        processedBridgeLegId: null,
-      },
-      now,
-    );
-
-    expect(result.decision?.disposition).toBe("VOICEMAIL");
-    expect(fake.call.status).toBe("VOICEMAIL");
-    expect(fake.routed).toHaveLength(1);
   });
 
   it("abandons without voicemail and creates one deduplicated missed-call task", async () => {

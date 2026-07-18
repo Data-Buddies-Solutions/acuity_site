@@ -8,7 +8,7 @@ import {
 const now = new Date("2026-07-12T12:00:00.000Z");
 
 describe("provider command dependency failures", () => {
-  it("terminally fails the full dependent chain and releases its reserved dial", async () => {
+  it("terminally fails the full dependent chain without session pointers", async () => {
     const updates: Array<Record<string, unknown>> = [];
     const operations: string[] = [];
     let reads = 0;
@@ -114,7 +114,7 @@ describe("provider command dependency failures", () => {
       }),
     ]);
     expect(operations).toContain("leg.fail");
-    expect(operations).toContain("session.release");
+    expect(operations).not.toContain("session.release");
   });
 
   it("confirms a cleanup effect already satisfied by a terminal provider leg", async () => {

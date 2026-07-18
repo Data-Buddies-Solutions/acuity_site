@@ -1,18 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  applyCursor,
-  applyProjectionEvent,
   CALL_CENTER_SCHEMA_VERSION,
   createRealtimeState,
   markRealtimeReconnecting,
-  requestSnapshotReset,
   type CallCenterRealtimeState,
-  type CallCenterResetReason,
   type CallCenterSnapshot,
-  type ProjectionEvent,
 } from "@/lib/call-center/realtime-contract";
 import { parseRevision } from "@/lib/call-center/realtime";
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
@@ -22,114 +17,16 @@ import { callCenterResponse } from "./call-center-errors";
 type HookState = {
   error: Error | null;
   loading: boolean;
-  refresh: number;
+  scopeKey: string;
   state: CallCenterRealtimeState | null;
 };
-
-type Action =
-  | { type: "access-changed" }
-  | { type: "connected" }
-  | { type: "cursor"; revision: string }
-  | { type: "failed"; error: Error }
-  | { type: "loading"; preserveSnapshot: boolean }
-  | { type: "projection"; event: ProjectionEvent }
-  | { type: "reconnecting" }
-  | { type: "refetch" }
-  | { type: "reset"; reason: CallCenterResetReason }
-  | { type: "snapshot"; snapshot: CallCenterSnapshot };
 
 const initialState: HookState = {
   error: null,
   loading: true,
-  refresh: 0,
+  scopeKey: "",
   state: null,
 };
-
-function reducer(current: HookState, action: Action): HookState {
-  switch (action.type) {
-    case "access-changed":
-      return { ...current, error: null, loading: true, state: null };
-    case "loading":
-      return {
-        ...current,
-        error: null,
-        loading: !action.preserveSnapshot || current.state === null,
-        state:
-          action.preserveSnapshot && current.state
-            ? markRealtimeReconnecting(current.state)
-            : current.state,
-      };
-    case "snapshot":
-      return {
-        ...current,
-        error: null,
-        loading: false,
-        state: createRealtimeState(action.snapshot),
-      };
-    case "projection":
-      return current.state
-        ? { ...current, state: applyProjectionEvent(current.state, action.event) }
-        : current;
-    case "cursor":
-      return current.state
-        ? { ...current, state: applyCursor(current.state, action.revision) }
-        : current;
-    case "reconnecting":
-      return current.state
-        ? { ...current, state: markRealtimeReconnecting(current.state) }
-        : current;
-    case "connected":
-      return current.state
-        ? {
-            ...current,
-            state: { ...current.state, connection: "CONNECTED", resetReason: null },
-          }
-        : current;
-    case "reset":
-      return current.state
-        ? { ...current, state: requestSnapshotReset(current.state, action.reason) }
-        : current;
-    case "failed":
-      return { ...current, error: action.error, loading: false };
-    case "refetch":
-      return {
-        ...current,
-        error: null,
-        loading: current.state === null,
-        refresh: current.refresh + 1,
-      };
-  }
-}
-
-const resetReasons = new Set<CallCenterResetReason>([
-  "ACCESS_CHANGED",
-  "AHEAD_OF_STREAM",
-  "INVALID_CURSOR",
-  "RETENTION_GAP",
-  "UNAPPLICABLE_DELTA",
-]);
-const snapshotRetryDelaysMs = [1_000, 2_000, 5_000] as const;
-
-function messageData(event: Event): unknown {
-  if (!("data" in event) || typeof event.data !== "string") {
-    throw new Error("Canonical call center event has no data");
-  }
-  return JSON.parse(event.data);
-}
-
-function resetReason(event: Event): CallCenterResetReason {
-  const data = messageData(event);
-  if (
-    typeof data === "object" &&
-    data !== null &&
-    "reason" in data &&
-    typeof data.reason === "string" &&
-    resetReasons.has(data.reason as CallCenterResetReason)
-  ) {
-    return data.reason as CallCenterResetReason;
-  }
-  return "UNAPPLICABLE_DELTA";
-}
 
 function requestUrl(path: string, parameters: Record<string, string>) {
   return `${path}?${new URLSearchParams(parameters)}`;
@@ -192,49 +89,9 @@ function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapsho
   );
 }
 
-function isProjection(value: unknown): value is ProjectionEvent {
-  if (
-    !isRecord(value) ||
-    value.schemaVersion !== CALL_CENTER_SCHEMA_VERSION ||
-    typeof value.revision !== "string" ||
-    parseRevision(value.revision) === null ||
-    typeof value.aggregateId !== "string" ||
-    !["AGENT_SESSION", "CALL", "COMMAND", "CONFIGURATION", "TASK"].includes(
-      String(value.aggregateType),
-    ) ||
-    !Number.isInteger(value.stateVersion) ||
-    Number(value.stateVersion) < 0 ||
-    !isRecord(value.delta) ||
-    (value.counts !== undefined && !isCounts(value.counts))
-  ) {
-    return false;
-  }
-
-  switch (value.delta.kind) {
-    case "AGENT_SESSION_REMOVE":
-      return typeof value.delta.sessionId === "string";
-    case "AGENT_SESSION_UPSERT":
-      return hasVersion(value.delta.session);
-    case "CALL_REMOVE":
-      return typeof value.delta.callId === "string";
-    case "CALL_UPSERT":
-      return hasVersion(value.delta.call);
-    case "OPERATION_UPSERT":
-      return (
-        isRecord(value.delta.operation) &&
-        typeof value.delta.operation.operationEventRevision === "string"
-      );
-    case "TASK_REMOVE":
-      return typeof value.delta.taskId === "string";
-    case "TASK_UPSERT":
-      return hasId(value.delta.task);
-    default:
-      return false;
-  }
-}
-
 export type UseCanonicalCallCenterOptions = {
   clientInstanceId: string;
+  pollIntervalMs?: number;
   queueId: string;
 };
 
@@ -245,161 +102,110 @@ export type UseCanonicalCallCenterResult = {
   state: CallCenterRealtimeState | null;
 };
 
+/**
+ * Reads disposable durable state. This loop never owns or mutates Telnyx media.
+ */
 export function useCanonicalCallCenter({
   clientInstanceId,
+  pollIntervalMs = 2_000,
   queueId,
 }: UseCanonicalCallCenterOptions): UseCanonicalCallCenterResult {
-  const [model, dispatch] = useReducer(reducer, initialState);
-  const loadedIdentityRef = useRef<string | null>(null);
-  const plannedRotationRef = useRef(false);
-  const retryIdentityRef = useRef<string | null>(null);
-  const retryAttemptRef = useRef(0);
-  const refetch = useCallback(() => dispatch({ type: "refetch" }), []);
+  const [model, setModel] = useState(initialState);
+  const readNowRef = useRef<() => void>(() => {});
+  const refetch = useCallback(() => readNowRef.current(), []);
+  const scopeKey = `${queueId}:${clientInstanceId}`;
 
   useEffect(() => {
-    const identityKey = JSON.stringify({ clientInstanceId, queueId });
-    const controller = new AbortController();
     let active = true;
-    let source: EventSource | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
+    let inFlight = false;
+    let readQueued = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    if (retryIdentityRef.current !== identityKey) {
-      retryIdentityRef.current = identityKey;
-      retryAttemptRef.current = 0;
-    }
-
-    dispatch({
-      type: "loading",
-      preserveSnapshot: loadedIdentityRef.current === identityKey,
-    });
-
-    const reset = (reason: CallCenterResetReason) => {
+    const schedule = () => {
       if (!active) return;
-      if (reason === "ACCESS_CHANGED") {
-        loadedIdentityRef.current = null;
-        dispatch({ type: "access-changed" });
-      } else {
-        dispatch({ type: "reset", reason });
-      }
-      source?.close();
-      source = null;
-      dispatch({ type: "refetch" });
+      timer = setTimeout(read, pollIntervalMs);
     };
 
-    const connect = async () => {
+    const readNow = () => {
+      if (!active) return;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (inFlight) {
+        readQueued = true;
+        return;
+      }
+      void read();
+    };
+
+    async function read() {
+      if (!active || inFlight) return;
+      inFlight = true;
+      controller = new AbortController();
+
       try {
-        const identity = { clientInstanceId, queueId };
         const response = await fetch(
-          requestUrl("/api/portal/call-center/snapshot", identity),
+          requestUrl("/api/portal/call-center/snapshot", {
+            clientInstanceId,
+            queueId,
+          }),
           { signal: controller.signal },
         );
-        if (!response.ok) {
-          if (response.status === 401 || response.status === 403) {
-            loadedIdentityRef.current = null;
-            dispatch({ type: "access-changed" });
-          }
-        }
         const data: unknown = await callCenterResponse(response);
         if (!isSnapshot(data, queueId)) {
           throw new Error("Call center returned an incompatible snapshot");
         }
-        const snapshot = data;
         if (!active) return;
-        loadedIdentityRef.current = identityKey;
-        retryAttemptRef.current = 0;
-        dispatch({ type: "snapshot", snapshot });
-
-        source = new EventSource(
-          requestUrl("/api/portal/call-center/events", {
-            after: snapshot.revision,
-            clientInstanceId,
-            contract: "canonical",
-            queueId,
-          }),
-        );
-        source.addEventListener("open", () => {
-          if (!active) return;
-          plannedRotationRef.current = false;
-          dispatch({ type: "connected" });
-        });
-        source.addEventListener("error", () => {
-          if (!active) return;
-          if (plannedRotationRef.current) {
-            plannedRotationRef.current = false;
-            return;
-          }
-          dispatch({ type: "reconnecting" });
-        });
-        source.addEventListener("rotate", () => {
-          if (active) plannedRotationRef.current = true;
-        });
-        source.addEventListener("projection", (event) => {
-          if (!active) return;
-          try {
-            const data = messageData(event);
-            if (!isProjection(data)) throw new Error("Incompatible projection");
-            dispatch({ type: "projection", event: data });
-          } catch {
-            reset("UNAPPLICABLE_DELTA");
-          }
-        });
-        source.addEventListener("cursor", (event) => {
-          if (!active) return;
-          try {
-            const data = messageData(event);
-            if (
-              typeof data !== "object" ||
-              data === null ||
-              !("revision" in data) ||
-              typeof data.revision !== "string" ||
-              parseRevision(data.revision) === null
-            ) {
-              throw new Error("Canonical cursor has no revision");
-            }
-            dispatch({ type: "cursor", revision: data.revision });
-          } catch {
-            reset("INVALID_CURSOR");
-          }
-        });
-        source.addEventListener("reset", (event) => {
-          try {
-            reset(resetReason(event));
-          } catch {
-            reset("UNAPPLICABLE_DELTA");
-          }
+        setModel({
+          error: null,
+          loading: false,
+          scopeKey,
+          state: createRealtimeState(data),
         });
       } catch (error) {
         if (!active || controller.signal.aborted) return;
-        const retryable =
-          error instanceof CallCenterRequestError && error.operatorError.retryable;
-        dispatch({
-          type: "failed",
-          error: error instanceof Error ? error : new Error("Failed to load call center"),
-        });
-        const delay = snapshotRetryDelaysMs[retryAttemptRef.current];
-        if (retryable && delay !== undefined) {
-          retryAttemptRef.current += 1;
-          retryTimer = setTimeout(() => {
-            if (active) dispatch({ type: "refetch" });
-          }, delay);
+        const nextError =
+          error instanceof Error ? error : new Error("Failed to load call center");
+        const accessDenied =
+          error instanceof CallCenterRequestError &&
+          ["ACCESS_DENIED", "AUTH_REQUIRED"].includes(error.operatorError.code);
+        setModel((current) => ({
+          error: nextError,
+          loading: false,
+          scopeKey,
+          state:
+            accessDenied || current.scopeKey !== scopeKey || !current.state
+              ? null
+              : markRealtimeReconnecting(current.state),
+        }));
+      } finally {
+        inFlight = false;
+        controller = null;
+        if (!active) return;
+        if (readQueued) {
+          readQueued = false;
+          queueMicrotask(readNow);
+        } else {
+          schedule();
         }
       }
-    };
+    }
 
-    void connect();
+    readNowRef.current = readNow;
+    readNow();
 
     return () => {
       active = false;
-      controller.abort();
-      if (retryTimer) clearTimeout(retryTimer);
-      source?.close();
+      readNowRef.current = () => {};
+      if (timer) clearTimeout(timer);
+      controller?.abort();
     };
-  }, [clientInstanceId, model.refresh, queueId]);
+  }, [clientInstanceId, pollIntervalMs, queueId, scopeKey]);
 
   return {
-    error: model.error,
-    loading: model.loading,
+    ...(model.scopeKey === scopeKey ? model : initialState),
     refetch,
-    state: model.state,
   };
 }

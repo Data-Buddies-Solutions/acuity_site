@@ -1,20 +1,13 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { ApiError, withApiHandler } from "@/lib/api/handler";
-import { createDurableTelnyxWebhookCoordinator } from "@/lib/call-center/application/process-durable-telnyx-webhook";
-import { processTelnyxVoiceEvent } from "@/lib/call-center/application/process-telnyx-voice-event";
-import { scheduleImmediateCanonicalProjection } from "@/lib/call-center/application/schedule-canonical-telnyx-event";
+import { callCenter } from "@/lib/call-center/call-center";
 import { parseTelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
 import { handleTelnyxSmsWebhookEvent, isTelnyxSmsEvent } from "@/lib/sms/service";
 import { verifyTelnyxWebhookSignature } from "@/lib/telnyx";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const processDurableTelnyxWebhook = createDurableTelnyxWebhookCoordinator({
-  processInbox: processTelnyxVoiceEvent,
-  scheduleCanonical: (eventId) => scheduleImmediateCanonicalProjection(eventId, after),
-});
 
 export const POST = withApiHandler(
   async (request: NextRequest) => {
@@ -42,7 +35,17 @@ export const POST = withApiHandler(
     if (isTelnyxSmsEvent(body)) {
       result = await handleTelnyxSmsWebhookEvent(body);
     } else {
-      result = await processDurableTelnyxWebhook(parseTelnyxVoiceWebhookEnvelope(body));
+      const applied = await callCenter.applyProviderEvent(
+        parseTelnyxVoiceWebhookEnvelope(body),
+      );
+      if (applied.projection.outcome === "FAILED") {
+        throw new ApiError("Call center event could not be applied", 503);
+      }
+      result = {
+        duplicate: applied.duplicate ?? false,
+        processingStatus: applied.processingStatus,
+        projection: applied.projection.outcome,
+      };
     }
 
     return NextResponse.json({ ok: true, ...result });

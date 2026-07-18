@@ -4,7 +4,6 @@ import {
   decideProviderCommandMarkSent,
   type ProviderCommandClaim,
 } from "@/lib/call-center/domain/provider-command";
-import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
 import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
 import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import { failProviderCommandDependents } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
@@ -143,15 +142,6 @@ async function rejectProviderCommandClaim(
         type: "CALL_AGENT_DIAL_FAILED",
       },
     });
-    if (leg.agentSessionId) {
-      await releaseAgentSessionReservation(transaction, {
-        agentSessionId: leg.agentSessionId,
-        callId: command.callId,
-        idempotencyKey: `${command.id}:release`,
-        now,
-        reason: errorCode,
-      });
-    }
     await clearSettledTransferDeadline(transaction, command.callId);
   }
   await appendCommandOperationStatus(transaction, {
@@ -207,7 +197,6 @@ async function loadProviderCommandClaim(
                 select: { userId: true },
                 where: { enabled: true, role: "AGENT" },
               },
-              ringTimeoutSec: true,
             },
           },
         },
@@ -431,19 +420,32 @@ async function loadProviderCommandClaim(
         true,
       );
     }
-    const offered =
-      session?.offeredCallId === command.callId &&
-      session?.currentCallId === null &&
-      session?.presence === "AVAILABLE";
-    const active =
-      session?.offeredCallId === null &&
-      session?.currentCallId === command.callId &&
-      session?.presence === "BUSY";
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${args.endpointId} FOR UPDATE`,
+    );
+    const liveTarget = await tx.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        id: leg.id,
+        status: { in: ["CREATED", "DIALING", "RINGING"] },
+      },
+    });
+    const occupied = await tx.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        endpointId: args.endpointId,
+        id: { not: leg.id },
+        kind: "AGENT",
+        status: { in: ["ANSWERED", "BRIDGED"] },
+      },
+    });
     if (
       !session ||
+      !liveTarget ||
       session.id !== args.agentSessionId ||
       session.endpointId !== args.endpointId ||
-      (!offered && !active) ||
+      session.presence !== "AVAILABLE" ||
+      occupied ||
       session.connectionState !== "READY" ||
       !session.microphoneReady ||
       !session.audioReady ||
@@ -578,7 +580,7 @@ async function loadProviderCommandClaim(
           from,
           linkTo,
           sipUri: sipUri(endpoint.sipUsername.trim()),
-          timeoutSeconds: command.call.queue.ringTimeoutSec,
+          timeoutSeconds: 20,
         },
         type: "DIAL_AGENT",
       },
@@ -722,15 +724,6 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
               type: "CALL_AGENT_DIAL_FAILED",
             },
           });
-          if (target.leg.agentSessionId) {
-            await releaseAgentSessionReservation(transaction, {
-              agentSessionId: target.leg.agentSessionId,
-              callId: target.callId,
-              idempotencyKey: `${input.commandId}:release`,
-              now: input.now,
-              reason: "DIAL_FAILED",
-            });
-          }
           await clearSettledTransferDeadline(transaction, target.callId);
         }
       }

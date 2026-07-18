@@ -99,9 +99,11 @@ function transaction({
     callCenterCallLeg: {
       findFirst: async ({ where }: { where: { id?: string } }) =>
         where.id
-          ? where.id === replacesLegId
-            ? { id: replacesLegId, providerCallControlId: sourceProviderCallControlId }
-            : null
+          ? where.id === "leg-1"
+            ? { id: "leg-1" }
+            : where.id === replacesLegId
+              ? { id: replacesLegId, providerCallControlId: sourceProviderCallControlId }
+              : null
           : (customerLegs[0] ?? null),
       findMany: async () => customerLegs,
       updateMany: async () => {
@@ -269,7 +271,7 @@ describe("Prisma provider command store", () => {
       }),
     ).resolves.toBeNull();
     expect(changedSource.operations).toContain("leg.reject");
-    expect(changedSource.operations).toContain("session.release");
+    expect(changedSource.operations).not.toContain("session.release");
   });
 
   it("links inbound transfers to the first live customer leg", async () => {
@@ -523,7 +525,7 @@ describe("Prisma provider command store", () => {
       }),
     ).resolves.toBeNull();
     expect(fake.operations).toContain("leg.reject");
-    expect(fake.operations).toContain("session.release");
+    expect(fake.operations).not.toContain("session.release");
     expect(fake.updates()).toBe(0);
   });
 
@@ -541,7 +543,7 @@ describe("Prisma provider command store", () => {
         staleBefore: new Date(now.getTime() - 60_000),
       }),
     ).resolves.toBeNull();
-    expect(fake.operations).toContain("session.release");
+    expect(fake.operations).not.toContain("session.release");
     expect(fake.updates()).toBe(0);
   });
 
@@ -596,7 +598,7 @@ describe("Prisma provider command store", () => {
     );
   });
 
-  it("releases a terminally failed dial reservation", async () => {
+  it("fails a terminal dial without writing session pointers", async () => {
     const operations: string[] = [];
     const tx = {
       $queryRaw: async () => {
@@ -678,7 +680,7 @@ describe("Prisma provider command store", () => {
       }),
     ).resolves.toBe(true);
     expect(operations).toContain("leg.fail");
-    expect(operations).toContain("session.release");
+    expect(operations).not.toContain("session.release");
     expect(operations).toContain("event:CALL_OPERATION_STATUS_CHANGED");
   });
 });

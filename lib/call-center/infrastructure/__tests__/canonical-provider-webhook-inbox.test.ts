@@ -66,10 +66,8 @@ describe("canonical projection inbox", () => {
     ]);
   });
 
-  it("stops scheduling retries at the attempt bound", () => {
-    expect(canonicalProjectionRetryAt(1, now)).toEqual(
-      new Date("2026-07-11T12:00:05.000Z"),
-    );
+  it("leaves projection retry timing to the provider", () => {
+    expect(canonicalProjectionRetryAt(1, now)).toBeNull();
     expect(canonicalProjectionRetryAt(8, now)).toBeNull();
   });
 });

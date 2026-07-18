@@ -8,10 +8,6 @@ import {
 import { canonicalVoicemailRecordingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import type { CanonicalProjectionRecord } from "@/lib/call-center/infrastructure/canonical-provider-webhook-inbox";
-import {
-  promoteAgentSessionOffer,
-  releaseAgentSessionReservation,
-} from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
 import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import {
   failProviderCommandDependents,
@@ -22,6 +18,7 @@ import {
   persistCanonicalVoicemail,
 } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
 import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
+import { settleCompetingAgentOffers } from "@/lib/call-center/infrastructure/prisma-agent-offer-settlement";
 import { reconcileActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-lifecycle-store";
 import {
   resolveCanonicalTelnyxCallObservations,
@@ -668,44 +665,6 @@ export function retainedAgentSessionIds(input: {
   );
 }
 
-async function releaseInactiveCallSessions(
-  tx: Transaction,
-  input: {
-    callId: string;
-    callStatus: string;
-    providerEventId: string;
-  },
-  now: Date,
-) {
-  const legs = await tx.callCenterCallLeg.findMany({
-    select: { agentSessionId: true, id: true, status: true },
-    where: { callId: input.callId, kind: "AGENT", agentSessionId: { not: null } },
-  });
-  const retainedSessionIds = retainedAgentSessionIds({
-    callStatus: input.callStatus,
-    legs,
-  });
-  const sessions = await tx.callCenterAgentSession.findMany({
-    select: { id: true },
-    where: {
-      OR: [{ currentCallId: input.callId }, { offeredCallId: input.callId }],
-    },
-  });
-
-  for (const session of sessions) {
-    if (retainedSessionIds.has(session.id)) continue;
-    await releaseAgentSessionReservation(tx, {
-      agentSessionId: session.id,
-      callId: input.callId,
-      idempotencyKey: `provider:${input.providerEventId}:release:${session.id}`,
-      now,
-      reason: terminalCallStatuses.has(input.callStatus)
-        ? "CALL_TERMINAL"
-        : "LEG_INACTIVE",
-    });
-  }
-}
-
 function customerPhones(
   fact: CanonicalTelnyxCallFact,
   direction: "INBOUND" | "OUTBOUND",
@@ -1027,11 +986,44 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         };
       }
 
-      const nextLeg = advanceCanonicalLeg(
+      let nextLeg = advanceCanonicalLeg(
         leg,
         resolvedFact.legObservation,
         resolvedFact.occurredAt,
       );
+      let preemptedCommandIds: string[] = [];
+      if (
+        effectOwner === "CANONICAL" &&
+        leg.kind === "AGENT" &&
+        leg.endpointId &&
+        (nextLeg.status === "ANSWERED" || nextLeg.status === "BRIDGED")
+      ) {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${leg.endpointId} FOR UPDATE`,
+        );
+        const occupied = await tx.callCenterCallLeg.findFirst({
+          select: { id: true },
+          where: {
+            endpointId: leg.endpointId,
+            id: { not: leg.id },
+            kind: "AGENT",
+            status: { in: ["ANSWERED", "BRIDGED"] },
+          },
+        });
+        if (occupied) {
+          preemptedCommandIds = await settleCanonicalCallLegs(tx, {
+            callId: call.id,
+            legIds: [leg.id],
+            now: resolvedFact.occurredAt,
+            reason: "AGENT_ALREADY_ACTIVE",
+          });
+          leg = await tx.callCenterCallLeg.findUniqueOrThrow({
+            include: { call: true },
+            where: { id: leg.id },
+          });
+          nextLeg = leg;
+        }
+      }
       leg = await tx.callCenterCallLeg.update({
         data: {
           answeredAt: nextLeg.answeredAt,
@@ -1070,30 +1062,27 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           : null;
       if (
         effectOwner === "CANONICAL" &&
-        leg.agentSessionId &&
-        isConfirmedAgentConnection({
-          confirmedCommandType: confirmedDialCommand?.type ?? null,
-          direction: call.direction,
-          eventType: resolvedFact.eventType,
-          legKind: leg.kind,
-          legStatus: leg.status,
-        })
-      ) {
-        await promoteAgentSessionOffer(tx, {
-          agentSessionId: leg.agentSessionId,
-          callId: call.id,
-          idempotencyKey: `call:${call.id}:leg:${leg.id}:session-busy`,
-          now: resolvedFact.occurredAt,
-        });
-      }
-      if (
-        effectOwner === "CANONICAL" &&
         (leg.status === "ENDED" || leg.status === "FAILED")
       ) {
         await settleProviderCommandsForTerminalLeg(tx, {
           legId: leg.id,
           now: resolvedFact.occurredAt,
         });
+        if (
+          resolvedFact.legKind === "AGENT" &&
+          resolvedFact.eventType !== "call.hangup" &&
+          leg.providerCallControlId
+        ) {
+          preemptedCommandIds.push(
+            ...(await settleCanonicalCallLegs(tx, {
+              callId: call.id,
+              includeTerminalProviderLegs: true,
+              legIds: [leg.id],
+              now: resolvedFact.occurredAt,
+              reason: "LATE_AGENT_LEG",
+            })),
+          );
+        }
       }
 
       const bridgedLegs = await tx.callCenterCallLeg.findMany({
@@ -1156,7 +1145,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         where: { id: call.id },
       });
 
-      let commandIds: string[] = [];
+      let commandIds: string[] = preemptedCommandIds;
       if (previousWinningLegId && winningLegId !== previousWinningLegId) {
         commandIds.push(
           ...(await settleCanonicalCallLegs(tx, {
@@ -1294,6 +1283,21 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         commandIds.push(...lifecycle.commandIds);
         call = await tx.callCenterCall.findUniqueOrThrow({ where: { id: call.id } });
       }
+      if (
+        effectOwner === "CANONICAL" &&
+        !previousWinningLegId &&
+        winningLegId === leg.id &&
+        leg.endpointId
+      ) {
+        commandIds.push(
+          ...(await settleCompetingAgentOffers(tx, {
+            endpointId: leg.endpointId,
+            now: resolvedFact.occurredAt,
+            practiceId: call.practiceId,
+            winningCallId: call.id,
+          })),
+        );
+      }
       if (effectOwner === "CANONICAL" && terminalCallStatuses.has(call.status)) {
         commandIds.push(
           ...(await settleCanonicalCallLegs(tx, {
@@ -1304,15 +1308,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           })),
         );
       }
-      await releaseInactiveCallSessions(
-        tx,
-        {
-          callId: call.id,
-          callStatus: call.status,
-          providerEventId: event.providerEventId,
-        },
-        resolvedFact.occurredAt,
-      );
       const handoffProjection = directHandoffLifecycleProjection(
         call.status,
         projectedAt,

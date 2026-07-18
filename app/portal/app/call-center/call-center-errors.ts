@@ -27,6 +27,7 @@ export type OperatorErrorCopy = {
 };
 
 type CatalogEntry = Omit<OperatorErrorCopy, "retryable"> & {
+  includeReference?: boolean;
   retryable?: boolean;
 };
 
@@ -46,22 +47,24 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     retryable: true,
   },
   CALL_ALREADY_CLAIMED: {
-    message:
-      "This call was already answered by another team member. Choose another call.",
+    message: "Call taken by another agent",
     presentation: "inline",
+    includeReference: false,
   },
   CALL_CENTER_SESSION_IN_USE: {
-    message:
-      "Your calling session is open in another browser. Close it there, then try again.",
+    message: "Phone active in another tab",
     presentation: "banner",
+    includeReference: false,
   },
   CALL_NOT_CONNECTED: {
-    message: "This call is no longer connected. Return to the call list.",
+    message: "Call ended",
     presentation: "inline",
+    includeReference: false,
   },
   CALL_NOT_FOUND: {
-    message: "This call is no longer available. Return to the call list.",
+    message: "Call ended",
     presentation: "inline",
+    includeReference: false,
   },
   CALL_NOT_READY: {
     message: "You are not ready for calls. Select Ready, then try again.",
@@ -175,9 +178,10 @@ export function operatorErrorCopy(
   }
   const entry = catalog[error.operatorError.code];
   const message = entry?.message ?? fallback(action, error.operatorError.referenceId);
-  const reference = error.operatorError.referenceId
-    ? ` Reference: ${error.operatorError.referenceId}.`
-    : "";
+  const reference =
+    entry?.includeReference !== false && error.operatorError.referenceId
+      ? ` Reference: ${error.operatorError.referenceId}.`
+      : "";
   return {
     message: `${message}${reference}`,
     presentation: entry?.presentation ?? "inline",

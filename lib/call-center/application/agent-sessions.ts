@@ -8,7 +8,7 @@ import {
 } from "@/lib/call-center/domain/agent-session-readiness";
 import { serializeAgentConnectionState } from "@/lib/call-center/domain/agent-session-wire";
 
-export const AGENT_SESSION_LEASE_MS = 60_000;
+export const AGENT_SESSION_LEASE_MS = 30_000;
 
 export class AgentSessionError extends Error {
   readonly status: number;
@@ -83,7 +83,9 @@ export interface AgentSessionTransaction {
     userId: string,
     now: Date,
   ): Promise<AgentSessionRecord[]>;
-  createSession(input: AgentSessionRecord): Promise<AgentSessionRecord>;
+  createSession(
+    input: Omit<AgentSessionRecord, "currentCallId" | "offeredCallId">,
+  ): Promise<AgentSessionRecord>;
   findActiveSession(
     practiceId: string,
     userId: string,
@@ -94,6 +96,7 @@ export interface AgentSessionTransaction {
     clientInstanceId: string,
   ): Promise<AgentSessionRecord | null>;
   getAccessibleEndpoint(actor: AgentSessionActor): Promise<AgentSessionEndpoint | null>;
+  hasActiveCall(endpointId: string): Promise<boolean>;
   hasQueueAccess(
     actor: AgentSessionActor,
     endpoint: AgentSessionEndpoint,
@@ -111,6 +114,7 @@ export interface AgentSessionStore {
 
 type SessionIdentity = {
   clientInstanceId: string;
+  takeover?: boolean;
 };
 
 export type AgentSessionReadinessUpdate = SessionIdentity & {
@@ -146,8 +150,6 @@ function eventFor(
     data: {
       audioReady: session.audioReady,
       connectionState: serializeAgentConnectionState(session.connectionState),
-      currentCallId: session.currentCallId,
-      offeredCallId: session.offeredCallId,
       endpointId: session.endpointId,
       microphoneReady: session.microphoneReady,
       presence: session.presence,
@@ -224,12 +226,32 @@ export async function acquireAgentSession(
       (active.clientInstanceId !== input.clientInstanceId ||
         active.userId !== actor.userId)
     ) {
-      return {
-        error: new AgentSessionError(
-          "This user is already active in another browser",
-          409,
-        ),
-      };
+      if (!input.takeover) {
+        return {
+          error: new AgentSessionError("Phone active in another tab", 409),
+        };
+      }
+      if (await transaction.hasActiveCall(active.endpointId)) {
+        return {
+          error: new AgentSessionError(
+            "Finish the active call before using the phone here",
+            409,
+          ),
+        };
+      }
+      const released = await transaction.updateSession(active.id, {
+        audioReady: false,
+        connectionState: "CLOSED",
+        lastHeartbeatAt: now,
+        leaseExpiresAt: now,
+        microphoneReady: false,
+        presence: "OFFLINE",
+        readyAt: null,
+        stateVersion: active.stateVersion + 1,
+      });
+      await transaction.appendEvent(
+        eventFor(actor, released, "AGENT_SESSION_TAKEN_OVER", now),
+      );
     }
 
     const existing = await transaction.findSession(
@@ -238,10 +260,7 @@ export async function acquireAgentSession(
       input.clientInstanceId,
     );
     if (existing && active?.id === existing.id) {
-      if (
-        (!existing.currentCallId && !existing.offeredCallId) ||
-        existing.connectionState !== "CLOSED"
-      ) {
+      if (existing.connectionState !== "CLOSED" && existing.presence !== "OFFLINE") {
         return { endpoint, session: existing };
       }
 
@@ -251,7 +270,7 @@ export async function acquireAgentSession(
         lastHeartbeatAt: now,
         leaseExpiresAt: leaseExpiry(now),
         microphoneReady: false,
-        presence: existing.currentCallId ? "BUSY" : "PAUSED",
+        presence: "PAUSED",
         readyAt: null,
         stateVersion: existing.stateVersion + 1,
         userId: actor.userId,
@@ -270,7 +289,7 @@ export async function acquireAgentSession(
         lastHeartbeatAt: now,
         leaseExpiresAt: leaseExpiry(now),
         microphoneReady: false,
-        presence: existing.currentCallId ? "BUSY" : "PAUSED",
+        presence: "PAUSED",
         readyAt: null,
         stateVersion: existing.stateVersion + 1,
         userId: actor.userId,
@@ -280,8 +299,6 @@ export async function acquireAgentSession(
         audioReady: false,
         clientInstanceId: input.clientInstanceId,
         connectionState: "CONNECTING",
-        currentCallId: null,
-        offeredCallId: null,
         endpointId: endpoint.id,
         id: store.createId(),
         lastHeartbeatAt: now,
@@ -359,8 +376,6 @@ export async function updateAgentSessionReadiness(
     const nextReadiness = {
       audioReady: input.audioReady,
       connectionState: input.connectionState,
-      currentCallId: session.currentCallId,
-      offeredCallId: session.offeredCallId,
       microphoneReady: input.microphoneReady,
       presence: input.presence,
     };
@@ -437,14 +452,14 @@ export async function releaseAgentSession(
       };
     }
 
-    if (session.currentCallId || session.offeredCallId) {
+    if (await transaction.hasActiveCall(session.endpointId)) {
       const reconnecting = await transaction.updateSession(session.id, {
         audioReady: false,
         connectionState: "CONNECTING",
         lastHeartbeatAt: now,
         leaseExpiresAt: leaseExpiry(now),
         microphoneReady: false,
-        presence: session.currentCallId ? "BUSY" : "PAUSED",
+        presence: "BUSY",
         readyAt: null,
         stateVersion: session.stateVersion + 1,
       });

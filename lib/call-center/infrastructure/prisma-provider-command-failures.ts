@@ -1,5 +1,4 @@
 import type { Prisma } from "@/generated/prisma/client";
-import { releaseAgentSessionReservation } from "@/lib/call-center/infrastructure/prisma-agent-session-reservation";
 import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
 
@@ -16,7 +15,7 @@ const commandFailureSelect = {
   attemptCount: true,
   callId: true,
   id: true,
-  leg: { select: { agentSessionId: true, id: true } },
+  leg: { select: { id: true } },
   nextAttemptAt: true,
   practiceId: true,
   status: true,
@@ -77,15 +76,6 @@ async function failOne(
           practiceId: command.practiceId,
           type: "CALL_AGENT_DIAL_FAILED",
         },
-      });
-    }
-    if (command.leg.agentSessionId) {
-      await releaseAgentSessionReservation(transaction, {
-        agentSessionId: command.leg.agentSessionId,
-        callId: command.callId,
-        idempotencyKey: `${command.id}:release`,
-        now,
-        reason: errorCode,
       });
     }
     await clearSettledTransferDeadline(transaction, command.callId);
