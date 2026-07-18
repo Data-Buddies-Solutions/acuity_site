@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   canonicalCallAccessWhere,
   readCanonicalCallCenterHistory,
+  readCanonicalCallerTimeline,
   readCanonicalNeedsAction,
 } from "../portal-canonical-history";
 
@@ -117,6 +118,80 @@ describe("canonical portal history", () => {
         },
       ],
       total: 1,
+    });
+  });
+
+  it("merges only authorized SMS messages into the caller timeline", async () => {
+    let smsQuery: Record<string, unknown> | null = null;
+    const createdAt = new Date("2026-07-12T20:00:00.000Z");
+    const emptySource = {
+      count: async () => 0,
+      findFirst: async () => null,
+      findMany: async () => [],
+    };
+    const database = {
+      callCenterCall: emptySource,
+      callCenterTask: emptySource,
+      smsMessage: {
+        count: async (input: { where?: { direction?: string } }) =>
+          input.where?.direction === "INBOUND" ? 1 : 2,
+        findMany: async (input: Record<string, unknown>) => {
+          smsQuery = input;
+          return [
+            {
+              body: "Second at the same time",
+              conversation: {
+                location: { name: "Optical" },
+                patientPhoneNumber: "+15555550123",
+              },
+              createdAt,
+              direction: "OUTBOUND",
+              id: "message-2",
+              sentByUser: { name: "Operator" },
+              status: "DELIVERED",
+            },
+            {
+              body: "First at the same time",
+              conversation: {
+                location: { name: "Optical" },
+                patientPhoneNumber: "+15555550123",
+              },
+              createdAt,
+              direction: "INBOUND",
+              id: "message-1",
+              sentByUser: null,
+              status: "RECEIVED",
+            },
+          ];
+        },
+      },
+    };
+
+    const result = await readCanonicalCallerTimeline(
+      "+15555550123",
+      { range: "all" },
+      {
+        database: database as never,
+        getAllowedSmsNumberIds: async () => ["sms-number-1"],
+        getContext: async () => context as never,
+      },
+    );
+
+    expect(smsQuery).toMatchObject({
+      where: {
+        conversation: {
+          practiceId: "practice-1",
+          practiceNumberId: { in: ["sms-number-1"] },
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      canText: true,
+      items: [
+        { body: "First at the same time", id: "sms:message-1", kind: "text" },
+        { body: "Second at the same time", id: "sms:message-2", kind: "text" },
+      ],
+      totals: { inboundItems: 1, totalItems: 2 },
     });
   });
 });

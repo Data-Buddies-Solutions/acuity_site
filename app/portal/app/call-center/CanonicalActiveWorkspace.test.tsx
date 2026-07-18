@@ -167,12 +167,22 @@ describe("CanonicalActiveCall", () => {
     );
 
     expect(screen.getByText("(954) 609-7250")).toBeTruthy();
-    expect(screen.getByText("Patient call")).toBeTruthy();
+    expect(screen.getByText("Inbound call")).toBeTruthy();
     expect(screen.getByText("00:00")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hold" }));
+    });
+    expect(media.hold).toHaveBeenCalledWith("media-leg-1", true);
 
     fireEvent.click(screen.getByRole("button", { name: "Mute" }));
     expect(media.mute).toHaveBeenCalledWith("media-leg-1", true);
     expect(screen.getByRole("button", { name: "Unmute" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keypad" }));
+    fireEvent.click(screen.getByRole("button", { name: "5" }));
+    expect(media.sendDtmf).toHaveBeenCalledWith("media-leg-1", "5");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     const fetchEnd = mock(async () => new Response("{}", { status: 202 }));
     globalThis.fetch = fetchEnd as never;
@@ -210,7 +220,7 @@ describe("CanonicalActiveCall", () => {
     expect(media.hangup).toHaveBeenCalledWith("media-leg-1");
   });
 
-  it("shows the outbound patient number and connected controls", () => {
+  it("shows the outbound contact number and connected controls", () => {
     render(
       <CanonicalActiveCall
         call={connectedCall("OUTBOUND")}
@@ -221,7 +231,7 @@ describe("CanonicalActiveCall", () => {
     );
 
     expect(screen.getByText("(954) 287-2010")).toBeTruthy();
-    expect(screen.getByText("Outbound")).toBeTruthy();
+    expect(screen.getByText("Outbound call")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mute" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
   });

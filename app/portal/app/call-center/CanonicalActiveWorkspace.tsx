@@ -7,13 +7,16 @@ import {
   ChevronDown,
   ChevronRight,
   Delete,
+  Grid3X3,
   Headphones,
   Mic,
   MicOff,
+  Pause,
   Phone,
   PhoneIncoming,
   PhoneOff,
   PhoneOutgoing,
+  Play,
 } from "lucide-react";
 
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
@@ -21,6 +24,14 @@ import { PortalSelect } from "@/app/portal/app/PortalFields";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import type { PortalNeedsActionGroup } from "@/lib/call-center/portal-model";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import {
@@ -45,6 +56,10 @@ import {
   selectCanonicalBrowserMediaLeg,
 } from "./canonical-active-call-center";
 import ActivityRail from "./ActivityRail";
+import { CallCenterLeaveGuard } from "./CallCenterLeaveGuard";
+import { callCounterpartyPhone } from "./canonical-call-presentation";
+import { IncomingCallHeadsUp } from "./IncomingCallHeadsUp";
+import { IncomingOfferAnnouncement } from "./IncomingOfferAnnouncement";
 import type { CanonicalAgentConnectionState } from "./use-canonical-agent-session";
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
 import { useSoftphoneMedia } from "./use-softphone";
@@ -63,6 +78,7 @@ type CanonicalActiveWorkspaceProps = {
 
 const keypadDigits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 const OUTBOUND_NUMBER_STORAGE_KEY = "acuity-call-center:outbound-number-id";
+const RECENT_CALL_PREVIEW_LIMIT = 5;
 
 function errorMessage(error: unknown, action: CallCenterAction) {
   return operatorErrorCopy(error, action).message;
@@ -207,6 +223,7 @@ function ConnectedCanonicalActiveWorkspace({
   const refreshSnapshot = realtime.refetch;
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState(initialDialNumber ?? "");
+  const [decliningMediaLegId, setDecliningMediaLegId] = useState<string | null>(null);
   const [numberChoice, setNumberChoice] = useState("");
   const [startingOutbound, setStartingOutbound] = useState(false);
   const outboundMediaLegsRef = useRef(new Set<string>());
@@ -259,8 +276,36 @@ function ConnectedCanonicalActiveWorkspace({
 
   const incomingCalls = useMemo(() => (state ? selectIncomingCalls(state) : []), [state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
+  const headsUpOffer = useMemo(() => {
+    if (!session) return null;
+
+    for (const call of incomingCalls) {
+      const match = selectCanonicalBrowserMediaLeg(
+        call,
+        session.id,
+        session.endpointId,
+        mediaObservations,
+      );
+      if (
+        match?.observation.direction === "INBOUND" &&
+        ["CONNECTING", "RINGING"].includes(match.observation.state)
+      ) {
+        return { call, match };
+      }
+    }
+
+    return null;
+  }, [incomingCalls, mediaObservations, session]);
 
   const callingReady = Boolean(session && isAgentSessionViewReady(session));
+  const canRespondToOffer = Boolean(
+    headsUpOffer &&
+    state?.connection === "CONNECTED" &&
+    callingReady &&
+    !activeCall &&
+    !runtime.takingMediaLegId &&
+    !decliningMediaLegId,
+  );
 
   useEffect(() => {
     setCallCenterCurrentCallGuard(activeCall?.id ?? null);
@@ -307,6 +352,21 @@ function ConnectedCanonicalActiveWorkspace({
       }
     },
     [mediaObservations, runtime, session],
+  );
+
+  const declineCall = useCallback(
+    async (mediaLegId: string) => {
+      setDecliningMediaLegId(mediaLegId);
+      setActionError(null);
+      try {
+        await Promise.resolve(media.decline(mediaLegId));
+      } catch {
+        setActionError("The incoming call could not be declined.");
+      } finally {
+        setDecliningMediaLegId((current) => (current === mediaLegId ? null : current));
+      }
+    },
+    [media],
   );
 
   const startOutbound = useCallback(async () => {
@@ -394,24 +454,54 @@ function ConnectedCanonicalActiveWorkspace({
 
   const outboundHelp = activeCall
     ? "Finish the current call before starting another."
-    : !callingReady
-      ? "Start taking calls before placing an outbound call."
-      : session?.presence !== "AVAILABLE"
-        ? "Wait until you are Ready to place a call."
+    : headsUpOffer
+      ? "Answer or decline the incoming call before placing another call."
+      : !callingReady
+        ? "Calling is not ready yet."
         : !selectedNumberId
-          ? "No outbound caller number is configured."
-          : "Enter a patient number to begin.";
+          ? "No practice number is configured."
+          : "Enter a phone number to call.";
   const canStartOutbound = Boolean(
-    session?.presence === "AVAILABLE" &&
-    session.connectionState === "READY" &&
+    callingReady &&
     !activeCall &&
+    !headsUpOffer &&
     selectedNumberId &&
     destination.trim() &&
     !startingOutbound,
   );
+  const queueName = office || "Call center";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-64 lg:pb-0">
+      <CallCenterLeaveGuard active={Boolean(headsUpOffer || activeCall)} />
+      <IncomingOfferAnnouncement
+        call={headsUpOffer?.call ?? null}
+        queueName={queueName}
+      />
+
+      {headsUpOffer ? (
+        <div className="pointer-events-none fixed inset-x-3 top-[max(5rem,calc(1rem+env(safe-area-inset-top)))] z-40 mx-auto max-w-sm md:left-auto md:right-6 md:top-24">
+          <div className="pointer-events-auto">
+            <IncomingCallHeadsUp
+              canRespond={canRespondToOffer}
+              call={headsUpOffer.call}
+              onAnswer={() => void takeCall(headsUpOffer.call)}
+              onDecline={() =>
+                void declineCall(headsUpOffer.match.observation.mediaLegId)
+              }
+              pending={
+                runtime.takingMediaLegId === headsUpOffer.match.observation.mediaLegId
+                  ? "answer"
+                  : decliningMediaLegId === headsUpOffer.match.observation.mediaLegId
+                    ? "decline"
+                    : null
+              }
+              queueName={queueName}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {realtime.error ? (
         <section
           className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
@@ -468,21 +558,34 @@ function ConnectedCanonicalActiveWorkspace({
 
       <div className="grid items-start gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <section className="rounded-xl border border-[var(--portal-border)] bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
+          <section
+            aria-labelledby="live-queue-heading"
+            className="overflow-hidden rounded-2xl border border-[var(--portal-border)] bg-white shadow-sm"
+          >
+            <header className="flex items-center justify-between gap-3 border-b border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-4 py-4 sm:px-5">
               <div>
-                <h2 className="text-base font-semibold text-[var(--portal-ink)]">
+                <h2
+                  className="text-base font-semibold text-[var(--portal-ink)]"
+                  id="live-queue-heading"
+                >
                   Live queue
                 </h2>
                 <p className="mt-1 text-sm text-[var(--portal-muted)]">
-                  Live callers that need an answer.
+                  {realtime.error
+                    ? "Showing the last known queue."
+                    : "Incoming calls waiting for an operator."}
                 </p>
               </div>
-              <PortalBadge className="tabular-nums">{incomingCalls.length}</PortalBadge>
-            </div>
+              <PortalBadge
+                className="tabular-nums"
+                tone={!realtime.error && state.counts.waiting ? "accent" : "soft"}
+              >
+                {realtime.error ? "Updates paused" : `${state.counts.waiting} waiting`}
+              </PortalBadge>
+            </header>
 
             {incomingCalls.length ? (
-              <ul className="space-y-3">
+              <ul className="divide-y divide-[var(--portal-border)]">
                 {incomingCalls.map((call) => {
                   const match = session
                     ? selectCanonicalBrowserMediaLeg(
@@ -494,43 +597,86 @@ function ConnectedCanonicalActiveWorkspace({
                     : null;
                   const taking =
                     match?.observation.mediaLegId === runtime.takingMediaLegId;
-                  const phone = formatPhone(callPhone(call));
+                  const declining = match?.observation.mediaLegId === decliningMediaLegId;
+                  const phone = formatPhone(callCounterpartyPhone(call));
+                  const caller = call.callerName || phone;
+                  const offered = Boolean(match);
+                  const status = declining
+                    ? "Declining…"
+                    : taking
+                      ? "Connecting…"
+                      : offered
+                        ? "Ringing for you"
+                        : "Waiting in queue";
 
                   return (
                     <li
-                      className="flex flex-col gap-3 border-b border-[var(--portal-border)] py-3 first:mt-2 last:border-b-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex flex-col gap-3 px-4 py-4 transition hover:bg-[var(--portal-panel-soft)] sm:flex-row sm:items-center sm:justify-between sm:px-5"
                       key={call.id}
                     >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
-                          {call.callerName || phone}
-                        </p>
-                        <p className="mt-1 text-xs text-[var(--portal-muted)]">
-                          {call.callerName ? `${phone} · ` : ""}
-                          {taking ? "Connecting…" : match ? "Ringing" : "Preparing"}
-                        </p>
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span
+                          className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${
+                            offered
+                              ? "bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
+                              : "bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]"
+                          }`}
+                        >
+                          <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
+                            {caller}
+                          </p>
+                          {call.callerName ? (
+                            <p className="mt-0.5 truncate text-xs text-[var(--portal-muted)]">
+                              {phone}
+                            </p>
+                          ) : null}
+                          <p
+                            className={`mt-1 text-xs font-medium ${
+                              offered
+                                ? "text-[var(--portal-accent)]"
+                                : "text-[var(--portal-muted)]"
+                            }`}
+                          >
+                            {status}
+                          </p>
+                        </div>
                       </div>
-                      <Button
-                        className="w-fit"
-                        disabled={
-                          !session ||
-                          !match ||
-                          Boolean(runtime.takingMediaLegId) ||
-                          Boolean(activeCall)
-                        }
-                        onClick={() => void takeCall(call)}
-                        size="sm"
-                        variant="primary"
-                      >
-                        {taking ? "Taking" : "Take"}
-                      </Button>
+                      {match ? (
+                        <Button
+                          aria-label={`Answer ${caller}`}
+                          className="w-fit"
+                          disabled={!canRespondToOffer || taking || declining}
+                          onClick={() => void takeCall(call)}
+                          size="sm"
+                          variant="primary"
+                        >
+                          {declining ? "Declining…" : taking ? "Connecting…" : "Answer"}
+                        </Button>
+                      ) : (
+                        <PortalBadge className="w-fit" tone="soft">
+                          Waiting
+                        </PortalBadge>
+                      )}
                     </li>
                   );
                 })}
               </ul>
             ) : (
-              <div className="mt-4 rounded-lg border border-dashed border-[var(--portal-border-strong)] px-3 py-4 text-center text-sm text-[var(--portal-muted)]">
-                No callers waiting.
+              <div className="px-5 py-10 text-center">
+                <span className="mx-auto flex size-10 items-center justify-center rounded-xl bg-[var(--portal-panel-soft)] text-[var(--portal-muted)]">
+                  <PhoneIncoming className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <p className="mt-3 text-sm font-medium text-[var(--portal-ink)]">
+                  {realtime.error ? "Queue status unavailable." : "Queue is clear."}
+                </p>
+                <p className="mt-1 text-xs text-[var(--portal-muted)]">
+                  {realtime.error
+                    ? "Retry updates to see who is waiting."
+                    : "New incoming calls will appear here."}
+                </p>
               </div>
             )}
           </section>
@@ -544,59 +690,55 @@ function ConnectedCanonicalActiveWorkspace({
             onCallback={setDestination}
             queueId={queueId}
             recentCalls={recentCalls}
+            recentCount={state.counts.recent}
           />
         </div>
 
-        <div className="scroll-mt-4 space-y-3" id="softphone">
-          <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Calling</h2>
-              <CallConnectionStatus session={session} />
-            </div>
-          </section>
-
-          {eligibleOutboundNumbers.length > 1 ? (
-            <section className="rounded-xl border border-[var(--portal-border)] bg-white p-4 shadow-sm">
-              <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--portal-ink)]">
-                Outbound number
-                <PortalSelect
-                  disabled={!eligibleOutboundNumbers.length}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setNumberChoice(value);
-                    try {
-                      window.localStorage.setItem(OUTBOUND_NUMBER_STORAGE_KEY, value);
-                    } catch {
-                      // Storage is optional.
-                    }
-                  }}
-                  value={selectedNumberId}
-                >
-                  {eligibleOutboundNumbers.map((number) => (
-                    <option key={number.id} value={number.id}>
-                      {number.label} - {formatPhone(number.phoneNumber)}
-                    </option>
-                  ))}
-                </PortalSelect>
-              </label>
-            </section>
-          ) : null}
-
-          <section className="rounded-lg border border-[var(--portal-border)] bg-white shadow-[0_14px_40px_rgba(16,39,44,0.04)]">
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--portal-border)] px-4 py-4">
+        <div
+          className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 max-h-[calc(100dvh-7rem-env(safe-area-inset-bottom))] scroll-mt-4 overflow-y-auto md:inset-x-auto md:right-5 md:w-[22rem] lg:sticky lg:right-auto lg:top-24 lg:z-10 lg:max-h-[calc(100dvh-7rem)] lg:w-auto"
+          id="softphone"
+        >
+          <section className="overflow-hidden rounded-2xl border border-[var(--portal-border)] bg-white shadow-[0_18px_50px_rgba(16,39,44,0.14)] lg:shadow-sm">
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-4 py-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--portal-muted)]">
-                  Softphone
+                  Calling
                 </p>
-                <p className="mt-1 text-sm font-medium text-[var(--portal-ink)]">
+                <p className="mt-0.5 truncate text-sm font-medium text-[var(--portal-ink)]">
                   {selectedOutboundNumber
-                    ? formatPhone(selectedOutboundNumber.phoneNumber)
-                    : "No caller number"}
+                    ? `${selectedOutboundNumber.label} · ${formatPhone(selectedOutboundNumber.phoneNumber)}`
+                    : "No practice number"}
                 </p>
               </div>
+              <CallConnectionStatus session={session} />
             </div>
 
             <div className="space-y-4 p-4">
+              {eligibleOutboundNumbers.length > 1 ? (
+                <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--portal-ink)]">
+                  Practice number
+                  <PortalSelect
+                    disabled={Boolean(activeCall || headsUpOffer)}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setNumberChoice(value);
+                      try {
+                        window.localStorage.setItem(OUTBOUND_NUMBER_STORAGE_KEY, value);
+                      } catch {
+                        // Storage is optional.
+                      }
+                    }}
+                    value={selectedNumberId}
+                  >
+                    {eligibleOutboundNumbers.map((number) => (
+                      <option key={number.id} value={number.id}>
+                        {number.label} - {formatPhone(number.phoneNumber)}
+                      </option>
+                    ))}
+                  </PortalSelect>
+                </label>
+              ) : null}
+
               {activeCall ? (
                 <CanonicalActiveCall
                   call={activeCall}
@@ -606,7 +748,7 @@ function ConnectedCanonicalActiveWorkspace({
                   sessionId={session?.id ?? null}
                 />
               ) : (
-                <>
+                <div className="space-y-3">
                   <div className="flex gap-2">
                     <Input
                       aria-label="Phone number"
@@ -639,21 +781,42 @@ function ConnectedCanonicalActiveWorkspace({
                       {startingOutbound ? "Calling" : "Call"}
                     </Button>
                   </div>
-                  <div className="grid max-w-60 grid-cols-3 gap-2">
-                    {keypadDigits.map((digit) => (
-                      <Button
-                        key={digit}
-                        onClick={() => setDestination((current) => current + digit)}
-                        variant="secondary"
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs leading-relaxed text-[var(--portal-muted)]">
+                      {outboundHelp}
+                    </p>
+                    <Sheet>
+                      <SheetTrigger asChild>
+                        <Button className="shrink-0" size="sm" variant="ghost">
+                          <Grid3X3 className="h-4 w-4" aria-hidden="true" />
+                          More
+                        </Button>
+                      </SheetTrigger>
+                      <SheetContent
+                        className="portal-platform overflow-y-auto"
+                        side="right"
                       >
-                        {digit}
-                      </Button>
-                    ))}
+                        <SheetHeader className="pr-12">
+                          <SheetTitle>Dialing controls</SheetTitle>
+                          <SheetDescription>
+                            Enter the number you want to call.
+                          </SheetDescription>
+                        </SheetHeader>
+                        <div className="grid grid-cols-3 gap-2 px-5">
+                          {keypadDigits.map((digit) => (
+                            <Button
+                              key={digit}
+                              onClick={() => setDestination((current) => current + digit)}
+                              variant="secondary"
+                            >
+                              {digit}
+                            </Button>
+                          ))}
+                        </div>
+                      </SheetContent>
+                    </Sheet>
                   </div>
-                  <p className="text-xs leading-relaxed text-[var(--portal-muted)]">
-                    {outboundHelp}
-                  </p>
-                </>
+                </div>
               )}
             </div>
           </section>
@@ -685,9 +848,11 @@ export function CanonicalActiveCall({
   const phone = formatPhone(callPhone(call));
   const connected = call.status === "CONNECTED";
   const mediaLegId = match?.observation.mediaLegId ?? null;
+  const isHeld = match?.observation.state === "HELD";
   const controlsEnabled = Boolean(
     mediaLegId &&
-    (match?.leg.status === "BRIDGED" || match?.observation.state === "ACTIVE"),
+    (match?.leg.status === "BRIDGED" ||
+      ["ACTIVE", "HELD"].includes(match?.observation.state ?? "")),
   );
 
   useEffect(() => {
@@ -723,6 +888,28 @@ export function CanonicalActiveCall({
     }
   };
 
+  const toggleHold = async () => {
+    if (!mediaLegId) return;
+
+    try {
+      await Promise.resolve(media.hold(mediaLegId, !isHeld));
+      setControlError(null);
+    } catch (error) {
+      showControlError(error, "hold");
+    }
+  };
+
+  const sendDigit = (digit: string) => {
+    if (!mediaLegId) return;
+
+    try {
+      media.sendDtmf(mediaLegId, digit);
+      setControlError(null);
+    } catch (error) {
+      showControlError(error, "keypad");
+    }
+  };
+
   const endCall = async () => {
     if (!mediaLegId || ending) return;
 
@@ -751,7 +938,7 @@ export function CanonicalActiveCall({
               {call.callerName || phone}
             </p>
             <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--portal-muted)]">
-              {call.direction === "OUTBOUND" ? "Outbound" : "Patient call"}
+              {call.direction === "OUTBOUND" ? "Outbound call" : "Inbound call"}
               {call.callerName ? ` · ${phone}` : ""}
             </p>
           </div>
@@ -761,6 +948,19 @@ export function CanonicalActiveCall({
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button
+            aria-pressed={isHeld}
+            disabled={!controlsEnabled || ending}
+            onClick={() => void toggleHold()}
+            variant={isHeld ? "default" : "secondary"}
+          >
+            {isHeld ? (
+              <Play className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Pause className="h-4 w-4" aria-hidden="true" />
+            )}
+            {isHeld ? "Resume" : "Hold"}
+          </Button>
           <Button
             aria-pressed={isMuted}
             disabled={!controlsEnabled || ending}
@@ -774,10 +974,35 @@ export function CanonicalActiveCall({
             )}
             {isMuted ? "Unmute" : "Mute"}
           </Button>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button disabled={!controlsEnabled || ending} variant="secondary">
+                <Grid3X3 className="h-4 w-4" aria-hidden="true" />
+                Keypad
+              </Button>
+            </SheetTrigger>
+            <SheetContent className="portal-platform overflow-y-auto" side="right">
+              <SheetHeader className="pr-12">
+                <SheetTitle>Call keypad</SheetTitle>
+                <SheetDescription>Send a keypad tone during this call.</SheetDescription>
+              </SheetHeader>
+              <div className="grid grid-cols-3 gap-2 px-5">
+                {keypadDigits.map((digit) => (
+                  <Button
+                    key={digit}
+                    onClick={() => sendDigit(digit)}
+                    variant="secondary"
+                  >
+                    {digit}
+                  </Button>
+                ))}
+              </div>
+            </SheetContent>
+          </Sheet>
           <Button
             disabled={!controlsEnabled || ending}
             onClick={() => void endCall()}
-            variant="secondary"
+            variant="destructive"
           >
             <PhoneOff className="h-4 w-4" aria-hidden="true" />
             {ending ? "Ending" : "End"}
@@ -795,7 +1020,7 @@ export function CanonicalActiveCall({
             {call.callerName || phone}
           </p>
           <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--portal-muted)]">
-            {call.direction === "OUTBOUND" ? "Outbound" : "Patient call"}
+            {call.direction === "OUTBOUND" ? "Outbound call" : "Inbound call"}
             {call.callerName ? ` · ${phone}` : ""}
           </p>
         </div>
@@ -825,6 +1050,7 @@ function CanonicalActivity({
   onCallback,
   queueId,
   recentCalls,
+  recentCount,
 }: {
   followUpHref: string;
   historyHref: string;
@@ -834,8 +1060,10 @@ function CanonicalActivity({
   onCallback: (phone: string) => void;
   queueId: string;
   recentCalls: CallView[];
+  recentCount: number;
 }) {
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const visibleRecentCalls = recentCalls.slice(0, RECENT_CALL_PREVIEW_LIMIT);
 
   return (
     <>
@@ -872,11 +1100,9 @@ function CanonicalActivity({
                 <span className="text-sm font-semibold text-[var(--portal-ink)]">
                   Recent calls
                 </span>
-                {recentCalls.length ? (
-                  <PortalBadge className="px-2 py-0.5 tabular-nums">
-                    {recentCalls.length}
-                  </PortalBadge>
-                ) : null}
+                <PortalBadge className="px-2 py-0.5 tabular-nums">
+                  {recentCount}
+                </PortalBadge>
               </span>
               <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
                 Inbound and outbound call outcomes.
@@ -891,15 +1117,15 @@ function CanonicalActivity({
           </Link>
         </header>
 
-        {!connectionsOpen ? null : recentCalls.length ? (
-          <ul className="max-h-72 divide-y divide-[var(--portal-border)] overflow-y-auto">
-            {recentCalls.map((call) => {
+        {!connectionsOpen ? null : visibleRecentCalls.length ? (
+          <ul className="divide-y divide-[var(--portal-border)]">
+            {visibleRecentCalls.map((call) => {
               const DirectionIcon =
                 call.direction === "OUTBOUND" ? PhoneOutgoing : PhoneIncoming;
-              const patientPhone = callPhone(call);
-              const phone = formatPhone(patientPhone);
-              const callerHref = patientPhone
-                ? `/portal/app/call-center/callers/${encodeURIComponent(patientPhone)}`
+              const contactPhone = callCounterpartyPhone(call);
+              const phone = formatPhone(contactPhone);
+              const callerHref = contactPhone
+                ? `/portal/app/call-center/callers/${encodeURIComponent(contactPhone)}`
                 : null;
 
               return (

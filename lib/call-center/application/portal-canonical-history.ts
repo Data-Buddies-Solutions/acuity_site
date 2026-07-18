@@ -16,6 +16,7 @@ import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { getPracticeBranding } from "@/lib/practice-branding";
 import { prisma } from "@/lib/prisma";
 import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
+import { getAllowedSmsPracticeNumberIdsForContext } from "@/lib/sms/service";
 
 type PortalContext = NonNullable<
   Awaited<ReturnType<typeof getCurrentPortalPracticeContext>>
@@ -25,9 +26,13 @@ type CallAccessContext = {
   hasAllLocationAccess: boolean;
   practice: { id: string };
 };
-type CanonicalHistoryDatabase = Pick<typeof prisma, "callCenterCall" | "callCenterTask">;
+type CanonicalHistoryDatabase = Pick<
+  typeof prisma,
+  "callCenterCall" | "callCenterTask" | "smsMessage"
+>;
 type CanonicalHistoryDependencies = {
   database?: CanonicalHistoryDatabase;
+  getAllowedSmsNumberIds?: typeof getAllowedSmsPracticeNumberIdsForContext;
   getContext?: typeof getCurrentPortalPracticeContext;
 };
 
@@ -369,6 +374,23 @@ const callerTaskSelect = {
 type CallerCall = Prisma.CallCenterCallGetPayload<{ select: typeof callerCallSelect }>;
 type CallerTask = Prisma.CallCenterTaskGetPayload<{ select: typeof callerTaskSelect }>;
 
+const callerSmsSelect = {
+  body: true,
+  conversation: {
+    select: {
+      location: { select: { name: true } },
+      patientPhoneNumber: true,
+    },
+  },
+  createdAt: true,
+  direction: true,
+  id: true,
+  sentByUser: { select: { name: true } },
+  status: true,
+} satisfies Prisma.SmsMessageSelect;
+
+type CallerSms = Prisma.SmsMessageGetPayload<{ select: typeof callerSmsSelect }>;
+
 function callerCallItem(call: CallerCall): PortalCallerTimelineItem {
   const outbound = call.direction === "OUTBOUND";
   const outcome = canonicalCallOutcome(call);
@@ -439,6 +461,26 @@ function callerTaskItem(task: CallerTask): PortalCallerTimelineItem {
   };
 }
 
+function callerSmsItem(message: CallerSms): PortalCallerTimelineItem {
+  const inbound = message.direction === "INBOUND";
+  return {
+    agentLabel: message.sentByUser?.name ?? null,
+    body: message.body,
+    direction: inbound ? "inbound" : "outbound",
+    durationSec: null,
+    id: `sms:${message.id}`,
+    kind: "text",
+    locationName: message.conversation.location?.name ?? null,
+    note: null,
+    occurredAt: message.createdAt,
+    phone: message.conversation.patientPhoneNumber,
+    recordId: message.id,
+    recordingId: null,
+    status: message.status,
+    title: inbound ? "Text received" : "Text sent",
+  };
+}
+
 function isOpenCallerTask(item: PortalCallerTimelineItem) {
   return (
     item.status === "CALLBACK_NEEDED" ||
@@ -458,17 +500,20 @@ export async function readCanonicalCallerTimeline(
   } = {},
   {
     database = prisma,
+    getAllowedSmsNumberIds = getAllowedSmsPracticeNumberIdsForContext,
     getContext = getCurrentPortalPracticeContext,
   }: CanonicalHistoryDependencies = {},
 ): Promise<PortalCallerTimeline | null> {
   const context = await getContext();
   if (!context) return null;
+  const allowedSmsNumberIds = await getAllowedSmsNumberIds(context);
   const normalizedPhone = normalizePhone(phone) || phone.trim();
   const variants = phoneLookupVariants(normalizedPhone).filter(Boolean);
   const pageSize = Math.min(100, Math.max(25, Math.round(options.pageSize ?? 100)));
   const range = options.range ?? "all";
   const empty = {
     branding: getPracticeBranding(context.practice),
+    canText: allowedSmsNumberIds.length > 0,
     callerName: null,
     items: [],
     latestItem: null,
@@ -518,22 +563,36 @@ export async function readCanonicalCallerTimeline(
     practiceId: context.practice.id,
     status: "OPEN",
   };
+  const smsWhere: Prisma.SmsMessageWhereInput = {
+    conversation: {
+      patientPhoneNumber: { in: variants },
+      practiceId: context.practice.id,
+      practiceNumberId: { in: allowedSmsNumberIds },
+    },
+    ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
+  };
 
   const [
     callCount,
     taskCount,
+    smsCount,
     inboundCallCount,
     inboundTaskCount,
+    inboundSmsCount,
     outboundDialed,
     outboundConnected,
   ] = await Promise.all([
     database.callCenterCall.count({ where: callWhere }),
     database.callCenterTask.count({ where: taskWhere }),
+    database.smsMessage.count({ where: smsWhere }),
     database.callCenterCall.count({
       where: { ...callWhere, direction: "INBOUND" },
     }),
     database.callCenterTask.count({
       where: { ...taskWhere, kind: { in: ["MISSED_CALL", "VOICEMAIL"] } },
+    }),
+    database.smsMessage.count({
+      where: { ...smsWhere, direction: "INBOUND" },
     }),
     database.callCenterCall.count({
       where: { ...callWhere, direction: "OUTBOUND" },
@@ -542,11 +601,11 @@ export async function readCanonicalCallerTimeline(
       where: { ...callWhere, answeredAt: { not: null }, direction: "OUTBOUND" },
     }),
   ]);
-  const totalItems = callCount + taskCount;
+  const totalItems = callCount + taskCount + smsCount;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const page = Math.min(Math.max(1, Math.round(options.page ?? 1)), totalPages);
   const sourceTake = page * pageSize;
-  const [calls, tasks, callerNameSource, currentOpenTask] = await Promise.all([
+  const [calls, tasks, messages, callerNameSource, currentOpenTask] = await Promise.all([
     database.callCenterCall.findMany({
       orderBy: [{ endedAt: "desc" }, { answeredAt: "desc" }, { receivedAt: "desc" }],
       select: callerCallSelect,
@@ -559,6 +618,12 @@ export async function readCanonicalCallerTimeline(
       take: sourceTake,
       where: taskWhere,
     }),
+    database.smsMessage.findMany({
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      select: callerSmsSelect,
+      take: sourceTake,
+      where: smsWhere,
+    }),
     database.callCenterCall.findFirst({
       orderBy: [{ receivedAt: "desc" }],
       select: { callerName: true },
@@ -570,14 +635,21 @@ export async function readCanonicalCallerTimeline(
       where: openTaskWhere,
     }),
   ]);
-  const items = [...calls.map(callerCallItem), ...tasks.map(callerTaskItem)].sort(
-    (left, right) => right.occurredAt.getTime() - left.occurredAt.getTime(),
+  const items = [
+    ...calls.map(callerCallItem),
+    ...tasks.map(callerTaskItem),
+    ...messages.map(callerSmsItem),
+  ].sort(
+    (left, right) =>
+      right.occurredAt.getTime() - left.occurredAt.getTime() ||
+      left.id.localeCompare(right.id),
   );
   const pageStart = (page - 1) * pageSize;
   const currentOpenItem = currentOpenTask ? callerTaskItem(currentOpenTask) : null;
 
   return {
     branding: getPracticeBranding(context.practice),
+    canText: allowedSmsNumberIds.length > 0,
     callerName:
       callerNameSource?.callerName ??
       calls.find(({ callerName }) => callerName)?.callerName ??
@@ -593,7 +665,7 @@ export async function readCanonicalCallerTimeline(
     range,
     totalPages,
     totals: {
-      inboundItems: inboundCallCount + inboundTaskCount,
+      inboundItems: inboundCallCount + inboundTaskCount + inboundSmsCount,
       outboundConnectedCalls: outboundConnected,
       outboundDialedCalls: outboundDialed,
       totalItems,

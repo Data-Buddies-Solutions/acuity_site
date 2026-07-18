@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { Prisma } from "@/generated/prisma/client";
 import {
   DispositionCallError,
@@ -94,8 +96,50 @@ class PrismaDispositionCallTransaction implements DispositionCallTransaction {
         });
       }
     }
+    const followUpKind =
+      input.disposition === "CALLBACK_NEEDED"
+        ? "CALLBACK"
+        : input.disposition === "FOLLOW_UP_REQUIRED"
+          ? "FOLLOW_UP"
+          : null;
+    if (followUpKind) {
+      const taskId = randomUUID();
+      const event = await this.transaction.callCenterEvent.create({
+        data: {
+          actorUserId: actor.userId,
+          aggregateId: taskId,
+          aggregateType: "TASK",
+          data: {
+            body: input.note,
+            callId: call.id,
+            disposition: input.disposition,
+          },
+          idempotencyKey: `${input.idempotencyKey}:follow-up`,
+          occurredAt: now,
+          practiceId: actor.practiceId,
+          type: "TASK_CREATED",
+        },
+        select: { revision: true },
+      });
+      await this.transaction.callCenterTask.create({
+        data: {
+          callId: call.id,
+          createdAt: now,
+          dedupeKey: `${input.idempotencyKey}:follow-up`,
+          id: taskId,
+          kind: followUpKind,
+          note: input.note,
+          practiceId: actor.practiceId,
+          sourceEventRevision: event.revision,
+          status: "OPEN",
+        },
+      });
+    }
     const updated = await this.transaction.callCenterCall.update({
-      data: { stateVersion: { increment: 1 } },
+      data: {
+        stateVersion: { increment: 1 },
+        status: call.status === "WRAP_UP" ? "COMPLETED" : undefined,
+      },
       select: { stateVersion: true },
       where: { id: call.id },
     });

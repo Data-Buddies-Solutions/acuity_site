@@ -90,6 +90,7 @@ export type PortalCallerTimelineItem = {
 
 export type PortalCallerTimeline = {
   branding: ReturnType<typeof getPracticeBranding>;
+  canText: boolean;
   callerName: string | null;
   items: PortalCallerTimelineItem[];
   latestItem: PortalCallerTimelineItem | null;
