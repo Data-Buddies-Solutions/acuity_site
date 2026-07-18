@@ -102,6 +102,16 @@ WITH ranked AS (
       OVER (PARTITION BY map."callId") AS last_seen
   FROM "call_center_session" session
   JOIN "_legacy_session_call_map" map ON map."sessionId" = session."id"
+),
+imports AS (
+  SELECT
+    ranked.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY NULLIF(ranked."telnyxCallSessionId", '')
+      ORDER BY ranked.first_seen, ranked."practiceId", ranked."id"
+    ) AS provider_session_rank
+  FROM ranked
+  WHERE ranked.rank = 1
 )
 INSERT INTO "call_center_call" (
   "id", "practiceId", "queueId", "numberId", "direction", "effectOwner",
@@ -109,16 +119,16 @@ INSERT INTO "call_center_call" (
   "stateVersion", "receivedAt", "answeredAt", "endedAt", "createdAt", "updatedAt"
 )
 SELECT
-  ranked."callId",
-  ranked."practiceId",
-  CASE WHEN ranked."direction" = 'OUTBOUND' THEN NULL ELSE ranked."queueId" END,
-  ranked."numberId",
-  CASE WHEN ranked."direction" = 'OUTBOUND'
+  imports."callId",
+  imports."practiceId",
+  CASE WHEN imports."direction" = 'OUTBOUND' THEN NULL ELSE imports."queueId" END,
+  imports."numberId",
+  CASE WHEN imports."direction" = 'OUTBOUND'
     THEN 'OUTBOUND'::"CallCenterCallDirection"
     ELSE 'INBOUND'::"CallCenterCallDirection"
   END,
   'CANONICAL'::"CallCenterEffectOwner",
-  CASE ranked."status"
+  CASE imports."status"
     WHEN 'COMPLETED' THEN 'COMPLETED'::"CallCenterCallStatus"
     WHEN 'ACTIVE' THEN 'COMPLETED'::"CallCenterCallStatus"
     WHEN 'VOICEMAIL' THEN 'VOICEMAIL'::"CallCenterCallStatus"
@@ -126,26 +136,29 @@ SELECT
     WHEN 'FAILED' THEN 'FAILED'::"CallCenterCallStatus"
     ELSE 'ABANDONED'::"CallCenterCallStatus"
   END,
-  COALESCE(ranked."fromPhone", 'unknown'),
-  COALESCE(ranked."toPhone", 'unknown'),
-  ranked."callerName",
+  COALESCE(imports."fromPhone", 'unknown'),
+  COALESCE(imports."toPhone", 'unknown'),
+  imports."callerName",
   CASE
-    WHEN NULLIF(ranked."telnyxCallSessionId", '') IS NOT NULL
+    -- Some legacy customer/browser copies crossed practice boundaries. Keep
+    -- every historical call, but attach the globally unique provider identity
+    -- to exactly one deterministic owner.
+    WHEN NULLIF(imports."telnyxCallSessionId", '') IS NOT NULL
+      AND imports.provider_session_rank = 1
       AND NOT EXISTS (
         SELECT 1 FROM "call_center_call" existing
-        WHERE existing."providerCallSessionId" = ranked."telnyxCallSessionId"
+        WHERE existing."providerCallSessionId" = imports."telnyxCallSessionId"
       )
-    THEN ranked."telnyxCallSessionId"
+    THEN imports."telnyxCallSessionId"
     ELSE NULL
   END,
   0,
-  ranked.first_seen,
-  ranked.answered,
-  ranked.last_seen,
-  ranked.first_seen,
-  ranked.last_seen
-FROM ranked
-WHERE ranked.rank = 1
+  imports.first_seen,
+  imports.answered,
+  imports.last_seen,
+  imports.first_seen,
+  imports.last_seen
+FROM imports
 ON CONFLICT ("id") DO NOTHING;
 
 -- Give duplicate voicemail recordings their own historical call so no audio is
