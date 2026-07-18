@@ -1,8 +1,6 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
-import { CALL_CLAIM_REQUESTED_EVENT } from "@/lib/call-center/application/claim-call";
 import { CALL_OUTBOUND_REQUESTED_EVENT } from "@/lib/call-center/application/start-outbound-call";
-import { CALL_TRANSFER_REQUESTED_EVENT } from "@/lib/call-center/application/transfer-call";
 import { CALL_DISPOSITION_REQUESTED_EVENT } from "@/lib/call-center/application/disposition-call";
 import {
   listAccessibleQueues,
@@ -35,6 +33,8 @@ const ACTIVE_CALL_STATUSES = [
   "CONNECTED",
   "WRAP_UP",
 ] as const;
+const CALL_CLAIM_REQUESTED_EVENT = "CALL_CLAIM_REQUESTED";
+const CALL_TRANSFER_REQUESTED_EVENT = "CALL_TRANSFER_REQUESTED";
 const TERMINAL_CALL_STATUSES = ["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"] as const;
 export const CANONICAL_EVENT_BATCH_SIZE = 100;
 export const CALL_CENTER_READ_TRANSACTION_OPTIONS = {
@@ -74,6 +74,10 @@ const callSelect = {
 const sessionSelect = {
   audioReady: true,
   browserSessionId: true,
+  callLegs: {
+    select: { status: true },
+    where: { status: { in: ["ANSWERED", "BRIDGED"] as const } },
+  },
   connectionState: true,
   currentCallId: true,
   offeredCallId: true,
@@ -339,8 +343,9 @@ export function buildCanonicalBatchItems({
       const removed =
         event.type === "AGENT_SESSION_RELEASED" ||
         (event.type === "AGENT_SESSION_LEASE_EXPIRED" &&
-          !session?.currentCallId &&
-          !session?.offeredCallId);
+          !session?.callLegs.some(({ status }) =>
+            ["ANSWERED", "BRIDGED"].includes(status),
+          ));
       return {
         projection: session
           ? {
@@ -398,7 +403,13 @@ export function serializeCall(call: SelectedCall): CallView {
 }
 
 export function serializeAgentSession(session: SelectedSession): AgentSessionView {
-  const { browserSessionId, connectionState, leaseExpiresAt, ...safe } = session;
+  const {
+    browserSessionId,
+    callLegs: _,
+    connectionState,
+    leaseExpiresAt,
+    ...safe
+  } = session;
   return {
     ...safe,
     clientInstanceId: browserSessionId,
@@ -499,8 +510,7 @@ export function localAgentSessionWhere(
     browserSessionId: clientInstanceId,
     endpointId: { in: endpointIds },
     OR: [
-      { currentCallId: { not: null } },
-      { offeredCallId: { not: null } },
+      { callLegs: { some: { status: { in: ["ANSWERED", "BRIDGED"] } } } },
       {
         connectionState: { not: "CLOSED" },
         leaseExpiresAt: { gt: now },
@@ -608,12 +618,11 @@ export async function readCallCenterSnapshot(
           select: { user: { select: { id: true, name: true } } },
           where: {
             audioReady: true,
+            callLegs: { none: { status: { in: ["ANSWERED", "BRIDGED"] } } },
             connectionState: "READY",
-            currentCallId: null,
             endpoint: endpointWhere(actor, queueLocationIds),
             leaseExpiresAt: { gt: now },
             microphoneReady: true,
-            offeredCallId: null,
             practiceId: actor.practiceId,
             presence: "AVAILABLE",
             userId: { not: actor.userId },

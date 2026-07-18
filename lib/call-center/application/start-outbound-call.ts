@@ -19,6 +19,7 @@ export type StartOutboundCallInput = {
 export type StartOutboundCallReceipt = OperationReceipt & {
   agentSessionId: string;
   callId: string;
+  cleanupCommandIds?: string;
   clientState: string;
   endpointId: string;
   from: string;
@@ -28,6 +29,11 @@ export type StartOutboundCallReceipt = OperationReceipt & {
   status: "CONFIRMED";
   to: string;
 };
+
+export type StartOutboundCallResponse = Omit<
+  StartOutboundCallReceipt,
+  "cleanupCommandIds"
+>;
 
 export interface StartOutboundCallTransaction extends OperationReceiptTransaction {
   createOutboundCall(

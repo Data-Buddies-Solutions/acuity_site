@@ -66,14 +66,11 @@ function isRetryableRecoveryError(error: unknown) {
 }
 
 export function canonicalHeartbeatPresence(
-  session: Pick<AgentSessionView, "currentCallId" | "offeredCallId" | "presence">,
+  session: Pick<AgentSessionView, "presence">,
   requested: AgentSessionView["presence"],
 ) {
-  if (session.currentCallId) return session.presence;
-  if (session.offeredCallId) {
-    return requested === "AVAILABLE" ? "AVAILABLE" : session.presence;
-  }
-  return requested;
+  if (session.presence === "BUSY") return "BUSY";
+  return requested === "BUSY" ? "AVAILABLE" : requested;
 }
 
 function message(error: unknown, action: "connect" | "readiness") {
@@ -86,8 +83,6 @@ function isReadyForCalls(session: AgentSessionView) {
     session.connectionState === "READY" &&
     session.microphoneReady &&
     session.audioReady &&
-    session.offeredCallId === null &&
-    session.currentCallId === null &&
     new Date(session.leaseExpiresAt).getTime() > Date.now()
   );
 }
@@ -179,7 +174,10 @@ export function useCanonicalAgentSession({
     clearHeartbeat();
     patchRequestedRef.current = false;
     const requestedStateVersion = active.session.stateVersion;
-    let retryDelayMs = Math.max(1_000, Math.floor(active.leaseDurationMs / 2));
+    let retryDelayMs = Math.min(
+      10_000,
+      Math.max(1_000, Math.floor(active.leaseDurationMs / 2)),
+    );
     let recoverExpiredSession = false;
     const request = (async () => {
       const response = await fetch(
@@ -461,7 +459,14 @@ export function useCanonicalAgentSession({
           await patchReadiness();
           recoveryRetryAttemptRef.current = 0;
         } catch (recoveryError) {
+          const ownershipLost =
+            recoveryError instanceof CallCenterRequestError &&
+            recoveryError.operatorError.code === "CALL_CENTER_SESSION_IN_USE";
+          if (ownershipLost) {
+            await deactivate();
+          }
           if (
+            !ownershipLost &&
             mountedRef.current &&
             activeRef.current === active &&
             !active.stopping &&
@@ -484,7 +489,7 @@ export function useCanonicalAgentSession({
       recoveryPromiseRef.current = pending;
       return pending;
     },
-    [clearRecoveryTimer, drainReadiness, patchReadiness, startSession],
+    [clearRecoveryTimer, deactivate, drainReadiness, patchReadiness, startSession],
   );
 
   useEffect(() => {

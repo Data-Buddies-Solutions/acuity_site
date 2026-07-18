@@ -106,10 +106,9 @@ describe("provider webhook claim decisions", () => {
     ).toBe("EXHAUSTED");
   });
 
-  it("uses bounded exponential retry delays", () => {
-    expect(providerWebhookRetryAt(1, now).getTime() - now.getTime()).toBe(5_000);
-    expect(providerWebhookRetryAt(3, now).getTime() - now.getTime()).toBe(20_000);
-    expect(providerWebhookRetryAt(20, now).getTime() - now.getTime()).toBe(5 * 60_000);
+  it("leaves retry timing to the provider", () => {
+    expect(providerWebhookRetryAt(1, now)).toBe(now);
+    expect(providerWebhookRetryAt(20, now)).toBe(now);
   });
 
   it("allows only one concurrent claimant", async () => {

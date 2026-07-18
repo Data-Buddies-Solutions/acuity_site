@@ -45,8 +45,6 @@ export type CanonicalProjectionInboxStore = {
 
 export const CANONICAL_PROJECTION_MAX_ATTEMPTS = 8;
 const PROCESSING_LEASE_MS = 5 * 60_000;
-const RETRY_BASE_MS = 5_000;
-const RETRY_MAX_MS = 5 * 60_000;
 
 export const PASSIVE_LEGACY_OUT_OF_SCOPE_CODE = "LEGACY_OUT_OF_SCOPE";
 
@@ -56,13 +54,8 @@ export const canonicalProjectionMainLaneWhere = {
   },
 } as const;
 
-export function canonicalProjectionRetryAt(attemptCount: number, now: Date) {
-  if (attemptCount >= CANONICAL_PROJECTION_MAX_ATTEMPTS) return null;
-  const delay = Math.min(
-    RETRY_MAX_MS,
-    RETRY_BASE_MS * 2 ** Math.max(0, attemptCount - 1),
-  );
-  return new Date(now.getTime() + delay);
+export function canonicalProjectionRetryAt(_attemptCount: number, _now: Date) {
+  return null;
 }
 
 export function createCanonicalProjectionInbox(

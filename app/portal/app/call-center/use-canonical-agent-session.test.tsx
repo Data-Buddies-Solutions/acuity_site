@@ -54,24 +54,13 @@ function deferred<T>() {
 
 describe("useCanonicalAgentSession", () => {
   it("does not infer busy from a ringing offer", () => {
-    expect(
-      canonicalHeartbeatPresence(
-        { currentCallId: null, offeredCallId: "call-1", presence: "AVAILABLE" },
-        "BUSY",
-      ),
-    ).toBe("AVAILABLE");
-    expect(
-      canonicalHeartbeatPresence(
-        { currentCallId: "call-1", offeredCallId: null, presence: "BUSY" },
-        "AVAILABLE",
-      ),
-    ).toBe("BUSY");
-    expect(
-      canonicalHeartbeatPresence(
-        { currentCallId: null, offeredCallId: "call-1", presence: "PAUSED" },
-        "AVAILABLE",
-      ),
-    ).toBe("AVAILABLE");
+    expect(canonicalHeartbeatPresence({ presence: "AVAILABLE" }, "BUSY")).toBe(
+      "AVAILABLE",
+    );
+    expect(canonicalHeartbeatPresence({ presence: "BUSY" }, "AVAILABLE")).toBe("BUSY");
+    expect(canonicalHeartbeatPresence({ presence: "PAUSED" }, "AVAILABLE")).toBe(
+      "AVAILABLE",
+    );
   });
 
   beforeEach(() => {
@@ -175,7 +164,7 @@ describe("useCanonicalAgentSession", () => {
         connectionState: "READY",
         expectedStateVersion: 1,
         microphoneReady: true,
-        presence: "BUSY",
+        presence: "AVAILABLE",
       },
     });
   });
@@ -1198,9 +1187,7 @@ describe("useCanonicalAgentSession", () => {
     );
 
     await act(() => result.current.start());
-    expect(result.current.error).toBe(
-      "Your calling session is open in another browser. Close it there, then try again. Reference: ABC123.",
-    );
+    expect(result.current.error).toBe("Phone active in another tab");
     expect(result.current.session).toBeNull();
   });
 });

@@ -1,365 +1,166 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import {
   CALL_CENTER_SCHEMA_VERSION,
   type CallCenterSnapshot,
-  type ProjectionEvent,
 } from "@/lib/call-center/realtime-contract";
 
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
 
-const sources: FakeEventSource[] = [];
-
-class FakeEventSource {
-  closeCount = 0;
-  listeners = new Map<string, Set<EventListener>>();
-
-  constructor(readonly url: string | URL) {
-    sources.push(this);
-  }
-
-  addEventListener(type: string, listener: EventListener) {
-    const listeners = this.listeners.get(type) ?? new Set();
-    listeners.add(listener);
-    this.listeners.set(type, listeners);
-  }
-
-  close() {
-    this.closeCount += 1;
-  }
-
-  emit(type: string, data?: unknown) {
-    const event =
-      data === undefined
-        ? new Event(type)
-        : new MessageEvent(type, { data: JSON.stringify(data) });
-    for (const listener of this.listeners.get(type) ?? []) listener(event);
-  }
-}
-
-const originalEventSource = globalThis.EventSource;
 const originalFetch = globalThis.fetch;
+const originalEventSource = globalThis.EventSource;
 
 function snapshot(revision = "10", queueId = "queue-1"): CallCenterSnapshot {
   return {
+    agentProfile: null,
     agentSession: null,
-    availableQueues: [{ id: "queue-1", name: "Optical" }],
+    availableQueues: [{ id: queueId, name: "Optical" }],
     calls: [],
     counts: { active: 0, openTasks: 0, recent: 0, waiting: 0 },
-    agentProfile: null,
-    transferTargets: [],
     operations: null,
     queue: {
       id: queueId,
-      maxWaitSec: 30,
+      maxWaitSec: 20,
       name: "Optical",
       ringTimeoutSec: 20,
     },
     revision,
     schemaVersion: CALL_CENTER_SCHEMA_VERSION,
     tasks: [],
+    transferTargets: [],
   };
 }
 
-function errorResponse(
-  code: "ACCESS_DENIED" | "TEMPORARY_SERVICE_FAILURE",
-  status: number,
-) {
+function temporaryFailure() {
   return Response.json(
-    { error: { code, referenceId: "ABC123", retryable: status >= 500 } },
-    { status },
+    {
+      error: {
+        code: "TEMPORARY_SERVICE_FAILURE",
+        referenceId: "ABC123",
+        retryable: true,
+      },
+    },
+    { status: 503 },
   );
 }
 
-function projection(revision: string): ProjectionEvent {
-  return {
-    aggregateId: "call-1",
-    aggregateType: "CALL",
-    delta: {
-      call: {
-        answeredAt: null,
-        callerName: "Patient",
-        direction: "INBOUND",
-        endedAt: null,
-        fromPhone: "+13055550100",
-        id: "call-1",
-        legs: [],
-        queueId: "queue-1",
-        receivedAt: "2026-07-12T12:00:00.000Z",
-        stateVersion: 1,
-        status: "RINGING",
-        toPhone: "+17865550100",
-        winningLegId: null,
-      },
-      kind: "CALL_UPSERT",
-    },
-    revision,
-    schemaVersion: CALL_CENTER_SCHEMA_VERSION,
-    stateVersion: 1,
-  };
-}
-
 describe("useCanonicalCallCenter", () => {
-  beforeEach(() => {
-    sources.length = 0;
-    globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
-  });
-
   afterEach(() => {
     cleanup();
-    globalThis.EventSource = originalEventSource;
     globalThis.fetch = originalFetch;
+    globalThis.EventSource = originalEventSource;
   });
 
-  it("hydrates one canonical state and applies projection and cursor events", async () => {
-    globalThis.fetch = mock(async () =>
-      Response.json(snapshot()),
-    ) as unknown as typeof fetch;
+  it("reads authoritative state repeatedly without opening an event stream", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return Response.json(snapshot(String(requestCount * 10)));
+    }) as unknown as typeof fetch;
+    globalThis.EventSource = class {
+      constructor() {
+        throw new Error("SSE must not be opened");
+      }
+    } as unknown as typeof EventSource;
+
     const { result, unmount } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
-    expect(result.current.loading).toBe(false);
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/portal/call-center/snapshot?clientInstanceId=tab-1&queueId=queue-1",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
-    expect(String(sources[0]?.url)).toBe(
-      "/api/portal/call-center/events?after=10&clientInstanceId=tab-1&contract=canonical&queueId=queue-1",
-    );
-
-    act(() => sources[0]?.emit("projection", projection("12")));
-    expect(result.current.state?.calls[0]?.status).toBe("RINGING");
-    expect(result.current.state?.revision).toBe("12");
-
-    act(() => sources[0]?.emit("cursor", { revision: "18" }));
-    expect(result.current.state?.revision).toBe("18");
-
-    act(() => sources[0]?.emit("rotate", { reason: "STREAM_LIFETIME" }));
-    act(() => sources[0]?.emit("error"));
-    expect(result.current.state?.connection).toBe("CONNECTED");
-
-    act(() => sources[0]?.emit("error"));
-    expect(result.current.state?.connection).toBe("RECONNECTING");
-    expect(sources).toHaveLength(1);
-
-    act(() => sources[0]?.emit("open"));
-    expect(result.current.state?.connection).toBe("CONNECTED");
-    expect(sources).toHaveLength(1);
-
-    unmount();
-    expect(sources[0]?.closeCount).toBe(1);
-  });
-
-  it("closes the stale stream and refetches a snapshot on reset", async () => {
-    let requestCount = 0;
-    globalThis.fetch = mock(async () => {
-      requestCount += 1;
-      return Response.json(snapshot(requestCount === 1 ? "10" : "30"));
-    }) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() => expect(sources).toHaveLength(1));
-    act(() => sources[0]?.emit("reset", { reason: "RETENTION_GAP", revision: "20" }));
-
-    expect(sources[0]?.closeCount).toBe(1);
-    await waitFor(() => expect(result.current.state?.revision).toBe("30"));
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-    expect(sources).toHaveLength(2);
-    expect(String(sources[1]?.url)).toContain("after=30");
-  });
-
-  it("keeps the current workspace rendered during a same-session refetch", async () => {
-    let finishRefetch: ((response: Response) => void) | null = null;
-    let requestCount = 0;
-    globalThis.fetch = mock(async () => {
-      requestCount += 1;
-      if (requestCount === 1) return Response.json(snapshot("10"));
-      return new Promise<Response>((resolve) => {
-        finishRefetch = resolve;
-      });
-    }) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
-
-    act(() => result.current.refetch());
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
-    expect(result.current.loading).toBe(false);
-    expect(result.current.state?.revision).toBe("10");
-    expect(result.current.state?.connection).toBe("RECONNECTING");
-
-    await act(async () => finishRefetch?.(Response.json(snapshot("30"))));
-    await waitFor(() => expect(result.current.state?.revision).toBe("30"));
-    expect(result.current.state?.connection).toBe("CONNECTED");
-  });
-
-  it("keeps the current workspace after a transient same-session failure", async () => {
-    let requestCount = 0;
-    globalThis.fetch = mock(async () => {
-      requestCount += 1;
-      if (requestCount === 1) return Response.json(snapshot("10"));
-      if (requestCount === 2) return errorResponse("TEMPORARY_SERVICE_FAILURE", 503);
-      return Response.json(snapshot("30"));
-    }) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
-
-    act(() => result.current.refetch());
-    await waitFor(() =>
-      expect(result.current.error?.message).toBe("TEMPORARY_SERVICE_FAILURE"),
-    );
-    expect(result.current.loading).toBe(false);
-    expect(result.current.state?.revision).toBe("10");
-    expect(result.current.state?.connection).toBe("RECONNECTING");
-
-    act(() => result.current.refetch());
-    await waitFor(() => expect(result.current.state?.revision).toBe("30"));
-    expect(result.current.error).toBeNull();
-    expect(result.current.state?.connection).toBe("CONNECTED");
-  });
-
-  it("fails closed when a same-session snapshot loses authorization", async () => {
-    let requestCount = 0;
-    globalThis.fetch = mock(async () => {
-      requestCount += 1;
-      return requestCount === 1
-        ? Response.json(snapshot("10"))
-        : errorResponse("ACCESS_DENIED", 403);
-    }) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
-
-    act(() => result.current.refetch());
-    await waitFor(() => expect(result.current.error?.message).toBe("ACCESS_DENIED"));
-    expect(result.current.loading).toBe(false);
-    expect(result.current.state).toBeNull();
-  });
-
-  it("clears the current workspace when access changes", async () => {
-    let finishRefetch: ((response: Response) => void) | null = null;
-    let requestCount = 0;
-    globalThis.fetch = mock(async () => {
-      requestCount += 1;
-      if (requestCount === 1) return Response.json(snapshot("10"));
-      return new Promise<Response>((resolve) => {
-        finishRefetch = resolve;
-      });
-    }) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
-
-    act(() => sources[0]?.emit("reset", { reason: "ACCESS_CHANGED", revision: "10" }));
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
-    expect(sources[0]?.closeCount).toBe(1);
-    expect(result.current.loading).toBe(true);
-    expect(result.current.state).toBeNull();
-
-    await act(async () => finishRefetch?.(errorResponse("ACCESS_DENIED", 403)));
-    await waitFor(() => expect(result.current.error?.message).toBe("ACCESS_DENIED"));
-    expect(result.current.state).toBeNull();
-  });
-
-  it("surfaces snapshot failure and allows an explicit refetch", async () => {
-    let requestCount = 0;
-    globalThis.fetch = mock(async () => {
-      requestCount += 1;
-      return requestCount === 1
-        ? errorResponse("TEMPORARY_SERVICE_FAILURE", 503)
-        : Response.json(snapshot("40"));
-    }) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() =>
-      expect(result.current.error?.message).toBe("TEMPORARY_SERVICE_FAILURE"),
-    );
-    expect(result.current.loading).toBe(false);
-
-    act(() => result.current.refetch());
-    expect(result.current.loading).toBe(true);
-    await waitFor(() => expect(result.current.state?.revision).toBe("40"));
-    expect(result.current.error).toBeNull();
-    expect(sources).toHaveLength(1);
-  });
-
-  it("automatically retries a retryable initial snapshot failure", async () => {
-    let requestCount = 0;
-    globalThis.fetch = mock(async () => {
-      requestCount += 1;
-      return requestCount === 1
-        ? errorResponse("TEMPORARY_SERVICE_FAILURE", 503)
-        : Response.json(snapshot("40"));
-    }) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() => expect(result.current.state?.revision).toBe("40"), {
-      timeout: 2_500,
-    });
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-    expect(result.current.error).toBeNull();
-    expect(sources).toHaveLength(1);
-  });
-
-  it("fails closed on an incompatible snapshot", async () => {
-    globalThis.fetch = mock(async () =>
-      Response.json({ ...snapshot(), schemaVersion: 2 }),
-    ) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-
-    await waitFor(() =>
-      expect(result.current.error?.message).toBe(
-        "Call center returned an incompatible snapshot",
-      ),
-    );
-    expect(result.current.state).toBeNull();
-    expect(sources).toHaveLength(0);
-  });
-
-  it("resets instead of applying an unknown projection delta", async () => {
-    let requestCount = 0;
-    globalThis.fetch = mock(async () => {
-      requestCount += 1;
-      return Response.json(snapshot(requestCount === 1 ? "10" : "20"));
-    }) as unknown as typeof fetch;
-    const { result } = renderHook(() =>
-      useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId: "queue-1" }),
-    );
-    await waitFor(() => expect(sources).toHaveLength(1));
-
-    act(() =>
-      sources[0]?.emit("projection", {
-        ...projection("11"),
-        delta: { kind: "FUTURE_DELTA" },
+      useCanonicalCallCenter({
+        clientInstanceId: "tab-1",
+        pollIntervalMs: 20,
+        queueId: "queue-1",
       }),
     );
 
-    expect(sources[0]?.closeCount).toBe(1);
-    await waitFor(() => expect(result.current.state?.revision).toBe("20"));
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    await waitFor(() =>
+      expect(Number(result.current.state?.revision)).toBeGreaterThanOrEqual(20),
+    );
+    expect(result.current.loading).toBe(false);
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/portal/call-center/snapshot?clientInstanceId=tab-1&queueId=queue-1",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    unmount();
   });
 
-  it("aborts an obsolete snapshot request when its identity changes", async () => {
+  it("never starts a second read while the current read is in flight", async () => {
+    let finish: ((response: Response) => void) | null = null;
+    globalThis.fetch = mock(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({
+        clientInstanceId: "tab-1",
+        pollIntervalMs: 20,
+        queueId: "queue-1",
+      }),
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 70));
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => finish?.(Response.json(snapshot("10"))));
+    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps the last state after a failed read and retries on the next interval", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      if (requestCount === 1) return Response.json(snapshot("10"));
+      if (requestCount === 2) return temporaryFailure();
+      return Response.json(snapshot("30"));
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({
+        clientInstanceId: "tab-1",
+        pollIntervalMs: 30,
+        queueId: "queue-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
+    await waitFor(() =>
+      expect(result.current.error?.message).toBe("TEMPORARY_SERVICE_FAILURE"),
+    );
+    expect(result.current.state?.revision).toBe("10");
+    expect(result.current.loading).toBe(false);
+
+    await waitFor(() => expect(result.current.state?.revision).toBe("30"));
+    expect(result.current.error).toBeNull();
+  });
+
+  it("supports an immediate read without overlapping the current request", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return Response.json(snapshot(String(requestCount * 10)));
+    }) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({
+        clientInstanceId: "tab-1",
+        pollIntervalMs: 60_000,
+        queueId: "queue-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.state?.revision).toBe("10"));
+    act(() => result.current.refetch());
+    await waitFor(() => expect(result.current.state?.revision).toBe("20"));
+  });
+
+  it("aborts an obsolete read when the operator scope changes", async () => {
     let firstSignal: AbortSignal | undefined;
     let resolveFirst: ((response: Response) => void) | undefined;
     globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
@@ -372,7 +173,12 @@ describe("useCanonicalCallCenter", () => {
       return Promise.resolve(Response.json(snapshot("50", "queue-2")));
     }) as unknown as typeof fetch;
     const { result, rerender } = renderHook(
-      ({ queueId }) => useCanonicalCallCenter({ clientInstanceId: "tab-1", queueId }),
+      ({ queueId }) =>
+        useCanonicalCallCenter({
+          clientInstanceId: "tab-1",
+          pollIntervalMs: 60_000,
+          queueId,
+        }),
       { initialProps: { queueId: "queue-1" } },
     );
 
@@ -381,7 +187,5 @@ describe("useCanonicalCallCenter", () => {
     resolveFirst?.(Response.json(snapshot("20")));
 
     await waitFor(() => expect(result.current.state?.revision).toBe("50"));
-    expect(sources).toHaveLength(1);
-    expect(String(sources[0]?.url)).toContain("queueId=queue-2");
   });
 });

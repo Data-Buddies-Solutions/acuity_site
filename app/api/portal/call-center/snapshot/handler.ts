@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { readCallCenterSnapshot } from "@/lib/call-center/application/realtime-queries";
+import { callCenter } from "@/lib/call-center/call-center";
 import { CallCenterOperatorError } from "@/lib/call-center/operator-error-response";
 
 type Dependencies = {
@@ -11,7 +12,7 @@ type Dependencies = {
 
 export function createSnapshotHandler({
   getActor,
-  readSnapshot = readCallCenterSnapshot,
+  readSnapshot = callCenter.readOperatorState,
 }: Dependencies) {
   return async function GET(request: Request) {
     const parameters = new URL(request.url).searchParams;

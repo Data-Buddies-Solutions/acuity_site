@@ -6,6 +6,7 @@ import {
   CallCenterAgentPresence,
 } from "@/generated/prisma/client";
 import { parseJsonBody, requirePortalCallCenterContext } from "@/lib/api/handler";
+import { callCenter } from "@/lib/call-center/call-center";
 import {
   acquireAgentSession,
   AGENT_SESSION_LEASE_MS,
@@ -19,6 +20,7 @@ import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-respo
 
 const identitySchema = z.object({
   clientInstanceId: z.string().trim().min(1).max(200),
+  takeover: z.boolean().optional(),
 });
 const readinessSchema = identitySchema.extend({
   audioReady: z.boolean(),
@@ -59,11 +61,29 @@ async function readSessionId(routeContext: RouteContext) {
 }
 
 export function createAgentSessionHandlers({
-  acquire = acquireAgentSession,
+  acquire = async (_store, actor, input, now) =>
+    (await callCenter.updateAgent({
+      actor,
+      input,
+      kind: "ACQUIRE",
+      now,
+    })) as Awaited<ReturnType<typeof acquireAgentSession>>,
   clock = () => new Date(),
   getContext = getRequestContext,
-  release = releaseAgentSession,
-  updateReadiness = updateAgentSessionReadiness,
+  release = async (_store, actor, input, now) =>
+    (await callCenter.updateAgent({
+      actor,
+      input,
+      kind: "RELEASE",
+      now,
+    })) as Awaited<ReturnType<typeof releaseAgentSession>>,
+  updateReadiness = async (_store, actor, input, now) =>
+    (await callCenter.updateAgent({
+      actor,
+      input,
+      kind: "HEARTBEAT",
+      now,
+    })) as Awaited<ReturnType<typeof updateAgentSessionReadiness>>,
 }: AgentSessionHandlersDependencies = {}) {
   const POST = withCallCenterApiHandler(
     async (request: Request) => {

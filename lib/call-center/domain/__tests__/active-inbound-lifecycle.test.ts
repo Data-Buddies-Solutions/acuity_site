@@ -139,10 +139,10 @@ describe("ACTIVE inbound lifecycle decision", () => {
     expect(result.deadlineAt).toEqual(queueDeadlineAt);
   });
 
-  it("initializes both deadlines from the queue policy", () => {
+  it("initializes one fixed twenty-second offer window", () => {
     const result = decideActiveInboundLifecycle(input());
 
-    expect(result.queueDeadlineAt).toEqual(new Date("2026-07-12T12:01:00.000Z"));
+    expect(result.queueDeadlineAt).toEqual(new Date("2026-07-12T12:00:20.000Z"));
     expect(result.deadlineAt).toEqual(new Date("2026-07-12T12:00:20.000Z"));
   });
 
@@ -163,9 +163,10 @@ describe("ACTIVE inbound lifecycle decision", () => {
     ]);
   });
 
-  it("uses an acyclic overflow before voicemail", () => {
+  it("ignores legacy overflow configuration and goes to voicemail", () => {
     const result = decideActiveInboundLifecycle(
       input({
+        deadlineAt: now,
         eligibleAgentCount: 0,
         queue: {
           id: "queue-1",
@@ -177,21 +178,18 @@ describe("ACTIVE inbound lifecycle decision", () => {
       }),
     );
 
-    expect(result.disposition).toBe("OVERFLOW");
-    expect(result.intents).toEqual([
-      {
-        description: "Route call to configured overflow queue",
-        fromQueueId: "queue-1",
-        idempotencyKey: "active:call-1:overflow:queue-1:queue-2",
-        queueId: "queue-2",
-        type: "ROUTE_OVERFLOW_QUEUE",
-      },
+    expect(result.disposition).toBe("VOICEMAIL");
+    expect(result.intents.map((intent) => intent.type)).toEqual([
+      "STOP_PLAYBACK",
+      "START_VOICEMAIL",
+      "CREATE_TASK",
     ]);
   });
 
   it("falls back to voicemail when overflow would cycle", () => {
     const result = decideActiveInboundLifecycle(
       input({
+        deadlineAt: now,
         eligibleAgentCount: 0,
         queue: {
           id: "queue-2",
@@ -219,6 +217,7 @@ describe("ACTIVE inbound lifecycle decision", () => {
   it("does not overflow past the overall queue deadline", () => {
     const result = decideActiveInboundLifecycle(
       input({
+        deadlineAt: now,
         eligibleAgentCount: 0,
         queue: {
           id: "queue-1",
@@ -237,6 +236,7 @@ describe("ACTIVE inbound lifecycle decision", () => {
   it("abandons and creates one stable missed-call task when voicemail is disabled", () => {
     const result = decideActiveInboundLifecycle(
       input({
+        deadlineAt: now,
         eligibleAgentCount: 0,
         queue: {
           id: "queue-1",
@@ -270,6 +270,15 @@ describe("ACTIVE inbound lifecycle decision", () => {
     expect(eligible.status).toBe("QUEUED");
     expect(live.disposition).toBe("WAITING_FOR_AGENT");
     expect(live.status).toBe("RINGING");
+  });
+
+  it("keeps the fixed offer window open when no agent is ready yet", () => {
+    const result = decideActiveInboundLifecycle(
+      input({ agentLegs: [], eligibleAgentCount: 0 }),
+    );
+
+    expect(result.disposition).toBe("WAITING_FOR_AGENT");
+    expect(result.deadlineAt).toEqual(new Date("2026-07-12T12:00:20.000Z"));
   });
 
   it("uses the same pure decision for callback and deadline paths", () => {

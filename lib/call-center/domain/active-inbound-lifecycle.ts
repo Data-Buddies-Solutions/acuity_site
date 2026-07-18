@@ -99,10 +99,6 @@ function addSeconds(date: Date, seconds: number) {
   return new Date(date.getTime() + seconds * 1_000);
 }
 
-function earlier(left: Date, right: Date) {
-  return left.getTime() <= right.getTime() ? left : right;
-}
-
 function liveAgentLegs(agentLegs: readonly ActiveAgentLeg[]) {
   return agentLegs.filter((leg) => LIVE_AGENT_LEG_STATUSES.has(leg.status));
 }
@@ -164,11 +160,9 @@ function expiredLegIntents(
 export function decideActiveInboundLifecycle(
   input: ActiveInboundLifecycleInput,
 ): ActiveInboundLifecycleDecision {
-  const queueDeadlineAt =
-    input.queueDeadlineAt ?? addSeconds(input.now, input.queue.maxWaitSec);
-  const deadlineAt =
-    input.deadlineAt ??
-    earlier(addSeconds(input.now, input.queue.ringTimeoutSec), queueDeadlineAt);
+  const offerWindowSec = 20;
+  const queueDeadlineAt = input.queueDeadlineAt ?? addSeconds(input.now, offerWindowSec);
+  const deadlineAt = input.deadlineAt ?? queueDeadlineAt;
   const liveLegs = liveAgentLegs(input.agentLegs);
   const winningLegId = winnerFor(input);
 
@@ -197,10 +191,7 @@ export function decideActiveInboundLifecycle(
     };
   }
 
-  if (
-    deadlineAt.getTime() > input.now.getTime() &&
-    (input.eligibleAgentCount > 0 || liveLegs.length > 0)
-  ) {
+  if (deadlineAt.getTime() > input.now.getTime()) {
     return {
       deadlineAt,
       disposition: "WAITING_FOR_AGENT",
@@ -212,34 +203,7 @@ export function decideActiveInboundLifecycle(
     };
   }
 
-  const overflowQueueId = input.queue.overflowQueueId;
   const hangupIntents = expiredLegIntents(input, liveLegs);
-  const overflowIsAcyclic =
-    overflowQueueId !== null &&
-    overflowQueueId !== input.queue.id &&
-    !input.visitedQueueIds.includes(overflowQueueId) &&
-    queueDeadlineAt.getTime() > input.now.getTime();
-  if (overflowQueueId && overflowIsAcyclic) {
-    return {
-      deadlineAt,
-      disposition: "OVERFLOW",
-      intents: [
-        ...hangupIntents,
-        {
-          description: "Route call to configured overflow queue",
-          fromQueueId: input.queue.id,
-          idempotencyKey: `active:${input.callId}:overflow:${input.queue.id}:${overflowQueueId}`,
-          queueId: overflowQueueId,
-          type: "ROUTE_OVERFLOW_QUEUE",
-        },
-      ],
-      pendingReplacementLegIds: [],
-      queueDeadlineAt,
-      status: "QUEUED",
-      winningLegId: null,
-    };
-  }
-
   if (input.queue.voicemailEnabled) {
     return {
       deadlineAt,

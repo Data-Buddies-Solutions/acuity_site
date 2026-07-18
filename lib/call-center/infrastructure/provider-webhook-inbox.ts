@@ -55,8 +55,6 @@ export type ProviderWebhookInbox = ReturnType<typeof createProviderWebhookInbox>
 
 const MAX_ATTEMPTS = 8;
 const PROCESSING_LEASE_MS = 5 * 60_000;
-const RETRY_BASE_MS = 5_000;
-const RETRY_MAX_MS = 5 * 60_000;
 
 export function decideProviderWebhookClaim(
   event: Pick<
@@ -101,14 +99,8 @@ export function decideProviderWebhookClaim(
   return "DUPLICATE";
 }
 
-export function providerWebhookRetryAt(
-  attemptCount: number,
-  now: Date,
-  { baseMs = RETRY_BASE_MS, maxMs = RETRY_MAX_MS } = {},
-) {
-  const exponent = Math.max(0, attemptCount - 1);
-  const delayMs = Math.min(maxMs, baseMs * 2 ** exponent);
-  return new Date(now.getTime() + delayMs);
+export function providerWebhookRetryAt(_attemptCount: number, now: Date) {
+  return now;
 }
 
 export function createProviderWebhookInbox(

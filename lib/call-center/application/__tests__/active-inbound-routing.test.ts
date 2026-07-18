@@ -31,8 +31,6 @@ function context(overrides: Partial<ActiveRoutingContext> = {}): ActiveRoutingCo
             {
               audioReady: true,
               connectionState: "READY",
-              currentCallId: null,
-              offeredCallId: null,
               endpoint: {
                 configured: true,
                 enabled: true,
@@ -42,6 +40,7 @@ function context(overrides: Partial<ActiveRoutingContext> = {}): ActiveRoutingCo
               id: "session-1",
               leaseExpiresAt: new Date(now.getTime() + 60_000),
               microphoneReady: true,
+              occupied: false,
               presence: "AVAILABLE",
               stateVersion: 2,
             },

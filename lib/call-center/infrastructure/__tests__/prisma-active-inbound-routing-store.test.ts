@@ -17,8 +17,8 @@ function fakeDatabase({ failedReservation = false } = {}) {
   const sessions = [
     {
       audioReady: true,
+      callLegs: [],
       connectionState: "READY" as const,
-      currentCallId: null,
       endpoint: {
         enabled: true,
         id: "endpoint-1",
@@ -31,14 +31,16 @@ function fakeDatabase({ failedReservation = false } = {}) {
       id: "session-1",
       leaseExpiresAt: new Date(now.getTime() + 60_000),
       microphoneReady: true,
+      occupied: false,
+      offeredCallId: "older-ringing-call",
       presence: "AVAILABLE" as const,
       stateVersion: 2,
       userId: "user-1",
     },
     {
       audioReady: true,
+      callLegs: [],
       connectionState: "READY" as const,
-      currentCallId: null,
       endpoint: {
         enabled: true,
         id: "endpoint-2",
@@ -51,6 +53,8 @@ function fakeDatabase({ failedReservation = false } = {}) {
       id: "session-2",
       leaseExpiresAt: new Date(now.getTime() + 60_000),
       microphoneReady: true,
+      occupied: false,
+      offeredCallId: null,
       presence: "AVAILABLE" as const,
       stateVersion: 7,
       userId: "user-2",
@@ -78,9 +82,9 @@ function fakeDatabase({ failedReservation = false } = {}) {
         operations.push("sessions.load");
         return sessions;
       },
-      updateMany: async ({ where }: { where: { id: string } }) => {
-        operations.push(`session.reserve:${where.id}`);
-        return { count: failedReservation && where.id === "session-2" ? 0 : 1 };
+      findFirst: async ({ where }: { where: { id: string } }) => {
+        operations.push(`session.revalidate:${where.id}`);
+        return failedReservation && where.id === "session-2" ? null : { id: where.id };
       },
     },
     callCenterCall: {
@@ -108,7 +112,7 @@ function fakeDatabase({ failedReservation = false } = {}) {
         operations.push("call.update");
         expect(data).toMatchObject({
           deadlineAt: new Date("2026-07-12T12:00:20.000Z"),
-          queueDeadlineAt: new Date("2026-07-12T12:00:30.000Z"),
+          queueDeadlineAt: new Date("2026-07-12T12:00:20.000Z"),
           status: "QUEUED",
         });
         expect(data).not.toHaveProperty("firstRingAt");
@@ -192,7 +196,7 @@ function fakeDatabase({ failedReservation = false } = {}) {
 }
 
 describe("Prisma canonical active inbound routing", () => {
-  it("reserves eligible sessions and commits an ordered command graph before one event", async () => {
+  it("creates one independently auditable dial for every ready agent", async () => {
     const fake = fakeDatabase();
     const result = await routeActiveInboundCall(
       fake.store,
@@ -239,9 +243,11 @@ describe("Prisma canonical active inbound routing", () => {
     ).toHaveLength(1);
     expect(JSON.stringify(fake.commands)).not.toContain("credential-");
     expect(JSON.stringify(fake.commands)).not.toContain("agent-1");
+    expect(fake.operations).toContain("session.revalidate:session-1");
+    expect(fake.operations).toContain("leg.create:session-1");
   });
 
-  it("drops a session that loses its CAS reservation without creating a leg or dial", async () => {
+  it("drops a session that becomes occupied before its leg is created", async () => {
     const fake = fakeDatabase({ failedReservation: true });
     const result = await routeActiveInboundCall(
       fake.store,

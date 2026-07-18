@@ -80,7 +80,11 @@ class FakeStore implements AgentSessionStore {
         return expired.map((session) => ({ ...session }));
       },
       createSession: async (input) => {
-        const created = { ...input };
+        const created: AgentSessionRecord = {
+          ...input,
+          currentCallId: null,
+          offeredCallId: null,
+        };
         this.sessions.push(created);
         return { ...created };
       },
@@ -112,6 +116,11 @@ class FakeStore implements AgentSessionStore {
           ? this.endpoint
           : null;
       },
+      hasActiveCall: async (endpointId) =>
+        this.sessions.some(
+          (session) =>
+            session.endpointId === endpointId && session.currentCallId !== null,
+        ),
       hasQueueAccess: async () => this.queueAccess,
       updateSession: async (id, update) => {
         const session = this.sessions.find((candidate) => candidate.id === id);
@@ -159,6 +168,39 @@ describe("canonical agent sessions", () => {
           session.presence !== "OFFLINE" && session.connectionState !== "CLOSED",
       ),
     ).toHaveLength(1);
+  });
+
+  it("moves an idle phone lease only after an explicit takeover", async () => {
+    const store = new FakeStore();
+    const first = await acquireAgentSession(store, actor, identity, start);
+    const second = await acquireAgentSession(
+      store,
+      actor,
+      { clientInstanceId: "browser-2", takeover: true },
+      new Date(start.getTime() + 1_000),
+    );
+
+    expect(store.sessions.find(({ id }) => id === first.session.id)).toMatchObject({
+      connectionState: "CLOSED",
+      presence: "OFFLINE",
+    });
+    expect(second.session.clientInstanceId).toBe("browser-2");
+    expect(store.events.map(({ type }) => type)).toContain("AGENT_SESSION_TAKEN_OVER");
+  });
+
+  it("does not move a phone lease during an active call", async () => {
+    const store = new FakeStore();
+    await acquireAgentSession(store, actor, identity, start);
+    store.sessions[0]!.currentCallId = "call-1";
+
+    await expect(
+      acquireAgentSession(
+        store,
+        actor,
+        { clientInstanceId: "browser-2", takeover: true },
+        new Date(start.getTime() + 1_000),
+      ),
+    ).rejects.toMatchObject({ status: 409 });
   });
 
   it("makes acquisition replay read-only for the same user and client", async () => {
@@ -286,7 +328,7 @@ describe("canonical agent sessions", () => {
       new Date(start.getTime() + 1_000),
     );
 
-    const heartbeatAt = new Date(start.getTime() + 31_000);
+    const heartbeatAt = new Date(start.getTime() + 10_000);
     const heartbeat = await updateAgentSessionReadiness(
       store,
       actor,
@@ -453,7 +495,7 @@ describe("canonical agent sessions", () => {
       connectionState: "CONNECTING",
       currentCallId: "call-1",
       id: acquired.session.id,
-      presence: "BUSY",
+      presence: "PAUSED",
       stateVersion: 2,
     });
     expect(store.events.map((event) => event.type)).toEqual([

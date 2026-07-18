@@ -926,14 +926,14 @@ model SmsOptOut {
 }
 
 model PracticeCallCenterSettings {
-  id                      String             @id @default(cuid())
-  practiceId              String             @unique
+  id                      String            @id @default(cuid())
+  practiceId              String            @unique
   telnyxConnectionId      String?
-  defaultOutboundNumberId String?            @unique
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
-  practice                Practice           @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  defaultOutboundNumber   CallCenterNumber?  @relation(fields: [defaultOutboundNumberId], references: [id], onDelete: SetNull)
+  defaultOutboundNumberId String?           @unique
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  practice                Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  defaultOutboundNumber   CallCenterNumber? @relation(fields: [defaultOutboundNumberId], references: [id], onDelete: SetNull)
 
   @@map("practice_call_center_settings")
 }
@@ -944,7 +944,7 @@ model CallCenterQueue {
   name              String
   enabled           Boolean                   @default(true)
   ringTimeoutSec    Int                       @default(20)
-  maxWaitSec        Int                       @default(30)
+  maxWaitSec        Int                       @default(20)
   wrapUpSec         Int                       @default(0)
   voicemailEnabled  Boolean                   @default(true)
   voicemailGreeting String                    @default("Please leave a message after the beep.")
@@ -1159,6 +1159,7 @@ model CallCenterCallLeg {
   kind                  CallCenterLegKind
   endpointId            String?
   agentSessionId        String?
+  agentKey              String?                 @unique
   providerCallControlId String?                 @unique
   providerCallLegId     String?                 @unique
   providerCallSessionId String?

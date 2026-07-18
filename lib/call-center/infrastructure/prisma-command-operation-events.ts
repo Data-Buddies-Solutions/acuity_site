@@ -1,8 +1,8 @@
 import type { Prisma } from "@/generated/prisma/client";
-import { CALL_CLAIM_REQUESTED_EVENT } from "@/lib/call-center/application/claim-call";
-import { CALL_TRANSFER_REQUESTED_EVENT } from "@/lib/call-center/application/transfer-call";
 
 export const CALL_OPERATION_STATUS_CHANGED_EVENT = "CALL_OPERATION_STATUS_CHANGED";
+const CALL_CLAIM_REQUESTED_EVENT = "CALL_CLAIM_REQUESTED";
+const CALL_TRANSFER_REQUESTED_EVENT = "CALL_TRANSFER_REQUESTED";
 
 type Transaction = Prisma.TransactionClient;
 

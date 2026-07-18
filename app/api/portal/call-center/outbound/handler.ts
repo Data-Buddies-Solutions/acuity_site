@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ApiError, parseJsonBody } from "@/lib/api/handler";
+import { callCenter } from "@/lib/call-center/call-center";
 import {
-  startOutboundCall,
   type StartOutboundCallInput,
+  type StartOutboundCallResponse,
 } from "@/lib/call-center/application/start-outbound-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { prismaStartOutboundCallStore } from "@/lib/call-center/infrastructure/prisma-start-outbound-call-store";
@@ -24,7 +25,12 @@ const IDEMPOTENCY_KEY_MAX_LENGTH = 200;
 
 type Dependencies = {
   getActor: () => Promise<QueueAccessActor>;
-  start?: typeof startOutboundCall;
+  start?: (
+    store: typeof prismaStartOutboundCallStore,
+    actor: QueueAccessActor,
+    input: StartOutboundCallInput,
+    now?: Date,
+  ) => Promise<StartOutboundCallResponse>;
 };
 
 function idempotencyKey(request: Request) {
@@ -37,7 +43,7 @@ function idempotencyKey(request: Request) {
 
 export function createStartOutboundCallHandler({
   getActor,
-  start = startOutboundCall,
+  start = (_store, actor, input, now) => callCenter.startOutbound(actor, input, now),
 }: Dependencies) {
   return withCallCenterApiHandler(
     async (request: Request) => {

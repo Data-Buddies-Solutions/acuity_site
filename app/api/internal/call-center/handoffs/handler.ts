@@ -4,15 +4,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ApiError, parseJsonBody } from "@/lib/api/handler";
+import { callCenter } from "@/lib/call-center/call-center";
 import {
   DIRECT_HANDOFF_TTL_MS,
   resolveDirectHandoffConfig,
   type DirectHandoffConfig,
 } from "@/lib/call-center/infrastructure/direct-handoff-config";
-import {
-  reserveDirectHandoff,
-  type ReserveDirectHandoffInput,
-} from "@/lib/call-center/infrastructure/prisma-direct-handoff-store";
+import type { ReserveDirectHandoffInput } from "@/lib/call-center/infrastructure/prisma-direct-handoff-store";
 import { normalizePhone } from "@/lib/phone";
 
 const bodySchema = z.strictObject({
@@ -35,7 +33,7 @@ const bodySchema = z.strictObject({
   sourceCallId: z.string().trim().min(1).max(200),
 });
 
-type Reservation = Awaited<ReturnType<typeof reserveDirectHandoff>>;
+type Reservation = Awaited<ReturnType<typeof callCenter.acceptHandoff>>;
 
 type Dependencies = {
   clock?: () => Date;
@@ -55,7 +53,7 @@ function authorized(header: string | null, secret: string) {
 export function createDirectHandoffHandler({
   clock = () => new Date(),
   config = resolveDirectHandoffConfig,
-  reserve = reserveDirectHandoff,
+  reserve = callCenter.acceptHandoff,
 }: Dependencies = {}) {
   return async function handleDirectHandoff(request: Request) {
     const resolved = config();

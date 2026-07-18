@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  blocksOutboundStart,
   canonicalOutboundClientState,
   isOutboundScopeAllowed,
 } from "../prisma-start-outbound-call-store";
@@ -65,5 +66,13 @@ describe("canonical outbound scope", () => {
     expect(isOutboundScopeAllowed(base)).toBe(true);
     expect(isOutboundScopeAllowed({ ...base, numberLocationId: null })).toBe(false);
     expect(isOutboundScopeAllowed({ ...base, endpointLocationId: null })).toBe(false);
+  });
+
+  it("blocks active calls and pending outbound starts without blocking inbound offers", () => {
+    expect(blocksOutboundStart({ direction: "INBOUND", status: "ANSWERED" })).toBe(true);
+    expect(blocksOutboundStart({ direction: "OUTBOUND", status: "CREATED" })).toBe(true);
+    expect(blocksOutboundStart({ direction: "OUTBOUND", status: "RINGING" })).toBe(true);
+    expect(blocksOutboundStart({ direction: "INBOUND", status: "RINGING" })).toBe(false);
+    expect(blocksOutboundStart({ direction: "OUTBOUND", status: "ENDED" })).toBe(false);
   });
 });

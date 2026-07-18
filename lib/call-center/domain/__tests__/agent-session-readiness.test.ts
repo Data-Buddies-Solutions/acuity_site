@@ -9,8 +9,6 @@ import {
 const ready = {
   audioReady: true,
   connectionState: "READY" as const,
-  currentCallId: null,
-  offeredCallId: null,
   microphoneReady: true,
   presence: "AVAILABLE" as const,
 };
@@ -21,8 +19,6 @@ describe("canonical agent-session readiness", () => {
     expect(isAgentSessionReady({ ...ready, audioReady: false })).toBe(false);
     expect(isAgentSessionReady({ ...ready, microphoneReady: false })).toBe(false);
     expect(isAgentSessionReady({ ...ready, connectionState: "ERROR" })).toBe(false);
-    expect(isAgentSessionReady({ ...ready, offeredCallId: "call-1" })).toBe(false);
-    expect(isAgentSessionReady({ ...ready, currentCallId: "call-1" })).toBe(false);
     expect(isAgentSessionReady({ ...ready, presence: "PAUSED" })).toBe(false);
   });
 
@@ -36,7 +32,6 @@ describe("canonical agent-session readiness", () => {
     expect(readinessValidationError({ ...ready, audioReady: false })).toBe(
       "AVAILABLE requires browser audio",
     );
-    expect(readinessValidationError({ ...ready, offeredCallId: "call-1" })).toBeNull();
     expect(readinessValidationError({ ...ready, presence: "PAUSED" })).toBeNull();
   });
 

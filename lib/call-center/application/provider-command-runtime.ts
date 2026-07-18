@@ -8,6 +8,7 @@ import {
 export const dispatchProviderCommand = createProviderCommandDispatcher({
   classifyError: telnyxProviderSendErrorClassifier,
   enabled: true,
+  maxAttempts: 1,
   sender: telnyxProviderCommandSender,
   store: prismaProviderCommandStore,
 });
