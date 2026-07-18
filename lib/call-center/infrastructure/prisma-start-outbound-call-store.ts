@@ -1,6 +1,10 @@
 import { randomUUID } from "crypto";
 
-import { Prisma } from "@/generated/prisma/client";
+import {
+  Prisma,
+  type CallCenterCallDirection,
+  type CallCenterLegStatus,
+} from "@/generated/prisma/client";
 import {
   StartOutboundCallError,
   type StartOutboundCallInput,
@@ -24,6 +28,23 @@ export type StartOutboundCallTransactionRunner = <T>(
   operation: (transaction: Transaction) => Promise<T>,
 ) => Promise<T>;
 export const OUTBOUND_INITIATION_TIMEOUT_MS = 60_000;
+const ACTIVE_LEG_STATUSES: readonly CallCenterLegStatus[] = ["ANSWERED", "BRIDGED"];
+const PENDING_OUTBOUND_LEG_STATUSES: readonly CallCenterLegStatus[] = [
+  "CREATED",
+  "DIALING",
+  "RINGING",
+];
+
+export function blocksOutboundStart(input: {
+  direction: CallCenterCallDirection;
+  status: CallCenterLegStatus;
+}) {
+  return (
+    ACTIVE_LEG_STATUSES.includes(input.status) ||
+    (input.direction === "OUTBOUND" &&
+      PENDING_OUTBOUND_LEG_STATUSES.includes(input.status))
+  );
+}
 
 export function canonicalOutboundClientState(input: {
   practiceId: string;
@@ -134,11 +155,6 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     );
     const session = await this.transaction.callCenterAgentSession.findFirst({
       include: {
-        callLegs: {
-          select: { id: true },
-          take: 1,
-          where: { status: { in: ["ANSWERED", "BRIDGED"] } },
-        },
         endpoint: true,
       },
       where: {
@@ -148,6 +164,22 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
         userId: actor.userId,
       },
     });
+    const blockingLeg = session
+      ? await this.transaction.callCenterCallLeg.findFirst({
+          select: { id: true },
+          where: {
+            endpointId: session.endpointId,
+            kind: "AGENT",
+            OR: [
+              { status: { in: [...ACTIVE_LEG_STATUSES] } },
+              {
+                call: { direction: "OUTBOUND" },
+                status: { in: [...PENDING_OUTBOUND_LEG_STATUSES] },
+              },
+            ],
+          },
+        })
+      : null;
     const endpointLocationId = session?.endpoint.locationId ?? null;
     const numberLocationId = number.practicePhoneNumber.locationId;
     const scopeAllowed = isOutboundScopeAllowed({
@@ -162,7 +194,7 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       !session ||
       session.leaseExpiresAt <= now ||
       !isAgentSessionReady(session) ||
-      session.callLegs.length > 0 ||
+      blockingLeg ||
       !session.endpoint.enabled ||
       session.endpoint.userId !== actor.userId ||
       !session.endpoint.providerCredentialId ||
