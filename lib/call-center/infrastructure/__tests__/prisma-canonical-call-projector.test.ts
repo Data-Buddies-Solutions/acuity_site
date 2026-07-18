@@ -471,6 +471,7 @@ function fact(overrides: Partial<CanonicalTelnyxCallFact> = {}): CanonicalTelnyx
     occurredAt: earlier,
     providerCallControlId: "control-1",
     providerCommandId: null,
+    providerCommandIdSource: null,
     providerCallLegId: "leg-1",
     providerCallSessionId: "session-1",
     providerEventId: "event-1",
@@ -1057,6 +1058,84 @@ describe("canonical provider lifecycle callbacks", () => {
       ),
     ).resolves.toBeNull();
     expect(updates).toBe(0);
+  });
+
+  it("ignores stale command client state on unrelated provider callbacks", async () => {
+    let updates = 0;
+    const tx = {
+      callCenterCommand: {
+        findUnique: async () => ({
+          callId: "call-1",
+          id: "stop-command",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+          status: "SENT",
+          type: "STOP_PLAYBACK",
+        }),
+        updateMany: async () => {
+          updates += 1;
+          return { count: 1 };
+        },
+      },
+    };
+
+    await expect(
+      settleProviderCommandCallback(
+        tx as never,
+        {
+          ...fact({
+            eventType: "call.playback.started",
+            providerCommandId: "stop-command",
+            providerCommandIdSource: "CLIENT_STATE",
+          }),
+          callObservation: null,
+          legKind: "CUSTOMER",
+          legObservation: "ANSWERED",
+        },
+        {
+          callId: "call-1",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+        },
+      ),
+    ).resolves.toBeNull();
+    expect(updates).toBe(0);
+  });
+
+  it("rejects an explicit provider callback linked to the wrong command type", async () => {
+    const tx = {
+      callCenterCommand: {
+        findUnique: async () => ({
+          callId: "call-1",
+          id: "stop-command",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+          status: "SENT",
+          type: "STOP_PLAYBACK",
+        }),
+      },
+    };
+
+    await expect(
+      settleProviderCommandCallback(
+        tx as never,
+        {
+          ...fact({
+            eventType: "call.playback.started",
+            providerCommandId: "stop-command",
+            providerCommandIdSource: "PAYLOAD",
+          }),
+          callObservation: null,
+          legKind: "CUSTOMER",
+          legObservation: "ANSWERED",
+        },
+        {
+          callId: "call-1",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+        },
+      ),
+    ).rejects.toThrow("CANONICAL_COMMAND_LINK_MISMATCH");
   });
 
   it("accepts one late recording callback after timeout recovery", async () => {

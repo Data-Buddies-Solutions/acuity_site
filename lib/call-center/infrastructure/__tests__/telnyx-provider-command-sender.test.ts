@@ -261,4 +261,34 @@ describe("Telnyx provider command sender", () => {
       ).resolves.toBeUndefined();
     }
   });
+
+  it("continues when the provider leg is already hung up", async () => {
+    for (const status of [404, 422]) {
+      const sender = createTelnyxProviderCommandSender({
+        answer: async () => new Response(null, { status: 204 }),
+        dial: async () => ({}),
+        hangup: async () => {
+          throw new TelnyxError("already ended", status);
+        },
+        playbackStart: async () => new Response(null, { status: 204 }),
+        playbackStop: async () => new Response(null, { status: 204 }),
+        recordStart: async () => new Response(null, { status: 204 }),
+        ringbackContent: () => "ringback",
+        speak: async () => new Response(null, { status: 204 }),
+      });
+
+      await expect(
+        sender.send({
+          arguments: {},
+          callId: "call-1",
+          commandId: "command-1",
+          idempotencyKey: "hangup-1",
+          legId: "customer-leg-1",
+          practiceId: "practice-1",
+          provider: { callControlId: "customer-control-1" },
+          type: "HANGUP_LEG",
+        }),
+      ).resolves.toBeUndefined();
+    }
+  });
 });

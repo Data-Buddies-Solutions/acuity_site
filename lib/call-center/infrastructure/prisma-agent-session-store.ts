@@ -71,9 +71,10 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
       },
     });
 
-    const closed = await Promise.all(
-      expired.map((session) =>
-        this.transaction.callCenterAgentSession.update({
+    const closed = [];
+    for (const session of expired) {
+      closed.push(
+        await this.transaction.callCenterAgentSession.update({
           data: {
             audioReady: false,
             connectionState: "CLOSED",
@@ -87,8 +88,8 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
           select: sessionSelect,
           where: { id: session.id },
         }),
-      ),
-    );
+      );
+    }
 
     return closed.map(toAgentSessionRecord);
   }

@@ -15,7 +15,7 @@ import {
 import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import {
   failProviderCommandDependents,
-  failUnsettledProviderCommandsForLeg,
+  settleProviderCommandsForTerminalLeg,
 } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 import {
   CanonicalVoicemailPersistenceError,
@@ -545,7 +545,9 @@ export async function settleProviderCommandCallback(
     throw new CanonicalProjectionError("CANONICAL_COMMAND_LINK_MISMATCH");
   }
   if (!callback.expectedTypes.includes(command.type as never)) {
-    if (ignoreOtherTypes) return null;
+    if (ignoreOtherTypes || fact.providerCommandIdSource === "CLIENT_STATE") {
+      return null;
+    }
     throw new CanonicalProjectionError("CANONICAL_COMMAND_LINK_MISMATCH");
   }
   if (command.status === "PENDING") {
@@ -1088,8 +1090,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         effectOwner === "CANONICAL" &&
         (leg.status === "ENDED" || leg.status === "FAILED")
       ) {
-        await failUnsettledProviderCommandsForLeg(tx, {
-          exceptTypes: ["HANGUP_LEG"],
+        await settleProviderCommandsForTerminalLeg(tx, {
           legId: leg.id,
           now: resolvedFact.occurredAt,
         });

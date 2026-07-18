@@ -100,6 +100,30 @@ async function failOne(
   return true;
 }
 
+async function confirmSatisfiedOne(
+  transaction: Transaction,
+  command: UnsettledCommand,
+  now: Date,
+) {
+  const confirmed = await transaction.callCenterCommand.updateMany({
+    data: { errorCode: null, nextAttemptAt: null, status: "CONFIRMED", updatedAt: now },
+    where: {
+      id: command.id,
+      nextAttemptAt: command.nextAttemptAt,
+      status: command.status,
+    },
+  });
+  if (confirmed.count !== 1) return false;
+
+  await appendCommandOperationStatus(transaction, {
+    attemptCount: command.attemptCount,
+    commandId: command.id,
+    now,
+    status: "CONFIRMED",
+  });
+  return true;
+}
+
 async function failCommandsAndDescendants(
   transaction: Transaction,
   commands: UnsettledCommand[],
@@ -146,8 +170,8 @@ export async function failProviderCommandDependents(
   );
 }
 
-/** A terminal leg makes every still-unsettled command on that leg impossible. */
-export async function failUnsettledProviderCommandsForLeg(
+/** Settles commands whose effect is already true and fails the rest. */
+export async function settleProviderCommandsForTerminalLeg(
   transaction: Transaction,
   input: {
     exceptTypes?: Array<"HANGUP_LEG">;
@@ -159,9 +183,15 @@ export async function failUnsettledProviderCommandsForLeg(
     legId: input.legId,
     ...(input.exceptTypes?.length ? { type: { notIn: input.exceptTypes } } : {}),
   });
+  const satisfiedTypes = new Set(["STOP_PLAYBACK", "HANGUP_LEG"]);
+  for (const command of commands) {
+    if (satisfiedTypes.has(command.type)) {
+      await confirmSatisfiedOne(transaction, command, input.now);
+    }
+  }
   return failCommandsAndDescendants(
     transaction,
-    commands,
+    commands.filter((command) => !satisfiedTypes.has(command.type)),
     "COMMAND_LEG_TERMINAL",
     input.now,
   );

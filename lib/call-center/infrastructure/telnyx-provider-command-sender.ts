@@ -119,12 +119,18 @@ export function createTelnyxProviderCommandSender(
           return;
         }
         case "HANGUP_LEG":
-          await operations.hangup(
-            command.provider.callControlId,
-            command.commandId,
-            undefined,
-            canonicalCommandClientState(command),
-          );
+          try {
+            await operations.hangup(
+              command.provider.callControlId,
+              command.commandId,
+              undefined,
+              canonicalCommandClientState(command),
+            );
+          } catch (error) {
+            if (!(error instanceof TelnyxError) || ![404, 422].includes(error.status)) {
+              throw error;
+            }
+          }
           return;
         case "PLAY_VOICEMAIL_GREETING":
           requireSuccessfulResponse(

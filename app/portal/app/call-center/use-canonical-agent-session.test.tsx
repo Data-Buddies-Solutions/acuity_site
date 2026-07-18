@@ -27,6 +27,16 @@ function agentSession(stateVersion = 0): AgentSessionView {
   };
 }
 
+function activeAgentSession(stateVersion: number, expired = false): AgentSessionView {
+  return {
+    ...agentSession(stateVersion),
+    connectionState: expired ? "DISCONNECTED" : "READY",
+    currentCallId: "call-1",
+    leaseExpiresAt: new Date(Date.now() + (expired ? -1_000 : 60_000)).toISOString(),
+    presence: expired ? "OFFLINE" : "BUSY",
+  };
+}
+
 function acquisition() {
   return Response.json({
     leaseDurationMs: 60_000,
@@ -56,6 +66,12 @@ describe("useCanonicalAgentSession", () => {
         "AVAILABLE",
       ),
     ).toBe("BUSY");
+    expect(
+      canonicalHeartbeatPresence(
+        { currentCallId: null, offeredCallId: "call-1", presence: "PAUSED" },
+        "AVAILABLE",
+      ),
+    ).toBe("AVAILABLE");
   });
 
   beforeEach(() => {
@@ -237,6 +253,9 @@ describe("useCanonicalAgentSession", () => {
     });
     await waitFor(() => expect(result.current.session?.currentCallId).toBe("call-1"));
 
+    rerender({ projectedSession: null });
+    expect(result.current.session?.currentCallId).toBe("call-1");
+
     await act(() => result.current.stop());
     expect(requests.at(-1)).toEqual({
       method: "DELETE",
@@ -245,6 +264,666 @@ describe("useCanonicalAgentSession", () => {
         expectedStateVersion: 2,
       },
     });
+  });
+
+  it("silently reacquires an expired lease while preserving active-call ownership", async () => {
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      requests.push({ method, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (method === "POST") {
+        postCount += 1;
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: postCount === 1 ? agentSession() : activeAgentSession(3),
+        });
+      }
+      patchCount += 1;
+      return Response.json({
+        session: patchCount === 1 ? agentSession(1) : activeAgentSession(4),
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence: "AVAILABLE",
+          projectedSession,
+        }),
+      { initialProps: { projectedSession: null as AgentSessionView | null } },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({
+      projectedSession: {
+        ...activeAgentSession(2),
+        connectionState: "DISCONNECTED",
+        presence: "OFFLINE",
+      },
+    });
+
+    await waitFor(() => expect(postCount).toBe(2));
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
+    expect(result.current.session?.currentCallId).toBe("call-1");
+    expect(result.current.error).toBeNull();
+    expect(requests.map(({ method }) => method)).toEqual([
+      "POST",
+      "PATCH",
+      "POST",
+      "PATCH",
+    ]);
+  });
+
+  it("preserves a newer projection that arrives during lease reacquisition", async () => {
+    const recoveryPost = deferred<Response>();
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      requests.push({ method, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (method === "POST") {
+        postCount += 1;
+        return postCount === 1 ? acquisition() : recoveryPost.promise;
+      }
+      patchCount += 1;
+      return Response.json({
+        session: patchCount === 1 ? agentSession(1) : agentSession(5),
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence: "AVAILABLE",
+          projectedSession,
+        }),
+      { initialProps: { projectedSession: null as AgentSessionView | null } },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ projectedSession: activeAgentSession(2, true) });
+    await waitFor(() => expect(postCount).toBe(2));
+
+    rerender({ projectedSession: agentSession(4) });
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
+    recoveryPost.resolve(
+      Response.json({
+        leaseDurationMs: 60_000,
+        session: activeAgentSession(3),
+      }),
+    );
+
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
+    expect(result.current.session?.currentCallId).toBeNull();
+    expect(requests.at(-1)).toMatchObject({
+      method: "PATCH",
+      body: { expectedStateVersion: 4, presence: "AVAILABLE" },
+    });
+  });
+
+  it("restores availability after recovering an expired offered-call lease", async () => {
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    let postCount = 0;
+    let patchCount = 0;
+    const offeredSession = (stateVersion: number, expired = false): AgentSessionView => ({
+      ...agentSession(stateVersion),
+      connectionState: expired ? "DISCONNECTED" : "READY",
+      leaseExpiresAt: new Date(Date.now() + (expired ? -1_000 : 60_000)).toISOString(),
+      offeredCallId: "call-1",
+      presence: expired ? "OFFLINE" : "PAUSED",
+    });
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      requests.push({ method, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (method === "POST") {
+        postCount += 1;
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: postCount === 1 ? agentSession() : offeredSession(3),
+        });
+      }
+      patchCount += 1;
+      return Response.json({
+        session:
+          patchCount === 1
+            ? agentSession(1)
+            : { ...offeredSession(4), presence: "AVAILABLE" },
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence: "AVAILABLE",
+          projectedSession,
+        }),
+      { initialProps: { projectedSession: null as AgentSessionView | null } },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ projectedSession: offeredSession(2, true) });
+
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
+    expect(result.current.session?.offeredCallId).toBe("call-1");
+    expect(result.current.session?.presence).toBe("AVAILABLE");
+    expect(requests.at(-1)).toMatchObject({
+      method: "PATCH",
+      body: { presence: "AVAILABLE" },
+    });
+  });
+
+  it("heartbeats the recovered session after an old readiness PATCH settles", async () => {
+    const recoveryPost = deferred<Response>();
+    const expiredPatch = deferred<Response>();
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1 ? acquisition() : recoveryPost.promise;
+      }
+      patchCount += 1;
+      if (patchCount === 2) return expiredPatch.promise;
+      return Response.json({
+        session: patchCount === 1 ? agentSession(1) : activeAgentSession(5),
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ presence, projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+          projectedSession,
+        }),
+      {
+        initialProps: {
+          presence: "AVAILABLE" as AgentSessionView["presence"],
+          projectedSession: null as AgentSessionView | null,
+        },
+      },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({
+      presence: "AVAILABLE",
+      projectedSession: activeAgentSession(2, true),
+    });
+    await waitFor(() => expect(postCount).toBe(2));
+
+    rerender({
+      presence: "BUSY",
+      projectedSession: activeAgentSession(2, true),
+    });
+    await waitFor(() => expect(patchCount).toBe(2));
+    recoveryPost.resolve(
+      Response.json({
+        leaseDurationMs: 60_000,
+        session: activeAgentSession(3),
+      }),
+    );
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(3));
+    expiredPatch.resolve(Response.json({ session: activeAgentSession(3) }));
+
+    await waitFor(() => expect(patchCount).toBe(3));
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
+    expect(result.current.session?.currentCallId).toBe("call-1");
+  });
+
+  it("re-arms readiness when an in-flight PATCH renews the active-call lease", async () => {
+    const renewingPatch = deferred<Response>();
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        return acquisition();
+      }
+      patchCount += 1;
+      if (patchCount === 2) return renewingPatch.promise;
+      return Response.json({
+        session: patchCount === 1 ? agentSession(1) : activeAgentSession(4),
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ presence, projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+          projectedSession,
+        }),
+      {
+        initialProps: {
+          presence: "AVAILABLE" as AgentSessionView["presence"],
+          projectedSession: null as AgentSessionView | null,
+        },
+      },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ presence: "BUSY", projectedSession: null });
+    await waitFor(() => expect(patchCount).toBe(2));
+    rerender({
+      presence: "BUSY",
+      projectedSession: {
+        ...activeAgentSession(2),
+        leaseExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    });
+    renewingPatch.resolve(Response.json({ session: activeAgentSession(3) }));
+
+    await waitFor(() => expect(patchCount).toBe(3));
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
+    expect(postCount).toBe(1);
+    expect(result.current.session?.currentCallId).toBe("call-1");
+  });
+
+  it("treats server-reported active-call lease expiry as authoritative", async () => {
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: postCount === 1 ? agentSession() : activeAgentSession(4),
+        });
+      }
+      patchCount += 1;
+      if (patchCount === 2) {
+        return Response.json(
+          {
+            error: {
+              code: "SESSION_EXPIRED",
+              referenceId: "ABC123",
+              retryable: true,
+            },
+          },
+          { status: 409 },
+        );
+      }
+      return Response.json({
+        session: patchCount === 1 ? agentSession(1) : activeAgentSession(5),
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ presence, projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+          projectedSession,
+        }),
+      {
+        initialProps: {
+          presence: "AVAILABLE" as AgentSessionView["presence"],
+          projectedSession: null as AgentSessionView | null,
+        },
+      },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({
+      presence: "AVAILABLE",
+      projectedSession: activeAgentSession(2),
+    });
+    await waitFor(() => expect(result.current.session?.currentCallId).toBe("call-1"));
+    rerender({
+      presence: "BUSY",
+      projectedSession: activeAgentSession(2),
+    });
+
+    await waitFor(() => expect(postCount).toBe(2));
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
+    expect(result.current.session?.currentCallId).toBe("call-1");
+    expect(result.current.error).toBeNull();
+  });
+
+  it("reacquires when settlement clears occupancy before expiry is observed", async () => {
+    const expiredPatch = deferred<Response>();
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: postCount === 1 ? agentSession() : agentSession(4),
+        });
+      }
+      patchCount += 1;
+      if (patchCount === 2) return expiredPatch.promise;
+      return Response.json({ session: agentSession(patchCount === 1 ? 1 : 5) });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ presence, projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+          projectedSession,
+        }),
+      {
+        initialProps: {
+          presence: "AVAILABLE" as AgentSessionView["presence"],
+          projectedSession: null as AgentSessionView | null,
+        },
+      },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ presence: "BUSY", projectedSession: activeAgentSession(2) });
+    await waitFor(() => expect(patchCount).toBe(2));
+
+    rerender({
+      presence: "AVAILABLE",
+      projectedSession: {
+        ...agentSession(3),
+        connectionState: "DISCONNECTED",
+        leaseExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+        presence: "PAUSED",
+      },
+    });
+    expiredPatch.resolve(
+      Response.json(
+        {
+          error: {
+            code: "SESSION_EXPIRED",
+            referenceId: "ABC123",
+            retryable: true,
+          },
+        },
+        { status: 409 },
+      ),
+    );
+
+    await waitFor(() => expect(postCount).toBe(2));
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
+    expect(result.current.session?.presence).toBe("AVAILABLE");
+    expect(result.current.error).toBeNull();
+  });
+
+  it("coalesces overlapping server and realtime lease-expiry recovery", async () => {
+    const recoveryPost = deferred<Response>();
+    let deleteCount = 0;
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        if (postCount === 2) return recoveryPost.promise;
+        return acquisition();
+      }
+      if (init?.method === "DELETE") {
+        deleteCount += 1;
+        return Response.json({ session: activeAgentSession(4) });
+      }
+      patchCount += 1;
+      if (patchCount === 2) {
+        return Response.json(
+          {
+            error: {
+              code: "SESSION_EXPIRED",
+              referenceId: "ABC123",
+              retryable: true,
+            },
+          },
+          { status: 409 },
+        );
+      }
+      return Response.json({
+        session: patchCount === 1 ? agentSession(1) : activeAgentSession(5),
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ presence, projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+          projectedSession,
+        }),
+      {
+        initialProps: {
+          presence: "AVAILABLE" as AgentSessionView["presence"],
+          projectedSession: null as AgentSessionView | null,
+        },
+      },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ presence: "AVAILABLE", projectedSession: activeAgentSession(2) });
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(2));
+    rerender({ presence: "BUSY", projectedSession: activeAgentSession(2) });
+    await waitFor(() => expect(postCount).toBe(2));
+
+    rerender({ presence: "BUSY", projectedSession: activeAgentSession(3, true) });
+    recoveryPost.resolve(
+      Response.json({
+        leaseDurationMs: 60_000,
+        session: activeAgentSession(4),
+      }),
+    );
+
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
+    expect(postCount).toBe(2);
+    expect(deleteCount).toBe(0);
+  });
+
+  it("retries a transient active-call lease recovery failure", async () => {
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        if (postCount === 2) {
+          return Response.json(
+            {
+              error: {
+                code: "TEMPORARY_SERVICE_FAILURE",
+                referenceId: "ABC123",
+                retryable: true,
+              },
+            },
+            { status: 503 },
+          );
+        }
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: postCount === 1 ? agentSession() : agentSession(4),
+        });
+      }
+      patchCount += 1;
+      return Response.json({
+        session: patchCount === 1 ? agentSession(1) : agentSession(5),
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence: "AVAILABLE",
+          projectedSession,
+        }),
+      { initialProps: { projectedSession: null as AgentSessionView | null } },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ projectedSession: activeAgentSession(2, true) });
+
+    await waitFor(() => expect(postCount).toBe(2));
+    rerender({
+      projectedSession: {
+        ...activeAgentSession(3, true),
+        currentCallId: null,
+      },
+    });
+    await waitFor(() => expect(postCount).toBe(3), { timeout: 2_000 });
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
+    expect(result.current.session?.currentCallId).toBeNull();
+    expect(result.current.session?.presence).toBe("AVAILABLE");
+    expect(result.current.error).toBeNull();
+  });
+
+  it("keeps a recovery retry scheduled across readiness changes", async () => {
+    let postCount = 0;
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        if (postCount === 2) {
+          return Response.json(
+            {
+              error: {
+                code: "TEMPORARY_SERVICE_FAILURE",
+                referenceId: "ABC123",
+                retryable: true,
+              },
+            },
+            { status: 503 },
+          );
+        }
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: postCount === 1 ? agentSession() : activeAgentSession(4),
+        });
+      }
+      patchCount += 1;
+      if (patchCount === 2) {
+        return Response.json(
+          {
+            error: {
+              code: "TEMPORARY_SERVICE_FAILURE",
+              referenceId: "ABC123",
+              retryable: true,
+            },
+          },
+          { status: 503 },
+        );
+      }
+      return Response.json({
+        session: patchCount === 1 ? agentSession(1) : activeAgentSession(5),
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ presence, projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+          projectedSession,
+        }),
+      {
+        initialProps: {
+          presence: "AVAILABLE" as AgentSessionView["presence"],
+          projectedSession: null as AgentSessionView | null,
+        },
+      },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ presence: "AVAILABLE", projectedSession: activeAgentSession(2, true) });
+    await waitFor(() => expect(postCount).toBe(2));
+
+    rerender({ presence: "BUSY", projectedSession: activeAgentSession(2, true) });
+    await waitFor(() => expect(patchCount).toBe(2));
+    await waitFor(() => expect(postCount).toBe(3), { timeout: 2_000 });
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
+  });
+
+  it("does not retry a non-retryable active-call recovery failure", async () => {
+    let postCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        if (postCount > 1) {
+          return Response.json(
+            {
+              error: {
+                code: "ACCESS_DENIED",
+                referenceId: "ABC123",
+                retryable: false,
+              },
+            },
+            { status: 403 },
+          );
+        }
+        return acquisition();
+      }
+      return Response.json({ session: agentSession(1) });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ projectedSession }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence: "AVAILABLE",
+          projectedSession,
+        }),
+      { initialProps: { projectedSession: null as AgentSessionView | null } },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    rerender({ projectedSession: activeAgentSession(2, true) });
+
+    await waitFor(() => expect(postCount).toBe(2));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+    expect(postCount).toBe(2);
+    expect(result.current.error).toBe(
+      "You do not have access to this calling queue. Ask an administrator to update your access. Reference: ABC123.",
+    );
   });
 
   it("refreshes and republishes readiness without dropping the media session", async () => {

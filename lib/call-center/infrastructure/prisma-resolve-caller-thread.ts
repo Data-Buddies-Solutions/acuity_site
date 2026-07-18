@@ -53,17 +53,24 @@ export async function resolveCallerThreadInTransaction(
     practiceId: input.actor.practiceId,
     status: "OPEN",
   } satisfies Prisma.CallCenterTaskWhereInput;
-  const tasks = await transaction.callCenterTask.findMany({
-    select: { callId: true, id: true },
+  const candidates = await transaction.callCenterTask.findMany({
+    select: { id: true },
     where,
   });
-  if (!tasks.length) return { canonicalTasksResolved: 0 };
+  if (!candidates.length) return { canonicalTasksResolved: 0 };
 
   await transaction.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_task" WHERE "id" IN (${Prisma.join(
-      tasks.map(({ id }) => id),
+      candidates.map(({ id }) => id),
     )}) FOR UPDATE`,
   );
+  const tasks = await transaction.callCenterTask.findMany({
+    select: { callId: true, id: true },
+    where: {
+      ...where,
+      id: { in: candidates.map(({ id }) => id) },
+    },
+  });
   const resolved = await transaction.callCenterTask.updateMany({
     data: {
       resolvedAt: input.now,
@@ -75,9 +82,8 @@ export async function resolveCallerThreadInTransaction(
   if (resolved.count !== tasks.length) {
     throw new Error("Caller tasks changed during resolution");
   }
-  await Promise.all(
-    tasks.map((task) =>
-      transaction.callCenterEvent.create({
+  for (const task of tasks) {
+    await transaction.callCenterEvent.create({
         data: {
           actorUserId: input.actor.userId,
           aggregateId: task.id,
@@ -92,8 +98,7 @@ export async function resolveCallerThreadInTransaction(
           practiceId: input.actor.practiceId,
           type: "TASK_RESOLVED",
         },
-      }),
-    ),
-  );
+      });
+  }
   return { canonicalTasksResolved: tasks.length };
 }

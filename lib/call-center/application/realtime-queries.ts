@@ -6,6 +6,7 @@ import { CALL_TRANSFER_REQUESTED_EVENT } from "@/lib/call-center/application/tra
 import { CALL_DISPOSITION_REQUESTED_EVENT } from "@/lib/call-center/application/disposition-call";
 import {
   listAccessibleQueues,
+  QueueAccessError,
   queueAccessKey,
   type QueueAccessActor,
   type QueueAccessIdentity,
@@ -36,6 +37,11 @@ const ACTIVE_CALL_STATUSES = [
 ] as const;
 const TERMINAL_CALL_STATUSES = ["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"] as const;
 export const CANONICAL_EVENT_BATCH_SIZE = 100;
+export const CALL_CENTER_READ_TRANSACTION_OPTIONS = {
+  isolationLevel: "RepeatableRead" as const,
+  maxWait: 2_000,
+  timeout: 10_000,
+};
 
 const callSelect = {
   answeredAt: true,
@@ -117,7 +123,6 @@ type SelectedCommand = Prisma.CallCenterCommandGetPayload<{
 
 type TransferTargetCandidate = {
   user: {
-    callCenterEndpoints: Array<{ agentSessions: Array<{ id: string }> }>;
     id: string;
     name: string;
   };
@@ -333,7 +338,9 @@ export function buildCanonicalBatchItems({
       const session = sessionById.get(event.aggregateId);
       const removed =
         event.type === "AGENT_SESSION_RELEASED" ||
-        event.type === "AGENT_SESSION_LEASE_EXPIRED";
+        (event.type === "AGENT_SESSION_LEASE_EXPIRED" &&
+          !session?.currentCallId &&
+          !session?.offeredCallId);
       return {
         projection: session
           ? {
@@ -410,13 +417,17 @@ export function serializeTask(task: SelectedTask): TaskView {
 }
 
 export function serializeReadyTransferTargets(candidates: TransferTargetCandidate[]) {
-  return candidates
-    .filter(
-      ({ user }) =>
-        user.callCenterEndpoints.flatMap(({ agentSessions }) => agentSessions).length ===
-        1,
-    )
-    .map(({ user }) => ({ name: user.name, userId: user.id }));
+  const sessionsByUser = new Map<string, { count: number; name: string }>();
+  for (const { user } of candidates) {
+    const current = sessionsByUser.get(user.id);
+    sessionsByUser.set(user.id, {
+      count: (current?.count ?? 0) + 1,
+      name: user.name,
+    });
+  }
+  return [...sessionsByUser]
+    .filter(([, { count }]) => count === 1)
+    .map(([userId, { name }]) => ({ name, userId }));
 }
 
 function accessibleQueueLocationIds(actor: QueueAccessActor, queueLocationIds: string[]) {
@@ -486,11 +497,17 @@ export function localAgentSessionWhere(
 ): Prisma.CallCenterAgentSessionWhereInput {
   return {
     browserSessionId: clientInstanceId,
-    connectionState: { not: "CLOSED" },
     endpointId: { in: endpointIds },
-    leaseExpiresAt: { gt: now },
+    OR: [
+      { currentCallId: { not: null } },
+      { offeredCallId: { not: null } },
+      {
+        connectionState: { not: "CLOSED" },
+        leaseExpiresAt: { gt: now },
+        presence: { not: "OFFLINE" },
+      },
+    ],
     practiceId: actor.practiceId,
-    presence: { not: "OFFLINE" },
     userId: actor.userId,
   };
 }
@@ -501,22 +518,35 @@ async function readOperationalCounts(
   practiceId: string,
 ): Promise<OperationalCounts> {
   const taskWhere = { call: callWhere, practiceId, status: "OPEN" } as const;
-  const [active, waiting, recent, openTasks] = await Promise.all([
-    transaction.callCenterCall.count({
-      where: { ...callWhere, status: { in: ["CONNECTED", "WRAP_UP"] } },
-    }),
-    transaction.callCenterCall.count({
-      where: {
-        ...callWhere,
-        direction: "INBOUND",
-        status: { in: ["RECEIVED", "QUEUED", "RINGING"] },
-      },
-    }),
-    transaction.callCenterCall.count({
-      where: { ...callWhere, status: { in: [...TERMINAL_CALL_STATUSES] } },
+  const [callCounts, openTasks] = await Promise.all([
+    transaction.callCenterCall.groupBy({
+      _count: { _all: true },
+      by: ["direction", "status"],
+      where: callWhere,
     }),
     transaction.callCenterTask.count({ where: taskWhere }),
   ]);
+
+  let active = 0;
+  let recent = 0;
+  let waiting = 0;
+  for (const row of callCounts) {
+    const count = row._count._all;
+    if (row.status === "CONNECTED" || row.status === "WRAP_UP") active += count;
+    if (
+      row.direction === "INBOUND" &&
+      (row.status === "RECEIVED" || row.status === "QUEUED" || row.status === "RINGING")
+    ) {
+      waiting += count;
+    }
+    if (
+      TERMINAL_CALL_STATUSES.includes(
+        row.status as (typeof TERMINAL_CALL_STATUSES)[number],
+      )
+    ) {
+      recent += count;
+    }
+  }
   return { active, openTasks, recent, waiting };
 }
 
@@ -525,13 +555,15 @@ export async function readCallCenterSnapshot(
   queueId: string,
   clientInstanceId: string,
   now = new Date(),
+  database: Pick<PrismaClient, "$transaction"> = prisma,
 ): Promise<CallCenterSnapshot> {
-  return prisma.$transaction(
+  return database.$transaction(
     async (transaction) => {
-      const queue = await resolveQueueAccess(actor, queueId, transaction);
+      const accessibleQueues = await listAccessibleQueues(actor, transaction);
+      const queue = accessibleQueues.find(({ id }) => id === queueId);
+      if (!queue) throw new QueueAccessError();
       const queueLocationIds = queue.locations.map(({ locationId }) => locationId);
       const callWhere = queueCallWhere(actor, queueId, queueLocationIds);
-      const accessibleQueues = await listAccessibleQueues(actor, transaction);
       const agentProfile = await transaction.callCenterEndpoint.findFirst({
         select: { enabled: true, id: true, label: true, locationId: true },
         where: { ...endpointWhere(actor, queueLocationIds), userId: actor.userId },
@@ -544,7 +576,7 @@ export async function readCallCenterSnapshot(
         recentCalls,
         tasks,
         counts,
-        targetMemberships,
+        readyTransferSessions,
       ] = await Promise.all([
         transaction.callCenterEvent.aggregate({ _max: { revision: true } }),
         transaction.callCenterAgentSession.findFirst({
@@ -571,43 +603,23 @@ export async function readCallCenterSnapshot(
           where: { call: callWhere, practiceId: actor.practiceId, status: "OPEN" },
         }),
         readOperationalCounts(transaction, callWhere, actor.practiceId),
-        transaction.callCenterQueueMember.findMany({
-          orderBy: [{ user: { name: "asc" } }, { userId: "asc" }],
-          select: {
-            user: {
-              select: {
-                callCenterEndpoints: {
-                  select: {
-                    agentSessions: {
-                      select: { id: true },
-                      take: 2,
-                      where: {
-                        audioReady: true,
-                        connectionState: "READY",
-                        currentCallId: null,
-                        leaseExpiresAt: { gt: now },
-                        microphoneReady: true,
-                        offeredCallId: null,
-                        practiceId: actor.practiceId,
-                        presence: "AVAILABLE",
-                      },
-                    },
-                  },
-                  where: endpointWhere(actor, queueLocationIds),
-                },
-                id: true,
-                name: true,
-              },
-            },
-          },
+        transaction.callCenterAgentSession.findMany({
+          orderBy: [{ user: { name: "asc" } }, { userId: "asc" }, { id: "asc" }],
+          select: { user: { select: { id: true, name: true } } },
           where: {
-            enabled: true,
-            queueId,
-            role: "AGENT",
+            audioReady: true,
+            connectionState: "READY",
+            currentCallId: null,
+            endpoint: endpointWhere(actor, queueLocationIds),
+            leaseExpiresAt: { gt: now },
+            microphoneReady: true,
+            offeredCallId: null,
+            practiceId: actor.practiceId,
+            presence: "AVAILABLE",
             userId: { not: actor.userId },
             user: {
-              callCenterEndpoints: {
-                some: endpointWhere(actor, queueLocationIds),
+              callCenterQueueMemberships: {
+                some: { enabled: true, queueId, role: "AGENT" },
               },
             },
           },
@@ -668,10 +680,10 @@ export async function readCallCenterSnapshot(
         revision: revisionString(highWater._max.revision ?? BigInt(0)),
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
         tasks: tasks.map(serializeTask),
-        transferTargets: serializeReadyTransferTargets(targetMemberships),
+        transferTargets: serializeReadyTransferTargets(readyTransferSessions),
       };
     },
-    { isolationLevel: "RepeatableRead" },
+    { ...CALL_CENTER_READ_TRANSACTION_OPTIONS },
   );
 }
 
@@ -766,6 +778,6 @@ export async function readCanonicalEventBatch(
         scannedThrough: events.at(-1)?.revision ?? null,
       };
     },
-    { isolationLevel: "RepeatableRead" },
+    { ...CALL_CENTER_READ_TRANSACTION_OPTIONS },
   );
 }

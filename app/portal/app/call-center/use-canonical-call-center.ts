@@ -15,6 +15,7 @@ import {
   type ProjectionEvent,
 } from "@/lib/call-center/realtime-contract";
 import { parseRevision } from "@/lib/call-center/realtime";
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 
 import { callCenterResponse } from "./call-center-errors";
 
@@ -107,6 +108,7 @@ const resetReasons = new Set<CallCenterResetReason>([
   "RETENTION_GAP",
   "UNAPPLICABLE_DELTA",
 ]);
+const snapshotRetryDelaysMs = [1_000, 2_000, 5_000] as const;
 
 function messageData(event: Event): unknown {
   if (!("data" in event) || typeof event.data !== "string") {
@@ -250,6 +252,8 @@ export function useCanonicalCallCenter({
   const [model, dispatch] = useReducer(reducer, initialState);
   const loadedIdentityRef = useRef<string | null>(null);
   const plannedRotationRef = useRef(false);
+  const retryIdentityRef = useRef<string | null>(null);
+  const retryAttemptRef = useRef(0);
   const refetch = useCallback(() => dispatch({ type: "refetch" }), []);
 
   useEffect(() => {
@@ -257,6 +261,12 @@ export function useCanonicalCallCenter({
     const controller = new AbortController();
     let active = true;
     let source: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    if (retryIdentityRef.current !== identityKey) {
+      retryIdentityRef.current = identityKey;
+      retryAttemptRef.current = 0;
+    }
 
     dispatch({
       type: "loading",
@@ -296,6 +306,7 @@ export function useCanonicalCallCenter({
         const snapshot = data;
         if (!active) return;
         loadedIdentityRef.current = identityKey;
+        retryAttemptRef.current = 0;
         dispatch({ type: "snapshot", snapshot });
 
         source = new EventSource(
@@ -359,10 +370,19 @@ export function useCanonicalCallCenter({
         });
       } catch (error) {
         if (!active || controller.signal.aborted) return;
+        const retryable =
+          error instanceof CallCenterRequestError && error.operatorError.retryable;
         dispatch({
           type: "failed",
           error: error instanceof Error ? error : new Error("Failed to load call center"),
         });
+        const delay = snapshotRetryDelaysMs[retryAttemptRef.current];
+        if (retryable && delay !== undefined) {
+          retryAttemptRef.current += 1;
+          retryTimer = setTimeout(() => {
+            if (active) dispatch({ type: "refetch" });
+          }, delay);
+        }
       }
     };
 
@@ -371,6 +391,7 @@ export function useCanonicalCallCenter({
     return () => {
       active = false;
       controller.abort();
+      if (retryTimer) clearTimeout(retryTimer);
       source?.close();
     };
   }, [clientInstanceId, model.refresh, queueId]);

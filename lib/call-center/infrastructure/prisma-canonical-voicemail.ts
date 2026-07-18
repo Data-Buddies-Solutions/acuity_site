@@ -86,16 +86,14 @@ export async function persistCanonicalVoicemail(
     recordingId: true,
     recordingUrl: true,
   } as const;
-  const [byCall, byRecording] = await Promise.all([
-    transaction.callCenterVoicemail.findUnique({
-      select: existingSelect,
-      where: { callCenterCallId: input.call.id },
-    }),
-    transaction.callCenterVoicemail.findUnique({
-      select: existingSelect,
-      where: { recordingId: input.recording.id },
-    }),
-  ]);
+  const byCall = await transaction.callCenterVoicemail.findUnique({
+    select: existingSelect,
+    where: { callCenterCallId: input.call.id },
+  });
+  const byRecording = await transaction.callCenterVoicemail.findUnique({
+    select: existingSelect,
+    where: { recordingId: input.recording.id },
+  });
   if (
     (byCall && byCall.recordingId !== input.recording.id) ||
     (byRecording && byRecording.callCenterCallId !== input.call.id)

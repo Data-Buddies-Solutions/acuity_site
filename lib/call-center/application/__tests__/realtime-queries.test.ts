@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
+import { QueueAccessError } from "@/lib/call-center/auth/queue-access";
+
 import {
   buildCanonicalBatchItems,
+  CALL_CENTER_READ_TRANSACTION_OPTIONS,
   localAgentSessionWhere,
   queueCallWhere,
+  readCallCenterSnapshot,
   readCanonicalEventBatch,
   serializeAgentSession,
   serializeCall,
@@ -19,27 +23,17 @@ describe("canonical realtime serializers", () => {
       serializeReadyTransferTargets([
         {
           user: {
-            callCenterEndpoints: [{ agentSessions: [{ id: "session-1" }] }],
             id: "ready-user",
             name: "Ready",
           },
         },
         {
           user: {
-            callCenterEndpoints: [{ agentSessions: [] }],
-            id: "offline-user",
-            name: "Offline",
-          },
-        },
-        {
-          user: {
-            callCenterEndpoints: [
-              { agentSessions: [{ id: "session-2" }, { id: "session-3" }] },
-            ],
             id: "ambiguous-user",
             name: "Ambiguous",
           },
         },
+        { user: { id: "ambiguous-user", name: "Ambiguous" } },
       ]),
     ).toEqual([{ name: "Ready", userId: "ready-user" }]);
   });
@@ -60,8 +54,77 @@ describe("canonical realtime serializers", () => {
     ).toMatchObject({
       browserSessionId: "tab-1",
       endpointId: { in: ["endpoint-1"] },
+      OR: [
+        { currentCallId: { not: null } },
+        { offeredCallId: { not: null } },
+        {
+          connectionState: { not: "CLOSED" },
+          leaseExpiresAt: { gt: now },
+          presence: { not: "OFFLINE" },
+        },
+      ],
       practiceId: "practice-1",
       userId: "user-1",
+    });
+  });
+
+  it("keeps active-call ownership projected when the station lease expires", () => {
+    const session = {
+      audioReady: false,
+      browserSessionId: "tab-1",
+      connectionState: "CLOSED" as const,
+      currentCallId: "call-1",
+      offeredCallId: null,
+      endpointId: "endpoint-1",
+      id: "session-1",
+      leaseExpiresAt: now,
+      microphoneReady: false,
+      presence: "OFFLINE" as const,
+      stateVersion: 5,
+    };
+    const counts = { active: 1, openTasks: 0, recent: 0, waiting: 0 };
+
+    const [active] = buildCanonicalBatchItems({
+      calls: [],
+      counts,
+      events: [
+        {
+          aggregateId: session.id,
+          aggregateType: "AGENT_SESSION",
+          data: {},
+          practiceId: "practice-1",
+          revision: BigInt(40),
+          type: "AGENT_SESSION_LEASE_EXPIRED",
+        },
+      ],
+      sessions: [session],
+      tasks: [],
+    });
+    const [idle] = buildCanonicalBatchItems({
+      calls: [],
+      counts,
+      events: [
+        {
+          aggregateId: session.id,
+          aggregateType: "AGENT_SESSION",
+          data: {},
+          practiceId: "practice-1",
+          revision: BigInt(41),
+          type: "AGENT_SESSION_LEASE_EXPIRED",
+        },
+      ],
+      sessions: [{ ...session, currentCallId: null }],
+      tasks: [],
+    });
+
+    expect(active.projection).toMatchObject({
+      delta: {
+        kind: "AGENT_SESSION_UPSERT",
+        session: { currentCallId: "call-1", id: "session-1" },
+      },
+    });
+    expect(idle.projection).toMatchObject({
+      delta: { kind: "AGENT_SESSION_REMOVE", sessionId: "session-1" },
     });
   });
   it("scopes queue calls through the configured practice-number location", () => {
@@ -109,6 +172,44 @@ describe("canonical realtime serializers", () => {
         },
       },
     });
+  });
+
+  it("loads queue access once inside the explicit read transaction budget", async () => {
+    let queries = 0;
+    let options: unknown;
+    const database = {
+      $transaction: async (
+        work: (transaction: unknown) => unknown,
+        transactionOptions: unknown,
+      ) => {
+        options = transactionOptions;
+        return work({
+          callCenterQueue: {
+            findMany: async () => {
+              queries += 1;
+              return [];
+            },
+          },
+        });
+      },
+    } as never;
+
+    await expect(
+      readCallCenterSnapshot(
+        {
+          allowedLocationIds: [],
+          hasAllLocationAccess: true,
+          practiceId: "practice-1",
+          userId: "user-1",
+        },
+        "queue-1",
+        "tab-1",
+        now,
+        database,
+      ),
+    ).rejects.toBeInstanceOf(QueueAccessError);
+    expect(queries).toBe(1);
+    expect(options).toEqual(CALL_CENTER_READ_TRANSACTION_OPTIONS);
   });
 
   it("preserves call stateVersion while removing Date and bigint hazards", () => {
@@ -433,8 +534,8 @@ describe("canonical realtime serializers", () => {
       const transaction = {
         callCenterAgentSession: { findMany: counted([]) },
         callCenterCall: {
-          count: counted(0),
           findMany: counted([]),
+          groupBy: counted([]),
         },
         callCenterCommand: { findMany: counted([]) },
         callCenterEvent: {
@@ -466,8 +567,15 @@ describe("canonical realtime serializers", () => {
           findUnique: counted({ locationScope: "ALL", locations: [] }),
         },
       };
+      let options: unknown;
       const database = {
-        $transaction: async (work: (value: unknown) => unknown) => work(transaction),
+        $transaction: async (
+          work: (value: unknown) => unknown,
+          transactionOptions: unknown,
+        ) => {
+          options = transactionOptions;
+          return work(transaction);
+        },
       } as never;
 
       const batch = await readCanonicalEventBatch(
@@ -477,12 +585,13 @@ describe("canonical realtime serializers", () => {
         BigInt(0),
         database,
       );
-      return { batch, queries };
+      return { batch, options, queries };
     }
 
     const one = await run(1);
     const full = await run(100);
     expect(full.queries).toBe(one.queries);
+    expect(full.options).toEqual(CALL_CENTER_READ_TRANSACTION_OPTIONS);
     expect(full.batch.items).toHaveLength(100);
     expect(full.batch.scannedThrough).toBe(BigInt(100));
   });
