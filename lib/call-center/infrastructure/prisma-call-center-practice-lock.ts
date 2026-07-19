@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 
-export type CallCenterPracticeLockTransaction = {
+type CallCenterPracticeLockTransaction = {
   $queryRaw<T = unknown>(query: Prisma.Sql): Promise<T>;
 };
 

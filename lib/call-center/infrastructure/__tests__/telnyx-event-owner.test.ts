@@ -733,6 +733,7 @@ describe("Telnyx event effect owner", () => {
       code: "TELNYX_EVENT_OWNER_ASSIGNMENT_LOST",
     });
     expect(db.created).toEqual([]);
+    expect(db.createdLegs).toEqual([]);
     expect(db.assigned).toEqual([]);
   });
 

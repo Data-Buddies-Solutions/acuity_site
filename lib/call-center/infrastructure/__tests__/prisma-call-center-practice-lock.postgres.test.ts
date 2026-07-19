@@ -245,31 +245,40 @@ describePostgres("call-center practice lock on PostgreSQL", () => {
         timeout: 30_000,
       });
     const repository = new PrismaCallCenterConfigurationRepository(runner);
-    const configurationWrite = repository.transaction(async (transaction) => {
-      const context = await transaction.loadValidationContextForUpdate(
-        practiceId,
-        collectCallCenterConfigurationReferences(nextConfiguration),
-      );
-      practiceLocked();
-      await continueConfiguration;
-      await transaction.persistValidatedSnapshot(nextConfiguration, {
-        actorUserId: null,
-        previousVersion: context.configurationVersion,
-      });
-    });
-    await configurationHasLock;
-
-    const admission = resolveTelnyxEventOwner(event, admissionPrisma).then(
-      (owner) => ({ error: null, owner }),
-      (error: unknown) => ({ error, owner: null }),
-    );
+    let configurationWrite: Promise<unknown> = Promise.resolve();
+    let admission: Promise<unknown> = Promise.resolve();
 
     try {
+      configurationWrite = repository.transaction(async (transaction) => {
+        const context = await transaction.loadValidationContextForUpdate(
+          practiceId,
+          collectCallCenterConfigurationReferences(nextConfiguration),
+        );
+        practiceLocked();
+        await continueConfiguration;
+        await transaction.persistValidatedSnapshot(nextConfiguration, {
+          actorUserId: null,
+          previousVersion: context.configurationVersion,
+        });
+      });
+      await Promise.race([
+        configurationHasLock,
+        configurationWrite.then(() => {
+          throw new Error("configuration transaction completed before taking its lock");
+        }),
+      ]);
+
+      const admissionResult = resolveTelnyxEventOwner(event, admissionPrisma).then(
+        (owner) => ({ error: null, owner }),
+        (error: unknown) => ({ error, owner: null }),
+      );
+      admission = admissionResult;
+
       await waitForAdvisoryLockWait(pool);
       releaseConfiguration();
       await configurationWrite;
 
-      const result = await admission;
+      const result = await admissionResult;
       expect(result.error).toBeInstanceOf(TelnyxEventOwnerError);
       expect(result.error).toMatchObject({ code: "TELNYX_EVENT_QUEUE_DISABLED" });
       expect(result.owner).toBeNull();
