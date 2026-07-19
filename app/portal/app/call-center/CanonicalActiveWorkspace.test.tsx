@@ -122,6 +122,16 @@ describe("call readiness", () => {
 });
 
 function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
+  const observation = {
+    connectionId: "connection-1",
+    direction: "INBOUND" as const,
+    mediaLegId: "media-leg-1",
+    providerCallControlId: "control-1",
+    providerCallLegId: "provider-leg-1",
+    providerCallSessionId: "provider-session-1",
+    remoteAudioReady: true,
+    state,
+  };
   const controls = {
     activate: mock(() => {}),
     answer: mock(async () => {}),
@@ -132,22 +142,24 @@ function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
     hold: mock(async (_mediaLegId: string, _held: boolean) => true),
     microphoneReady: true,
     mute: mock(() => {}),
-    observations: [
-      {
-        connectionId: "connection-1",
-        direction: "INBOUND" as const,
-        mediaLegId: "media-leg-1",
-        providerCallControlId: "control-1",
-        providerCallLegId: "provider-leg-1",
-        providerCallSessionId: "provider-session-1",
-        remoteAudioReady: true,
-        state,
-      },
-    ],
+    observations: [observation],
     soundReady: true,
   };
 
   return controls as typeof controls & ReturnType<typeof useSoftphoneMedia>;
+}
+
+function withMediaState(
+  media: ReturnType<typeof mediaControls>,
+  state: "ACTIVE" | "HELD",
+) {
+  return {
+    ...media,
+    observations: media.observations.map((observation) => ({
+      ...observation,
+      state,
+    })),
+  };
 }
 
 describe("CanonicalActiveCall", () => {
@@ -196,7 +208,7 @@ describe("CanonicalActiveCall", () => {
       return Response.json({ status: "CONFIRMED" }, { status: 202 });
     }) as unknown as typeof fetch;
 
-    render(
+    const view = render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
         endpointId="endpoint-1"
@@ -209,6 +221,14 @@ describe("CanonicalActiveCall", () => {
       fireEvent.click(screen.getByRole("button", { name: "Hold" }));
     });
     expect(media.hold).toHaveBeenCalledWith("media-leg-1", true);
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        endpointId="endpoint-1"
+        media={withMediaState(media, "HELD")}
+        sessionId="session-1"
+      />,
+    );
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
 
     await act(async () => {
@@ -244,6 +264,43 @@ describe("CanonicalActiveCall", () => {
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Resume" }).disabled,
     ).toBe(false);
+  });
+
+  it("surfaces a failed hold-music restart when resume cannot unhold", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? Response.json({ status: "DISPATCHED" }, { status: 202 })
+        : Response.json(
+            {
+              error: {
+                code: "PROVIDER_UNAVAILABLE",
+                referenceId: "RESTART1",
+                retryable: true,
+              },
+            },
+            { status: 503 },
+          );
+    }) as unknown as typeof fetch;
+    const media = mediaControls("HELD");
+    media.hold.mockRejectedValue(new Error("unhold failed"));
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    });
+
+    expect(requestCount).toBe(2);
+    expect(screen.getByRole("alert").textContent).toContain("RESTART1");
   });
 
   it("keeps end available while a hold update is pending", async () => {
@@ -299,7 +356,7 @@ describe("CanonicalActiveCall", () => {
       return true;
     });
 
-    render(
+    const view = render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
         endpointId="endpoint-1"
@@ -314,6 +371,14 @@ describe("CanonicalActiveCall", () => {
 
     expect(media.hold).toHaveBeenNthCalledWith(1, "media-leg-1", true);
     expect(media.hold).toHaveBeenNthCalledWith(2, "media-leg-1", false);
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        endpointId="endpoint-1"
+        media={withMediaState(media, "HELD")}
+        sessionId="session-1"
+      />,
+    );
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 
@@ -332,7 +397,7 @@ describe("CanonicalActiveCall", () => {
     ) as unknown as typeof fetch;
     const media = mediaControls();
 
-    render(
+    const view = render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
         endpointId="endpoint-1"
@@ -347,6 +412,14 @@ describe("CanonicalActiveCall", () => {
 
     expect(media.hold).toHaveBeenCalledTimes(1);
     expect(media.hold).toHaveBeenCalledWith("media-leg-1", true);
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        endpointId="endpoint-1"
+        media={withMediaState(media, "HELD")}
+        sessionId="session-1"
+      />,
+    );
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 

@@ -18,7 +18,7 @@ import {
   resolveCanonicalPeerAgentLeg,
   selectCanonicalProviderCommand,
   settleProviderCommandCallback,
-  shouldConfirmCanonicalAgentCommand,
+  shouldConfirmDialAgentCommand,
   shouldPlanCanonicalInboundRouting,
   shouldReconcileCanonicalInboundLifecycle,
   sipEndpointIdentityCandidates,
@@ -31,7 +31,7 @@ const earlier = new Date("2026-07-11T10:00:00.000Z");
 describe("canonical routing triggers", () => {
   it("does not treat an ignored agent media callback as a dial confirmation", () => {
     expect(
-      shouldConfirmCanonicalAgentCommand({
+      shouldConfirmDialAgentCommand({
         eventType: "call.playback.started",
         legKind: "AGENT",
         mediaCommandCallback: true,
@@ -39,7 +39,7 @@ describe("canonical routing triggers", () => {
       }),
     ).toBe(false);
     expect(
-      shouldConfirmCanonicalAgentCommand({
+      shouldConfirmDialAgentCommand({
         eventType: "call.answered",
         legKind: "AGENT",
         mediaCommandCallback: false,

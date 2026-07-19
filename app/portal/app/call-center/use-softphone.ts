@@ -580,6 +580,13 @@ function useSoftphoneMediaEngine({
       const call = callFor(mediaLegId);
       const changed = await (held ? call.hold() : call.unhold());
       if (!changed) throw localCallCenterError("PROVIDER_UNAVAILABLE", true);
+      setObservations((current) =>
+        current.map((observation) =>
+          observation.mediaLegId === mediaLegId
+            ? { ...observation, state: held ? "HELD" : "ACTIVE" }
+            : observation,
+        ),
+      );
     },
     [callFor],
   );

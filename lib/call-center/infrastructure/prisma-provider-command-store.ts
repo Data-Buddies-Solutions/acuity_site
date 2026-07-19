@@ -635,12 +635,15 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
     return commands.map(({ id }) => id);
   }
 
-  async markConfirmed(input: { attemptCount: number; commandId: string; now: Date }) {
+  private markDelivery(
+    input: { attemptCount: number; commandId: string; now: Date },
+    status: "CONFIRMED" | "SENT",
+  ) {
     return this.runTransaction(async (transaction) => {
       const updated = await transaction.callCenterCommand.updateMany({
         data: {
           errorCode: null,
-          status: "CONFIRMED",
+          status,
           updatedAt: input.now,
         },
         where: {
@@ -665,36 +668,12 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
     });
   }
 
-  async markSent(input: { attemptCount: number; commandId: string; now: Date }) {
-    return this.runTransaction(async (transaction) => {
-      const updated = await transaction.callCenterCommand.updateMany({
-        data: {
-          errorCode: null,
-          status: "SENT",
-          updatedAt: input.now,
-        },
-        where: {
-          attemptCount: input.attemptCount,
-          id: input.commandId,
-          status: "SENDING",
-        },
-      });
-      if (updated.count === 1) {
-        return "MARKED" as const;
-      }
+  markConfirmed(input: { attemptCount: number; commandId: string; now: Date }) {
+    return this.markDelivery(input, "CONFIRMED");
+  }
 
-      const command = await transaction.callCenterCommand.findUnique({
-        select: { attemptCount: true, status: true },
-        where: { id: input.commandId },
-      });
-      return command
-        ? decideProviderCommandMarkSent(
-            command.status,
-            command.attemptCount,
-            input.attemptCount,
-          )
-        : "STALE";
-    });
+  markSent(input: { attemptCount: number; commandId: string; now: Date }) {
+    return this.markDelivery(input, "SENT");
   }
 }
 

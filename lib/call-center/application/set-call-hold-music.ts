@@ -22,7 +22,7 @@ export type SetCallHoldMusicReceipt = Omit<OperationReceipt, "status"> & {
   callId: string;
   commandId: string;
   operationType: "HOLD_MUSIC";
-  status: "CONFIRMED";
+  status: "CONFIRMED" | "DISPATCHED";
 };
 
 export interface SetCallHoldMusicTransaction extends OperationReceiptTransaction {
@@ -97,15 +97,20 @@ export async function setCallHoldMusic(
   if (!dispatched(result)) {
     throw new SetCallHoldMusicError("Hold music command could not be completed", 503);
   }
-  if ((await store.waitForCommandSettlement(commandId)) !== "CONFIRMED") {
+  if (
+    input.action === "START" &&
+    (await store.waitForCommandSettlement(commandId)) !== "CONFIRMED"
+  ) {
     throw new SetCallHoldMusicError("Hold music command could not be confirmed", 503);
   }
+  const status: SetCallHoldMusicReceipt["status"] =
+    input.action === "START" || result.status === "SETTLED" ? "CONFIRMED" : "DISPATCHED";
   return {
     ...receipt,
     action: input.action,
     callId: input.callId,
     commandId,
     operationType: "HOLD_MUSIC",
-    status: "CONFIRMED",
-  } as SetCallHoldMusicReceipt;
+    status,
+  };
 }

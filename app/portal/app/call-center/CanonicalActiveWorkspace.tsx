@@ -683,16 +683,7 @@ export function CanonicalActiveCall({
     (match?.leg.status === "BRIDGED" ||
       ["ACTIVE", "HELD"].includes(match?.observation.state ?? "")),
   );
-  const providerHeld = match?.observation.state === "HELD";
-  const [heldOverride, setHeldOverride] = useState<boolean | null>(null);
-  const isHeld = heldOverride ?? providerHeld;
-
-  useEffect(() => {
-    if (heldOverride !== providerHeld) return;
-
-    const reconciliation = window.setTimeout(() => setHeldOverride(null), 0);
-    return () => window.clearTimeout(reconciliation);
-  }, [heldOverride, providerHeld]);
+  const isHeld = match?.observation.state === "HELD";
 
   useEffect(() => {
     if (!connected) return;
@@ -748,43 +739,31 @@ export function CanonicalActiveCall({
   const toggleHold = async () => {
     if (!mediaLegId || holdPending) return;
     const nextHeld = !isHeld;
-    let resultingHeld = isHeld;
     setHoldPending(true);
     setControlError(null);
 
     try {
       if (nextHeld) {
         await media.hold(mediaLegId, true);
-        resultingHeld = true;
         try {
           await requestHoldMusic("START");
         } catch (error) {
           if (holdMusicMayHaveStarted(error)) {
-            try {
-              await requestHoldMusic("STOP");
-            } catch (cleanupError) {
-              throw cleanupError;
-            }
+            await requestHoldMusic("STOP");
           }
-          try {
-            await media.hold(mediaLegId, false);
-            resultingHeld = false;
-          } catch {}
+          await media.hold(mediaLegId, false);
           throw error;
         }
       } else {
         await requestHoldMusic("STOP");
         try {
           await media.hold(mediaLegId, false);
-          resultingHeld = false;
         } catch (error) {
-          await requestHoldMusic("START").catch(() => {});
+          await requestHoldMusic("START");
           throw error;
         }
       }
-      setHeldOverride(nextHeld);
     } catch (error) {
-      setHeldOverride(resultingHeld);
       showControlError(error, "hold");
     } finally {
       setHoldPending(false);

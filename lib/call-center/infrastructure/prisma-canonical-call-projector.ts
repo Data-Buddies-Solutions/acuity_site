@@ -99,7 +99,7 @@ export function shouldReconcileCanonicalInboundLifecycle(input: {
   );
 }
 
-export function shouldConfirmCanonicalAgentCommand(input: {
+export function shouldConfirmDialAgentCommand(input: {
   eventType: string;
   legKind: "AGENT" | "CUSTOMER";
   mediaCommandCallback: boolean;
@@ -1030,7 +1030,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
             })
           : null;
       if (
-        shouldConfirmCanonicalAgentCommand({
+        shouldConfirmDialAgentCommand({
           eventType: resolvedFact.eventType,
           legKind: resolvedFact.legKind,
           mediaCommandCallback,

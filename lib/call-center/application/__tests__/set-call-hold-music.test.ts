@@ -118,13 +118,17 @@ describe("set call hold music", () => {
     ).rejects.toBeInstanceOf(SetCallHoldMusicError);
   });
 
-  it("rejects a stop until Telnyx confirms playback ended", async () => {
-    const failedStore = store();
-    failedStore.waitForCommandSettlement = async () => "TIMEOUT";
+  it("returns after stop dispatch without waiting for playback settlement", async () => {
+    const stopStore = store();
+    let waitedForSettlement = false;
+    stopStore.waitForCommandSettlement = async () => {
+      waitedForSettlement = true;
+      return "TIMEOUT";
+    };
 
     await expect(
       setCallHoldMusic(
-        failedStore,
+        stopStore,
         async (commandId) => ({
           commandId,
           markSent: "MARKED",
@@ -139,6 +143,7 @@ describe("set call hold music", () => {
         },
         now,
       ),
-    ).rejects.toBeInstanceOf(SetCallHoldMusicError);
+    ).resolves.toMatchObject({ status: "DISPATCHED" });
+    expect(waitedForSettlement).toBe(false);
   });
 });

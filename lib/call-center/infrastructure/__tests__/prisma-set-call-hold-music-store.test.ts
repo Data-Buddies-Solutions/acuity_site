@@ -19,7 +19,6 @@ describe("Prisma hold music store", () => {
         callCenterCall: {
           findFirst: async () => ({
             direction: "INBOUND",
-            effectOwner: "CANONICAL",
             id: "call-1",
             legs: [
               {
@@ -85,7 +84,6 @@ describe("Prisma hold music store", () => {
       callCenterCall: {
         findFirst: async () => ({
           direction: "INBOUND",
-          effectOwner: "CANONICAL",
           id: "call-1",
           legs: [
             {

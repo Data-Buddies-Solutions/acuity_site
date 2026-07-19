@@ -48,7 +48,6 @@ export class PrismaSetCallHoldMusicTransaction implements SetCallHoldMusicTransa
     const call = await this.transaction.callCenterCall.findFirst({
       select: {
         direction: true,
-        effectOwner: true,
         id: true,
         legs: {
           orderBy: [{ startedAt: "asc" }, { id: "asc" }],
@@ -77,7 +76,7 @@ export class PrismaSetCallHoldMusicTransaction implements SetCallHoldMusicTransa
       },
       where: { id: input.callId, practiceId: actor.practiceId },
     });
-    if (!call || call.effectOwner !== "CANONICAL") {
+    if (!call) {
       throw new SetCallHoldMusicError("Canonical call not found", 404);
     }
     if (call.queueId) {

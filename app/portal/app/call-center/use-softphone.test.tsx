@@ -292,8 +292,13 @@ describe("useSoftphoneMedia canonical credentials", () => {
 
     await act(async () => {
       await result.current.hold("media-leg-1", true);
+    });
+    expect(result.current.observations[0]?.state).toBe("HELD");
+
+    await act(async () => {
       await result.current.hold("media-leg-1", false);
     });
+    expect(result.current.observations[0]?.state).toBe("ACTIVE");
 
     expect(call.hold).toHaveBeenCalledTimes(1);
     expect(call.unhold).toHaveBeenCalledTimes(1);
