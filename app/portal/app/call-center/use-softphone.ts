@@ -584,7 +584,8 @@ function useSoftphoneMediaEngine({
         client.on("telnyx.error", (event) => {
           if (cancelled) return;
           const details = telnyxErrorDetails(event);
-          if (isSessionNotReattached(event) && details.callId) {
+          const sessionNotReattached = isSessionNotReattached(event);
+          if (sessionNotReattached && details.callId) {
             invalidateMediaLeg(details.callId, "SESSION_NOT_REATTACHED");
           }
           const pendingAnswer = pendingAnswerRef.current;
@@ -603,6 +604,12 @@ function useSoftphoneMediaEngine({
             pendingAnswer?.reject(localCallCenterError("CALL_NOT_CONNECTED", false));
             debug("telnyx-answer-error", {
               causeName: event.error?.name ?? "TelnyxError",
+            });
+            return;
+          }
+          if (sessionNotReattached) {
+            debug("telnyx-session-not-reattached", {
+              mediaLegId: details.callId ?? "unknown",
             });
             return;
           }

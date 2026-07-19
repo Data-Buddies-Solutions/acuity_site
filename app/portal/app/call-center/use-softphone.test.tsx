@@ -526,6 +526,7 @@ describe("useSoftphoneMedia canonical credentials", () => {
     );
     await waitFor(() => expect(result.current.observations).toHaveLength(1));
     act(() => clients[0]?.emit("telnyx.socket.close"));
+    act(() => clients[0]?.emit("telnyx.ready"));
 
     const error = {
       callId: "media-leg-1",
@@ -537,6 +538,7 @@ describe("useSoftphoneMedia canonical credentials", () => {
     });
 
     expect(result.current.observations[0]?.availability).toBe("FAILED");
+    expect(result.current.connection).toBe("READY");
     expect(onRecoveryNeeded).toHaveBeenCalledTimes(1);
     expect(onRecoveryNeeded).toHaveBeenCalledWith({
       mediaLegId: "media-leg-1",
