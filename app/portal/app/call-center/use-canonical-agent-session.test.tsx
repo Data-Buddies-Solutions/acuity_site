@@ -50,14 +50,10 @@ function deferred<T>() {
 }
 
 describe("useCanonicalAgentSession", () => {
-  it("does not infer busy from a ringing offer", () => {
-    expect(canonicalHeartbeatPresence({ presence: "AVAILABLE" }, "BUSY")).toBe(
-      "AVAILABLE",
-    );
-    expect(canonicalHeartbeatPresence({ presence: "BUSY" }, "AVAILABLE")).toBe("BUSY");
-    expect(canonicalHeartbeatPresence({ presence: "PAUSED" }, "AVAILABLE")).toBe(
-      "AVAILABLE",
-    );
+  it("leaves provider-owned busy state to the server", () => {
+    expect(canonicalHeartbeatPresence("BUSY")).toBe("AVAILABLE");
+    expect(canonicalHeartbeatPresence("AVAILABLE")).toBe("AVAILABLE");
+    expect(canonicalHeartbeatPresence("PAUSED")).toBe("PAUSED");
   });
 
   beforeEach(() => {

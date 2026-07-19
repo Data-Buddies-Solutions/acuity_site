@@ -1,6 +1,6 @@
 export type MediaConnectionState = "CONNECTING" | "FAILED" | "OFFLINE" | "READY";
 
-export type MediaLegState =
+type MediaLegState =
   "ACTIVE" | "CONNECTING" | "ENDED" | "FAILED" | "HELD" | "RINGING" | "UNKNOWN";
 
 export type MediaObservation = {

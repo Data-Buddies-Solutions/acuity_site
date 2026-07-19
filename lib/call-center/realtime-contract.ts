@@ -1,6 +1,4 @@
-export const CALL_CENTER_SCHEMA_VERSION = 2 as const;
-
-export type CallCenterConnection = "CONNECTED" | "RECONNECTING";
+export const CALL_CENTER_SCHEMA_VERSION = 3 as const;
 
 export type CallView = {
   id: string;
@@ -26,7 +24,7 @@ export type CallView = {
   legs: CallLegView[];
 };
 
-export type CallLegView = {
+type CallLegView = {
   id: string;
   kind: "AGENT" | "CUSTOMER";
   endpointId: string | null;
@@ -49,15 +47,12 @@ export type AgentSessionView = {
   stateVersion: number;
 };
 
-export type AgentProfileView = {
+type AgentProfileView = {
   id: string;
   label: string;
   locationId: string | null;
   enabled: boolean;
 };
-
-export type QueueSummary = { id: string; name: string };
-export type QueueView = QueueSummary;
 
 export type TaskView = {
   id: string;
@@ -68,41 +63,16 @@ export type TaskView = {
   createdAt: string;
 };
 
-export type OperationalCounts = {
-  active: number;
-  openTasks: number;
-  recent: number;
-  waiting: number;
-};
-
 export type CallCenterSnapshot = {
   schemaVersion: typeof CALL_CENTER_SCHEMA_VERSION;
-  queue: QueueView;
-  availableQueues: QueueSummary[];
-  agentSession: AgentSessionView | null;
+  queueId: string;
   agentProfile: AgentProfileView | null;
   calls: CallView[];
-  counts: OperationalCounts;
+  openTaskCount: number;
   tasks: TaskView[];
 };
 
-export type CallCenterRealtimeState = CallCenterSnapshot & {
-  connection: CallCenterConnection;
-};
-
-export function createRealtimeState(
-  snapshot: CallCenterSnapshot,
-): CallCenterRealtimeState {
-  return { ...snapshot, connection: "CONNECTED" };
-}
-
-export function markRealtimeReconnecting(
-  state: CallCenterRealtimeState,
-): CallCenterRealtimeState {
-  return { ...state, connection: "RECONNECTING" };
-}
-
-export function selectIncomingCalls(state: CallCenterRealtimeState) {
+export function selectIncomingCalls(state: CallCenterSnapshot) {
   return state.calls.filter(
     ({ direction, status }) =>
       direction === "INBOUND" &&

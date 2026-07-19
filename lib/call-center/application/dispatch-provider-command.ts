@@ -11,7 +11,12 @@ export interface ProviderCommandDispatchStore {
     commandId: string;
     now: Date;
     staleBefore: Date;
-  }): Promise<ProviderCommandClaim | ProviderCommandRejectedClaim | null>;
+  }): Promise<
+    | ProviderCommandClaim
+    | ProviderCommandRejectedClaim
+    | ProviderCommandSettledClaim
+    | null
+  >;
   fail(input: {
     attemptCount: number;
     commandId: string;
@@ -32,6 +37,11 @@ export type ProviderCommandRejectedClaim = {
   rejected: true;
 };
 
+export type ProviderCommandSettledClaim = {
+  commandId: string;
+  settled: true;
+};
+
 export interface ProviderCommandSender {
   send(command: ProviderCommandDispatchData): Promise<void>;
 }
@@ -43,6 +53,12 @@ export interface ProviderSendErrorClassifier {
 export type ProviderCommandDispatchResult =
   | { status: "DISABLED" }
   | { status: "NOT_CLAIMED" }
+  | {
+      commandId: string;
+      errorCode: "PROVIDER_RATE_LIMITED" | "SENDING_OUTCOME_AMBIGUOUS";
+      status: "DEFERRED";
+    }
+  | { commandId: string; status: "SETTLED" }
   | (Omit<ProviderCommandRejectedClaim, "rejected"> & { status: "REJECTED" })
   | {
       commandId: string;
@@ -114,7 +130,7 @@ export async function dispatchProviderCommandGraph({
     let progressed = false;
 
     for (const { commandId, result } of results) {
-      if (result?.status === "DISPATCHED") {
+      if (result?.status === "DISPATCHED" || result?.status === "SETTLED") {
         dispatched += 1;
         progressed = true;
       } else if (result?.status === "FAILED" || result?.status === "REJECTED") {
@@ -171,6 +187,9 @@ export function createProviderCommandDispatcher({
       staleBefore: new Date(claimedAt.getTime() - sendingLeaseMs),
     });
     if (!claim) return { status: "NOT_CLAIMED" };
+    if ("settled" in claim) {
+      return { commandId: claim.commandId, status: "SETTLED" };
+    }
     if ("rejected" in claim) {
       return {
         commandId: claim.commandId,
@@ -184,6 +203,16 @@ export function createProviderCommandDispatcher({
       await sender.send(claim.command);
     } catch (error) {
       const classified = classifySafely(classifyError, error);
+      if (
+        classified.code === "SENDING_OUTCOME_AMBIGUOUS" ||
+        classified.code === "PROVIDER_RATE_LIMITED"
+      ) {
+        return {
+          commandId: claim.command.commandId,
+          errorCode: classified.code,
+          status: "DEFERRED",
+        };
+      }
       const failedAt = clock();
       const failed = await store.fail({
         attemptCount: claim.attemptCount,

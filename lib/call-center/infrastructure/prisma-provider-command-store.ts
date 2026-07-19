@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type {
   ProviderCommandDispatchStore,
   ProviderCommandRejectedClaim,
+  ProviderCommandSettledClaim,
 } from "@/lib/call-center/application/dispatch-provider-command";
 import {
   decideProviderCommandMarkSent,
@@ -184,7 +185,9 @@ async function loadProviderCommandClaim(
   commandId: string,
   input: { now: Date; staleBefore: Date },
   reconcileActiveInbound: ReconcileActiveInbound,
-): Promise<ProviderCommandClaim | ProviderCommandRejectedClaim | null> {
+): Promise<
+  ProviderCommandClaim | ProviderCommandRejectedClaim | ProviderCommandSettledClaim | null
+> {
   const target = await tx.callCenterCommand.findUnique({
     select: { callId: true },
     where: { id: commandId },
@@ -232,7 +235,19 @@ async function loadProviderCommandClaim(
     },
     where: { id: commandId },
   });
-  if (!command || !isClaimable(command, input.staleBefore)) return null;
+  if (!command) return null;
+  if (command.status === "SENT" || command.status === "CONFIRMED") {
+    return { commandId: command.id, settled: true };
+  }
+  if (command.status === "FAILED") {
+    return {
+      commandId: command.id,
+      errorCode: command.errorCode ?? "COMMAND_FAILED",
+      followUpCommandIds: [],
+      rejected: true,
+    };
+  }
+  if (!isClaimable(command, input.staleBefore)) return null;
   const reject = (errorCode: string): Promise<ProviderCommandRejectedClaim | null> =>
     rejectProviderCommandClaim(tx, command, errorCode, input.now, reconcileActiveInbound);
   const isDialAgent = command.type === "DIAL_AGENT";

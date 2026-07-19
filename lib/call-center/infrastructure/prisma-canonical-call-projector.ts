@@ -38,7 +38,7 @@ export class CanonicalProjectionError extends Error {
   }
 }
 
-export type CanonicalProjectionResult = {
+type CanonicalProjectionResult = {
   callId: string;
   callStatus: string;
   commandIds: string[];
@@ -582,48 +582,8 @@ export async function createStartRecordingAfterGreeting(
   return { ...command, created: !existing };
 }
 
-const terminalCallStatuses = new Set(["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"]);
 export function terminalSettlementIncludesCustomerLegs(status: string) {
   return status !== "VOICEMAIL";
-}
-const liveAgentLegStatuses = new Set([
-  "CREATED",
-  "DIALING",
-  "RINGING",
-  "ANSWERED",
-  "BRIDGED",
-]);
-
-export function isConfirmedAgentConnection(input: {
-  confirmedCommandType: string | null;
-  direction: "INBOUND" | "OUTBOUND";
-  eventType: string;
-  legKind: string;
-  legStatus: string;
-}) {
-  return (
-    input.legKind === "AGENT" &&
-    (input.confirmedCommandType === "DIAL_AGENT" || input.direction === "OUTBOUND") &&
-    (input.eventType === "call.answered" || input.eventType === "call.bridged") &&
-    (input.legStatus === "ANSWERED" || input.legStatus === "BRIDGED")
-  );
-}
-
-export function retainedAgentSessionIds(input: {
-  callStatus: string;
-  legs: Array<{
-    agentSessionId: string | null;
-    id: string;
-    status: string;
-  }>;
-}) {
-  if (terminalCallStatuses.has(input.callStatus)) return new Set<string>();
-  return new Set(
-    input.legs
-      .filter((leg) => liveAgentLegStatuses.has(leg.status))
-      .map(({ agentSessionId }) => agentSessionId)
-      .filter((id): id is string => Boolean(id)),
-  );
 }
 
 function customerPhones(
@@ -977,14 +937,13 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
               practiceId: call.practiceId,
             })
           : null;
-      const confirmedDialCommand =
-        resolvedFact.legKind === "AGENT" && settledCommand?.type !== "HANGUP_LEG"
-          ? await confirmProviderCommand(tx, resolvedFact, {
-              callId: call.id,
-              legId: leg.id,
-              practiceId: call.practiceId,
-            })
-          : null;
+      if (resolvedFact.legKind === "AGENT" && settledCommand?.type !== "HANGUP_LEG") {
+        await confirmProviderCommand(tx, resolvedFact, {
+          callId: call.id,
+          legId: leg.id,
+          practiceId: call.practiceId,
+        });
+      }
       if (leg.status === "ENDED" || leg.status === "FAILED") {
         await settleProviderCommandsForTerminalLeg(tx, {
           legId: leg.id,
@@ -1200,7 +1159,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           })),
         );
       }
-      if (terminalCallStatuses.has(call.status)) {
+      if (["ABANDONED", "COMPLETED", "FAILED", "VOICEMAIL"].includes(call.status)) {
         commandIds.push(
           ...(await settleCanonicalCallLegs(tx, {
             callId: call.id,

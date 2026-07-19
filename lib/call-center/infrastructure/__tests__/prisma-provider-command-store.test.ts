@@ -26,6 +26,8 @@ function transaction({
     agentSessionId: "session-1",
     endpointId: "endpoint-1",
   },
+  commandErrorCode = null,
+  commandStatus = "PENDING",
   commandType = "DIAL_AGENT",
   callStatus = "RINGING",
   customerLegs = [{ providerCallControlId: "customer-control-1" }],
@@ -37,6 +39,8 @@ function transaction({
 }: {
   accessLocationIds?: string[];
   arguments?: Record<string, unknown>;
+  commandErrorCode?: string | null;
+  commandStatus?: "PENDING" | "SENDING" | "SENT" | "CONFIRMED" | "FAILED";
   commandType?:
     | "ANSWER_CUSTOMER"
     | "START_RINGBACK"
@@ -130,6 +134,7 @@ function transaction({
               status: dependencyStatus,
             }
           : null,
+        errorCode: commandErrorCode,
         id: "command-1",
         idempotencyKey: "dial:leg-1",
         leg: {
@@ -152,7 +157,7 @@ function transaction({
           callCenterSettings: { telnyxConnectionId: "connection-1" },
         },
         practiceId: "practice-1",
-        status: "PENDING",
+        status: commandStatus,
         type: commandType,
         updatedAt: now,
       }),
@@ -180,6 +185,44 @@ function transaction({
 }
 
 describe("Prisma provider command store", () => {
+  it("reports settled and failed commands without sending them again", async () => {
+    for (const commandStatus of ["SENT", "CONFIRMED"] as const) {
+      const fake = transaction({ commandStatus });
+      const store = new PrismaProviderCommandStore((operation) =>
+        operation(fake.tx as never),
+      );
+      await expect(
+        store.claim({
+          commandId: "command-1",
+          now,
+          staleBefore: new Date(now.getTime() - 60_000),
+        }),
+      ).resolves.toEqual({ commandId: "command-1", settled: true });
+      expect(fake.updates()).toBe(0);
+    }
+
+    const failed = transaction({
+      commandErrorCode: "PROVIDER_VALIDATION_FAILED",
+      commandStatus: "FAILED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(failed.tx as never),
+    );
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toEqual({
+      commandId: "command-1",
+      errorCode: "PROVIDER_VALIDATION_FAILED",
+      followUpCommandIds: [],
+      rejected: true,
+    });
+    expect(failed.updates()).toBe(0);
+  });
+
   it("claims one dial with provider details resolved only in memory", async () => {
     const fake = transaction({ sessionState: "OFFERED" });
     const runner: ProviderCommandTransactionRunner = (operation) =>

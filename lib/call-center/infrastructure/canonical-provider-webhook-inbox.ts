@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-export type CanonicalProjectionStatus =
+type CanonicalProjectionStatus =
   "FAILED" | "IGNORED" | "PROCESSED" | "PROCESSING" | "RECEIVED";
 
 export type CanonicalProjectionRecord = {
@@ -17,13 +17,15 @@ export type CanonicalProjectionRecord = {
   updatedAt: Date;
 };
 
+type CanonicalProjectionClaim = CanonicalProjectionRecord | "EXHAUSTED" | null;
+
 export type CanonicalProjectionInboxStore = {
   claim(input: {
     eventId: string;
     maxAttempts: number;
     now: Date;
     staleBefore: Date;
-  }): Promise<CanonicalProjectionRecord | null>;
+  }): Promise<CanonicalProjectionClaim>;
   completeIgnored(input: {
     attemptCount: number;
     eventId: string;
@@ -37,7 +39,7 @@ export type CanonicalProjectionInboxStore = {
   }): Promise<boolean>;
 };
 
-export const CANONICAL_PROJECTION_MAX_ATTEMPTS = 8;
+const CANONICAL_PROJECTION_MAX_ATTEMPTS = 8;
 const PROCESSING_LEASE_MS = 5 * 60_000;
 
 export const canonicalProjectionMainLaneWhere = {
@@ -95,7 +97,7 @@ function requireEffectOwner<T extends { effectOwner: "CANONICAL" | "LEGACY" | nu
   return { ...event, effectOwner: "CANONICAL" };
 }
 
-export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore = {
+const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore = {
   async claim({ eventId, maxAttempts, now, staleBefore }) {
     const claimed = await prisma.providerWebhookEvent.updateMany({
       data: {
@@ -121,7 +123,21 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
       },
     });
 
-    if (claimed.count !== 1) return null;
+    if (claimed.count !== 1) {
+      const current = await prisma.providerWebhookEvent.findUnique({
+        select: {
+          canonicalProjectionAttemptCount: true,
+          canonicalProjectionStatus: true,
+          effectOwner: true,
+        },
+        where: { id: eventId },
+      });
+      return current?.effectOwner === "CANONICAL" &&
+        current.canonicalProjectionStatus === "FAILED" &&
+        current.canonicalProjectionAttemptCount >= maxAttempts
+        ? "EXHAUSTED"
+        : null;
+    }
 
     const event = await prisma.providerWebhookEvent.findUnique({
       select: selectedFields,

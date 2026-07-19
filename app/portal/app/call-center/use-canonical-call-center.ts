@@ -4,9 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   CALL_CENTER_SCHEMA_VERSION,
-  createRealtimeState,
-  markRealtimeReconnecting,
-  type CallCenterRealtimeState,
   type CallCenterSnapshot,
 } from "@/lib/call-center/realtime-contract";
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
@@ -17,7 +14,7 @@ type HookState = {
   error: Error | null;
   loading: boolean;
   scopeKey: string;
-  state: CallCenterRealtimeState | null;
+  state: CallCenterSnapshot | null;
 };
 
 const initialState: HookState = {
@@ -43,37 +40,25 @@ function hasVersion(value: unknown) {
   return hasId(value) && Number.isInteger(value.stateVersion);
 }
 
-function isCounts(value: unknown) {
-  return (
-    isRecord(value) &&
-    ["active", "openTasks", "recent", "waiting"].every(
-      (key) => Number.isInteger(value[key]) && Number(value[key]) >= 0,
-    )
-  );
-}
-
 function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapshot {
   if (!isRecord(value) || value.schemaVersion !== CALL_CENTER_SCHEMA_VERSION) {
     return false;
   }
-  if (!isRecord(value.queue) || value.queue.id !== queueId) {
+  if (value.queueId !== queueId) {
     return false;
   }
   return (
-    isCounts(value.counts) &&
-    Array.isArray(value.availableQueues) &&
-    value.availableQueues.every(hasId) &&
+    Number.isInteger(value.openTaskCount) &&
+    Number(value.openTaskCount) >= 0 &&
     Array.isArray(value.calls) &&
     value.calls.every(hasVersion) &&
     (value.agentProfile === null || hasId(value.agentProfile)) &&
     Array.isArray(value.tasks) &&
-    value.tasks.every(hasId) &&
-    (value.agentSession === null || hasVersion(value.agentSession))
+    value.tasks.every(hasId)
   );
 }
 
 export type UseCanonicalCallCenterOptions = {
-  clientInstanceId: string;
   pollIntervalMs?: number;
   queueId: string;
 };
@@ -82,21 +67,20 @@ export type UseCanonicalCallCenterResult = {
   error: Error | null;
   loading: boolean;
   refetch: () => void;
-  state: CallCenterRealtimeState | null;
+  state: CallCenterSnapshot | null;
 };
 
 /**
  * Reads disposable durable state. This loop never owns or mutates Telnyx media.
  */
 export function useCanonicalCallCenter({
-  clientInstanceId,
   pollIntervalMs = 2_000,
   queueId,
 }: UseCanonicalCallCenterOptions): UseCanonicalCallCenterResult {
   const [model, setModel] = useState(initialState);
   const readNowRef = useRef<() => void>(() => {});
   const refetch = useCallback(() => readNowRef.current(), []);
-  const scopeKey = `${queueId}:${clientInstanceId}`;
+  const scopeKey = queueId;
 
   useEffect(() => {
     let active = true;
@@ -130,10 +114,7 @@ export function useCanonicalCallCenter({
 
       try {
         const response = await fetch(
-          requestUrl("/api/portal/call-center/snapshot", {
-            clientInstanceId,
-            queueId,
-          }),
+          requestUrl("/api/portal/call-center/snapshot", { queueId }),
           { signal: controller.signal },
         );
         const data: unknown = await callCenterResponse(response);
@@ -145,7 +126,7 @@ export function useCanonicalCallCenter({
           error: null,
           loading: false,
           scopeKey,
-          state: createRealtimeState(data),
+          state: data,
         });
       } catch (error) {
         if (!active || controller.signal.aborted) return;
@@ -158,10 +139,7 @@ export function useCanonicalCallCenter({
           error: nextError,
           loading: false,
           scopeKey,
-          state:
-            accessDenied || current.scopeKey !== scopeKey || !current.state
-              ? null
-              : markRealtimeReconnecting(current.state),
+          state: accessDenied || current.scopeKey !== scopeKey ? null : current.state,
         }));
       } finally {
         inFlight = false;
@@ -185,7 +163,7 @@ export function useCanonicalCallCenter({
       if (timer) clearTimeout(timer);
       controller?.abort();
     };
-  }, [clientInstanceId, pollIntervalMs, queueId, scopeKey]);
+  }, [pollIntervalMs, queueId, scopeKey]);
 
   return {
     ...(model.scopeKey === scopeKey ? model : initialState),

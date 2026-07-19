@@ -1,9 +1,9 @@
 export const INBOUND_OFFER_WINDOW_SECONDS = 20;
 
-export type ActiveAgentLegStatus =
+type ActiveAgentLegStatus =
   "CREATED" | "DIALING" | "RINGING" | "ANSWERED" | "BRIDGED" | "ENDED" | "FAILED";
 
-export type ActiveAgentLeg = {
+type ActiveAgentLeg = {
   readonly id: string;
   readonly status: ActiveAgentLegStatus;
 };

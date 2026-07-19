@@ -31,7 +31,7 @@ type TelnyxVoiceEventProcessorDependencies = {
   resolveOwner?: (event: ProviderWebhookRecord) => Promise<TelnyxEventOwner>;
 };
 
-export class ProviderWebhookProcessingPendingError extends Error {
+class ProviderWebhookProcessingPendingError extends Error {
   readonly status = 503;
 
   constructor(reason: "PROCESSING" | "RETRY_SCHEDULED") {
@@ -45,7 +45,7 @@ export class ProviderWebhookProcessingPendingError extends Error {
 }
 
 /** Claims one durable provider event and persists its immutable admission. */
-export function createTelnyxVoiceEventProcessor({
+function createTelnyxVoiceEventProcessor({
   clock = () => new Date(),
   inbox,
   resolveOwner = async () => "CANONICAL",

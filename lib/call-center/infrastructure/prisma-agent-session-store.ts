@@ -167,6 +167,19 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     return Boolean(leg);
   }
 
+  async hasConnectedCall(endpointId: string) {
+    const leg = await this.transaction.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        call: { status: "CONNECTED" },
+        endpointId,
+        kind: "AGENT",
+        status: { in: ["ANSWERED", "BRIDGED"] },
+      },
+    });
+    return Boolean(leg);
+  }
+
   async hasQueueAccess(actor: AgentSessionActor, endpoint: AgentSessionEndpoint) {
     const locationWhere: Prisma.CallCenterQueueMemberWhereInput = endpoint.locationId
       ? {
@@ -202,7 +215,7 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
   }
 }
 
-export class PrismaAgentSessionStore implements AgentSessionStore {
+class PrismaAgentSessionStore implements AgentSessionStore {
   constructor(private readonly database: Database = prisma) {}
 
   createId() {

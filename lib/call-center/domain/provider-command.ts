@@ -12,43 +12,43 @@ type ExistingLegProviderTarget = {
   callControlId: string;
 };
 
-export type AnswerCustomerDispatchData = ProviderCommandDispatchBase & {
+type AnswerCustomerDispatchData = ProviderCommandDispatchBase & {
   arguments: Record<string, never>;
   provider: ExistingLegProviderTarget;
   type: "ANSWER_CUSTOMER";
 };
 
-export type StartRingbackDispatchData = ProviderCommandDispatchBase & {
+type StartRingbackDispatchData = ProviderCommandDispatchBase & {
   arguments: { timeoutSeconds: number };
   provider: ExistingLegProviderTarget;
   type: "START_RINGBACK";
 };
 
-export type StopPlaybackDispatchData = ProviderCommandDispatchBase & {
+type StopPlaybackDispatchData = ProviderCommandDispatchBase & {
   arguments: Record<string, never>;
   provider: ExistingLegProviderTarget;
   type: "STOP_PLAYBACK";
 };
 
-export type HangupLegDispatchData = ProviderCommandDispatchBase & {
+type HangupLegDispatchData = ProviderCommandDispatchBase & {
   arguments: Record<string, never>;
   provider: ExistingLegProviderTarget;
   type: "HANGUP_LEG";
 };
 
-export type PlayVoicemailGreetingDispatchData = ProviderCommandDispatchBase & {
+type PlayVoicemailGreetingDispatchData = ProviderCommandDispatchBase & {
   arguments: { greeting: string };
   provider: ExistingLegProviderTarget;
   type: "PLAY_VOICEMAIL_GREETING";
 };
 
-export type StartRecordingDispatchData = ProviderCommandDispatchBase & {
+type StartRecordingDispatchData = ProviderCommandDispatchBase & {
   arguments: Record<string, never>;
   provider: ExistingLegProviderTarget;
   type: "START_RECORDING";
 };
 
-export type DialAgentDispatchData = ProviderCommandDispatchBase & {
+type DialAgentDispatchData = ProviderCommandDispatchBase & {
   arguments: {
     agentSessionId: string;
     endpointId: string;

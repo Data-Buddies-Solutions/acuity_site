@@ -34,18 +34,15 @@ describe("canonical call center snapshot route", () => {
   it("passes only the authenticated actor and explicit queue to the snapshot query", async () => {
     const GET = createSnapshotHandler({
       getActor: async () => actor,
-      readSnapshot: async (receivedActor, queueId, clientInstanceId) => {
+      readSnapshot: async (receivedActor, queueId) => {
         expect(receivedActor).toEqual(actor);
         expect(queueId).toBe("queue-1");
-        expect(clientInstanceId).toBe("tab-1");
         return {
-          agentSession: null,
-          availableQueues: [{ id: "queue-1", name: "Optical" }],
           calls: [],
-          counts: { active: 0, openTasks: 0, recent: 0, waiting: 0 },
           agentProfile: null,
-          queue: { id: "queue-1", name: "Optical" },
-          schemaVersion: 2,
+          openTaskCount: 0,
+          queueId: "queue-1",
+          schemaVersion: 3,
           tasks: [],
         };
       },
@@ -57,10 +54,7 @@ describe("canonical call center snapshot route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect((await response.json()).queue).toEqual({
-      id: "queue-1",
-      name: "Optical",
-    });
+    expect((await response.json()).queueId).toBe("queue-1");
   });
 
   it("does not reveal whether an inaccessible queue exists", async () => {

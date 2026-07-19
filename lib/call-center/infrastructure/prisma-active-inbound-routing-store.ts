@@ -433,8 +433,6 @@ export class PrismaActiveInboundRoutingStore implements ActiveRoutingStore {
   }
 }
 
-export const prismaActiveInboundRoutingStore = new PrismaActiveInboundRoutingStore();
-
 /** Reuses the planner inside a caller-owned Prisma transaction. */
 export function routeActiveInboundCallInTransaction(
   transaction: Transaction,

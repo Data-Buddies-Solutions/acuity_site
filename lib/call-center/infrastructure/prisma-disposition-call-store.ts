@@ -123,7 +123,7 @@ class PrismaDispositionCallTransaction implements DispositionCallTransaction {
   }
 }
 
-export class PrismaDispositionCallStore implements DispositionCallStore {
+class PrismaDispositionCallStore implements DispositionCallStore {
   constructor(
     private readonly run = <T>(operation: (tx: Transaction) => Promise<T>) =>
       prisma.$transaction(operation),

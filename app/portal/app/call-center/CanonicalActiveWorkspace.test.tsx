@@ -117,12 +117,9 @@ function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
     activate: mock(() => {}),
     answer: mock(async () => {}),
     connection: "READY" as const,
-    deactivate: mock(() => true),
-    decline: mock(async () => {}),
     dial: mock(() => "media-leg-1"),
     error: null,
     hangup: mock(async () => {}),
-    hold: mock(async () => undefined),
     microphoneReady: true,
     mute: mock(() => {}),
     observations: [
@@ -137,10 +134,6 @@ function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
         state,
       },
     ],
-    prepare: mock(async () => true),
-    sendDtmf: mock(() => {}),
-    setupError: null,
-    setupPending: false,
     soundReady: true,
   };
 

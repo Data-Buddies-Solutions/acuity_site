@@ -43,11 +43,15 @@ flowchart LR
 
 Inbound calls ring every eligible ready browser in deterministic order. A user
 remains `AVAILABLE` while a call is only offered. `Answer` accepts the exact
-browser media leg, and the user becomes `BUSY` only after a provider-confirmed
-bridge. Hangup releases the user.
+browser media leg and waits for the SDK to report connected media. For inbound
+calls, the user becomes `BUSY` only after a provider-confirmed bridge. An
+outbound call becomes connected when the remote party answers. Hangup releases
+the user.
 
-Outbound calls create the canonical call and customer leg first, then dispatch
-one durable provider command.
+Starting an outbound call first ends this agent's waiting inbound offers through
+durable provider commands. Only after those commands are accepted does the
+server create the canonical outbound call and agent leg. The browser then dials
+with opaque, server-issued correlation state.
 
 Direct handoff uses:
 
@@ -82,7 +86,8 @@ or the portal.
    session.
 2. `AVAILABLE` requires a fresh lease, ready provider connection, microphone,
    and browser audio.
-3. Ringing or answer does not make a user `BUSY`; a confirmed bridge does.
+3. An inbound ring or answer does not make a user `BUSY`; a confirmed bridge
+   does. An outbound remote answer is already a connected call.
 4. One call has at most one winning agent leg; losing legs are canceled.
 5. Customer answer is not staff answer.
 6. A call cannot enter voicemail while a live agent leg remains.
@@ -108,7 +113,7 @@ Duplicate legacy session legs collapse into one call; duplicate recordings are
 preserved on separate historical calls.
 
 The portal reads only canonical tables. The removed legacy APIs, profile
-branches, station selector, polling workspace, shadow shell, migration report,
+branches, station selector, legacy workspace, shadow shell, migration report,
 bootstrap, recovery report, and activation preflight have no runtime path.
 
 ## Configuration and secrets

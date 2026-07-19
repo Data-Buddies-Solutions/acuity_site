@@ -43,6 +43,7 @@ const TELNYX_CLIENT_EVENTS = [
   "telnyx.socket.close",
   "telnyx.warning",
 ] as const;
+const ANSWER_CONFIRMATION_TIMEOUT_MS = 20_000;
 
 async function readTokenResponse(response: Response): Promise<TelnyxTokenResponse> {
   const body = await callCenterResponse<TelnyxTokenResponse>(response);
@@ -121,6 +122,12 @@ function useSoftphoneMediaEngine({
   const callsRef = useRef(new Map<string, Call>());
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
   const attachedMediaLegRef = useRef<string | null>(null);
+  const pendingAnswerRef = useRef<{
+    mediaLegId: string;
+    reject(error: Error): void;
+    resolve(): void;
+    timeout: ReturnType<typeof setTimeout>;
+  } | null>(null);
   const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const debugRef = useRef(onDebug);
   const observationRef = useRef(onObservation);
@@ -131,8 +138,6 @@ function useSoftphoneMediaEngine({
   const [error, setError] = useState<string | null>(null);
   const [microphoneReady, setMicrophoneReady] = useState(false);
   const [observations, setObservations] = useState<readonly MediaObservation[]>([]);
-  const [setupError, setSetupError] = useState<string | null>(null);
-  const [setupPending, setSetupPending] = useState(false);
   const [soundReady, setSoundReady] = useState(false);
 
   useEffect(() => {
@@ -187,87 +192,66 @@ function useSoftphoneMediaEngine({
   );
 
   const prepare = useCallback(async () => {
-    setSetupError(null);
-    setSetupPending(true);
+    const AudioCtxCtor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    const soundPromise = (async () => {
+      if (soundReady) return true;
+      if (!AudioCtxCtor) return false;
 
-    try {
-      const AudioCtxCtor =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      const soundPromise = (async () => {
-        if (soundReady) return true;
-        if (!AudioCtxCtor) return false;
+      const ctx = new AudioCtxCtor();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const now = ctx.currentTime;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.03, now + 0.01);
+      gain.gain.linearRampToValueAtTime(0, now + 0.06);
+      oscillator.frequency.value = 880;
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.07);
 
-        const ctx = new AudioCtxCtor();
-        const oscillator = ctx.createOscillator();
-        const gain = ctx.createGain();
-        const now = ctx.currentTime;
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.03, now + 0.01);
-        gain.gain.linearRampToValueAtTime(0, now + 0.06);
-        oscillator.frequency.value = 880;
-        oscillator.connect(gain);
-        gain.connect(ctx.destination);
-        oscillator.start(now);
-        oscillator.stop(now + 0.07);
+      try {
+        await ctx.resume();
+        setSoundReady(true);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        setTimeout(() => void ctx.close().catch(() => {}), 120);
+      }
+    })();
 
-        try {
-          await ctx.resume();
-          setSoundReady(true);
-          return true;
-        } catch {
-          return false;
-        } finally {
-          setTimeout(() => void ctx.close().catch(() => {}), 120);
-        }
-      })();
-
-      const microphonePromise = (async () => {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          setMicrophoneReady(false);
-          setSetupError("This browser does not support microphone access.");
-          return false;
-        }
-
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: false,
-          });
-          stream.getTracks().forEach((track) => track.stop());
-          setMicrophoneReady(true);
-          return true;
-        } catch (permissionError) {
-          setMicrophoneReady(false);
-          setSetupError(
-            operatorErrorCopy(localCallCenterError("MICROPHONE_REQUIRED"), "readiness")
-              .message,
-          );
-          debug("microphone-permission-failed", {
-            causeName:
-              permissionError instanceof Error ? permissionError.name : "unknown",
-          });
-          return false;
-        }
-      })();
-
-      const [audioReady, microphoneAllowed] = await Promise.all([
-        soundPromise,
-        microphonePromise,
-      ]);
-
-      if (!microphoneAllowed) return false;
-      if (!audioReady) {
-        setSetupError("Browser sound is blocked. Select Ready and allow audio playback.");
+    const microphonePromise = (async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setMicrophoneReady(false);
         return false;
       }
 
-      setSetupError(null);
-      return true;
-    } finally {
-      setSetupPending(false);
-    }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
+        stream.getTracks().forEach((track) => track.stop());
+        setMicrophoneReady(true);
+        return true;
+      } catch (permissionError) {
+        setMicrophoneReady(false);
+        debug("microphone-permission-failed", {
+          causeName: permissionError instanceof Error ? permissionError.name : "unknown",
+        });
+        return false;
+      }
+    })();
+
+    const [audioReady, microphoneAllowed] = await Promise.all([
+      soundPromise,
+      microphonePromise,
+    ]);
+    return audioReady && microphoneAllowed;
   }, [debug, soundReady]);
 
   const setRemoteAudioElement = useCallback((element: HTMLAudioElement | null) => {
@@ -359,6 +343,19 @@ function useSoftphoneMediaEngine({
         });
         client.on("telnyx.error", (event) => {
           if (cancelled) return;
+          const pendingAnswer = pendingAnswerRef.current;
+          const answerFailed = Boolean(
+            pendingAnswer &&
+            (event.callId === pendingAnswer.mediaLegId ||
+              (!event.callId && event.error?.name?.startsWith("SDP_"))),
+          );
+          if (answerFailed) {
+            pendingAnswer?.reject(localCallCenterError("CALL_NOT_CONNECTED", false));
+            debug("telnyx-answer-error", {
+              causeName: event.error?.name ?? "TelnyxError",
+            });
+            return;
+          }
           if (event.error?.fatal) {
             setConnection("FAILED");
             setError(mediaFailure());
@@ -411,10 +408,27 @@ function useSoftphoneMediaEngine({
             remoteAudioReady: Boolean(call.remoteStream),
             state: call.state,
           });
-          setObservations((current) => upsertMediaObservation(current, observation));
+          const pendingAnswer = pendingAnswerRef.current;
+          if (pendingAnswer?.mediaLegId === observation.mediaLegId) {
+            if (["ACTIVE", "HELD"].includes(observation.state)) {
+              pendingAnswer.resolve();
+            } else if (["ENDED", "FAILED"].includes(observation.state)) {
+              pendingAnswer.reject(localCallCenterError("CALL_NOT_CONNECTED", false));
+            }
+          }
+          const terminal = ["ENDED", "FAILED"].includes(observation.state);
+          setObservations((current) =>
+            terminal
+              ? current.filter(
+                  ({ connectionId, mediaLegId }) =>
+                    connectionId !== observation.connectionId ||
+                    mediaLegId !== observation.mediaLegId,
+                )
+              : upsertMediaObservation(current, observation),
+          );
           observationRef.current?.(observation);
 
-          if (["destroy", "hangup", "purge"].includes(call.state || "")) {
+          if (terminal) {
             calls.delete(call.id);
             if (attachedMediaLegRef.current === call.id) detachAudio();
           }
@@ -438,6 +452,11 @@ function useSoftphoneMediaEngine({
       cancelled = true;
       debug("softphone-cleanup", { connectionId: adapterConnectionId });
       calls.clear();
+      if (pendingAnswerRef.current) {
+        clearTimeout(pendingAnswerRef.current.timeout);
+        pendingAnswerRef.current.reject(localCallCenterError("NETWORK_LOST"));
+      }
+      pendingAnswerRef.current = null;
       setObservations((current) =>
         current.filter(({ connectionId: id }) => id !== adapterConnectionId),
       );
@@ -456,31 +475,48 @@ function useSoftphoneMediaEngine({
   }, []);
 
   const answer = useCallback(
-    (mediaLegId: string) => callFor(mediaLegId).answer({ video: false }),
+    async (mediaLegId: string) => {
+      const call = callFor(mediaLegId);
+      let resolveConfirmation!: () => void;
+      let rejectConfirmation!: (error: Error) => void;
+      const confirmation = new Promise<void>((resolve, reject) => {
+        resolveConfirmation = resolve;
+        rejectConfirmation = reject;
+      });
+      const timeout = setTimeout(
+        () => rejectConfirmation(localCallCenterError("CALL_NOT_CONNECTED", false)),
+        ANSWER_CONFIRMATION_TIMEOUT_MS,
+      );
+      pendingAnswerRef.current = {
+        mediaLegId,
+        reject: rejectConfirmation,
+        resolve: resolveConfirmation,
+        timeout,
+      };
+      try {
+        void Promise.resolve(call.answer({ video: false })).catch(() => {
+          if (pendingAnswerRef.current?.mediaLegId === mediaLegId) {
+            rejectConfirmation(localCallCenterError("CALL_NOT_CONNECTED", false));
+          }
+        });
+        await confirmation;
+      } catch {
+        throw localCallCenterError("CALL_NOT_CONNECTED", false);
+      } finally {
+        if (pendingAnswerRef.current?.mediaLegId === mediaLegId) {
+          clearTimeout(pendingAnswerRef.current.timeout);
+          pendingAnswerRef.current = null;
+        }
+      }
+    },
     [callFor],
   );
   const activate = useCallback(
     (mediaLegId: string) => attachAudio(callFor(mediaLegId)),
     [attachAudio, callFor],
   );
-  const deactivate = useCallback(
-    (mediaLegId: string) => {
-      if (attachedMediaLegRef.current !== mediaLegId) return false;
-      detachAudio();
-      return true;
-    },
-    [detachAudio],
-  );
-  const decline = useCallback(
+  const hangup = useCallback(
     (mediaLegId: string) => callFor(mediaLegId).hangup(),
-    [callFor],
-  );
-  const hangup = decline;
-  const hold = useCallback(
-    (mediaLegId: string, held: boolean) => {
-      const call = callFor(mediaLegId);
-      return held ? call.hold() : call.unhold();
-    },
     [callFor],
   );
   const mute = useCallback(
@@ -489,10 +525,6 @@ function useSoftphoneMediaEngine({
       if (muted) call.muteAudio();
       else call.unmuteAudio();
     },
-    [callFor],
-  );
-  const sendDtmf = useCallback(
-    (mediaLegId: string, digit: string) => callFor(mediaLegId).dtmf(digit),
     [callFor],
   );
   const dial = useCallback((input: DialMediaLeg) => {
@@ -506,20 +538,13 @@ function useSoftphoneMediaEngine({
     activate,
     answer,
     connection: enabled ? connection : "OFFLINE",
-    deactivate,
-    decline,
     dial,
     error: enabled ? error : null,
     hangup,
-    hold,
     microphoneReady,
     mute,
     observations,
-    prepare,
     setRemoteAudioElement,
-    sendDtmf,
-    setupError,
-    setupPending,
     soundReady,
   };
 }

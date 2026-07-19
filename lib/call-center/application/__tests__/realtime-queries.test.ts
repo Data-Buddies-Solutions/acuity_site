@@ -4,49 +4,14 @@ import { QueueAccessError } from "@/lib/call-center/auth/queue-access";
 
 import {
   CALL_CENTER_READ_TRANSACTION_OPTIONS,
-  localAgentSessionWhere,
   queueCallWhere,
   readCallCenterSnapshot,
-  serializeAgentSession,
   serializeCall,
 } from "../realtime-queries";
 
 const now = new Date("2026-07-11T12:00:00.000Z");
 
 describe("call center snapshot", () => {
-  it("binds the local session to this browser instance", () => {
-    expect(
-      localAgentSessionWhere(
-        {
-          allowedLocationIds: [],
-          hasAllLocationAccess: true,
-          practiceId: "practice-1",
-          userId: "user-1",
-        },
-        ["endpoint-1"],
-        "tab-1",
-        now,
-      ),
-    ).toMatchObject({
-      browserSessionId: "tab-1",
-      endpointId: { in: ["endpoint-1"] },
-      OR: [
-        {
-          callLegs: {
-            some: { status: { in: ["ANSWERED", "BRIDGED"] } },
-          },
-        },
-        {
-          connectionState: { not: "CLOSED" },
-          leaseExpiresAt: { gt: now },
-          presence: { not: "OFFLINE" },
-        },
-      ],
-      practiceId: "practice-1",
-      userId: "user-1",
-    });
-  });
-
   it("scopes queue calls through the configured number location", () => {
     expect(
       queueCallWhere(
@@ -123,8 +88,6 @@ describe("call center snapshot", () => {
           userId: "user-1",
         },
         "queue-1",
-        "tab-1",
-        now,
         database,
       ),
     ).rejects.toBeInstanceOf(QueueAccessError);
@@ -164,27 +127,5 @@ describe("call center snapshot", () => {
       receivedAt: "2026-07-11T12:00:00.000Z",
       stateVersion: 12,
     });
-  });
-
-  it("serializes the browser identity and provider connection state", () => {
-    const session = serializeAgentSession({
-      audioReady: false,
-      browserSessionId: "tab-1",
-      callLegs: [{ status: "BRIDGED" }],
-      connectionState: "ERROR",
-      endpointId: "endpoint-1",
-      id: "session-1",
-      leaseExpiresAt: now,
-      microphoneReady: true,
-      presence: "PAUSED",
-      stateVersion: 4,
-    });
-
-    expect(session).toMatchObject({
-      clientInstanceId: "tab-1",
-      connectionState: "FAILED",
-      stateVersion: 4,
-    });
-    expect("browserSessionId" in session).toBe(false);
   });
 });

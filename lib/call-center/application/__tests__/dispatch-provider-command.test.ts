@@ -11,6 +11,7 @@ import {
   dispatchProviderCommandGraph,
   type ProviderCommandDispatchStore,
   type ProviderCommandRejectedClaim,
+  type ProviderCommandSettledClaim,
 } from "../dispatch-provider-command";
 
 const now = new Date("2026-07-12T12:00:00.000Z");
@@ -46,7 +47,11 @@ function setup({
   failResult = { commandIds: [] } as { commandIds: string[] } | null,
   markSentResult = "MARKED" as ProviderCommandMarkSentResult,
 }: {
-  claimed?: ProviderCommandClaim | ProviderCommandRejectedClaim | null;
+  claimed?:
+    | ProviderCommandClaim
+    | ProviderCommandRejectedClaim
+    | ProviderCommandSettledClaim
+    | null;
   enabled?: boolean;
   errorClassification?: ProviderSendErrorClassification;
   failResult?: { commandIds: string[] } | null;
@@ -199,6 +204,18 @@ describe("provider command dispatcher", () => {
     expect(calls.send).toHaveLength(0);
   });
 
+  it("recognizes a command that a prior idempotent request already settled", async () => {
+    const { calls, dispatch } = setup({
+      claimed: { commandId: "command-1", settled: true },
+    });
+
+    await expect(dispatch("command-1")).resolves.toEqual({
+      commandId: "command-1",
+      status: "SETTLED",
+    });
+    expect(calls.send).toHaveLength(0);
+  });
+
   it("returns follow-up commands from a terminal claim rejection", async () => {
     const { calls, dispatch } = setup({
       claimed: {
@@ -248,29 +265,38 @@ describe("provider command dispatcher", () => {
     expect(calls.fail).toHaveLength(0);
   });
 
-  it("records one classified failure without inventing an unowned retry", async () => {
+  it("leaves an ambiguous send for the stale-command recovery owner", async () => {
     const { calls, dispatch, throwOnSend } = setup();
     throwOnSend(new Error("sanitized only by classifier"));
 
     await expect(dispatch("command-1")).resolves.toEqual({
       commandId: "command-1",
       errorCode: "SENDING_OUTCOME_AMBIGUOUS",
-      followUpCommandIds: [],
-      status: "FAILED",
+      status: "DEFERRED",
     });
-    expect(calls.fail).toEqual([
-      {
-        attemptCount: 1,
-        commandId: "command-1",
-        errorCode: "SENDING_OUTCOME_AMBIGUOUS",
-        now,
-      },
-    ]);
+    expect(calls.fail).toHaveLength(0);
     expect(calls.markSent).toHaveLength(0);
   });
 
+  it("defers rate limits to the same bounded recovery owner", async () => {
+    const { calls, dispatch, throwOnSend } = setup({
+      errorClassification: { code: "PROVIDER_RATE_LIMITED" },
+    });
+    throwOnSend(new Error("rate limited"));
+
+    await expect(dispatch("command-1")).resolves.toEqual({
+      commandId: "command-1",
+      errorCode: "PROVIDER_RATE_LIMITED",
+      status: "DEFERRED",
+    });
+    expect(calls.fail).toHaveLength(0);
+  });
+
   it("does not overwrite a callback or a newer claim", async () => {
-    const failed = setup({ failResult: null });
+    const failed = setup({
+      errorClassification: { code: "PROVIDER_UNKNOWN" },
+      failResult: null,
+    });
     failed.throwOnSend(new Error("timeout"));
     await expect(failed.dispatch("command-1")).resolves.toEqual({
       commandId: "command-1",

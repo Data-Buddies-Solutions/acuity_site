@@ -5,7 +5,7 @@ const CYCLE_DURATION_SEC = 6;
 
 const cache = new Map<number, string>();
 
-export function normalizeCallWaitSeconds(timeoutSeconds: number | null | undefined) {
+function normalizeCallWaitSeconds(timeoutSeconds: number | null | undefined) {
   if (!Number.isFinite(timeoutSeconds)) return DEFAULT_DURATION_SEC;
   return Math.min(
     MAX_DURATION_SEC,
@@ -13,7 +13,7 @@ export function normalizeCallWaitSeconds(timeoutSeconds: number | null | undefin
   );
 }
 
-export function isRingbackToneActiveAtSecond(elapsedSeconds: number) {
+function isRingbackToneActiveAtSecond(elapsedSeconds: number) {
   return (
     Number.isFinite(elapsedSeconds) &&
     elapsedSeconds >= 0 &&

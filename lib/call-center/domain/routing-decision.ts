@@ -1,4 +1,4 @@
-export const ROUTING_EXCLUSION_CODES = [
+const ROUTING_EXCLUSION_CODES = [
   "QUEUE_DISABLED",
   "MEMBERSHIP_DISABLED",
   "NO_SESSION",
@@ -13,7 +13,7 @@ export const ROUTING_EXCLUSION_CODES = [
   "ACTIVE_CALL",
 ] as const;
 
-export type RoutingExclusionCode = (typeof ROUTING_EXCLUSION_CODES)[number];
+type RoutingExclusionCode = (typeof ROUTING_EXCLUSION_CODES)[number];
 
 export type RoutingSessionCandidate = {
   audioReady: boolean;

@@ -4,6 +4,7 @@ import {
   blocksOutboundStart,
   canonicalOutboundClientState,
   isOutboundScopeAllowed,
+  PrismaStartOutboundCallStore,
 } from "../prisma-start-outbound-call-store";
 
 describe("canonical outbound scope", () => {

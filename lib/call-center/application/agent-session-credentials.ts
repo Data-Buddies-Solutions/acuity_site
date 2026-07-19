@@ -10,7 +10,7 @@ export type AgentSessionCredentialInput = {
   sessionId: string;
 };
 
-export type AgentSessionCredential = {
+type AgentSessionCredential = {
   agentLabel: string;
   providerCredentialId: string;
 };
@@ -23,7 +23,7 @@ export interface AgentSessionCredentialStore {
   ): Promise<AgentSessionCredential | null>;
 }
 
-export class AgentSessionCredentialError extends Error {
+class AgentSessionCredentialError extends Error {
   readonly status = 404;
 
   constructor() {

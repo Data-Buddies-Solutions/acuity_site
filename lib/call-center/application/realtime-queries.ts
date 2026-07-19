@@ -5,17 +5,11 @@ import {
   QueueAccessError,
   type QueueAccessActor,
 } from "@/lib/call-center/auth/queue-access";
-import {
-  normalizeAgentPresence,
-  serializeAgentConnectionState,
-} from "@/lib/call-center/domain/agent-session-wire";
 import { normalizeCanonicalCallStatus } from "@/lib/call-center/domain/canonical-call-state";
 import {
   CALL_CENTER_SCHEMA_VERSION,
-  type AgentSessionView,
   type CallCenterSnapshot,
   type CallView,
-  type OperationalCounts,
   type TaskView,
 } from "@/lib/call-center/realtime-contract";
 import { prisma } from "@/lib/prisma";
@@ -56,22 +50,6 @@ const callSelect = {
   winningLegId: true,
 } satisfies Prisma.CallCenterCallSelect;
 
-const sessionSelect = {
-  audioReady: true,
-  browserSessionId: true,
-  callLegs: {
-    select: { status: true },
-    where: { status: { in: ["ANSWERED", "BRIDGED"] as const } },
-  },
-  connectionState: true,
-  endpointId: true,
-  id: true,
-  leaseExpiresAt: true,
-  microphoneReady: true,
-  presence: true,
-  stateVersion: true,
-} satisfies Prisma.CallCenterAgentSessionSelect;
-
 const taskSelect = {
   callId: true,
   call: { select: { direction: true, fromPhone: true, toPhone: true } },
@@ -81,9 +59,6 @@ const taskSelect = {
   status: true,
 } satisfies Prisma.CallCenterTaskSelect;
 type SelectedCall = Prisma.CallCenterCallGetPayload<{ select: typeof callSelect }>;
-type SelectedSession = Prisma.CallCenterAgentSessionGetPayload<{
-  select: typeof sessionSelect;
-}>;
 type SelectedTask = Prisma.CallCenterTaskGetPayload<{ select: typeof taskSelect }>;
 
 export function serializeCall(call: SelectedCall): CallView {
@@ -97,24 +72,7 @@ export function serializeCall(call: SelectedCall): CallView {
   };
 }
 
-export function serializeAgentSession(session: SelectedSession): AgentSessionView {
-  const {
-    browserSessionId,
-    callLegs: _,
-    connectionState,
-    leaseExpiresAt,
-    ...safe
-  } = session;
-  return {
-    ...safe,
-    clientInstanceId: browserSessionId,
-    connectionState: serializeAgentConnectionState(connectionState),
-    leaseExpiresAt: leaseExpiresAt.toISOString(),
-    presence: normalizeAgentPresence(session.presence),
-  };
-}
-
-export function serializeTask(task: SelectedTask): TaskView {
+function serializeTask(task: SelectedTask): TaskView {
   const { call, ...view } = task;
   return {
     ...view,
@@ -182,71 +140,18 @@ function endpointWhere(
   };
 }
 
-export function localAgentSessionWhere(
-  actor: QueueAccessActor,
-  endpointIds: string[],
-  clientInstanceId: string,
-  now: Date,
-): Prisma.CallCenterAgentSessionWhereInput {
-  return {
-    browserSessionId: clientInstanceId,
-    endpointId: { in: endpointIds },
-    OR: [
-      { callLegs: { some: { status: { in: ["ANSWERED", "BRIDGED"] } } } },
-      {
-        connectionState: { not: "CLOSED" },
-        leaseExpiresAt: { gt: now },
-        presence: { not: "OFFLINE" },
-      },
-    ],
-    practiceId: actor.practiceId,
-    userId: actor.userId,
-  };
-}
-
-async function readOperationalCounts(
+function readOpenTaskCount(
   transaction: Prisma.TransactionClient,
   callWhere: Prisma.CallCenterCallWhereInput,
   practiceId: string,
-): Promise<OperationalCounts> {
+): Promise<number> {
   const taskWhere = { call: callWhere, practiceId, status: "OPEN" } as const;
-  const [callCounts, openTasks] = await Promise.all([
-    transaction.callCenterCall.groupBy({
-      _count: { _all: true },
-      by: ["direction", "status"],
-      where: callWhere,
-    }),
-    transaction.callCenterTask.count({ where: taskWhere }),
-  ]);
-
-  let active = 0;
-  let recent = 0;
-  let waiting = 0;
-  for (const row of callCounts) {
-    const count = row._count._all;
-    if (row.status === "CONNECTED") active += count;
-    if (
-      row.direction === "INBOUND" &&
-      (row.status === "RECEIVED" || row.status === "QUEUED" || row.status === "RINGING")
-    ) {
-      waiting += count;
-    }
-    if (
-      TERMINAL_CALL_STATUSES.includes(
-        row.status as (typeof TERMINAL_CALL_STATUSES)[number],
-      )
-    ) {
-      recent += count;
-    }
-  }
-  return { active, openTasks, recent, waiting };
+  return transaction.callCenterTask.count({ where: taskWhere });
 }
 
 export async function readCallCenterSnapshot(
   actor: QueueAccessActor,
   queueId: string,
-  clientInstanceId: string,
-  now = new Date(),
   database: Pick<PrismaClient, "$transaction"> = prisma,
 ): Promise<CallCenterSnapshot> {
   return database.$transaction(
@@ -260,13 +165,7 @@ export async function readCallCenterSnapshot(
         select: { enabled: true, id: true, label: true, locationId: true },
         where: { ...endpointWhere(actor, queueLocationIds), userId: actor.userId },
       });
-      const endpointIds = agentProfile ? [agentProfile.id] : [];
-      const [agentSession, activeCalls, recentCalls, tasks, counts] = await Promise.all([
-        transaction.callCenterAgentSession.findFirst({
-          orderBy: [{ lastHeartbeatAt: "desc" }, { id: "asc" }],
-          select: sessionSelect,
-          where: localAgentSessionWhere(actor, endpointIds, clientInstanceId, now),
-        }),
+      const [activeCalls, recentCalls, tasks, openTaskCount] = await Promise.all([
         transaction.callCenterCall.findMany({
           orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
           select: callSelect,
@@ -285,16 +184,14 @@ export async function readCallCenterSnapshot(
           take: 100,
           where: { call: callWhere, practiceId: actor.practiceId, status: "OPEN" },
         }),
-        readOperationalCounts(transaction, callWhere, actor.practiceId),
+        readOpenTaskCount(transaction, callWhere, actor.practiceId),
       ]);
 
       return {
-        agentSession: agentSession ? serializeAgentSession(agentSession) : null,
         agentProfile,
-        availableQueues: accessibleQueues.map(({ id, name }) => ({ id, name })),
         calls: [...activeCalls, ...recentCalls].map(serializeCall),
-        counts,
-        queue: { id: queue.id, name: queue.name },
+        openTaskCount,
+        queueId: queue.id,
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
         tasks: tasks.map(serializeTask),
       };

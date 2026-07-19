@@ -90,6 +90,13 @@ export function createCanonicalTelnyxEventProcessor({
   return async function processCanonicalTelnyxEvent(eventId: string) {
     const event = await inbox.claim(eventId);
     if (!event) return { outcome: "SKIPPED" as const };
+    if (event === "EXHAUSTED") {
+      logger.error("canonical webhook projection attempts exhausted", { eventId });
+      return {
+        errorCode: "CANONICAL_RETRIES_EXHAUSTED",
+        outcome: "FAILED" as const,
+      };
+    }
 
     try {
       const fact = parseCanonicalTelnyxCallFact(event.payload, event.receivedAt);

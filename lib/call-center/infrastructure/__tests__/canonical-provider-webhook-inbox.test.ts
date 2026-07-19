@@ -62,4 +62,12 @@ describe("canonical projection inbox", () => {
       },
     ]);
   });
+
+  it("keeps exhausted canonical events on the failure path", async () => {
+    const inbox = createCanonicalProjectionInbox(
+      store({ claim: async () => "EXHAUSTED" }),
+    );
+
+    await expect(inbox.claim("event-1")).resolves.toBe("EXHAUSTED");
+  });
 });

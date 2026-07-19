@@ -5,7 +5,8 @@ import {
   isCallCenterErrorEnvelope,
 } from "@/lib/call-center/operator-error";
 
-export type CallCenterAction = "connect" | "end" | "mute" | "outbound" | "readiness";
+export type CallCenterAction =
+  "answer" | "connect" | "end" | "mute" | "outbound" | "readiness";
 
 export type OperatorErrorCopy = {
   message: string;
@@ -74,7 +75,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     retryable: true,
   },
   OUTBOUND_CALL_FAILED: {
-    message: "The call could not be started. Check the number, then try again.",
+    message: "The call could not be started. Try again in a moment.",
     presentation: "inline",
     retryable: true,
   },
@@ -119,6 +120,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
 };
 
 const actionPhrase: Record<CallCenterAction, string> = {
+  answer: "answer this call",
   connect: "connect to the call center",
   end: "end this call",
   mute: "update mute",

@@ -8,15 +8,13 @@ import { useCanonicalCallCenter } from "./use-canonical-call-center";
 const originalFetch = globalThis.fetch;
 const originalEventSource = globalThis.EventSource;
 
-function snapshot(name = "Optical", queueId = "queue-1"): CallCenterSnapshot {
+function snapshot(openTaskCount = 0, queueId = "queue-1"): CallCenterSnapshot {
   return {
     agentProfile: null,
-    agentSession: null,
-    availableQueues: [{ id: queueId, name }],
     calls: [],
-    counts: { active: 0, openTasks: 0, recent: 0, waiting: 0 },
-    queue: { id: queueId, name },
-    schemaVersion: 2,
+    openTaskCount,
+    queueId,
+    schemaVersion: 3,
     tasks: [],
   };
 }
@@ -45,7 +43,7 @@ describe("useCanonicalCallCenter", () => {
     let requestCount = 0;
     globalThis.fetch = mock(async () => {
       requestCount += 1;
-      return Response.json(snapshot(`Optical ${requestCount}`));
+      return Response.json(snapshot(requestCount));
     }) as unknown as typeof fetch;
     globalThis.EventSource = class {
       constructor() {
@@ -55,19 +53,16 @@ describe("useCanonicalCallCenter", () => {
 
     const { result, unmount } = renderHook(() =>
       useCanonicalCallCenter({
-        clientInstanceId: "tab-1",
         pollIntervalMs: 20,
         queueId: "queue-1",
       }),
     );
 
-    await waitFor(() =>
-      expect(Number(result.current.state?.queue.name.split(" ")[1])).toBeGreaterThan(1),
-    );
+    await waitFor(() => expect(result.current.state?.openTaskCount).toBeGreaterThan(1));
     expect(result.current.loading).toBe(false);
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       1,
-      "/api/portal/call-center/snapshot?clientInstanceId=tab-1&queueId=queue-1",
+      "/api/portal/call-center/snapshot?queueId=queue-1",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
@@ -85,7 +80,6 @@ describe("useCanonicalCallCenter", () => {
 
     const { result } = renderHook(() =>
       useCanonicalCallCenter({
-        clientInstanceId: "tab-1",
         pollIntervalMs: 20,
         queueId: "queue-1",
       }),
@@ -97,8 +91,8 @@ describe("useCanonicalCallCenter", () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(result.current.loading).toBe(true);
 
-    await act(async () => finish?.(Response.json(snapshot("Optical 1"))));
-    await waitFor(() => expect(result.current.state?.queue.name).toBe("Optical 1"));
+    await act(async () => finish?.(Response.json(snapshot(1))));
+    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(1));
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
   });
 
@@ -106,27 +100,26 @@ describe("useCanonicalCallCenter", () => {
     let requestCount = 0;
     globalThis.fetch = mock(async () => {
       requestCount += 1;
-      if (requestCount === 1) return Response.json(snapshot("Optical 1"));
+      if (requestCount === 1) return Response.json(snapshot(1));
       if (requestCount === 2) return temporaryFailure();
-      return Response.json(snapshot("Optical 3"));
+      return Response.json(snapshot(3));
     }) as unknown as typeof fetch;
 
     const { result } = renderHook(() =>
       useCanonicalCallCenter({
-        clientInstanceId: "tab-1",
         pollIntervalMs: 30,
         queueId: "queue-1",
       }),
     );
 
-    await waitFor(() => expect(result.current.state?.queue.name).toBe("Optical 1"));
+    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(1));
     await waitFor(() =>
       expect(result.current.error?.message).toBe("TEMPORARY_SERVICE_FAILURE"),
     );
-    expect(result.current.state?.queue.name).toBe("Optical 1");
+    expect(result.current.state?.openTaskCount).toBe(1);
     expect(result.current.loading).toBe(false);
 
-    await waitFor(() => expect(result.current.state?.queue.name).toBe("Optical 3"));
+    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(3));
     expect(result.current.error).toBeNull();
   });
 
@@ -134,19 +127,18 @@ describe("useCanonicalCallCenter", () => {
     let requestCount = 0;
     globalThis.fetch = mock(async () => {
       requestCount += 1;
-      return Response.json(snapshot(`Optical ${requestCount}`));
+      return Response.json(snapshot(requestCount));
     }) as unknown as typeof fetch;
     const { result } = renderHook(() =>
       useCanonicalCallCenter({
-        clientInstanceId: "tab-1",
         pollIntervalMs: 60_000,
         queueId: "queue-1",
       }),
     );
 
-    await waitFor(() => expect(result.current.state?.queue.name).toBe("Optical 1"));
+    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(1));
     act(() => result.current.refetch());
-    await waitFor(() => expect(result.current.state?.queue.name).toBe("Optical 2"));
+    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(2));
   });
 
   it("aborts an obsolete read when the operator scope changes", async () => {
@@ -159,12 +151,11 @@ describe("useCanonicalCallCenter", () => {
           resolveFirst = resolve;
         });
       }
-      return Promise.resolve(Response.json(snapshot("Optical 2", "queue-2")));
+      return Promise.resolve(Response.json(snapshot(2, "queue-2")));
     }) as unknown as typeof fetch;
     const { result, rerender } = renderHook(
       ({ queueId }) =>
         useCanonicalCallCenter({
-          clientInstanceId: "tab-1",
           pollIntervalMs: 60_000,
           queueId,
         }),
@@ -173,9 +164,9 @@ describe("useCanonicalCallCenter", () => {
 
     rerender({ queueId: "queue-2" });
     expect(firstSignal?.aborted).toBe(true);
-    resolveFirst?.(Response.json(snapshot("Optical 1")));
+    resolveFirst?.(Response.json(snapshot(1)));
 
-    await waitFor(() => expect(result.current.state?.queue.name).toBe("Optical 2"));
+    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(2));
   });
 
   it("rejects an incompatible snapshot schema", async () => {
@@ -185,7 +176,6 @@ describe("useCanonicalCallCenter", () => {
 
     const { result } = renderHook(() =>
       useCanonicalCallCenter({
-        clientInstanceId: "tab-1",
         pollIntervalMs: 60_000,
         queueId: "queue-1",
       }),

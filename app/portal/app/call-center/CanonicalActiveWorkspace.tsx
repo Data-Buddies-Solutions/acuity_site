@@ -203,13 +203,12 @@ function ConnectedCanonicalActiveWorkspace({
 }) {
   const router = useRouter();
   const runtime = useSoftphoneRuntime();
-  const realtime = useCanonicalCallCenter({ clientInstanceId, queueId });
+  const realtime = useCanonicalCallCenter({ queueId });
   const refreshSnapshot = realtime.refetch;
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [numberChoice, setNumberChoice] = useState("");
   const [startingOutbound, setStartingOutbound] = useState(false);
-  const outboundMediaLegsRef = useRef(new Set<string>());
   const outboundStartingRef = useRef(false);
   const taskSignalRef = useRef<string | null>(null);
 
@@ -234,15 +233,11 @@ function ConnectedCanonicalActiveWorkspace({
   );
   const state = realtime.state;
   const taskSignal = state
-    ? canonicalTaskSignal(state.counts.openTasks, state.tasks)
+    ? canonicalTaskSignal(state.openTaskCount, state.tasks)
     : undefined;
   const session = runtime.session;
   const media = runtime.media;
-  const {
-    activate: activateMedia,
-    dial: dialMediaLeg,
-    observations: mediaObservations,
-  } = media;
+  const { dial: dialMediaLeg, observations: mediaObservations } = media;
 
   useEffect(() => {
     if (taskSignal === undefined) return;
@@ -274,18 +269,7 @@ function ConnectedCanonicalActiveWorkspace({
     [state],
   );
 
-  useEffect(() => {
-    for (const observation of mediaObservations) {
-      if (
-        observation.state === "ACTIVE" &&
-        outboundMediaLegsRef.current.has(observation.mediaLegId)
-      ) {
-        activateMedia(observation.mediaLegId);
-      }
-    }
-  }, [activateMedia, mediaObservations]);
-
-  const takeCall = useCallback(
+  const answerCall = useCallback(
     async (call: CallView) => {
       if (!session) return;
       const match = selectCanonicalBrowserMediaLeg(
@@ -301,9 +285,9 @@ function ConnectedCanonicalActiveWorkspace({
 
       setActionError(null);
       try {
-        await runtime.take(match.observation.mediaLegId);
-      } catch {
-        setActionError("Call ended");
+        await runtime.answer(match.observation.mediaLegId);
+      } catch (error) {
+        setActionError(errorMessage(error, "answer"));
       }
     },
     [mediaObservations, runtime, session],
@@ -364,12 +348,11 @@ function ConnectedCanonicalActiveWorkspace({
         throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
       setCallCenterCurrentCallGuard(body.callId);
-      const mediaLegId = dialMediaLeg({
+      dialMediaLeg({
         callerNumber: body.from,
         clientState: body.clientState,
         destinationNumber: body.to,
       });
-      outboundMediaLegsRef.current.add(mediaLegId);
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
@@ -492,8 +475,8 @@ function ConnectedCanonicalActiveWorkspace({
                         mediaObservations,
                       )
                     : null;
-                  const taking =
-                    match?.observation.mediaLegId === runtime.takingMediaLegId;
+                  const answering =
+                    match?.observation.mediaLegId === runtime.answeringMediaLegId;
                   const phone = formatPhone(callPhone(call));
 
                   return (
@@ -507,7 +490,7 @@ function ConnectedCanonicalActiveWorkspace({
                         </p>
                         <p className="mt-1 text-xs text-[var(--portal-muted)]">
                           {call.callerName ? `${phone} · ` : ""}
-                          {taking ? "Connecting…" : match ? "Ringing" : "Preparing"}
+                          {answering ? "Connecting…" : match ? "Ringing" : "Preparing"}
                         </p>
                       </div>
                       <Button
@@ -515,14 +498,14 @@ function ConnectedCanonicalActiveWorkspace({
                         disabled={
                           !session ||
                           !match ||
-                          Boolean(runtime.takingMediaLegId) ||
+                          Boolean(runtime.answeringMediaLegId) ||
                           Boolean(activeCall)
                         }
-                        onClick={() => void takeCall(call)}
+                        onClick={() => void answerCall(call)}
                         size="sm"
                         variant="primary"
                       >
-                        {taking ? "Answering" : "Answer"}
+                        {answering ? "Answering" : "Answer"}
                       </Button>
                     </li>
                   );

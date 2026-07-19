@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export type CallCenterQueueRole = "AGENT" | "SUPERVISOR";
+type CallCenterQueueRole = "AGENT" | "SUPERVISOR";
 
 export type CallCenterConfigurationInput = {
   practiceId: string;
@@ -123,7 +123,7 @@ export type CallCenterConfigurationValidationContext = {
   currentConfiguration: ValidatedCallCenterConfiguration | null;
 };
 
-export type CallCenterConfigurationIssueCode =
+type CallCenterConfigurationIssueCode =
   | "PRACTICE_NOT_FOUND"
   | "REQUIRED_FIELD"
   | "DUPLICATE_VALUE"
@@ -788,7 +788,7 @@ export async function saveCallCenterConfiguration(
   );
 }
 
-export async function saveCallCenterConfigurationInTransaction(
+async function saveCallCenterConfigurationInTransaction(
   transaction: CallCenterConfigurationTransaction,
   input: CallCenterConfigurationInput,
   expectedVersion: string,

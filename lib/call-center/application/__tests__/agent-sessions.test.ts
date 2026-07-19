@@ -21,6 +21,7 @@ const actor = {
 
 class FakeStore implements AgentSessionStore {
   activeCallEndpoints = new Set<string>();
+  connectedCallEndpoints = new Set<string>();
   endpoint = {
     id: "seat-legacy-id",
     label: "Optical",
@@ -113,6 +114,7 @@ class FakeStore implements AgentSessionStore {
           : null;
       },
       hasActiveCall: async (endpointId) => this.activeCallEndpoints.has(endpointId),
+      hasConnectedCall: async (endpointId) => this.connectedCallEndpoints.has(endpointId),
       hasQueueAccess: async () => this.queueAccess,
       updateSession: async (id, update) => {
         const session = this.sessions.find((candidate) => candidate.id === id);
@@ -347,6 +349,47 @@ describe("canonical agent sessions", () => {
     ]);
   });
 
+  it("derives busy and available presence from connected calls", async () => {
+    const store = new FakeStore();
+    const acquired = await acquireAgentSession(store, actor, identity, start);
+    store.activeCallEndpoints.add(acquired.session.endpointId);
+    store.connectedCallEndpoints.add(acquired.session.endpointId);
+
+    const busy = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        connectionState: "READY",
+        expectedStateVersion: acquired.session.stateVersion,
+        microphoneReady: true,
+        presence: "AVAILABLE",
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 1_000),
+    );
+    expect(busy.session.presence).toBe("BUSY");
+
+    store.activeCallEndpoints.clear();
+    store.connectedCallEndpoints.clear();
+    const available = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        connectionState: "READY",
+        expectedStateVersion: busy.session.stateVersion,
+        microphoneReady: true,
+        presence: "AVAILABLE",
+        sessionId: busy.session.id,
+      },
+      new Date(start.getTime() + 2_000),
+    );
+    expect(available.session.presence).toBe("AVAILABLE");
+  });
+
   it("rejects incomplete availability without changing the session", async () => {
     const store = new FakeStore();
     await acquireAgentSession(store, actor, identity, start);
@@ -445,6 +488,7 @@ describe("canonical agent sessions", () => {
     const store = new FakeStore();
     const acquired = await acquireAgentSession(store, actor, identity, start);
     store.activeCallEndpoints.add(store.sessions[0].endpointId);
+    store.connectedCallEndpoints.add(store.sessions[0].endpointId);
     store.sessions[0].presence = "BUSY";
 
     const released = await releaseAgentSession(

@@ -7,7 +7,7 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("call-center-provider-command-drain");
 
-export interface ProviderCommandBacklog {
+interface ProviderCommandBacklog {
   listDispatchable(input: { limit: number; staleBefore: Date }): Promise<string[]>;
 }
 

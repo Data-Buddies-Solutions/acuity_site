@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { createCallCenter } from "../call-center";
+import { createCallCenter, startCanonicalOutbound } from "../call-center";
 
 const envelope = {
   body: { data: { event_type: "call.bridged", id: "event-1", payload: {} } },
@@ -10,6 +10,75 @@ const envelope = {
 };
 
 describe("server Call Center module", () => {
+  it("settles inbound offers before creating an outbound call", async () => {
+    const calls: string[] = [];
+    const result = await startCanonicalOutbound(
+      {
+        create: async () => {
+          calls.push("create");
+          return { callId: "outbound-1" };
+        },
+        dispatch: async (commandId) => {
+          calls.push(`dispatch:${commandId}`);
+          return { commandId, markSent: "MARKED", status: "DISPATCHED" };
+        },
+        prepare: async () => {
+          calls.push("prepare");
+          return ["hangup-1"];
+        },
+      },
+      {
+        allowedLocationIds: [],
+        hasAllLocationAccess: true,
+        practiceId: "practice-1",
+        userId: "user-1",
+      },
+      {
+        clientInstanceId: "browser-1",
+        destination: "+15555550123",
+        idempotencyKey: "operation-1",
+        numberId: "number-1",
+        queueId: "queue-1",
+      },
+    );
+
+    expect(calls).toEqual(["prepare", "dispatch:hangup-1", "create"]);
+    expect(result).toEqual({ callId: "outbound-1" });
+  });
+
+  it("does not create outbound intent while offer cleanup is unresolved", async () => {
+    let created = false;
+    await expect(
+      startCanonicalOutbound(
+        {
+          create: async () => {
+            created = true;
+          },
+          dispatch: async (commandId) => ({
+            commandId,
+            errorCode: "SENDING_OUTCOME_AMBIGUOUS",
+            status: "DEFERRED",
+          }),
+          prepare: async () => ["hangup-1"],
+        },
+        {
+          allowedLocationIds: [],
+          hasAllLocationAccess: true,
+          practiceId: "practice-1",
+          userId: "user-1",
+        },
+        {
+          clientInstanceId: "browser-1",
+          destination: "+15555550123",
+          idempotencyKey: "operation-1",
+          numberId: "number-1",
+          queueId: "queue-1",
+        },
+      ),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(created).toBe(false);
+  });
+
   it("applies a durable provider event before returning to the webhook", async () => {
     const calls: string[] = [];
     const callCenter = createCallCenter({

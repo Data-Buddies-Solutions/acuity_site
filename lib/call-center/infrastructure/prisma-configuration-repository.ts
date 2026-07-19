@@ -50,7 +50,7 @@ function ownerMap(rows: Array<{ id: string; practiceId: string }>) {
   return new Map(rows.map(({ id, practiceId }) => [id, practiceId]));
 }
 
-export async function loadConfigurationValidationContext(
+async function loadConfigurationValidationContext(
   transaction: ConfigurationPrismaTransaction,
   practiceId: string,
   references: CallCenterConfigurationReferences,
@@ -205,7 +205,7 @@ export async function loadConfigurationValidationContext(
   };
 }
 
-export async function persistConfigurationSnapshot(
+async function persistConfigurationSnapshot(
   transaction: ConfigurationPrismaTransaction,
   configuration: ValidatedCallCenterConfiguration,
   audit: CallCenterConfigurationAudit,
@@ -336,7 +336,7 @@ export class PrismaCallCenterConfigurationRepository implements CallCenterConfig
   }
 }
 
-export function createPrismaConfigurationTransaction(
+function createPrismaConfigurationTransaction(
   transaction: ConfigurationPrismaTransaction,
 ): CallCenterConfigurationTransaction {
   return {
