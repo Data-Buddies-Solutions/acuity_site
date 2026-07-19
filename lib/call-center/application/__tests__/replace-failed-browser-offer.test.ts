@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { OperationReceiptEvent } from "../operation-receipts";
 import {
   FailedBrowserOfferRecoveryError,
+  recoverFailedBrowserOffer,
   replaceFailedBrowserOffer,
   type FailedBrowserOfferRecoveryContext,
   type FailedBrowserOfferRecoveryStore,
@@ -64,6 +65,7 @@ function context(
 function fakeStore(initial = context()) {
   let revision = BigInt(0);
   let replacementCount = 0;
+  let transactionTail = Promise.resolve();
   const receipts = new Map<string, OperationReceiptEvent>();
   const replacement = {
     dialCommandId: "dial-command-1",
@@ -97,7 +99,19 @@ function fakeStore(initial = context()) {
     async lockReceiptKey() {},
   };
   const store: FailedBrowserOfferRecoveryStore = {
-    withTransaction: async (work) => work(transaction),
+    async withTransaction(work) {
+      const previous = transactionTail;
+      let release!: () => void;
+      transactionTail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        return await work(transaction);
+      } finally {
+        release();
+      }
+    },
   };
   return { replacement, replacementCount: () => replacementCount, store };
 }
@@ -131,6 +145,66 @@ describe("failed browser offer replacement", () => {
 
     expect(replay).toEqual({ ...first, replayed: true });
     expect(fake.replacementCount()).toBe(1);
+  });
+
+  it("serializes concurrent reports into one replacement attempt", async () => {
+    const fake = fakeStore();
+
+    const receipts = await Promise.all([
+      replaceFailedBrowserOffer(fake.store, actor, input, now),
+      replaceFailedBrowserOffer(fake.store, actor, input, now),
+    ]);
+
+    expect(receipts.map(({ replayed }) => replayed).sort()).toEqual([false, true]);
+    expect(fake.replacementCount()).toBe(1);
+  });
+
+  it("retries the same committed commands without creating another provider leg", async () => {
+    const fake = fakeStore();
+    const dispatched: string[] = [];
+    let deferred = true;
+    const dispatch = async (commandId: string) => {
+      dispatched.push(commandId);
+      return deferred
+        ? ({
+            commandId,
+            errorCode: "PROVIDER_RATE_LIMITED",
+            status: "DEFERRED",
+          } as const)
+        : ({
+            commandId,
+            markSent: "MARKED",
+            status: "DISPATCHED",
+          } as const);
+    };
+
+    const first = await recoverFailedBrowserOffer(
+      fake.store,
+      actor,
+      input,
+      now,
+      dispatch,
+    );
+    deferred = false;
+    const replay = await recoverFailedBrowserOffer(
+      fake.store,
+      actor,
+      input,
+      now,
+      dispatch,
+    );
+
+    expect(first.replayed).toBe(false);
+    expect(replay.replayed).toBe(true);
+    expect(fake.replacementCount()).toBe(1);
+    expect(dispatched.sort()).toEqual(
+      [
+        fake.replacement.dialCommandId,
+        fake.replacement.dialCommandId,
+        fake.replacement.hangupCommandId,
+        fake.replacement.hangupCommandId,
+      ].sort(),
+    );
   });
 
   it("rejects replacement after the fixed deadline or after a winner exists", async () => {

@@ -15,7 +15,11 @@ const bodySchema = z
     agentSessionId: z.string().trim().min(1).max(200),
     callLegId: z.string().trim().min(1).max(200),
     clientInstanceId: z.string().trim().min(1).max(200),
-    reason: z.enum(["CALL_DOES_NOT_EXIST", "SESSION_NOT_REATTACHED"]),
+    reason: z.enum([
+      "CALL_DOES_NOT_EXIST",
+      "SDK_CALL_TERMINAL",
+      "SESSION_NOT_REATTACHED",
+    ]),
     recoveryGeneration: z.number().int().nonnegative().max(1_000_000),
   })
   .strict();

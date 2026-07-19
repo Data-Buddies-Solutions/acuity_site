@@ -610,6 +610,74 @@ describe("useSoftphoneMedia canonical credentials", () => {
     expect(lifecycleEvents.map(({ category }) => category)).toContain("REATTACH_FAILED");
     expect(JSON.stringify(lifecycleEvents)).not.toContain("phoneNumber");
     expect(JSON.stringify(lifecycleEvents)).not.toContain("rawProviderPayload");
+
+    const replacementAnswer = mock(async () => {});
+    const replacement = {
+      answer: replacementAnswer,
+      direction: "incoming",
+      id: "media-leg-2",
+      recoveredCallId: "media-leg-1",
+      remoteStream: null,
+      state: "ringing",
+      telnyxIDs: {
+        telnyxCallControlId: "control-2",
+        telnyxLegId: "provider-leg-2",
+        telnyxSessionId: "provider-session-2",
+      },
+    };
+    act(() => clients[0]?.emitCallUpdate(replacement));
+    await waitFor(() =>
+      expect(result.current.observations[0]).toMatchObject({
+        availability: "READY",
+        mediaLegId: "media-leg-2",
+      }),
+    );
+    let replacementAnswerPromise!: Promise<void>;
+    act(() => {
+      replacementAnswerPromise = result.current.answer("media-leg-2");
+    });
+    act(() => clients[0]?.emitCallUpdate({ ...replacement, state: "active" }));
+    await expect(replacementAnswerPromise).resolves.toBeUndefined();
+    expect(replacementAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates a terminal SDK offer and requests one fresh agent leg", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+    const onRecoveryNeeded = mock(() => {});
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+        onRecoveryNeeded,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+    const call = {
+      answer: mock(async () => {}),
+      direction: "incoming",
+      id: "media-leg-1",
+      remoteStream: null,
+      state: "ringing",
+      telnyxIDs: {
+        telnyxCallControlId: "control-1",
+        telnyxLegId: "provider-leg-1",
+        telnyxSessionId: "provider-session-1",
+      },
+    };
+    act(() => clients[0]?.emitCallUpdate(call));
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+
+    act(() => clients[0]?.emitCallUpdate({ ...call, state: "failed" }));
+
+    expect(result.current.observations).toEqual([]);
+    expect(onRecoveryNeeded).toHaveBeenCalledWith({
+      mediaLegId: "media-leg-1",
+      reason: "SDK_CALL_TERMINAL",
+      recoveryGeneration: 0,
+    });
   });
 
   it("reports an empty token failure without exposing a JSON parser error", async () => {

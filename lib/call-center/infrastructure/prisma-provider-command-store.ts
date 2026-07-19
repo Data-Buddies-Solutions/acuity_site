@@ -355,6 +355,9 @@ async function loadProviderCommandClaim(
     if (timeoutSeconds < 1) {
       return reject("COMMAND_CALL_DEADLINE_EXPIRED");
     }
+    if (command.call.status !== "RINGING" || command.call.winningLegId) {
+      return reject("COMMAND_CALL_NO_LONGER_RINGING");
+    }
     if (
       leg.kind !== "AGENT" ||
       leg.endpointId !== args.endpointId ||

@@ -31,6 +31,7 @@ function transaction({
   commandType = "DIAL_AGENT",
   callDeadlineAt = new Date(now.getTime() + 20_000),
   callStatus = "RINGING",
+  callWinningLegId = null,
   customerLegs = [{ providerCallControlId: "customer-control-1" }],
   dependencyStatus = null,
   legKind = "AGENT",
@@ -59,6 +60,7 @@ function transaction({
     | "VOICEMAIL"
     | "ABANDONED"
     | "FAILED";
+  callWinningLegId?: string | null;
   customerLegs?: Array<{ providerCallControlId: string }>;
   dependencyStatus?: "PENDING" | "SENT" | "CONFIRMED" | "FAILED" | null;
   legKind?: "AGENT" | "CUSTOMER";
@@ -129,7 +131,7 @@ function transaction({
             members: memberUserId ? [{ userId: memberUserId }] : [],
           },
           status: callStatus,
-          winningLegId: null,
+          winningLegId: callWinningLegId,
         },
         callId: "call-1",
         dependsOnCommand: dependencyStatus
@@ -292,6 +294,28 @@ describe("Prisma provider command store", () => {
         provider: { timeoutSeconds: 5 },
       },
     });
+  });
+
+  it("rejects a replacement dial after the Call connects or another agent wins", async () => {
+    for (const input of [
+      { callStatus: "CONNECTED" as const },
+      { callWinningLegId: "other-agent-leg" },
+    ]) {
+      const fake = transaction({ ...input, sessionState: "OFFERED" });
+      const store = rejectingStore(fake.tx);
+
+      await expect(
+        store.claim({
+          commandId: "command-1",
+          now,
+          staleBefore: new Date(now.getTime() - 60_000),
+        }),
+      ).resolves.toMatchObject({
+        errorCode: "COMMAND_CALL_NO_LONGER_RINGING",
+        rejected: true,
+      });
+      expect(fake.updates()).toBe(0);
+    }
   });
 
   it("links an inbound dial to the first live customer leg", async () => {

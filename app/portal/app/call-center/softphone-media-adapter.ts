@@ -59,6 +59,7 @@ function mediaState(value: unknown): MediaLegState {
   if (state === "active") return "ACTIVE";
   if (state === "held") return "HELD";
   if (["destroy", "hangup", "purge"].includes(state)) return "ENDED";
+  if (state === "failed") return "FAILED";
   return "UNKNOWN";
 }
 

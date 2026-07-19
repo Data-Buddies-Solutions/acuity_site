@@ -15,7 +15,7 @@ export type FailedBrowserOfferRecoveryInput = {
   callLegId: string;
   clientInstanceId: string;
   idempotencyKey: string;
-  reason: "CALL_DOES_NOT_EXIST" | "SESSION_NOT_REATTACHED";
+  reason: "CALL_DOES_NOT_EXIST" | "SDK_CALL_TERMINAL" | "SESSION_NOT_REATTACHED";
   recoveryGeneration: number;
 };
 

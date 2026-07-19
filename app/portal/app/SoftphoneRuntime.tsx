@@ -27,6 +27,7 @@ import { selectCanonicalBrowserMediaLeg } from "./call-center/canonical-active-c
 import { useIncomingCallRingtone } from "./call-center/use-incoming-call-ringtone";
 import {
   useSoftphoneMedia,
+  type BrowserOfferRecoveryReason,
   type DialMediaLeg,
   type SoftphoneLifecycleEvent,
 } from "./call-center/use-softphone";
@@ -91,6 +92,10 @@ export function selectSoftphoneRuntimeCalls(
 }
 
 type RuntimeCallBinding = ReturnType<typeof selectCanonicalBrowserMediaLeg>;
+type RuntimeCallMatch = {
+  binding: NonNullable<RuntimeCallBinding>;
+  call: CallView;
+};
 
 export function selectSoftphoneRuntimeBinding(
   callId: string,
@@ -116,6 +121,23 @@ export function isCanonicalOfferAnswerable(
     !call.winningLegId &&
     !calls.some((candidate) => candidate.status === "CONNECTED"),
   );
+}
+
+export function uniqueCanonicalBindingForObservation(
+  calls: readonly CallView[],
+  session: Pick<AgentSessionView, "endpointId" | "id"> | null,
+  observation: MediaObservation,
+) {
+  let match: RuntimeCallMatch | null = null;
+  for (const call of calls) {
+    const binding = selectSoftphoneRuntimeBinding(call.id, [call], session, [
+      observation,
+    ]);
+    if (!binding) continue;
+    if (match) return null;
+    match = { binding, call };
+  }
+  return match;
 }
 
 type RuntimeMediaActions = {
@@ -172,7 +194,7 @@ const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
 
 export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
-  const [, setCanonicalCalls] = useState<readonly CallView[]>([]);
+  const [canonicalCalls, setCanonicalCalls] = useState<readonly CallView[]>([]);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [answeringCallId, setAnsweringCallId] = useState<string | null>(null);
   const [mediaReadiness, setMediaReadiness] = useState({
@@ -181,7 +203,6 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     microphoneReady: false,
   });
   const answeringRef = useRef<string | null>(null);
-  const canonicalCallsRef = useRef<readonly CallView[]>([]);
   const mediaObservationsRef = useRef(new Map<string, MediaObservation>());
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
   const sessionRef = useRef<AgentSessionView | null>(null);
@@ -252,18 +273,13 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       const observation = event.sdkCallId
         ? mediaObservationsRef.current.get(event.sdkCallId)
         : null;
-      const matches = observation
-        ? canonicalCallsRef.current.flatMap((call) => {
-            const binding = selectSoftphoneRuntimeBinding(
-              call.id,
-              [call],
-              currentSession,
-              [observation],
-            );
-            return binding ? [{ binding, call }] : [];
-          })
-        : [];
-      const match = matches.length === 1 ? matches[0] : null;
+      const match = observation
+        ? uniqueCanonicalBindingForObservation(
+            canonicalCalls,
+            currentSession,
+            observation,
+          )
+        : null;
       telemetryQueueRef.current.push({
         agentSessionId: currentSession.id,
         ...(event.answerOperationId
@@ -304,7 +320,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
         telemetryTimerRef.current = setTimeout(flushTelemetry, 250);
       }
     },
-    [clientInstanceId, flushTelemetry],
+    [canonicalCalls, clientInstanceId, flushTelemetry],
   );
   useEffect(
     () => () => {
@@ -315,20 +331,25 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const requestReplacement = useCallback(
     (request: {
       mediaLegId: string;
-      reason: "CALL_DOES_NOT_EXIST" | "SESSION_NOT_REATTACHED";
+      reason: BrowserOfferRecoveryReason;
       recoveryGeneration: number;
     }) => {
       const currentSession = sessionRef.current;
       const observation = mediaObservationsRef.current.get(request.mediaLegId);
       if (!currentSession || !observation || !clientInstanceId) return;
-      const matches = canonicalCallsRef.current.flatMap((call) => {
-        const binding = selectSoftphoneRuntimeBinding(call.id, [call], currentSession, [
-          observation,
-        ]);
-        return binding ? [{ binding, call }] : [];
-      });
-      if (matches.length !== 1) return;
-      const [{ binding, call }] = matches;
+      const match = uniqueCanonicalBindingForObservation(
+        canonicalCalls,
+        currentSession,
+        observation,
+      );
+      if (!match) return;
+      const { binding, call } = match;
+      if (
+        call.direction !== "INBOUND" ||
+        !isCanonicalOfferAnswerable(call.id, canonicalCalls)
+      ) {
+        return;
+      }
       const recoveryKey =
         `browser-recovery:${call.id}:${binding.leg.id}:` + request.recoveryGeneration;
       const send = async () => {
@@ -359,26 +380,25 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       };
       void send();
     },
-    [clientInstanceId],
+    [canonicalCalls, clientInstanceId],
   );
   const canAnswerCanonicalOffer = useCallback(
-    (callId: string) => isCanonicalOfferAnswerable(callId, canonicalCallsRef.current),
-    [],
+    (callId: string) => isCanonicalOfferAnswerable(callId, canonicalCalls),
+    [canonicalCalls],
   );
   const canContinueAnswer = useCallback(
     (mediaLegId: string) => {
       const currentSession = sessionRef.current;
       const observation = mediaObservationsRef.current.get(mediaLegId);
       if (!currentSession || !observation) return false;
-      const matches = canonicalCallsRef.current.flatMap((call) => {
-        const binding = selectSoftphoneRuntimeBinding(call.id, [call], currentSession, [
-          observation,
-        ]);
-        return binding ? [{ binding, call }] : [];
-      });
-      return matches.length === 1 && canAnswerCanonicalOffer(matches[0]?.call.id ?? "");
+      const match = uniqueCanonicalBindingForObservation(
+        canonicalCalls,
+        currentSession,
+        observation,
+      );
+      return Boolean(match && canAnswerCanonicalOffer(match.call.id));
     },
-    [canAnswerCanonicalOffer],
+    [canAnswerCanonicalOffer, canonicalCalls],
   );
   const { setRemoteAudioElement, ...media } = useSoftphoneMedia({
     agentSessionId: session?.id ?? null,
@@ -400,20 +420,20 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     (callId: string) =>
       selectSoftphoneRuntimeBinding(
         callId,
-        canonicalCallsRef.current,
+        canonicalCalls,
         sessionRef.current,
         media.observations,
       ),
-    [media.observations],
+    [canonicalCalls, media.observations],
   );
   const callActions = useMemo(
     () => createSoftphoneRuntimeCallActions(bindingFor, media),
     [bindingFor, media],
   );
-  const synchronizeCalls = useCallback((calls: readonly CallView[]) => {
-    canonicalCallsRef.current = calls;
-    setCanonicalCalls(calls);
-  }, []);
+  const synchronizeCalls = useCallback(
+    (calls: readonly CallView[]) => setCanonicalCalls(calls),
+    [],
+  );
 
   useEffect(() => {
     const next = {

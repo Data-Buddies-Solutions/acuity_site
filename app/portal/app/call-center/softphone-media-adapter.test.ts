@@ -100,14 +100,19 @@ describe("softphone media adapter", () => {
     }
   });
 
-  it("treats provider purge as an ended media leg", () => {
-    expect(
-      normalizeMediaObservation({
-        connectionId: "connection-1",
-        mediaLegId: "media-leg-1",
-        remoteAudioReady: false,
-        state: "purge",
-      }).state,
-    ).toBe("ENDED");
+  it("preserves provider ended and failed terminal states", () => {
+    for (const [state, expected] of [
+      ["purge", "ENDED"],
+      ["failed", "FAILED"],
+    ] as const) {
+      expect(
+        normalizeMediaObservation({
+          connectionId: "connection-1",
+          mediaLegId: "media-leg-1",
+          remoteAudioReady: false,
+          state,
+        }).state,
+      ).toBe(expected);
+    }
   });
 });
