@@ -101,6 +101,10 @@ or the portal.
     raw provider payloads.
 12. Provider commands dispatch immediately and a bounded outbox drain recovers
     interrupted sends; terminal failures remain visible for operator diagnosis.
+13. Configuration writes, webhook projection, outbound creation, and
+    provider-command transitions acquire one transaction-scoped practice lock
+    before row locks. Provider I/O occurs only after the database transaction
+    releases that lock.
 
 ## Schema cleanup
 

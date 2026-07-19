@@ -80,7 +80,12 @@ function transaction({
     userId: "user-1",
   };
   const tx = {
-    $queryRaw: async () => [{ id: "command-1" }],
+    $queryRaw: async (query: { values?: unknown[] }) => {
+      operations.push(
+        query.values?.includes("CALL_CENTER:practice-1") ? "practice.lock" : "row.lock",
+      );
+      return [{ id: "command-1" }];
+    },
     callCenterAgentSession: {
       findUnique: async () => session,
       update: async () => {
@@ -185,6 +190,21 @@ function transaction({
 }
 
 describe("Prisma provider command store", () => {
+  it("locks the practice before claiming call, queue, command, or endpoint rows", async () => {
+    const fake = transaction({ commandStatus: "SENT" });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await store.claim({
+      commandId: "command-1",
+      now,
+      staleBefore: new Date(now.getTime() - 60_000),
+    });
+
+    expect(fake.operations.slice(0, 2)).toEqual(["practice.lock", "row.lock"]);
+  });
+
   it("reports settled and failed commands without sending them again", async () => {
     for (const commandStatus of ["SENT", "CONFIRMED"] as const) {
       const fake = transaction({ commandStatus });

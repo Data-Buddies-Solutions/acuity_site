@@ -17,6 +17,7 @@ import {
   CanonicalVoicemailPersistenceError,
   persistCanonicalVoicemail,
 } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
 import { settleCompetingAgentOffers } from "@/lib/call-center/infrastructure/prisma-agent-offer-settlement";
 import { reconcileActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-lifecycle-store";
@@ -636,7 +637,7 @@ export function enrichCanonicalCallIdentity(
   };
 }
 
-async function resolveCustomerCall(
+export async function resolveCanonicalCustomerCall(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
 ) {
@@ -647,7 +648,10 @@ async function resolveCustomerCall(
   const existing = await tx.callCenterCall.findUnique({
     where: { providerCallSessionId: fact.providerCallSessionId },
   });
-  if (existing) return existing;
+  if (existing) {
+    await lockCallCenterPractice(tx, existing.practiceId);
+    return existing;
+  }
 
   if (!fact.direction) throw new CanonicalProjectionError("CANONICAL_DIRECTION_MISSING");
   const { callerPhone, practicePhone } = customerPhones(fact, fact.direction);
@@ -687,6 +691,12 @@ async function resolveCustomerCall(
     throw new CanonicalProjectionError("CANONICAL_QUEUE_NOT_CONFIGURED");
   }
 
+  await lockCallCenterPractice(tx, number.practiceId);
+  const raced = await tx.callCenterCall.findUnique({
+    where: { providerCallSessionId: fact.providerCallSessionId },
+  });
+  if (raced) return raced;
+
   return tx.callCenterCall.create({
     data: {
       callerName: fact.callerName,
@@ -702,6 +712,25 @@ async function resolveCustomerCall(
       toPhone: fact.direction === "INBOUND" ? practicePhone : callerPhone,
     },
   });
+}
+
+async function resolveProjectionCall(
+  tx: Transaction,
+  fact: ResolvedCanonicalTelnyxCallFact,
+  leg: Awaited<ReturnType<typeof existingLeg>>,
+) {
+  if (!leg && fact.legKind === "CUSTOMER") {
+    return {
+      call: await resolveCanonicalCustomerCall(tx, fact),
+      endpointId: null,
+    };
+  }
+
+  const resolved = leg
+    ? { call: leg.call, endpointId: leg.endpointId }
+    : await resolveAgentContext(tx, fact);
+  await lockCallCenterPractice(tx, resolved.call.practiceId);
+  return resolved;
 }
 
 async function lockCall(tx: Transaction, callId: string) {
@@ -843,14 +872,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
       if (isCanonicalVoicemailCallback(resolvedFact.eventType) && !leg) {
         throw new CanonicalProjectionError("CANONICAL_CUSTOMER_LEG_NOT_FOUND");
       }
-      const resolved = leg
-        ? { call: leg.call, endpointId: leg.endpointId }
-        : resolvedFact.legKind === "AGENT"
-          ? await resolveAgentContext(tx, resolvedFact)
-          : {
-              call: await resolveCustomerCall(tx, resolvedFact),
-              endpointId: null,
-            };
+      const resolved = await resolveProjectionCall(tx, resolvedFact, leg);
       let call = normalizeCanonicalCallState(await lockCall(tx, resolved.call.id));
 
       assertCanonicalCallEffectOwner(call);
