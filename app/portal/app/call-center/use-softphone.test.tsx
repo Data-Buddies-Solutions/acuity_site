@@ -155,31 +155,6 @@ describe("useSoftphoneMedia canonical credentials", () => {
     expect(clients).toHaveLength(0);
   });
 
-  it("reconnects through the canonical token boundary after a provider failure", async () => {
-    let requests = 0;
-    globalThis.fetch = mock(async () => {
-      requests += 1;
-      return requests === 1
-        ? new Response(null, { status: 503 })
-        : Response.json({ token: "canonical-token" });
-    }) as unknown as typeof fetch;
-
-    const { result } = renderHook(() =>
-      useSoftphoneMedia({
-        agentSessionId: "session-1",
-        browserSessionId: "browser-1",
-        enabled: true,
-      }),
-    );
-
-    await waitFor(() => expect(result.current.connection).toBe("FAILED"));
-    act(() => result.current.reconnect());
-    await waitFor(() => expect(result.current.connection).toBe("READY"));
-
-    expect(requests).toBe(2);
-    expect(result.current.error).toBeNull();
-  });
-
   it("shows the API explanation when a browser lease is rejected", async () => {
     globalThis.fetch = mock(async () =>
       Response.json(

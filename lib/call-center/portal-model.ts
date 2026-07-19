@@ -90,7 +90,6 @@ export type PortalCallerTimelineItem = {
 
 export type PortalCallerTimeline = {
   branding: ReturnType<typeof getPracticeBranding>;
-  canText: boolean;
   callerName: string | null;
   items: PortalCallerTimelineItem[];
   latestItem: PortalCallerTimelineItem | null;
@@ -100,7 +99,6 @@ export type PortalCallerTimeline = {
   phone: string;
   practiceName: string;
   range: PortalCallCenterHistoryRange;
-  textInboxId: string | null;
   totalPages: number;
   totals: {
     inboundItems: number;

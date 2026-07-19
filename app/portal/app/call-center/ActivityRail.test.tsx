@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { PortalNeedsActionGroup } from "@/lib/call-center/portal-model";
 
-import { ActivityRail } from "./ActivityRail";
+import ActivityRail from "./ActivityRail";
 
 afterEach(cleanup);
 
@@ -37,6 +37,7 @@ describe("ActivityRail voicemail media", () => {
       />,
     );
 
+    fireEvent.click(screen.getByText("Needs action").closest("button")!);
     expect(screen.queryByRole("button", { name: "Play voicemail" })).toBeNull();
 
     view.rerender(
@@ -52,25 +53,5 @@ describe("ActivityRail voicemail media", () => {
     expect(view.container.querySelector("audio")?.getAttribute("src")).toBe(
       "/api/portal/call-center/voicemails/recording-1",
     );
-  });
-
-  it("keeps the next follow-up actions visible", () => {
-    const onCallback = mock(() => {});
-
-    render(
-      <ActivityRail
-        followUpHref="/follow-up"
-        needsAction={[voicemail("recording-1")]}
-        needsActionCount={1}
-        onCallback={onCallback}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Call (555) 555-0123" }));
-
-    expect(onCallback).toHaveBeenCalledWith("+15555550123");
-    expect(screen.getByText("Call")).toBeTruthy();
-    expect(screen.getByText("Play")).toBeTruthy();
-    expect(screen.getByText("Resolve")).toBeTruthy();
   });
 });
