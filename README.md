@@ -253,7 +253,8 @@ manual `Production Migrations` workflow with `confirm` set to `DEPLOY` and
 `20260719180000_remove_call_center_rollback_state` is pending. The workflow uses
 the `Production` environment and its `DATABASE_URL` secret. Run it from `main`
 after the migration files are merged. The rollback confirmation is optional
-after that migration has been applied.
+after that migration has been applied. If a prior attempt failed before applying
+the migration, also enable `repair_failed_call_center_rollback_cleanup` once.
 
 ## CI
 
@@ -273,8 +274,9 @@ The workflow runs:
 7. `bun test`
 8. `bun run build`
 
-A separate PostgreSQL-backed CI job runs the Call Center rollback-state
-migration against representative live, null, and historical rows.
+A separate PostgreSQL-backed CI job runs the complete Prisma deployment path and
+the Call Center rollback-state migration against representative live, null, and
+historical rows.
 
 This is intentionally more than lint/typecheck. Prisma client generation catches
 schema/client drift, tests catch data helpers and UI behavior, changed-file
