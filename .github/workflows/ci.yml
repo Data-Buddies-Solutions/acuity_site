@@ -132,7 +132,7 @@ jobs:
           - 5432:5432
     env:
       CALL_CENTER_POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal?schema=public&options=-c%20acuity.call_center_rollback_closed%3Dtrue
 
     steps:
       - name: Checkout
@@ -145,11 +145,6 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Close rollback window in test database
-        run: >-
-          psql "$DATABASE_URL" --set=ON_ERROR_STOP=1
-          --command="ALTER DATABASE acuity_portal SET acuity.call_center_rollback_closed = 'true'"
 
       - name: Migrate test database
         run: bunx prisma migrate deploy
