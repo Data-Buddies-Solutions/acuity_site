@@ -79,4 +79,28 @@ describe("call-center operator error response", () => {
     expect(body.error.retryable).toBe(true);
     expect(JSON.stringify(body)).not.toContain("secret provider payload");
   });
+
+  it("reports an ended call as call state instead of a provider outage", async () => {
+    const handler = withCallCenterApiHandler(
+      async (_request: Request) => {
+        throw Object.assign(new Error("Call is not connected"), { status: 409 });
+      },
+      {
+        errorCode: "PROVIDER_UNAVAILABLE",
+        logLabel: "hold music failed",
+        reportFailure: () => {},
+        retryable: true,
+      },
+    );
+
+    const response = await handler(request());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CALL_NOT_CONNECTED",
+        referenceId: "ABC123",
+        retryable: false,
+      },
+    });
+  });
 });

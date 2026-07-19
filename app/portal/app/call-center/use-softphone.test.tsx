@@ -260,6 +260,79 @@ describe("useSoftphoneMedia canonical credentials", () => {
     expect(result.current.connection).toBe("READY");
   });
 
+  it("holds and resumes the exact correlated media leg", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    const call = {
+      direction: "incoming",
+      hold: mock(async () => true),
+      id: "media-leg-1",
+      remoteStream: null,
+      state: "active",
+      telnyxIDs: {
+        telnyxCallControlId: "control-1",
+        telnyxLegId: "provider-leg-1",
+        telnyxSessionId: "provider-session-1",
+      },
+      unhold: mock(async () => true),
+    };
+    act(() => clients[0]?.emitCallUpdate(call));
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.hold("media-leg-1", true);
+    });
+    expect(result.current.observations[0]?.state).toBe("HELD");
+
+    await act(async () => {
+      await result.current.hold("media-leg-1", false);
+    });
+    expect(result.current.observations[0]?.state).toBe("ACTIVE");
+
+    expect(call.hold).toHaveBeenCalledTimes(1);
+    expect(call.unhold).toHaveBeenCalledTimes(1);
+
+    call.hold.mockImplementation(async () => false);
+    await expect(result.current.hold("media-leg-1", true)).rejects.toMatchObject({
+      operatorError: { code: "PROVIDER_UNAVAILABLE", retryable: true },
+    });
+  });
+
+  it("keeps the phone ready when a hold operation fails", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    act(() =>
+      clients[0]?.emit("telnyx.error", {
+        error: { fatal: false, name: "HOLD_FAILED" },
+      }),
+    );
+
+    expect(result.current.connection).toBe("READY");
+    expect(result.current.error).toBeNull();
+  });
+
   it("reports an empty token failure without exposing a JSON parser error", async () => {
     globalThis.fetch = mock(
       async () => new Response(null, { status: 503 }),

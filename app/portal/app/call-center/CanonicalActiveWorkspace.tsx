@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Delete, Headphones, Mic, MicOff, Phone, PhoneOff } from "lucide-react";
+import {
+  Delete,
+  Headphones,
+  Mic,
+  MicOff,
+  Pause,
+  Phone,
+  PhoneOff,
+  Play,
+} from "lucide-react";
 
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import { PortalSelect } from "@/app/portal/app/PortalFields";
@@ -10,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import {
   selectIncomingCalls,
   type AgentSessionView,
@@ -50,6 +60,18 @@ const OUTBOUND_NUMBER_STORAGE_KEY = "acuity-call-center:outbound-number-id";
 
 function errorMessage(error: unknown, action: CallCenterAction) {
   return operatorErrorCopy(error, action).message;
+}
+
+function holdMusicMayHaveStarted(error: unknown) {
+  return (
+    !(error instanceof CallCenterRequestError) ||
+    [
+      "PROVIDER_UNAVAILABLE",
+      "REQUEST_TIMEOUT",
+      "TEMPORARY_SERVICE_FAILURE",
+      "UNKNOWN_FAILURE",
+    ].includes(error.operatorError.code)
+  );
 }
 
 function isAgentSessionViewReady(session: AgentSessionView) {
@@ -647,6 +669,7 @@ export function CanonicalActiveCall({
   const [callDuration, setCallDuration] = useState(0);
   const [controlError, setControlError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+  const [holdPending, setHoldPending] = useState(false);
   const [isMuted, setMuted] = useState(false);
   const match = sessionId
     ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
@@ -657,8 +680,10 @@ export function CanonicalActiveCall({
   const mediaLegId = match?.observation.mediaLegId ?? null;
   const controlsEnabled = Boolean(
     mediaLegId &&
-    (match?.leg.status === "BRIDGED" || match?.observation.state === "ACTIVE"),
+    (match?.leg.status === "BRIDGED" ||
+      ["ACTIVE", "HELD"].includes(match?.observation.state ?? "")),
   );
+  const isHeld = match?.observation.state === "HELD";
 
   useEffect(() => {
     if (!connected) return;
@@ -690,6 +715,58 @@ export function CanonicalActiveCall({
       setControlError(null);
     } catch (error) {
       showControlError(error, "mute");
+    }
+  };
+
+  const requestHoldMusic = async (action: "START" | "STOP") => {
+    const response = await fetch(
+      `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/hold-music`,
+      {
+        body: JSON.stringify({
+          action,
+          expectedStateVersion: call.stateVersion,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": `hold-music:${call.id}:${action}:${crypto.randomUUID()}`,
+        },
+        method: "POST",
+      },
+    );
+    await callCenterResponse(response);
+  };
+
+  const toggleHold = async () => {
+    if (!mediaLegId || holdPending) return;
+    const nextHeld = !isHeld;
+    setHoldPending(true);
+    setControlError(null);
+
+    try {
+      if (nextHeld) {
+        await media.hold(mediaLegId, true);
+        try {
+          await requestHoldMusic("START");
+        } catch (error) {
+          if (holdMusicMayHaveStarted(error)) {
+            await requestHoldMusic("STOP");
+          }
+          await media.hold(mediaLegId, false);
+          throw error;
+        }
+      } else {
+        await requestHoldMusic("STOP");
+        try {
+          await media.hold(mediaLegId, false);
+        } catch (error) {
+          await requestHoldMusic("START");
+          throw error;
+        }
+      }
+    } catch (error) {
+      showControlError(error, "hold");
+    } finally {
+      setHoldPending(false);
     }
   };
 
@@ -730,10 +807,10 @@ export function CanonicalActiveCall({
           </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-3 gap-2">
           <Button
             aria-pressed={isMuted}
-            disabled={!controlsEnabled || ending}
+            disabled={!controlsEnabled || ending || holdPending}
             onClick={toggleMute}
             variant={isMuted ? "default" : "secondary"}
           >
@@ -743,6 +820,19 @@ export function CanonicalActiveCall({
               <Mic className="h-4 w-4" aria-hidden="true" />
             )}
             {isMuted ? "Unmute" : "Mute"}
+          </Button>
+          <Button
+            aria-pressed={isHeld}
+            disabled={!controlsEnabled || ending || holdPending}
+            onClick={() => void toggleHold()}
+            variant={isHeld ? "default" : "secondary"}
+          >
+            {isHeld ? (
+              <Play className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Pause className="h-4 w-4" aria-hidden="true" />
+            )}
+            {holdPending ? "Updating" : isHeld ? "Resume" : "Hold"}
           </Button>
           <Button
             disabled={!controlsEnabled || ending}

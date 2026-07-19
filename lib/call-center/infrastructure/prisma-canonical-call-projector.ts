@@ -99,6 +99,19 @@ export function shouldReconcileCanonicalInboundLifecycle(input: {
   );
 }
 
+export function shouldConfirmDialAgentCommand(input: {
+  eventType: string;
+  legKind: "AGENT" | "CUSTOMER";
+  mediaCommandCallback: boolean;
+  settledCommand: boolean;
+}) {
+  return (
+    input.legKind === "AGENT" &&
+    !input.settledCommand &&
+    !input.mediaCommandCallback &&
+    input.eventType !== "call.hangup"
+  );
+}
 export type CanonicalCallProjector = {
   projectAndComplete(
     event: ProviderWebhookRecord,
@@ -167,6 +180,8 @@ type ProviderCommandLink = {
     | "START_RINGBACK"
     | "DIAL_AGENT"
     | "STOP_PLAYBACK"
+    | "START_HOLD_MUSIC"
+    | "STOP_HOLD_MUSIC"
     | "BRIDGE_LEGS"
     | "HANGUP_LEG"
     | "PLAY_VOICEMAIL_GREETING"
@@ -472,12 +487,17 @@ export async function settleProviderCommandCallback(
         };
       case "call.playback.started":
         return {
-          expectedTypes: ["START_RINGBACK"] as const,
+          expectedTypes: ["START_RINGBACK", "START_HOLD_MUSIC"] as const,
           outcome: "CONFIRMED" as const,
         };
       case "call.playback.ended":
         return {
-          expectedTypes: ["START_RINGBACK", "STOP_PLAYBACK"] as const,
+          expectedTypes: [
+            "START_RINGBACK",
+            "STOP_PLAYBACK",
+            "START_HOLD_MUSIC",
+            "STOP_HOLD_MUSIC",
+          ] as const,
           outcome: "CONFIRMED" as const,
         };
       case "call.speak.started":
@@ -517,6 +537,7 @@ export async function settleProviderCommandCallback(
   const command = await tx.callCenterCommand.findUnique({
     select: {
       callId: true,
+      errorCode: true,
       id: true,
       legId: true,
       practiceId: true,
@@ -542,22 +563,41 @@ export async function settleProviderCommandCallback(
   if (command.status === "PENDING") {
     throw new CanonicalProjectionError("CANONICAL_COMMAND_NOT_SENT");
   }
+  const playbackFailed =
+    command.type === "START_HOLD_MUSIC" &&
+    fact.eventType === "call.playback.ended" &&
+    ["failed", "file_not_found", "unknown"].includes(fact.playbackStatus ?? "");
+  const outcome = playbackFailed ? ("FAILED" as const) : callback.outcome;
+  if (
+    outcome === "CONFIRMED" &&
+    command.status === "FAILED" &&
+    command.errorCode === "PROVIDER_PLAYBACK_FAILED"
+  ) {
+    return command;
+  }
 
   const updated = await tx.callCenterCommand.updateMany({
     data:
-      callback.outcome === "CONFIRMED"
+      outcome === "CONFIRMED"
         ? { errorCode: null, status: "CONFIRMED" }
         : {
-            errorCode: "PROVIDER_CALLBACK_FAILED",
+            errorCode: playbackFailed
+              ? "PROVIDER_PLAYBACK_FAILED"
+              : "PROVIDER_CALLBACK_FAILED",
             status: "FAILED",
           },
     where: {
       id: command.id,
-      status: { in: ["SENDING", "SENT", "FAILED"] },
+      status: {
+        in:
+          outcome === "FAILED"
+            ? ["SENDING", "SENT", "CONFIRMED"]
+            : ["SENDING", "SENT", "FAILED"],
+      },
     },
   });
   if (updated.count === 1) {
-    if (callback.outcome === "FAILED") {
+    if (outcome === "FAILED") {
       await failProviderCommandDependents(tx, {
         commandId: command.id,
         now: fact.occurredAt,
@@ -971,15 +1011,32 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         where: { id: leg.id },
       });
 
+      const mediaCommandCallback = [
+        "call.playback.started",
+        "call.playback.ended",
+        "call.speak.started",
+        "call.speak.ended",
+        "call.recording.saved",
+        "call.recording.error",
+      ].includes(resolvedFact.eventType);
       const settledCommand =
-        resolvedFact.legKind === "CUSTOMER" || resolvedFact.eventType === "call.hangup"
+        resolvedFact.legKind === "CUSTOMER" ||
+        resolvedFact.eventType === "call.hangup" ||
+        mediaCommandCallback
           ? await settleProviderCommandCallback(tx, resolvedFact, {
               callId: call.id,
               legId: leg.id,
               practiceId: call.practiceId,
             })
           : null;
-      if (resolvedFact.legKind === "AGENT" && settledCommand?.type !== "HANGUP_LEG") {
+      if (
+        shouldConfirmDialAgentCommand({
+          eventType: resolvedFact.eventType,
+          legKind: resolvedFact.legKind,
+          mediaCommandCallback,
+          settledCommand: Boolean(settledCommand),
+        })
+      ) {
         await confirmProviderCommand(tx, resolvedFact, {
           callId: call.id,
           legId: leg.id,
