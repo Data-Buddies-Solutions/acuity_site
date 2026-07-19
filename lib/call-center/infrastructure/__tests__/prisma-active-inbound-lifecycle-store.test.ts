@@ -10,11 +10,11 @@ function fakeDatabase({
   agentLegs = [{ id: "agent-ended", kind: "AGENT", status: "ENDED" }] as Array<{
     id: string;
     kind: "AGENT";
-    replacesLegId?: string;
     status:
       "CREATED" | "DIALING" | "RINGING" | "ANSWERED" | "BRIDGED" | "ENDED" | "FAILED";
   }>,
   deadlineAt = now as Date | null,
+  ringbackStatus = "SENT" as "FAILED" | "SENT",
   voicemailEnabled = true,
   winningLegId = null as string | null,
 } = {}) {
@@ -34,11 +34,9 @@ function fakeDatabase({
         kind: "CUSTOMER" as const,
         status: "ANSWERED",
       },
-      ...agentLegs.map(({ replacesLegId, ...leg }) => ({
+      ...agentLegs.map((leg) => ({
         ...leg,
-        commands: replacesLegId
-          ? [{ arguments: { replacesLegId } }]
-          : [{ arguments: {} }],
+        commands: [{ arguments: {} }],
       })),
     ],
     practiceId: "practice-1",
@@ -46,15 +44,10 @@ function fakeDatabase({
       enabled: true,
       id: "queue-1",
       locations: [],
-      maxWaitSec: 20,
       members: [],
-      overflowQueue: null,
-      overflowQueueId: null,
-      ringTimeoutSec: 20,
       voicemailEnabled,
       voicemailGreeting: "Leave a message.",
     },
-    queueDeadlineAt: new Date("2026-07-12T12:01:00.000Z"),
     queueId: "queue-1",
     stateVersion: 4,
     status: "RINGING" as
@@ -84,6 +77,7 @@ function fakeDatabase({
       },
     },
     callCenterCommand: {
+      findUnique: async () => ({ status: ringbackStatus }),
       upsert: async ({ create }: { create: Record<string, unknown> }) => {
         const key = `${String(create.type)}:${String(create.idempotencyKey)}`;
         operations.push(`command.upsert:${String(create.type)}`);
@@ -116,14 +110,9 @@ function fakeDatabase({
       },
     },
   } as unknown as Prisma.TransactionClient;
-  const routeQueueRound: Parameters<
-    typeof reconcileActiveInboundCallInTransaction
-  >[3] = async () => {
-    throw new Error("Overflow routing is outside the call-center runtime");
-  };
   const settleAgentLegs: Parameters<
     typeof reconcileActiveInboundCallInTransaction
-  >[4] = async (_transaction, input) => {
+  >[3] = async (_transaction, input) => {
     const released = call.legs.filter(
       (leg) => leg.kind === "AGENT" && input.legIds?.includes(leg.id),
     );
@@ -150,14 +139,7 @@ function fakeDatabase({
     reconcile: (
       input: Parameters<typeof reconcileActiveInboundCallInTransaction>[1],
       at: Date,
-    ) =>
-      reconcileActiveInboundCallInTransaction(
-        transaction,
-        input,
-        at,
-        routeQueueRound,
-        settleAgentLegs,
-      ),
+    ) => reconcileActiveInboundCallInTransaction(transaction, input, at, settleAgentLegs),
   };
   return { call, commands, operations, store, tasks };
 }
@@ -202,38 +184,6 @@ describe("Prisma ACTIVE inbound lifecycle", () => {
     );
   });
 
-  it("retains a live transfer target and its deadline while the source remains winner", async () => {
-    const deadlineAt = new Date("2026-07-12T12:00:40.000Z");
-    const fake = fakeDatabase({
-      agentLegs: [
-        { id: "source", kind: "AGENT", status: "BRIDGED" },
-        {
-          id: "target",
-          kind: "AGENT",
-          replacesLegId: "source",
-          status: "RINGING",
-        },
-      ],
-      deadlineAt,
-      winningLegId: "source",
-    });
-
-    const result = await fake.store.reconcile(
-      {
-        callId: "call-1",
-        practiceId: "practice-1",
-        processedBridgeLegId: null,
-      },
-      now,
-    );
-
-    expect(result.decision?.pendingReplacementLegIds).toEqual(["target"]);
-    expect(fake.call.deadlineAt).toEqual(deadlineAt);
-    expect([...fake.commands.values()]).not.toContainEqual(
-      expect.objectContaining({ legId: "target", type: "HANGUP_LEG" }),
-    );
-  });
-
   it("elects the bridge processed under the call lock without timestamp ordering", async () => {
     const fake = fakeDatabase({
       agentLegs: [
@@ -253,6 +203,37 @@ describe("Prisma ACTIVE inbound lifecycle", () => {
     );
 
     expect(fake.call.winningLegId).toBe("processed-first");
+  });
+
+  it("starts voicemail without depending on failed ringback", async () => {
+    const fake = fakeDatabase({
+      agentLegs: [{ id: "agent-failed", kind: "AGENT", status: "FAILED" }],
+      deadlineAt: new Date("2026-07-12T12:00:40.000Z"),
+      ringbackStatus: "FAILED",
+    });
+
+    const result = await fake.store.reconcile(
+      {
+        callId: "call-1",
+        practiceId: "practice-1",
+        processedBridgeLegId: null,
+      },
+      now,
+    );
+
+    expect(result.decision?.disposition).toBe("VOICEMAIL");
+    expect([...fake.commands.values()]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dependsOnCommandId: null,
+          type: "STOP_PLAYBACK",
+        }),
+        expect.objectContaining({
+          dependsOnCommandId: "command-1",
+          type: "PLAY_VOICEMAIL_GREETING",
+        }),
+      ]),
+    );
   });
 
   it("abandons without voicemail and creates one deduplicated missed-call task", async () => {

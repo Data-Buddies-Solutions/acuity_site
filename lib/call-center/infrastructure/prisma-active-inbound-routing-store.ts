@@ -11,11 +11,13 @@ import {
   type ActiveRoutingStore,
   type ActiveRoutingTransaction,
 } from "@/lib/call-center/application/active-inbound-routing";
+import { INBOUND_OFFER_WINDOW_SECONDS } from "@/lib/call-center/domain/active-inbound-lifecycle";
+import { normalizeAgentPresence } from "@/lib/call-center/domain/agent-session-wire";
+import { normalizeCanonicalCallStatus } from "@/lib/call-center/domain/canonical-call-state";
 import type { RoutingDecision } from "@/lib/call-center/domain/routing-decision";
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
-const INBOUND_RING_WINDOW_SEC = 20;
 export type ActiveRoutingTransactionRunner = <T>(
   operation: (transaction: Transaction) => Promise<T>,
 ) => Promise<T>;
@@ -68,7 +70,8 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       where: { id: callId, practiceId },
     });
     if (!call) return null;
-    if (!call.queueId) return { ...call, callId: call.id, queue: null };
+    const status = normalizeCanonicalCallStatus(call.status);
+    if (!call.queueId) return { ...call, callId: call.id, queue: null, status };
 
     await this.transaction.$queryRaw(
       Prisma.sql`SELECT "id" FROM "call_center_queue" WHERE "practiceId" = ${practiceId} AND "id" = ${call.queueId} FOR UPDATE`,
@@ -85,7 +88,7 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       },
       where: { id: call.queueId, practiceId },
     });
-    if (!queue) return { ...call, callId: call.id, queue: null };
+    if (!queue) return { ...call, callId: call.id, queue: null, status };
 
     const userIds = queue.members.map(({ userId }) => userId);
     const sessions =
@@ -133,7 +136,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
         enabled: queue.enabled,
         id: queue.id,
         locationIds: queue.locations.map(({ locationId }) => locationId),
-        maxWaitSec: INBOUND_RING_WINDOW_SEC,
         members: queue.members.map((member) => ({
           enabled: member.enabled,
           sessions: sessions
@@ -157,14 +159,13 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
               leaseExpiresAt: session.leaseExpiresAt,
               microphoneReady: session.microphoneReady,
               occupied: session.callLegs.length > 0,
-              presence: session.presence,
+              presence: normalizeAgentPresence(session.presence),
               stateVersion: session.stateVersion,
             })),
           userId: member.userId,
         })),
-        ringTimeoutSec: INBOUND_RING_WINDOW_SEC,
       },
-      status: call.status,
+      status,
     } satisfies ActiveRoutingContext;
   }
 
@@ -181,7 +182,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       select: {
         deadlineAt: true,
         queuedAt: true,
-        queueDeadlineAt: true,
         stateVersion: true,
       },
       where: {
@@ -267,7 +267,7 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       });
       const ringback = await this.transaction.callCenterCommand.create({
         data: {
-          arguments: { timeoutSeconds: context.queue.ringTimeoutSec },
+          arguments: { timeoutSeconds: INBOUND_OFFER_WINDOW_SECONDS },
           callId: context.callId,
           dependsOnCommandId: answer.id,
           idempotencyKey: `route:${routingKey}:ringback`,
@@ -372,15 +372,10 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       routed.push({ ...selection, commandId: command.id, legId: leg.id });
     }
 
-    const queueDeadlineAt =
-      call.queueDeadlineAt ?? addSeconds(now, context.queue.maxWaitSec);
-    const ringDeadlineAt = addSeconds(now, context.queue.ringTimeoutSec);
-    const deadlineAt =
-      ringDeadlineAt <= queueDeadlineAt ? ringDeadlineAt : queueDeadlineAt;
+    const deadlineAt = addSeconds(now, INBOUND_OFFER_WINDOW_SECONDS);
     const updatedCall = await this.transaction.callCenterCall.update({
       data: {
         deadlineAt,
-        queueDeadlineAt,
         queuedAt: call.queuedAt ?? now,
         stateVersion: { increment: 1 },
         status: "QUEUED",
@@ -398,7 +393,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       ],
       deadlineAt: deadlineAt.toISOString(),
       dialCommandIds: routed.map(({ commandId }) => commandId),
-      queueDeadlineAt: queueDeadlineAt.toISOString(),
       routed,
       startRingbackCommandId,
       stateVersion: updatedCall.stateVersion,
@@ -438,8 +432,6 @@ export class PrismaActiveInboundRoutingStore implements ActiveRoutingStore {
     });
   }
 }
-
-export const prismaActiveInboundRoutingStore = new PrismaActiveInboundRoutingStore();
 
 /** Reuses the planner inside a caller-owned Prisma transaction. */
 export function routeActiveInboundCallInTransaction(

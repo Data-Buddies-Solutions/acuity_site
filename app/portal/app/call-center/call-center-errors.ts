@@ -6,19 +6,7 @@ import {
 } from "@/lib/call-center/operator-error";
 
 export type CallCenterAction =
-  | "connect"
-  | "enable"
-  | "end"
-  | "hold"
-  | "keypad"
-  | "mute"
-  | "outbound"
-  | "queue"
-  | "readiness"
-  | "save"
-  | "take"
-  | "transfer"
-  | "voicemail";
+  "answer" | "connect" | "end" | "mute" | "outbound" | "readiness";
 
 export type OperatorErrorCopy = {
   message: string;
@@ -45,11 +33,6 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     message: "Browser audio is blocked. Allow sound, then select Ready again.",
     presentation: "inline",
     retryable: true,
-  },
-  CALL_ALREADY_CLAIMED: {
-    message: "Call taken by another agent",
-    presentation: "inline",
-    includeReference: false,
   },
   CALL_CENTER_SESSION_IN_USE: {
     message: "Phone active in another tab",
@@ -92,7 +75,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     retryable: true,
   },
   OUTBOUND_CALL_FAILED: {
-    message: "The call could not be started. Check the number, then try again.",
+    message: "The call could not be started. Try again in a moment.",
     presentation: "inline",
     retryable: true,
   },
@@ -129,16 +112,6 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     presentation: "banner",
     retryable: true,
   },
-  TRANSFER_IN_PROGRESS: {
-    message: "A transfer is already in progress. Wait for it to finish.",
-    presentation: "inline",
-    retryable: true,
-  },
-  TRANSFER_TARGET_UNAVAILABLE: {
-    message: "That team member cannot take the call right now. Choose someone else.",
-    presentation: "inline",
-    retryable: true,
-  },
   VOICEMAIL_UNAVAILABLE: {
     message: "This voicemail recording is not available. Try again later.",
     presentation: "inline",
@@ -147,19 +120,12 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
 };
 
 const actionPhrase: Record<CallCenterAction, string> = {
+  answer: "answer this call",
   connect: "connect to the call center",
-  enable: "enable calling",
   end: "end this call",
-  hold: "update hold",
-  keypad: "send that keypad entry",
   mute: "update mute",
   outbound: "start this call",
-  queue: "complete that queue action",
   readiness: "get ready for calls",
-  save: "save that update",
-  take: "answer this call",
-  transfer: "transfer this call",
-  voicemail: "load this voicemail",
 };
 
 function fallback(action: CallCenterAction, referenceId?: string) {

@@ -23,12 +23,8 @@ const queueSchema = z
     id: idSchema,
     name: z.string().trim().min(1).max(100),
     enabled: z.boolean(),
-    ringTimeoutSec: z.number().int(),
-    maxWaitSec: z.number().int(),
-    wrapUpSec: z.number().int(),
     voicemailEnabled: z.boolean(),
     voicemailGreeting: z.string().trim().max(2_000),
-    overflowQueueId: optionalIdSchema,
     locationIds: z.array(idSchema).max(100),
     members: z.array(queueMemberSchema).max(500),
   })

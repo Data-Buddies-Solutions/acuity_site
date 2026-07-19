@@ -65,15 +65,6 @@ export async function listCanonicalOutboundNumbers(
   }));
 }
 
-export function selectCanonicalWorkspaceQueue(
-  queues: AccessibleQueue[],
-  selectedLocationIds: string[],
-  selectedQueueId?: string,
-) {
-  const matches = listCanonicalWorkspaceQueues(queues, selectedLocationIds);
-  return matches.find(({ id }) => id === selectedQueueId) ?? matches[0] ?? null;
-}
-
 export function listCanonicalWorkspaceQueues(
   queues: AccessibleQueue[],
   selectedLocationIds: string[],

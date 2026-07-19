@@ -5,9 +5,9 @@ import {
 } from "@/lib/call-center/application/operation-receipts";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 
-export const CALL_DISPOSITION_REQUESTED_EVENT = "CALL_DISPOSITION_REQUESTED";
+const CALL_DISPOSITION_REQUESTED_EVENT = "CALL_DISPOSITION_REQUESTED";
 
-export type CallDisposition =
+type CallDisposition =
   "RESOLVED" | "CALLBACK_NEEDED" | "FOLLOW_UP_REQUIRED" | "WRONG_NUMBER" | "OTHER";
 
 export type DispositionCallInput = {

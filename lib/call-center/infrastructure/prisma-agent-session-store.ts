@@ -16,8 +16,6 @@ const sessionSelect = {
   audioReady: true,
   browserSessionId: true,
   connectionState: true,
-  currentCallId: true,
-  offeredCallId: true,
   endpointId: true,
   id: true,
   lastHeartbeatAt: true,
@@ -94,9 +92,7 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     return closed.map(toAgentSessionRecord);
   }
 
-  async createSession(
-    input: Omit<AgentSessionRecord, "currentCallId" | "offeredCallId">,
-  ) {
+  async createSession(input: AgentSessionRecord) {
     const { clientInstanceId, ...data } = input;
     const session = await this.transaction.callCenterAgentSession.create({
       data: { ...data, browserSessionId: clientInstanceId },
@@ -171,6 +167,19 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     return Boolean(leg);
   }
 
+  async hasConnectedCall(endpointId: string) {
+    const leg = await this.transaction.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        call: { status: "CONNECTED" },
+        endpointId,
+        kind: "AGENT",
+        status: { in: ["ANSWERED", "BRIDGED"] },
+      },
+    });
+    return Boolean(leg);
+  }
+
   async hasQueueAccess(actor: AgentSessionActor, endpoint: AgentSessionEndpoint) {
     const locationWhere: Prisma.CallCenterQueueMemberWhereInput = endpoint.locationId
       ? {
@@ -206,7 +215,7 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
   }
 }
 
-export class PrismaAgentSessionStore implements AgentSessionStore {
+class PrismaAgentSessionStore implements AgentSessionStore {
   constructor(private readonly database: Database = prisma) {}
 
   createId() {

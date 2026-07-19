@@ -134,6 +134,66 @@ describe("useSoftphoneMedia canonical credentials", () => {
     );
   });
 
+  it("waits for provider state and rejects a late Telnyx answer failure", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    const call = {
+      answer: mock(async () => {}),
+      direction: "incoming",
+      id: "media-leg-1",
+      remoteStream: null,
+      state: "ringing",
+      telnyxIDs: {
+        telnyxCallControlId: "control-1",
+        telnyxLegId: "provider-leg-1",
+        telnyxSessionId: "provider-session-1",
+      },
+    };
+    act(() => clients[0]?.emitCallUpdate(call));
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+
+    let outcome = "pending";
+    let failure: unknown = null;
+    act(() => {
+      void result.current.answer("media-leg-1").then(
+        () => {
+          outcome = "resolved";
+        },
+        (error) => {
+          outcome = "rejected";
+          failure = error;
+        },
+      );
+    });
+    await waitFor(() => expect(call.answer).toHaveBeenCalledTimes(1));
+    expect(outcome).toBe("pending");
+
+    act(() =>
+      clients[0]?.emit("telnyx.error", {
+        error: { fatal: true, name: "SDP_CREATE_ANSWER_FAILED" },
+        sessionId: "browser-provider-session-1",
+      }),
+    );
+    await waitFor(() => {
+      expect(outcome).toBe("rejected");
+      expect(failure).toMatchObject({
+        operatorError: { code: "CALL_NOT_CONNECTED", retryable: false },
+      });
+    });
+    expect(result.current.connection).toBe("READY");
+  });
+
   it("reports an empty token failure without exposing a JSON parser error", async () => {
     globalThis.fetch = mock(
       async () => new Response(null, { status: 503 }),

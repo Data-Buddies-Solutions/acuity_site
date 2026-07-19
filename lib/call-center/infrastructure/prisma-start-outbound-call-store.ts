@@ -6,6 +6,7 @@ import {
   type CallCenterLegStatus,
 } from "@/generated/prisma/client";
 import {
+  CALL_OUTBOUND_REQUESTED_EVENT,
   StartOutboundCallError,
   type StartOutboundCallInput,
   type StartOutboundCallStore,
@@ -27,7 +28,7 @@ type Transaction = Prisma.TransactionClient;
 export type StartOutboundCallTransactionRunner = <T>(
   operation: (transaction: Transaction) => Promise<T>,
 ) => Promise<T>;
-export const OUTBOUND_INITIATION_TIMEOUT_MS = 60_000;
+const OUTBOUND_INITIATION_TIMEOUT_MS = 60_000;
 const ACTIVE_LEG_STATUSES: readonly CallCenterLegStatus[] = ["ANSWERED", "BRIDGED"];
 const PENDING_OUTBOUND_LEG_STATUSES: readonly CallCenterLegStatus[] = [
   "CREATED",
@@ -85,6 +86,14 @@ export function isOutboundScopeAllowed(input: {
   return endpointInQueue && numberInQueue && endpointInActorScope && numberInActorScope;
 }
 
+function cleanupCommandIds(value: Prisma.JsonValue) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const ids = (value as Record<string, unknown>).cleanupCommandIds;
+  return Array.isArray(ids)
+    ? ids.filter((id): id is string => typeof id === "string")
+    : [];
+}
+
 class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction {
   private readonly receipts: PrismaOperationReceiptTransaction;
 
@@ -104,15 +113,18 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     return this.receipts.lockReceiptKey(practiceId, type, idempotencyKey);
   }
 
-  async createOutboundCall(
+  private async loadOutboundContext(
     actor: QueueAccessActor,
     input: StartOutboundCallInput,
     now: Date,
+    lockRows: boolean,
   ) {
     await resolveQueueAccess(actor, input.queueId, this.transaction);
-    await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_queue" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.queueId} FOR UPDATE`,
-    );
+    if (lockRows) {
+      await this.transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "call_center_queue" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.queueId} FOR UPDATE`,
+      );
+    }
     const queue = await this.transaction.callCenterQueue.findFirst({
       select: {
         locations: { select: { locationId: true } },
@@ -127,9 +139,11 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       throw new StartOutboundCallError("Agent queue membership is required", 403);
     }
 
-    await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_number" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.numberId} FOR UPDATE`,
-    );
+    if (lockRows) {
+      await this.transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "call_center_number" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.numberId} FOR UPDATE`,
+      );
+    }
     const number = await this.transaction.callCenterNumber.findFirst({
       include: { practicePhoneNumber: true },
       where: {
@@ -147,12 +161,14 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       );
     }
 
-    await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} FOR UPDATE`,
-    );
-    await this.transaction.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} AND "browserSessionId" = ${input.clientInstanceId} FOR UPDATE`,
-    );
+    if (lockRows) {
+      await this.transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} FOR UPDATE`,
+      );
+      await this.transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "practiceId" = ${actor.practiceId} AND "userId" = ${actor.userId} AND "browserSessionId" = ${input.clientInstanceId} FOR UPDATE`,
+      );
+    }
     const session = await this.transaction.callCenterAgentSession.findFirst({
       include: {
         endpoint: true,
@@ -213,7 +229,33 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       throw new StartOutboundCallError("Outbound phone numbers must be valid E.164", 422);
     }
 
-    const ringingOffers = await this.transaction.callCenterCallLeg.findMany({
+    return { from, number, session, to };
+  }
+
+  async prepareOutboundCleanup(
+    actor: QueueAccessActor,
+    input: StartOutboundCallInput,
+    now: Date,
+  ) {
+    const receipt = await this.findReceipt(
+      actor.practiceId,
+      CALL_OUTBOUND_REQUESTED_EVENT,
+      input.idempotencyKey,
+    );
+    if (receipt) return [];
+
+    const { session } = await this.loadOutboundContext(actor, input, now, false);
+    const eventPrefix = `outbound:${input.idempotencyKey}:settle:`;
+    const priorEvents = await this.transaction.callCenterEvent.findMany({
+      select: { data: true },
+      where: {
+        idempotencyKey: { startsWith: eventPrefix },
+        practiceId: actor.practiceId,
+        type: "CALL_AGENT_OFFER_ENDED",
+      },
+    });
+    const priorCommandIds = priorEvents.flatMap(({ data }) => cleanupCommandIds(data));
+    const offers = await this.transaction.callCenterCallLeg.findMany({
       orderBy: [{ callId: "asc" }, { id: "asc" }],
       select: { callId: true, id: true },
       where: {
@@ -223,44 +265,96 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
         status: { in: ["CREATED", "DIALING", "RINGING"] },
       },
     });
-    for (const callId of [...new Set(ringingOffers.map(({ callId }) => callId))]) {
+    for (const callId of [...new Set(offers.map(({ callId }) => callId))]) {
       await this.transaction.$queryRaw(
         Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${callId} FOR UPDATE`,
       );
     }
-    const cleanupCommandIds: string[] = [];
-    for (const offer of ringingOffers) {
-      cleanupCommandIds.push(
-        ...(await settleCanonicalCallLegs(this.transaction, {
-          callId: offer.callId,
-          hangupIdempotencyKeys: {
-            [offer.id]: `outbound:${input.idempotencyKey}:hangup:${offer.id}`,
-          },
-          legIds: [offer.id],
-          now,
-          reason: "AGENT_STARTED_OUTBOUND",
-        })),
-      );
+
+    const liveOffers =
+      offers.length === 0
+        ? []
+        : await this.transaction.callCenterCallLeg.findMany({
+            orderBy: [{ callId: "asc" }, { id: "asc" }],
+            select: { callId: true, id: true },
+            where: {
+              id: { in: offers.map(({ id }) => id) },
+              status: { in: ["CREATED", "DIALING", "RINGING"] },
+            },
+          });
+    const commandIds = [...priorCommandIds];
+    for (const offer of liveOffers) {
+      const settledCommandIds = await settleCanonicalCallLegs(this.transaction, {
+        callId: offer.callId,
+        hangupIdempotencyKeys: {
+          [offer.id]: `outbound:${input.idempotencyKey}:hangup:${offer.id}`,
+        },
+        legIds: [offer.id],
+        now,
+        reason: "AGENT_STARTED_OUTBOUND",
+      });
+      commandIds.push(...settledCommandIds);
       await this.transaction.callCenterCall.update({
         data: { stateVersion: { increment: 1 } },
         where: { id: offer.callId },
       });
-      await this.transaction.callCenterEvent.create({
-        data: {
-          actorUserId: actor.userId,
-          aggregateId: offer.callId,
-          aggregateType: "CALL",
-          data: {
-            endpointId: session.endpointId,
-            legId: offer.id,
-            reason: "AGENT_STARTED_OUTBOUND",
-          },
-          idempotencyKey: `outbound:${input.idempotencyKey}:settle:${offer.id}`,
-          occurredAt: now,
+      const idempotencyKey = `${eventPrefix}${offer.id}`;
+      const event = await this.transaction.callCenterEvent.findFirst({
+        select: { revision: true },
+        where: {
+          idempotencyKey,
           practiceId: actor.practiceId,
           type: "CALL_AGENT_OFFER_ENDED",
         },
       });
+      if (!event) {
+        await this.transaction.callCenterEvent.create({
+          data: {
+            actorUserId: actor.userId,
+            aggregateId: offer.callId,
+            aggregateType: "CALL",
+            data: {
+              cleanupCommandIds: settledCommandIds,
+              endpointId: session.endpointId,
+              legId: offer.id,
+              reason: "AGENT_STARTED_OUTBOUND",
+            },
+            idempotencyKey,
+            occurredAt: now,
+            practiceId: actor.practiceId,
+            type: "CALL_AGENT_OFFER_ENDED",
+          },
+        });
+      }
+    }
+    return [...new Set(commandIds)];
+  }
+
+  async createOutboundCall(
+    actor: QueueAccessActor,
+    input: StartOutboundCallInput,
+    now: Date,
+  ) {
+    const { from, number, session, to } = await this.loadOutboundContext(
+      actor,
+      input,
+      now,
+      true,
+    );
+    const pendingOffer = await this.transaction.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        call: { direction: "INBOUND" },
+        endpointId: session.endpointId,
+        kind: "AGENT",
+        status: { in: ["CREATED", "DIALING", "RINGING"] },
+      },
+    });
+    if (pendingOffer) {
+      throw new StartOutboundCallError(
+        "Inbound call offer cleanup is still pending",
+        503,
+      );
     }
 
     const callId = randomUUID();
@@ -317,7 +411,6 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       data: {
         agentSessionId: session.id,
         callId: call.id,
-        cleanupCommandIds: JSON.stringify([...new Set(cleanupCommandIds)]),
         clientState: canonicalOutboundClientState({
           practiceId: actor.practiceId,
           token: clientStateToken,
@@ -343,6 +436,20 @@ export class PrismaStartOutboundCallStore implements StartOutboundCallStore {
   transaction<T>(operation: (transaction: StartOutboundCallTransaction) => Promise<T>) {
     return this.runTransaction((transaction) =>
       operation(new PrismaStartOutboundCallTransaction(transaction)),
+    );
+  }
+
+  prepareOutboundCleanup(
+    actor: QueueAccessActor,
+    input: StartOutboundCallInput,
+    now = new Date(),
+  ) {
+    return this.runTransaction((transaction) =>
+      new PrismaStartOutboundCallTransaction(transaction).prepareOutboundCleanup(
+        actor,
+        input,
+        now,
+      ),
     );
   }
 }

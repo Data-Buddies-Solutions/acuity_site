@@ -43,7 +43,7 @@ The portal now has four practice data paths:
    - `POST /api/telnyx/webhooks`
    - Enabled numbers, queues, memberships, endpoints, and location scope are database-owned.
    - Each signed Telnyx callback is admitted once to `ProviderWebhookEvent`, assigned one immutable effect owner, and projected into the canonical call state.
-   - `CallCenterCall` and `CallCenterCallLeg` own call and bridge state; `CallCenterCommand` owns retryable provider effects; `CallCenterEvent` is the ordered browser stream.
+   - `CallCenterCall` and `CallCenterCallLeg` own call and bridge state; `CallCenterCommand` owns durable provider effects; `CallCenterEvent` is the append-only audit revision consumed through a versioned snapshot.
    - Each person signs in with their own portal account and uses their assigned `CallCenterEndpoint`; there is no station selector.
    - The page shows eligible waiting/active calls, outbound dialing, call history, follow-up tasks, and voicemail.
 

@@ -1,19 +1,11 @@
-export type ActiveAgentLegStatus =
+export const INBOUND_OFFER_WINDOW_SECONDS = 20;
+
+type ActiveAgentLegStatus =
   "CREATED" | "DIALING" | "RINGING" | "ANSWERED" | "BRIDGED" | "ENDED" | "FAILED";
 
-export type ActiveAgentLeg = {
+type ActiveAgentLeg = {
   readonly id: string;
-  /** Present only for an in-progress attended transfer target. */
-  readonly replacesLegId?: string | null;
   readonly status: ActiveAgentLegStatus;
-};
-
-export type ActiveQueuePolicy = {
-  readonly id: string;
-  readonly maxWaitSec: number;
-  readonly overflowQueueId: string | null;
-  readonly ringTimeoutSec: number;
-  readonly voicemailEnabled: boolean;
 };
 
 export type ActiveInboundLifecycleInput = {
@@ -21,13 +13,13 @@ export type ActiveInboundLifecycleInput = {
   readonly callId: string;
   readonly customerLegId: string;
   readonly deadlineAt: Date | null;
-  readonly eligibleAgentCount: number;
   readonly now: Date;
   /** The bridge event currently being processed under the call lock. */
   readonly processedBridgeLegId: string | null;
-  readonly queue: ActiveQueuePolicy;
-  readonly queueDeadlineAt: Date | null;
-  readonly visitedQueueIds: readonly string[];
+  readonly queue: {
+    readonly id: string;
+    readonly voicemailEnabled: boolean;
+  };
   /** The persisted winner is authoritative once present. */
   readonly winningLegId: string | null;
 };
@@ -46,14 +38,6 @@ type HangupLegIntent = {
   readonly type: "HANGUP_LEG";
 };
 
-type OverflowQueueIntent = {
-  readonly description: "Route call to configured overflow queue";
-  readonly fromQueueId: string;
-  readonly idempotencyKey: string;
-  readonly queueId: string;
-  readonly type: "ROUTE_OVERFLOW_QUEUE";
-};
-
 type VoicemailIntent = {
   readonly description: "Start queue voicemail";
   readonly idempotencyKey: string;
@@ -69,20 +53,12 @@ type MissedCallIntent = {
 };
 
 export type ActiveInboundLifecycleIntent =
-  | StopPlaybackIntent
-  | HangupLegIntent
-  | OverflowQueueIntent
-  | VoicemailIntent
-  | MissedCallIntent;
+  StopPlaybackIntent | HangupLegIntent | VoicemailIntent | MissedCallIntent;
 
 export type ActiveInboundLifecycleDecision = {
   readonly deadlineAt: Date;
-  readonly disposition:
-    "WAITING_FOR_AGENT" | "CONNECTED" | "OVERFLOW" | "VOICEMAIL" | "ABANDONED";
+  readonly disposition: "WAITING_FOR_AGENT" | "CONNECTED" | "VOICEMAIL" | "ABANDONED";
   readonly intents: readonly ActiveInboundLifecycleIntent[];
-  /** Replacement targets that must stay live while the source remains winner. */
-  readonly pendingReplacementLegIds: readonly string[];
-  readonly queueDeadlineAt: Date;
   readonly status: "QUEUED" | "RINGING" | "CONNECTED" | "VOICEMAIL" | "ABANDONED";
   readonly winningLegId: string | null;
 };
@@ -106,14 +82,11 @@ function liveAgentLegs(agentLegs: readonly ActiveAgentLeg[]) {
 function winnerFor(input: ActiveInboundLifecycleInput) {
   if (input.winningLegId) return input.winningLegId;
   if (!input.processedBridgeLegId) return null;
-
-  const processedLeg = input.agentLegs.find(
-    (leg) => leg.id === input.processedBridgeLegId,
-  );
-  return processedLeg?.status === "BRIDGED" ? processedLeg.id : null;
+  const processed = input.agentLegs.find((leg) => leg.id === input.processedBridgeLegId);
+  return processed?.status === "BRIDGED" ? processed.id : null;
 }
 
-function stopPlaybackIntent(input: ActiveInboundLifecycleInput): StopPlaybackIntent {
+function stopPlayback(input: ActiveInboundLifecycleInput): StopPlaybackIntent {
   return {
     description: "Stop caller ringback",
     idempotencyKey: `active:${input.callId}:stop-ringback`,
@@ -122,95 +95,66 @@ function stopPlaybackIntent(input: ActiveInboundLifecycleInput): StopPlaybackInt
   };
 }
 
-function connectedIntents(
+function hangupAgentLeg(
   input: ActiveInboundLifecycleInput,
-  winningLegId: string,
-  liveLegs: readonly ActiveAgentLeg[],
-  retainedLegIds: ReadonlySet<string>,
-) {
-  const intents: ActiveInboundLifecycleIntent[] = [stopPlaybackIntent(input)];
-  for (const leg of liveLegs) {
-    if (leg.id === winningLegId || retainedLegIds.has(leg.id)) continue;
-    intents.push({
-      description: "Hang up non-winning live agent leg",
-      idempotencyKey: `active:${input.callId}:winner:${winningLegId}:hangup:${leg.id}`,
-      legId: leg.id,
-      type: "HANGUP_LEG",
-    });
-  }
-  return intents;
-}
-
-function expiredLegIntents(
-  input: ActiveInboundLifecycleInput,
-  liveLegs: readonly ActiveAgentLeg[],
-) {
-  return liveLegs.map((leg): HangupLegIntent => ({
+  legId: string,
+  key: string,
+): HangupLegIntent {
+  return {
     description: "Hang up non-winning live agent leg",
-    idempotencyKey: `active:${input.callId}:queue:${input.queue.id}:hangup:${leg.id}`,
-    legId: leg.id,
+    idempotencyKey: `active:${input.callId}:${key}:hangup:${legId}`,
+    legId,
     type: "HANGUP_LEG",
-  }));
+  };
 }
 
 /**
- * Decides the next ACTIVE inbound state without reading or writing external state.
- * The caller must provide one lock-consistent snapshot for callback and deadline work.
+ * The complete inbound policy: one fixed offer window, one provider-confirmed
+ * winner, then voicemail or abandonment.
  */
 export function decideActiveInboundLifecycle(
   input: ActiveInboundLifecycleInput,
 ): ActiveInboundLifecycleDecision {
-  const offerWindowSec = 20;
-  const queueDeadlineAt = input.queueDeadlineAt ?? addSeconds(input.now, offerWindowSec);
-  const deadlineAt = input.deadlineAt ?? queueDeadlineAt;
+  const deadlineAt =
+    input.deadlineAt ?? addSeconds(input.now, INBOUND_OFFER_WINDOW_SECONDS);
   const liveLegs = liveAgentLegs(input.agentLegs);
   const winningLegId = winnerFor(input);
 
   if (winningLegId) {
-    const pendingReplacementLegIds = liveLegs
-      .filter(
-        (leg) =>
-          leg.id !== winningLegId &&
-          leg.replacesLegId === winningLegId &&
-          deadlineAt.getTime() > input.now.getTime(),
-      )
-      .map(({ id }) => id);
     return {
       deadlineAt,
       disposition: "CONNECTED",
-      intents: connectedIntents(
-        input,
-        winningLegId,
-        liveLegs,
-        new Set(pendingReplacementLegIds),
-      ),
-      pendingReplacementLegIds,
-      queueDeadlineAt,
+      intents: [
+        stopPlayback(input),
+        ...liveLegs
+          .filter(({ id }) => id !== winningLegId)
+          .map((leg) => hangupAgentLeg(input, leg.id, `winner:${winningLegId}`)),
+      ],
       status: "CONNECTED",
       winningLegId,
     };
   }
 
-  if (deadlineAt.getTime() > input.now.getTime()) {
+  if (deadlineAt > input.now && liveLegs.length > 0) {
     return {
       deadlineAt,
       disposition: "WAITING_FOR_AGENT",
       intents: [],
-      pendingReplacementLegIds: [],
-      queueDeadlineAt,
-      status: liveLegs.length > 0 ? "RINGING" : "QUEUED",
+      status: "RINGING",
       winningLegId: null,
     };
   }
 
-  const hangupIntents = expiredLegIntents(input, liveLegs);
+  const expiredLegIntents = liveLegs.map((leg) =>
+    hangupAgentLeg(input, leg.id, `queue:${input.queue.id}`),
+  );
   if (input.queue.voicemailEnabled) {
     return {
       deadlineAt,
       disposition: "VOICEMAIL",
       intents: [
-        stopPlaybackIntent(input),
-        ...hangupIntents,
+        stopPlayback(input),
+        ...expiredLegIntents,
         {
           description: "Start queue voicemail",
           idempotencyKey: `active:${input.callId}:voicemail:${input.queue.id}`,
@@ -224,8 +168,6 @@ export function decideActiveInboundLifecycle(
           type: "CREATE_TASK",
         },
       ],
-      pendingReplacementLegIds: [],
-      queueDeadlineAt,
       status: "VOICEMAIL",
       winningLegId: null,
     };
@@ -235,8 +177,8 @@ export function decideActiveInboundLifecycle(
     deadlineAt,
     disposition: "ABANDONED",
     intents: [
-      stopPlaybackIntent(input),
-      ...hangupIntents,
+      stopPlayback(input),
+      ...expiredLegIntents,
       {
         description: "Hang up abandoned caller",
         idempotencyKey: `active:${input.callId}:hangup-customer`,
@@ -250,17 +192,7 @@ export function decideActiveInboundLifecycle(
         type: "CREATE_TASK",
       },
     ],
-    pendingReplacementLegIds: [],
-    queueDeadlineAt,
     status: "ABANDONED",
     winningLegId: null,
   };
-}
-
-export function decideActiveInboundCallback(input: ActiveInboundLifecycleInput) {
-  return decideActiveInboundLifecycle(input);
-}
-
-export function decideActiveInboundDeadline(input: ActiveInboundLifecycleInput) {
-  return decideActiveInboundLifecycle(input);
 }

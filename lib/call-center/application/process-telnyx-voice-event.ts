@@ -22,6 +22,7 @@ const TERMINAL_DIRECT_HANDOFF_ERRORS = new Set([
   "TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID",
   "TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED",
   "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID",
+  "TELNYX_EVENT_OUT_OF_SCOPE",
 ]);
 
 type TelnyxVoiceEventProcessorDependencies = {
@@ -30,7 +31,7 @@ type TelnyxVoiceEventProcessorDependencies = {
   resolveOwner?: (event: ProviderWebhookRecord) => Promise<TelnyxEventOwner>;
 };
 
-export class ProviderWebhookProcessingPendingError extends Error {
+class ProviderWebhookProcessingPendingError extends Error {
   readonly status = 503;
 
   constructor(reason: "PROCESSING" | "RETRY_SCHEDULED") {
@@ -44,7 +45,7 @@ export class ProviderWebhookProcessingPendingError extends Error {
 }
 
 /** Claims one durable provider event and persists its immutable admission. */
-export function createTelnyxVoiceEventProcessor({
+function createTelnyxVoiceEventProcessor({
   clock = () => new Date(),
   inbox,
   resolveOwner = async () => "CANONICAL",

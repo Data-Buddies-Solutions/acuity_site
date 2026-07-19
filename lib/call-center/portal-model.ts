@@ -1,13 +1,13 @@
 import { normalizePhone } from "@/lib/phone";
 import { getPracticeBranding } from "@/lib/practice-branding";
 
-export type PortalCallDisposition =
+type PortalCallDisposition =
   "CALLBACK_NEEDED" | "FOLLOW_UP_REQUIRED" | "OTHER" | "RESOLVED" | "WRONG_NUMBER";
-export type PortalCallDirection = "INBOUND" | "INTERNAL" | "OUTBOUND" | "UNKNOWN";
-export type PortalCallStatus =
+type PortalCallDirection = "INBOUND" | "INTERNAL" | "OUTBOUND" | "UNKNOWN";
+type PortalCallStatus =
   "ACTIVE" | "COMPLETED" | "FAILED" | "MISSED" | "RINGING" | "VOICEMAIL";
 
-export type PortalCallActivityKind = "missed" | "note" | "voicemail";
+type PortalCallActivityKind = "missed" | "note" | "voicemail";
 
 export type PortalCallActivityItem = {
   callerName: string | null;

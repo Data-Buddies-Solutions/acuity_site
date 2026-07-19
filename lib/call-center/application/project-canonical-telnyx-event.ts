@@ -1,7 +1,7 @@
 import { dispatchProviderCommand } from "@/lib/call-center/application/provider-command-runtime";
+import { dispatchProviderCommandGraph } from "@/lib/call-center/application/dispatch-provider-command";
 import {
   canonicalProjectionInbox,
-  PASSIVE_LEGACY_OUT_OF_SCOPE_CODE,
   type CanonicalProjectionRecord,
 } from "@/lib/call-center/infrastructure/canonical-provider-webhook-inbox";
 import {
@@ -20,8 +20,7 @@ const logger = createLogger("call-center-canonical-projector");
 type ProjectionInbox = Pick<
   typeof canonicalProjectionInbox,
   "claim" | "completeIgnored" | "fail"
-> &
-  Partial<Pick<typeof canonicalProjectionInbox, "hasIgnoredLegacySession">>;
+>;
 
 type Dependencies = {
   clock?: () => Date;
@@ -29,8 +28,6 @@ type Dependencies = {
   inbox: ProjectionInbox;
   projector: CanonicalCallProjector;
 };
-
-const COMMAND_DISPATCH_ERROR = "ACTIVE_ROUTING_COMMAND_DISPATCH_DEFERRED";
 
 async function completeIgnored(
   inbox: ProjectionInbox,
@@ -47,35 +44,21 @@ async function completeIgnored(
   if (!completed) throw new CanonicalProjectionError("CANONICAL_CLAIM_LOST");
 }
 
-function isOutOfScopeLegacyEvent(event: CanonicalProjectionRecord, error: unknown) {
-  return (
-    event.effectOwner === "LEGACY" &&
-    error instanceof CanonicalProjectionError &&
-    error.code === "CANONICAL_NUMBER_NOT_FOUND"
-  );
-}
-
 async function dispatchCommittedCommands(
   projection: Awaited<ReturnType<CanonicalCallProjector["projectAndComplete"]>>,
   dispatch: typeof dispatchProviderCommand,
 ) {
-  if (projection.effectOwner !== "CANONICAL" || projection.commandIds.length === 0) {
-    return;
-  }
+  if (projection.commandIds.length === 0) return;
 
-  try {
-    for (const commandId of projection.commandIds) {
-      const result = await dispatch(commandId);
-      if (result.status === "DISPATCHED") continue;
-      logger.warn("active routing command dispatch deferred", {
-        commandId,
-        errorCode: COMMAND_DISPATCH_ERROR,
-      });
-    }
-  } catch {
-    logger.warn("active routing command dispatch deferred", {
-      errorCode: COMMAND_DISPATCH_ERROR,
-    });
+  const result = await dispatchProviderCommandGraph({
+    commandIds: projection.commandIds,
+    dispatch,
+  });
+  for (const failure of result.failures) {
+    logger.error("provider command failed", failure);
+  }
+  for (const commandId of result.deferred) {
+    logger.warn("provider command not dispatched", { commandId });
   }
 }
 
@@ -107,20 +90,15 @@ export function createCanonicalTelnyxEventProcessor({
   return async function processCanonicalTelnyxEvent(eventId: string) {
     const event = await inbox.claim(eventId);
     if (!event) return { outcome: "SKIPPED" as const };
+    if (event === "EXHAUSTED") {
+      logger.error("canonical webhook projection attempts exhausted", { eventId });
+      return {
+        errorCode: "CANONICAL_RETRIES_EXHAUSTED",
+        outcome: "FAILED" as const,
+      };
+    }
 
     try {
-      if (
-        event.effectOwner === "LEGACY" &&
-        event.providerCallSessionId &&
-        (await inbox.hasIgnoredLegacySession?.({
-          eventId: event.id,
-          providerCallSessionId: event.providerCallSessionId,
-        }))
-      ) {
-        await completeIgnored(inbox, event, clock(), PASSIVE_LEGACY_OUT_OF_SCOPE_CODE);
-        return { outcome: "IGNORED" as const };
-      }
-
       const fact = parseCanonicalTelnyxCallFact(event.payload, event.receivedAt);
       if (!fact) {
         await completeIgnored(inbox, event, clock());
@@ -131,14 +109,6 @@ export function createCanonicalTelnyxEventProcessor({
       await dispatchCommittedCommands(projection, dispatchCommand);
       return { outcome: "PROCESSED" as const, projection };
     } catch (error) {
-      if (isOutOfScopeLegacyEvent(event, error)) {
-        try {
-          await completeIgnored(inbox, event, clock(), PASSIVE_LEGACY_OUT_OF_SCOPE_CODE);
-          return { outcome: "IGNORED" as const };
-        } catch (completionError) {
-          error = completionError;
-        }
-      }
       const errorCode = canonicalProjectionErrorCode(error);
       await inbox.fail(event, errorCode);
       logger.warn("canonical webhook projection failed", {

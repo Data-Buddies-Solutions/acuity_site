@@ -6,11 +6,13 @@ import {
   updateAgentSessionReadiness,
 } from "@/lib/call-center/application/agent-sessions";
 import { processTelnyxVoiceEvent } from "@/lib/call-center/application/process-telnyx-voice-event";
+import { dispatchProviderCommandGraph } from "@/lib/call-center/application/dispatch-provider-command";
 import { dispatchProviderCommand } from "@/lib/call-center/application/provider-command-runtime";
 import { processCanonicalTelnyxEvent } from "@/lib/call-center/application/project-canonical-telnyx-event";
 import { readCallCenterSnapshot } from "@/lib/call-center/application/realtime-queries";
 import {
   startOutboundCall,
+  StartOutboundCallError,
   type StartOutboundCallInput,
 } from "@/lib/call-center/application/start-outbound-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
@@ -58,6 +60,43 @@ export type AgentUpdate =
       now?: Date;
     };
 
+type OutboundDependencies<Outbound> = {
+  create(
+    actor: QueueAccessActor,
+    input: StartOutboundCallInput,
+    now?: Date,
+  ): Promise<Outbound>;
+  dispatch(commandId: string): ReturnType<typeof dispatchProviderCommand>;
+  prepare(
+    actor: QueueAccessActor,
+    input: StartOutboundCallInput,
+    now?: Date,
+  ): Promise<string[]>;
+};
+
+export async function startCanonicalOutbound<Outbound>(
+  dependencies: OutboundDependencies<Outbound>,
+  actor: QueueAccessActor,
+  input: StartOutboundCallInput,
+  now?: Date,
+) {
+  const commandIds = await dependencies.prepare(actor, input, now);
+  const cleanup = await dispatchProviderCommandGraph({
+    commandIds,
+    dispatch: dependencies.dispatch,
+  });
+  if (cleanup.failures.length) {
+    throw new StartOutboundCallError(
+      "Inbound call offers could not be ended before outbound calling",
+      503,
+    );
+  }
+  if (cleanup.deferred.length) {
+    throw new StartOutboundCallError("Inbound call offer cleanup is still pending", 503);
+  }
+  return dependencies.create(actor, input, now);
+}
+
 type Dependencies<
   Handoff,
   Projection,
@@ -73,11 +112,7 @@ type Dependencies<
     now?: Date,
   ): Promise<AcquiredAgent>;
   applyEvent(eventId: string): Promise<Projection>;
-  readState(
-    actor: QueueAccessActor,
-    queueId: string,
-    clientInstanceId: string,
-  ): Promise<OperatorState>;
+  readState(actor: QueueAccessActor, queueId: string): Promise<OperatorState>;
   receiveEvent(envelope: TelnyxVoiceWebhookEnvelope): Promise<EventIntake>;
   releaseAgent(
     actor: AgentSessionActor,
@@ -137,12 +172,8 @@ export function createCallCenter<
       return { ...intake, projection };
     },
 
-    readOperatorState(
-      actor: QueueAccessActor,
-      queueId: string,
-      clientInstanceId: string,
-    ) {
-      return dependencies.readState(actor, queueId, clientInstanceId);
+    readOperatorState(actor: QueueAccessActor, queueId: string) {
+      return dependencies.readState(actor, queueId);
     },
 
     startOutbound(actor: QueueAccessActor, input: StartOutboundCallInput, now?: Date) {
@@ -175,22 +206,28 @@ export const callCenter = createCallCenter({
   releaseAgent: (actor, input, now) =>
     releaseAgentSession(prismaAgentSessionStore, actor, input, now),
   reserveHandoff: reserveDirectHandoff,
-  startOutbound: async (actor, input, now) => {
-    const result = await startOutboundCall(
-      prismaStartOutboundCallStore,
+  startOutbound: (actor, input, now) =>
+    startCanonicalOutbound(
+      {
+        create: (currentActor, currentInput, currentNow) =>
+          startOutboundCall(
+            prismaStartOutboundCallStore,
+            currentActor,
+            currentInput,
+            currentNow,
+          ),
+        dispatch: dispatchProviderCommand,
+        prepare: (currentActor, currentInput, currentNow) =>
+          prismaStartOutboundCallStore.prepareOutboundCleanup(
+            currentActor,
+            currentInput,
+            currentNow,
+          ),
+      },
       actor,
       input,
       now,
-    );
-    const cleanupCommandIds = result.cleanupCommandIds
-      ? (JSON.parse(result.cleanupCommandIds) as string[])
-      : [];
-    for (const commandId of cleanupCommandIds) {
-      await dispatchProviderCommand(commandId);
-    }
-    const { cleanupCommandIds: _, ...receipt } = result;
-    return receipt;
-  },
+    ),
   updateAgentReadiness: (actor, input, now) =>
     updateAgentSessionReadiness(prismaAgentSessionStore, actor, input, now),
 });

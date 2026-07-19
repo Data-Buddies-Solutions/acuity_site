@@ -2,13 +2,13 @@ import { Prisma } from "@/generated/prisma/client";
 import {
   advanceCanonicalCall,
   advanceCanonicalLeg,
+  normalizeCanonicalCallState,
   reconcileCanonicalCallOutcome,
   terminalCallObservation,
 } from "@/lib/call-center/domain/canonical-call-state";
 import { canonicalVoicemailRecordingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import type { CanonicalProjectionRecord } from "@/lib/call-center/infrastructure/canonical-provider-webhook-inbox";
-import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
 import {
   failProviderCommandDependents,
   settleProviderCommandsForTerminalLeg,
@@ -38,17 +38,15 @@ export class CanonicalProjectionError extends Error {
   }
 }
 
-export type CanonicalProjectionResult = {
+type CanonicalProjectionResult = {
   callId: string;
   callStatus: string;
   commandIds: string[];
-  effectOwner: "CANONICAL" | "LEGACY";
+  effectOwner: "CANONICAL";
   legId: string;
   legStatus: string;
   practiceId: string;
 };
-
-type CallCenterEffectOwner = "CANONICAL" | "LEGACY";
 
 export function directHandoffLifecycleProjection(callStatus: string, projectedAt: Date) {
   if (callStatus === "CONNECTED" || callStatus === "COMPLETED") {
@@ -77,12 +75,10 @@ export function directHandoffLifecycleProjection(callStatus: string, projectedAt
 
 export function shouldPlanCanonicalInboundRouting(input: {
   direction: "INBOUND" | "OUTBOUND" | null;
-  effectOwner: CallCenterEffectOwner;
   eventType: string;
   legKind: "AGENT" | "CUSTOMER";
 }) {
   return (
-    input.effectOwner === "CANONICAL" &&
     input.direction === "INBOUND" &&
     input.eventType === "call.initiated" &&
     input.legKind === "CUSTOMER"
@@ -91,31 +87,20 @@ export function shouldPlanCanonicalInboundRouting(input: {
 
 export function shouldReconcileCanonicalInboundLifecycle(input: {
   callDirection: "INBOUND" | "OUTBOUND";
-  effectOwner: CallCenterEffectOwner;
+  eventType: string;
   initialRoutingHadNoAgents: boolean;
   legKind: "AGENT" | "CUSTOMER";
 }) {
   return (
-    input.effectOwner === "CANONICAL" &&
     input.callDirection === "INBOUND" &&
-    (input.legKind === "AGENT" || input.initialRoutingHadNoAgents)
+    (input.legKind === "AGENT" ||
+      input.initialRoutingHadNoAgents ||
+      input.eventType === "call.playback.ended")
   );
 }
 
-export function requireCanonicalProjectionEffectOwner(event: {
-  effectOwner: CallCenterEffectOwner | null;
-}) {
-  if (!event.effectOwner) {
-    throw new CanonicalProjectionError("CANONICAL_EFFECT_OWNER_MISSING");
-  }
-  return event.effectOwner;
-}
-
-export function assertCanonicalCallEffectOwner(
-  call: { effectOwner: CallCenterEffectOwner },
-  eventOwner: CallCenterEffectOwner,
-) {
-  if (call.effectOwner !== eventOwner) {
+function assertCanonicalCallEffectOwner(call: { effectOwner: "CANONICAL" | "LEGACY" }) {
+  if (call.effectOwner !== "CANONICAL") {
     throw new CanonicalProjectionError("CANONICAL_EFFECT_OWNER_MISMATCH");
   }
 }
@@ -389,10 +374,9 @@ export async function confirmProviderCommand(
     throw new CanonicalProjectionError("CANONICAL_COMMAND_NOT_SENT");
   }
 
-  const updated = await tx.callCenterCommand.updateMany({
+  await tx.callCenterCommand.updateMany({
     data: {
       errorCode: null,
-      nextAttemptAt: null,
       status: "CONFIRMED",
     },
     where: {
@@ -400,14 +384,6 @@ export async function confirmProviderCommand(
       status: { in: ["SENDING", "SENT", "FAILED"] },
     },
   });
-  if (updated.count === 1) {
-    await appendCommandOperationStatus(tx, {
-      attemptCount: 0,
-      commandId: command.id,
-      now: fact.occurredAt,
-      status: "CONFIRMED",
-    });
-  }
   return command;
 }
 
@@ -448,21 +424,13 @@ export async function confirmExactProviderCommand(
     throw new CanonicalProjectionError("CANONICAL_COMMAND_NOT_SENT");
   }
 
-  const updated = await tx.callCenterCommand.updateMany({
-    data: { errorCode: null, nextAttemptAt: null, status: "CONFIRMED" },
+  await tx.callCenterCommand.updateMany({
+    data: { errorCode: null, status: "CONFIRMED" },
     where: {
       id: command.id,
       status: { in: ["SENDING", "SENT", "FAILED"] },
     },
   });
-  if (updated.count === 1) {
-    await appendCommandOperationStatus(tx, {
-      attemptCount: 0,
-      commandId: command.id,
-      now: fact.occurredAt,
-      status: "CONFIRMED",
-    });
-  }
   return command;
 }
 
@@ -554,10 +522,9 @@ export async function settleProviderCommandCallback(
   const updated = await tx.callCenterCommand.updateMany({
     data:
       callback.outcome === "CONFIRMED"
-        ? { errorCode: null, nextAttemptAt: null, status: "CONFIRMED" }
+        ? { errorCode: null, status: "CONFIRMED" }
         : {
             errorCode: "PROVIDER_CALLBACK_FAILED",
-            nextAttemptAt: null,
             status: "FAILED",
           },
     where: {
@@ -566,12 +533,6 @@ export async function settleProviderCommandCallback(
     },
   });
   if (updated.count === 1) {
-    await appendCommandOperationStatus(tx, {
-      attemptCount: 0,
-      commandId: command.id,
-      now: fact.occurredAt,
-      status: callback.outcome,
-    });
     if (callback.outcome === "FAILED") {
       await failProviderCommandDependents(tx, {
         commandId: command.id,
@@ -621,48 +582,8 @@ export async function createStartRecordingAfterGreeting(
   return { ...command, created: !existing };
 }
 
-const terminalCallStatuses = new Set(["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"]);
 export function terminalSettlementIncludesCustomerLegs(status: string) {
   return status !== "VOICEMAIL";
-}
-const liveAgentLegStatuses = new Set([
-  "CREATED",
-  "DIALING",
-  "RINGING",
-  "ANSWERED",
-  "BRIDGED",
-]);
-
-export function isConfirmedAgentConnection(input: {
-  confirmedCommandType: string | null;
-  direction: "INBOUND" | "OUTBOUND";
-  eventType: string;
-  legKind: string;
-  legStatus: string;
-}) {
-  return (
-    input.legKind === "AGENT" &&
-    (input.confirmedCommandType === "DIAL_AGENT" || input.direction === "OUTBOUND") &&
-    (input.eventType === "call.answered" || input.eventType === "call.bridged") &&
-    (input.legStatus === "ANSWERED" || input.legStatus === "BRIDGED")
-  );
-}
-
-export function retainedAgentSessionIds(input: {
-  callStatus: string;
-  legs: Array<{
-    agentSessionId: string | null;
-    id: string;
-    status: string;
-  }>;
-}) {
-  if (terminalCallStatuses.has(input.callStatus)) return new Set<string>();
-  return new Set(
-    input.legs
-      .filter((leg) => liveAgentLegStatuses.has(leg.status))
-      .map(({ agentSessionId }) => agentSessionId)
-      .filter((id): id is string => Boolean(id)),
-  );
 }
 
 function customerPhones(
@@ -681,23 +602,8 @@ export function earliestObservedAt(current: Date, observed: Date) {
 export function processedWinningAgentLegId(
   currentWinnerId: string | null,
   processedLeg: { id: string; kind: "AGENT" | "CUSTOMER"; status: string },
-  confirmedCommand?: ProviderCommandLink | null,
 ) {
-  if (currentWinnerId) {
-    const data =
-      confirmedCommand?.arguments &&
-      typeof confirmedCommand.arguments === "object" &&
-      !Array.isArray(confirmedCommand.arguments)
-        ? (confirmedCommand.arguments as Record<string, Prisma.JsonValue>)
-        : null;
-    return processedLeg.kind === "AGENT" &&
-      processedLeg.status === "BRIDGED" &&
-      confirmedCommand?.type === "DIAL_AGENT" &&
-      confirmedCommand?.legId === processedLeg.id &&
-      data?.replacesLegId === currentWinnerId
-      ? processedLeg.id
-      : currentWinnerId;
-  }
+  if (currentWinnerId) return currentWinnerId;
   return processedLeg.kind === "AGENT" && processedLeg.status === "BRIDGED"
     ? processedLeg.id
     : null;
@@ -733,7 +639,6 @@ export function enrichCanonicalCallIdentity(
 async function resolveCustomerCall(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
-  effectOwner: CallCenterEffectOwner,
 ) {
   if (!fact.providerCallSessionId) {
     throw new CanonicalProjectionError("CANONICAL_CALL_SESSION_MISSING");
@@ -786,7 +691,7 @@ async function resolveCustomerCall(
     data: {
       callerName: fact.callerName,
       direction: fact.direction,
-      effectOwner,
+      effectOwner: "CANONICAL",
       fromPhone: fact.direction === "INBOUND" ? callerPhone : practicePhone,
       numberId: number.id,
       practiceId: number.practiceId,
@@ -889,7 +794,6 @@ async function completeProjectionCheckpoint(
     data: {
       canonicalProjectedAt: projectedAt,
       canonicalProjectionErrorCode: null,
-      canonicalProjectionNextAttemptAt: null,
       canonicalProjectionStatus: "PROCESSED",
     },
     where: {
@@ -906,20 +810,16 @@ async function completeProjectionCheckpoint(
 export const prismaCanonicalCallProjector: CanonicalCallProjector = {
   async projectAndComplete(event, fact, projectedAt) {
     return prisma.$transaction(async (tx) => {
-      const effectOwner = requireCanonicalProjectionEffectOwner(event);
       let leg = await existingLeg(tx, fact);
-      const peerAgent =
-        effectOwner === "CANONICAL" && !leg
-          ? await resolveCanonicalPeerAgentLeg(tx, fact)
-          : null;
+      const peerAgent = !leg ? await resolveCanonicalPeerAgentLeg(tx, fact) : null;
       if (peerAgent) {
-        assertCanonicalCallEffectOwner(peerAgent.call, effectOwner);
+        assertCanonicalCallEffectOwner(peerAgent.call);
         await completeProjectionCheckpoint(tx, event, projectedAt);
         return {
           callId: peerAgent.call.id,
           callStatus: peerAgent.call.status,
           commandIds: [],
-          effectOwner,
+          effectOwner: "CANONICAL",
           legId: peerAgent.leg.id,
           legStatus: peerAgent.leg.status,
           practiceId: peerAgent.call.practiceId,
@@ -948,12 +848,12 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         : resolvedFact.legKind === "AGENT"
           ? await resolveAgentContext(tx, resolvedFact)
           : {
-              call: await resolveCustomerCall(tx, resolvedFact, effectOwner),
+              call: await resolveCustomerCall(tx, resolvedFact),
               endpointId: null,
             };
-      let call = await lockCall(tx, resolved.call.id);
+      let call = normalizeCanonicalCallState(await lockCall(tx, resolved.call.id));
 
-      assertCanonicalCallEffectOwner(call, effectOwner);
+      assertCanonicalCallEffectOwner(call);
       if (call.practiceId !== resolved.call.practiceId) {
         throw new CanonicalProjectionError("CANONICAL_CALL_OWNER_MISMATCH");
       }
@@ -973,19 +873,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         });
       }
 
-      if (effectOwner === "LEGACY" && isCanonicalVoicemailCallback(fact.eventType)) {
-        await completeProjectionCheckpoint(tx, event, projectedAt);
-        return {
-          callId: call.id,
-          callStatus: call.status,
-          commandIds: [],
-          effectOwner,
-          legId: leg.id,
-          legStatus: leg.status,
-          practiceId: call.practiceId,
-        };
-      }
-
       let nextLeg = advanceCanonicalLeg(
         leg,
         resolvedFact.legObservation,
@@ -993,7 +880,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
       );
       let preemptedCommandIds: string[] = [];
       if (
-        effectOwner === "CANONICAL" &&
         leg.kind === "AGENT" &&
         leg.endpointId &&
         (nextLeg.status === "ANSWERED" || nextLeg.status === "BRIDGED")
@@ -1044,26 +930,21 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
       });
 
       const settledCommand =
-        effectOwner === "CANONICAL" &&
-        (resolvedFact.legKind === "CUSTOMER" || resolvedFact.eventType === "call.hangup")
+        resolvedFact.legKind === "CUSTOMER" || resolvedFact.eventType === "call.hangup"
           ? await settleProviderCommandCallback(tx, resolvedFact, {
               callId: call.id,
               legId: leg.id,
               practiceId: call.practiceId,
             })
           : null;
-      const confirmedDialCommand =
-        resolvedFact.legKind === "AGENT" && settledCommand?.type !== "HANGUP_LEG"
-          ? await confirmProviderCommand(tx, resolvedFact, {
-              callId: call.id,
-              legId: leg.id,
-              practiceId: call.practiceId,
-            })
-          : null;
-      if (
-        effectOwner === "CANONICAL" &&
-        (leg.status === "ENDED" || leg.status === "FAILED")
-      ) {
+      if (resolvedFact.legKind === "AGENT" && settledCommand?.type !== "HANGUP_LEG") {
+        await confirmProviderCommand(tx, resolvedFact, {
+          callId: call.id,
+          legId: leg.id,
+          practiceId: call.practiceId,
+        });
+      }
+      if (leg.status === "ENDED" || leg.status === "FAILED") {
         await settleProviderCommandsForTerminalLeg(tx, {
           legId: leg.id,
           now: resolvedFact.occurredAt,
@@ -1089,16 +970,12 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         select: { bridgedAt: true, id: true, kind: true },
         where: { bridgedAt: { not: null }, callId: call.id },
       });
-      const winningLegId = processedWinningAgentLegId(
-        call.winningLegId,
-        leg,
-        confirmedDialCommand,
-      );
+      const previousWinningLegId = call.winningLegId;
+      const winningLegId = processedWinningAgentLegId(previousWinningLegId, leg);
       const hasBridgeEvidence = hasCanonicalAgentBridgeEvidence(
         winningLegId,
         bridgedLegs,
       );
-      const previousWinningLegId = call.winningLegId;
       const observedCall = canonicalCallObservation(resolvedFact, call, leg.id);
       const nextCall = observedCall
         ? advanceCanonicalCall(call, observedCall, resolvedFact.occurredAt, {
@@ -1120,42 +997,31 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         identity.toPhone !== call.toPhone ||
         identity.receivedAt.getTime() !== call.receivedAt.getTime();
 
-      call = await tx.callCenterCall.update({
-        data: {
-          answeredAt: nextCall.answeredAt,
-          callerName: identity.callerName,
-          deadlineAt:
-            previousWinningLegId && winningLegId !== previousWinningLegId
-              ? null
-              : projectedCallDeadline(call, resolvedFact),
-          endedAt: nextCall.endedAt,
-          firstRingAt: nextCall.firstRingAt,
-          fromPhone: identity.fromPhone,
-          queuedAt: nextCall.queuedAt,
-          receivedAt: identity.receivedAt,
-          stateVersion:
-            callProjectionChanged && nextCall.stateVersion === call.stateVersion
-              ? call.stateVersion + 1
-              : nextCall.stateVersion,
-          status: nextCall.status,
-          toPhone: identity.toPhone,
-          voicemailStartedAt: nextCall.voicemailStartedAt,
-          winningLegId,
-        },
-        where: { id: call.id },
-      });
+      call = normalizeCanonicalCallState(
+        await tx.callCenterCall.update({
+          data: {
+            answeredAt: nextCall.answeredAt,
+            callerName: identity.callerName,
+            deadlineAt: projectedCallDeadline(call, resolvedFact),
+            endedAt: nextCall.endedAt,
+            firstRingAt: nextCall.firstRingAt,
+            fromPhone: identity.fromPhone,
+            queuedAt: nextCall.queuedAt,
+            receivedAt: identity.receivedAt,
+            stateVersion:
+              callProjectionChanged && nextCall.stateVersion === call.stateVersion
+                ? call.stateVersion + 1
+                : nextCall.stateVersion,
+            status: nextCall.status,
+            toPhone: identity.toPhone,
+            voicemailStartedAt: nextCall.voicemailStartedAt,
+            winningLegId,
+          },
+          where: { id: call.id },
+        }),
+      );
 
-      let commandIds: string[] = preemptedCommandIds;
-      if (previousWinningLegId && winningLegId !== previousWinningLegId) {
-        commandIds.push(
-          ...(await settleCanonicalCallLegs(tx, {
-            callId: call.id,
-            legIds: [previousWinningLegId],
-            now: resolvedFact.occurredAt,
-            reason: "TRANSFER_COMPLETED",
-          })),
-        );
-      }
+      const commandIds: string[] = preemptedCommandIds;
 
       const projectionEvent = await tx.callCenterEvent.create({
         data: {
@@ -1173,7 +1039,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           type: resolvedFact.eventType.toUpperCase().replace(/[^A-Z0-9]+/g, "_"),
         },
       });
-      if (effectOwner === "CANONICAL" && resolvedFact.eventType === "call.speak.ended") {
+      if (resolvedFact.eventType === "call.speak.ended") {
         if (resolvedFact.legKind !== "CUSTOMER") {
           throw new CanonicalProjectionError("CANONICAL_CUSTOMER_LEG_NOT_FOUND");
         }
@@ -1194,9 +1060,8 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         }
       }
       if (
-        effectOwner === "CANONICAL" &&
-        (resolvedFact.eventType === "call.recording.saved" ||
-          resolvedFact.eventType === "calls.voicemail.completed")
+        resolvedFact.eventType === "call.recording.saved" ||
+        resolvedFact.eventType === "calls.voicemail.completed"
       ) {
         if (
           resolvedFact.legKind !== "CUSTOMER" ||
@@ -1240,7 +1105,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
       if (
         shouldPlanCanonicalInboundRouting({
           direction: resolvedFact.direction,
-          effectOwner,
           eventType: resolvedFact.eventType,
           legKind: resolvedFact.legKind,
         })
@@ -1262,7 +1126,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
       if (
         shouldReconcileCanonicalInboundLifecycle({
           callDirection: call.direction,
-          effectOwner,
+          eventType: resolvedFact.eventType,
           initialRoutingHadNoAgents,
           legKind: resolvedFact.legKind,
         })
@@ -1281,14 +1145,11 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           resolvedFact.occurredAt,
         );
         commandIds.push(...lifecycle.commandIds);
-        call = await tx.callCenterCall.findUniqueOrThrow({ where: { id: call.id } });
+        call = normalizeCanonicalCallState(
+          await tx.callCenterCall.findUniqueOrThrow({ where: { id: call.id } }),
+        );
       }
-      if (
-        effectOwner === "CANONICAL" &&
-        !previousWinningLegId &&
-        winningLegId === leg.id &&
-        leg.endpointId
-      ) {
+      if (!previousWinningLegId && winningLegId === leg.id && leg.endpointId) {
         commandIds.push(
           ...(await settleCompetingAgentOffers(tx, {
             endpointId: leg.endpointId,
@@ -1298,7 +1159,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           })),
         );
       }
-      if (effectOwner === "CANONICAL" && terminalCallStatuses.has(call.status)) {
+      if (["ABANDONED", "COMPLETED", "FAILED", "VOICEMAIL"].includes(call.status)) {
         commandIds.push(
           ...(await settleCanonicalCallLegs(tx, {
             callId: call.id,
@@ -1325,7 +1186,7 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         callId: call.id,
         callStatus: call.status,
         commandIds: [...new Set(commandIds)],
-        effectOwner,
+        effectOwner: "CANONICAL",
         legId: leg.id,
         legStatus: leg.status,
         practiceId: call.practiceId,

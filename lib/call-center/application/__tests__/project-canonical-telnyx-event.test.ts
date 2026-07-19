@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { canonicalProjectionErrorCode } from "../project-canonical-telnyx-event";
+import {
+  canonicalProjectionErrorCode,
+  createCanonicalTelnyxEventProcessor,
+} from "../project-canonical-telnyx-event";
 import { CanonicalProjectionError } from "../../infrastructure/prisma-canonical-call-projector";
 
 describe("canonicalProjectionErrorCode", () => {
@@ -22,5 +25,21 @@ describe("canonicalProjectionErrorCode", () => {
     expect(canonicalProjectionErrorCode(new Error("sensitive detail"))).toBe(
       "CANONICAL_PROJECTION_FAILED",
     );
+  });
+
+  test("does not acknowledge an exhausted canonical event", async () => {
+    const process = createCanonicalTelnyxEventProcessor({
+      inbox: {
+        claim: async () => "EXHAUSTED",
+        completeIgnored: async () => true,
+        fail: async () => true,
+      },
+      projector: {} as never,
+    });
+
+    await expect(process("event-1")).resolves.toEqual({
+      errorCode: "CANONICAL_RETRIES_EXHAUSTED",
+      outcome: "FAILED",
+    });
   });
 });

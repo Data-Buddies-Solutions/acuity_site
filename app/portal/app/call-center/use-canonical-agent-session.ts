@@ -65,11 +65,7 @@ function isRetryableRecoveryError(error: unknown) {
   return !(error instanceof CallCenterRequestError) || error.operatorError.retryable;
 }
 
-export function canonicalHeartbeatPresence(
-  session: Pick<AgentSessionView, "presence">,
-  requested: AgentSessionView["presence"],
-) {
-  if (session.presence === "BUSY") return "BUSY";
+export function canonicalHeartbeatPresence(requested: AgentSessionView["presence"]) {
   return requested === "BUSY" ? "AVAILABLE" : requested;
 }
 
@@ -187,10 +183,7 @@ export function useCanonicalAgentSession({
             ...readinessRef.current,
             clientInstanceId: active.clientInstanceId,
             expectedStateVersion: requestedStateVersion,
-            presence: canonicalHeartbeatPresence(
-              active.session,
-              readinessRef.current.presence,
-            ),
+            presence: canonicalHeartbeatPresence(readinessRef.current.presence),
           }),
           headers: { "Content-Type": "application/json" },
           method: "PATCH",

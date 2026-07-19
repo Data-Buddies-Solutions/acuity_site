@@ -18,6 +18,7 @@ import {
 } from "@/lib/call-center/infrastructure/direct-handoff-uri";
 
 const occurredAt = new Date("2026-07-12T12:00:00.000Z");
+type StoredEffectOwner = TelnyxEventOwner | "LEGACY";
 
 function event({
   callControlId = "control-1",
@@ -37,7 +38,7 @@ function event({
   callSessionId?: string | null;
   clientState?: Record<string, unknown>;
   direction?: "incoming" | "outgoing" | null;
-  effectOwner?: TelnyxEventOwner | null;
+  effectOwner?: StoredEffectOwner | null;
   eventId?: string;
   eventType?: string;
   from?: string;
@@ -83,7 +84,7 @@ function event({
 }
 
 type PersistedCall = {
-  effectOwner: TelnyxEventOwner;
+  effectOwner: StoredEffectOwner;
   id: string;
   providerCallSessionId: string | null;
 };
@@ -151,7 +152,7 @@ function strippedHandoff(overrides: Partial<TestHandoff> = {}): TestHandoff {
 
 type TestDatabaseOptions = {
   calls?: PersistedCall[];
-  eventOwners?: TelnyxEventOwner[];
+  eventOwners?: StoredEffectOwner[];
   handoff?: TestHandoff | null;
   handoffCandidates?: TestHandoff[];
   legs?: PersistedLeg[];
@@ -161,6 +162,7 @@ type TestDatabaseOptions = {
     practiceId: string;
     practicePhoneNumberId: string;
   } | null;
+  outOfScopeSessions?: string[];
   outboundMapping?: {
     callId: string;
     legId: string;
@@ -187,6 +189,7 @@ function database({
     practiceId: "practice-1",
     practicePhoneNumberId: "phone-1",
   },
+  outOfScopeSessions = [],
   outboundMapping = null,
   queue = {
     enabled: true,
@@ -198,7 +201,7 @@ function database({
   const assigned: TelnyxEventOwner[] = [];
   const created: Array<Record<string, unknown>> = [];
   const queries: string[] = [];
-  let configuredNumber = number;
+  const configuredNumber = number;
   const handoffs = handoffCandidates ?? (handoff ? [handoff] : []);
   const queryText = (query: unknown) =>
     Array.isArray((query as { strings?: string[] })?.strings)
@@ -321,9 +324,11 @@ function database({
     },
     providerWebhookEvent: {
       findFirst: async ({ where }: { where: { providerCallSessionId: string } }) =>
-        rejectedSessions.includes(where.providerCallSessionId)
-          ? { errorCode: "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID" }
-          : null,
+        outOfScopeSessions.includes(where.providerCallSessionId)
+          ? { errorCode: "TELNYX_EVENT_OUT_OF_SCOPE" }
+          : rejectedSessions.includes(where.providerCallSessionId)
+            ? { errorCode: "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID" }
+            : null,
       findMany: async () => eventOwners.map((effectOwner) => ({ effectOwner })),
       updateMany: async ({ data }: { data: { effectOwner: TelnyxEventOwner } }) => {
         assigned.push(data.effectOwner);
@@ -341,9 +346,6 @@ function database({
       $transaction: async (operation: (tx: typeof transaction) => Promise<unknown>) =>
         operation(transaction),
     } as unknown as Pick<PrismaClient, "$transaction">,
-    setNumber(value: TestDatabaseOptions["number"]) {
-      configuredNumber = value ?? null;
-    },
   };
 }
 
@@ -574,20 +576,19 @@ describe("Telnyx event effect owner", () => {
     await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("CANONICAL");
   });
 
-  it("keeps unconfigured ingress out of canonical routing after configuration changes", async () => {
+  it("keeps an unconfigured provider session out of canonical routing", async () => {
     const db = database({ number: null });
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("LEGACY");
-    db.setNumber({
-      id: "number-1",
-      inboundQueueId: "queue-1",
-      practiceId: "practice-1",
-      practicePhoneNumberId: "phone-1",
+    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
+      code: "TELNYX_EVENT_OUT_OF_SCOPE",
+    });
+    const afterConfiguration = database({
+      outOfScopeSessions: ["provider-session-1"],
     });
     await expect(
-      resolveTelnyxEventOwner(event({ eventId: "event-2" }), db.prisma),
-    ).resolves.toBe("LEGACY");
+      resolveTelnyxEventOwner(event({ eventId: "event-2" }), afterConfiguration.prisma),
+    ).rejects.toMatchObject({ code: "TELNYX_EVENT_OUT_OF_SCOPE" });
     expect(db.created).toHaveLength(0);
-    expect(db.assigned).toEqual(["LEGACY", "LEGACY"]);
+    expect(db.assigned).toEqual([]);
   });
 
   it("uses immutable call ownership for session-only voicemail", async () => {
@@ -762,11 +763,11 @@ describe("Telnyx event effect owner", () => {
     ).rejects.toBeInstanceOf(TelnyxEventOwnerError);
   });
 
-  it("treats malformed opaque client state as absent for legacy compatibility", async () => {
+  it("treats malformed opaque client state as absent", async () => {
     const db = database({ number: null });
     await expect(
       resolveTelnyxEventOwner(event({ payloadClientState: "not-base64" }), db.prisma),
-    ).resolves.toBe("LEGACY");
-    expect(db.assigned).toEqual(["LEGACY"]);
+    ).rejects.toMatchObject({ code: "TELNYX_EVENT_OUT_OF_SCOPE" });
+    expect(db.assigned).toEqual([]);
   });
 });

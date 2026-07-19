@@ -33,7 +33,7 @@ describe("Softphone Runtime", () => {
     expect(result.ringtoneOfferId).toBe("leg-1");
   });
 
-  it("stops local ringing as soon as one Take begins", () => {
+  it("stops local ringing as soon as one answer begins", () => {
     const result = selectSoftphoneRuntimeCalls(
       [observation("leg-1", "RINGING"), observation("leg-2", "RINGING")],
       "leg-2",

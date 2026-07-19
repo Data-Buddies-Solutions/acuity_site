@@ -13,7 +13,6 @@ type ActiveCallStatus =
   | "QUEUED"
   | "RINGING"
   | "CONNECTED"
-  | "WRAP_UP"
   | "COMPLETED"
   | "VOICEMAIL"
   | "ABANDONED"
@@ -34,12 +33,7 @@ export type ActiveRoutingContext = {
   direction: "INBOUND" | "OUTBOUND";
   effectOwner: "LEGACY" | "CANONICAL";
   practiceId: string;
-  queue:
-    | (ActiveRoutingQueueSnapshot & {
-        maxWaitSec: number;
-        ringTimeoutSec: number;
-      })
-    | null;
+  queue: ActiveRoutingQueueSnapshot | null;
   status: ActiveCallStatus;
 };
 
@@ -53,7 +47,6 @@ export type ActiveRoutingEventData = RoutingDecision & {
   commandIds: string[];
   deadlineAt: string;
   dialCommandIds: string[];
-  queueDeadlineAt: string;
   routed: ActiveRoutingDial[];
   startRingbackCommandId: string;
   stateVersion: number;
@@ -133,7 +126,6 @@ function receiptFromEvent(
     !Array.isArray(data.dialCommandIds) ||
     !Array.isArray(data.routed) ||
     typeof data.deadlineAt !== "string" ||
-    typeof data.queueDeadlineAt !== "string" ||
     typeof data.stateVersion !== "number"
   ) {
     throw new ActiveRoutingError("Stored active routing receipt is invalid", 500);

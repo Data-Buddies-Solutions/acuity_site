@@ -19,7 +19,6 @@ export type StartOutboundCallInput = {
 export type StartOutboundCallReceipt = OperationReceipt & {
   agentSessionId: string;
   callId: string;
-  cleanupCommandIds?: string;
   clientState: string;
   endpointId: string;
   from: string;
@@ -30,10 +29,7 @@ export type StartOutboundCallReceipt = OperationReceipt & {
   to: string;
 };
 
-export type StartOutboundCallResponse = Omit<
-  StartOutboundCallReceipt,
-  "cleanupCommandIds"
->;
+export type StartOutboundCallResponse = StartOutboundCallReceipt;
 
 export interface StartOutboundCallTransaction extends OperationReceiptTransaction {
   createOutboundCall(

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { redactDirectHandoffToken } from "./direct-handoff-uri";
 import type { TelnyxVoiceWebhookEnvelope } from "./telnyx-voice-envelope";
 
-export type ProviderWebhookStatus =
+type ProviderWebhookStatus =
   "FAILED" | "IGNORED" | "PROCESSED" | "PROCESSING" | "RECEIVED";
 
 export type ProviderWebhookRecord = {
@@ -203,7 +203,7 @@ function providerCallSessionId(body: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore = {
+const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore = {
   async claim({ eventId, maxAttempts, now, staleBefore }) {
     const claimed = await prisma.providerWebhookEvent.updateMany({
       data: {

@@ -44,17 +44,9 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     code: "SESSION_EXPIRED",
     retryable: true,
   },
-  "Agent session is not ready to claim calls": {
-    code: "CALL_NOT_READY",
-    retryable: true,
-  },
   "Agent session state is stale": { code: "SESSION_STALE", retryable: true },
   "Agent session changed; refresh and try again": {
     code: "SESSION_STALE",
-    retryable: true,
-  },
-  "Another transfer is already in progress": {
-    code: "TRANSFER_IN_PROGRESS",
     retryable: true,
   },
   "AVAILABLE requires browser audio": {
@@ -70,11 +62,6 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     retryable: true,
   },
   "AVAILABLE requires no active call": { code: "CALL_NOT_READY", retryable: true },
-  "Call is no longer available to claim": {
-    code: "CALL_ALREADY_CLAIMED",
-    retryable: false,
-  },
-  "Call was already answered": { code: "CALL_ALREADY_CLAIMED", retryable: false },
   "Call center queue not found": { code: "QUEUE_UNAVAILABLE", retryable: false },
   "Calling is not configured for this agent": {
     code: "CALLING_NOT_CONFIGURED",
@@ -100,26 +87,13 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
   },
   "Call changed; refresh and try again": { code: "SESSION_STALE", retryable: true },
   "Call is not ready for disposition": { code: "CALL_NOT_READY", retryable: true },
-  "Choose a different agent": { code: "TRANSFER_TARGET_UNAVAILABLE", retryable: false },
   "Endpoint is not eligible for this queue": { code: "ACCESS_DENIED", retryable: false },
   "Endpoint is not eligible for this user": { code: "ACCESS_DENIED", retryable: false },
-  "Existing claim is missing its provider command": {
-    code: "TEMPORARY_SERVICE_FAILURE",
-    retryable: true,
-  },
-  "Existing claim session is inconsistent": {
-    code: "TEMPORARY_SERVICE_FAILURE",
-    retryable: true,
-  },
   "Idempotency key was already used for another target": {
     code: "INVALID_REQUEST",
     retryable: false,
   },
   "One or more follow-up tasks changed": { code: "SESSION_STALE", retryable: true },
-  "Only a connected canonical call can transfer": {
-    code: "CALL_NOT_CONNECTED",
-    retryable: false,
-  },
   "Outbound phone numbers must be valid E.164": {
     code: "OUTBOUND_NUMBER_INVALID",
     retryable: false,
@@ -128,54 +102,17 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     code: "ACCESS_DENIED",
     retryable: false,
   },
-  "Only inbound calls can be claimed": { code: "CALL_NOT_FOUND", retryable: false },
   "Phone active in another tab": {
     code: "CALL_CENTER_SESSION_IN_USE",
     retryable: false,
   },
   "Queue membership is required": { code: "ACCESS_DENIED", retryable: false },
-  "That staff member is not available for transfer": {
-    code: "TRANSFER_TARGET_UNAVAILABLE",
-    retryable: true,
-  },
-  "Source agent does not own the connected call": {
-    code: "ACCESS_DENIED",
-    retryable: false,
-  },
   "This user is already active in another browser": {
     code: "CALL_CENTER_SESSION_IN_USE",
     retryable: false,
   },
   "Finish the active call before using the phone here": {
     code: "CALL_NOT_READY",
-    retryable: false,
-  },
-  "Transfer target changed; refresh and try again": {
-    code: "TRANSFER_TARGET_UNAVAILABLE",
-    retryable: true,
-  },
-  "Transfer target is already occupied": {
-    code: "TRANSFER_TARGET_UNAVAILABLE",
-    retryable: true,
-  },
-  "Transfer target is not configured": {
-    code: "TRANSFER_TARGET_UNAVAILABLE",
-    retryable: false,
-  },
-  "Transfer target is not ready": {
-    code: "TRANSFER_TARGET_UNAVAILABLE",
-    retryable: true,
-  },
-  "Transfer target is not an eligible queue agent": {
-    code: "TRANSFER_TARGET_UNAVAILABLE",
-    retryable: false,
-  },
-  "Transfer target is outside the call scope": {
-    code: "TRANSFER_TARGET_UNAVAILABLE",
-    retryable: false,
-  },
-  "Transfer target is outside its location scope": {
-    code: "TRANSFER_TARGET_UNAVAILABLE",
     retryable: false,
   },
   Unauthorized: { code: "AUTH_REQUIRED", retryable: false },

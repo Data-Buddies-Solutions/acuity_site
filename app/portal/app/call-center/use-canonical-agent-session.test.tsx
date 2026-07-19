@@ -16,12 +16,10 @@ function agentSession(stateVersion = 0): AgentSessionView {
     audioReady: Boolean(stateVersion),
     clientInstanceId: "browser-1",
     connectionState: stateVersion ? "READY" : "CONNECTING",
-    currentCallId: null,
     endpointId: "endpoint-1",
     id: "session-1",
     leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
     microphoneReady: Boolean(stateVersion),
-    offeredCallId: null,
     presence: stateVersion ? "AVAILABLE" : "PAUSED",
     stateVersion,
   };
@@ -31,7 +29,6 @@ function activeAgentSession(stateVersion: number, expired = false): AgentSession
   return {
     ...agentSession(stateVersion),
     connectionState: expired ? "DISCONNECTED" : "READY",
-    currentCallId: "call-1",
     leaseExpiresAt: new Date(Date.now() + (expired ? -1_000 : 60_000)).toISOString(),
     presence: expired ? "OFFLINE" : "BUSY",
   };
@@ -53,14 +50,10 @@ function deferred<T>() {
 }
 
 describe("useCanonicalAgentSession", () => {
-  it("does not infer busy from a ringing offer", () => {
-    expect(canonicalHeartbeatPresence({ presence: "AVAILABLE" }, "BUSY")).toBe(
-      "AVAILABLE",
-    );
-    expect(canonicalHeartbeatPresence({ presence: "BUSY" }, "AVAILABLE")).toBe("BUSY");
-    expect(canonicalHeartbeatPresence({ presence: "PAUSED" }, "AVAILABLE")).toBe(
-      "AVAILABLE",
-    );
+  it("leaves provider-owned busy state to the server", () => {
+    expect(canonicalHeartbeatPresence("BUSY")).toBe("AVAILABLE");
+    expect(canonicalHeartbeatPresence("AVAILABLE")).toBe("AVAILABLE");
+    expect(canonicalHeartbeatPresence("PAUSED")).toBe("PAUSED");
   });
 
   beforeEach(() => {
@@ -236,14 +229,13 @@ describe("useCanonicalAgentSession", () => {
     rerender({
       projectedSession: {
         ...agentSession(2),
-        currentCallId: "call-1",
         presence: "BUSY",
       },
     });
-    await waitFor(() => expect(result.current.session?.currentCallId).toBe("call-1"));
+    await waitFor(() => expect(result.current.session?.presence).toBe("BUSY"));
 
     rerender({ projectedSession: null });
-    expect(result.current.session?.currentCallId).toBe("call-1");
+    expect(result.current.session?.presence).toBe("BUSY");
 
     await act(() => result.current.stop());
     expect(requests.at(-1)).toEqual({
@@ -255,7 +247,7 @@ describe("useCanonicalAgentSession", () => {
     });
   });
 
-  it("silently reacquires an expired lease while preserving active-call ownership", async () => {
+  it("silently reacquires an expired busy lease", async () => {
     const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
     let postCount = 0;
     let patchCount = 0;
@@ -300,7 +292,7 @@ describe("useCanonicalAgentSession", () => {
 
     await waitFor(() => expect(postCount).toBe(2));
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
-    expect(result.current.session?.currentCallId).toBe("call-1");
+    expect(result.current.session?.presence).toBe("BUSY");
     expect(result.current.error).toBeNull();
     expect(requests.map(({ method }) => method)).toEqual([
       "POST",
@@ -356,22 +348,21 @@ describe("useCanonicalAgentSession", () => {
     );
 
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
-    expect(result.current.session?.currentCallId).toBeNull();
+    expect(result.current.session?.presence).toBe("AVAILABLE");
     expect(requests.at(-1)).toMatchObject({
       method: "PATCH",
       body: { expectedStateVersion: 4, presence: "AVAILABLE" },
     });
   });
 
-  it("restores availability after recovering an expired offered-call lease", async () => {
+  it("restores availability after recovering an expired paused lease", async () => {
     const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
     let postCount = 0;
     let patchCount = 0;
-    const offeredSession = (stateVersion: number, expired = false): AgentSessionView => ({
+    const pausedSession = (stateVersion: number, expired = false): AgentSessionView => ({
       ...agentSession(stateVersion),
       connectionState: expired ? "DISCONNECTED" : "READY",
       leaseExpiresAt: new Date(Date.now() + (expired ? -1_000 : 60_000)).toISOString(),
-      offeredCallId: "call-1",
       presence: expired ? "OFFLINE" : "PAUSED",
     });
     globalThis.fetch = mock(async (_input, init) => {
@@ -381,7 +372,7 @@ describe("useCanonicalAgentSession", () => {
         postCount += 1;
         return Response.json({
           leaseDurationMs: 60_000,
-          session: postCount === 1 ? agentSession() : offeredSession(3),
+          session: postCount === 1 ? agentSession() : pausedSession(3),
         });
       }
       patchCount += 1;
@@ -389,7 +380,7 @@ describe("useCanonicalAgentSession", () => {
         session:
           patchCount === 1
             ? agentSession(1)
-            : { ...offeredSession(4), presence: "AVAILABLE" },
+            : { ...pausedSession(4), presence: "AVAILABLE" },
       });
     }) as unknown as typeof fetch;
 
@@ -408,10 +399,9 @@ describe("useCanonicalAgentSession", () => {
 
     await act(() => result.current.start());
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
-    rerender({ projectedSession: offeredSession(2, true) });
+    rerender({ projectedSession: pausedSession(2, true) });
 
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
-    expect(result.current.session?.offeredCallId).toBe("call-1");
     expect(result.current.session?.presence).toBe("AVAILABLE");
     expect(requests.at(-1)).toMatchObject({
       method: "PATCH",
@@ -478,10 +468,10 @@ describe("useCanonicalAgentSession", () => {
 
     await waitFor(() => expect(patchCount).toBe(3));
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
-    expect(result.current.session?.currentCallId).toBe("call-1");
+    expect(result.current.session?.presence).toBe("BUSY");
   });
 
-  it("re-arms readiness when an in-flight PATCH renews the active-call lease", async () => {
+  it("re-arms readiness when an in-flight PATCH renews a busy lease", async () => {
     const renewingPatch = deferred<Response>();
     let postCount = 0;
     let patchCount = 0;
@@ -531,10 +521,10 @@ describe("useCanonicalAgentSession", () => {
     await waitFor(() => expect(patchCount).toBe(3));
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
     expect(postCount).toBe(1);
-    expect(result.current.session?.currentCallId).toBe("call-1");
+    expect(result.current.session?.presence).toBe("BUSY");
   });
 
-  it("treats server-reported active-call lease expiry as authoritative", async () => {
+  it("treats server-reported busy lease expiry as authoritative", async () => {
     let postCount = 0;
     let patchCount = 0;
     globalThis.fetch = mock(async (_input, init) => {
@@ -587,7 +577,7 @@ describe("useCanonicalAgentSession", () => {
       presence: "AVAILABLE",
       projectedSession: activeAgentSession(2),
     });
-    await waitFor(() => expect(result.current.session?.currentCallId).toBe("call-1"));
+    await waitFor(() => expect(result.current.session?.presence).toBe("BUSY"));
     rerender({
       presence: "BUSY",
       projectedSession: activeAgentSession(2),
@@ -595,11 +585,11 @@ describe("useCanonicalAgentSession", () => {
 
     await waitFor(() => expect(postCount).toBe(2));
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
-    expect(result.current.session?.currentCallId).toBe("call-1");
+    expect(result.current.session?.presence).toBe("BUSY");
     expect(result.current.error).toBeNull();
   });
 
-  it("reacquires when settlement clears occupancy before expiry is observed", async () => {
+  it("reacquires when readiness returns before expiry is observed", async () => {
     const expiredPatch = deferred<Response>();
     let postCount = 0;
     let patchCount = 0;
@@ -786,14 +776,10 @@ describe("useCanonicalAgentSession", () => {
 
     await waitFor(() => expect(postCount).toBe(2));
     rerender({
-      projectedSession: {
-        ...activeAgentSession(3, true),
-        currentCallId: null,
-      },
+      projectedSession: agentSession(3),
     });
     await waitFor(() => expect(postCount).toBe(3), { timeout: 2_000 });
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(5));
-    expect(result.current.session?.currentCallId).toBeNull();
     expect(result.current.session?.presence).toBe("AVAILABLE");
     expect(result.current.error).toBeNull();
   });

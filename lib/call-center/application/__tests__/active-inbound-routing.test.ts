@@ -23,7 +23,6 @@ function context(overrides: Partial<ActiveRoutingContext> = {}): ActiveRoutingCo
       enabled: true,
       id: "queue-1",
       locationIds: ["location-1"],
-      maxWaitSec: 30,
       members: [
         {
           enabled: true,
@@ -48,7 +47,6 @@ function context(overrides: Partial<ActiveRoutingContext> = {}): ActiveRoutingCo
           userId: "user-1",
         },
       ],
-      ringTimeoutSec: 20,
     },
     status: "RECEIVED",
     ...overrides,
@@ -80,7 +78,6 @@ function fakeTransaction(current = context()) {
           commandIds: ["command-answer", "command-ringback", "command-dial"],
           deadlineAt: "2026-07-12T12:00:20.000Z",
           dialCommandIds: ["command-dial"],
-          queueDeadlineAt: "2026-07-12T12:00:30.000Z",
           routed: [
             {
               ...decision.eligible[0]!,
@@ -186,7 +183,7 @@ describe("canonical active inbound routing", () => {
     expect(canonical.calls).toContain("routing.start");
   });
 
-  it("uses an explicit idempotency key for later queue rounds", async () => {
+  it("uses an explicit idempotency key for one routing attempt", async () => {
     const fake = fakeTransaction();
     let routingKey = "";
     fake.transaction.findRouting = async (_practiceId, key) => {
@@ -200,11 +197,11 @@ describe("canonical active inbound routing", () => {
       {
         callId: "call-1",
         practiceId: "practice-1",
-        routingKey: "overflow:call-1:queue-2:1",
+        routingKey: "initial:call-1",
       },
       now,
     );
-    expect(routingKey).toBe("overflow:call-1:queue-2:1");
+    expect(routingKey).toBe("initial:call-1");
   });
 
   it("uses a dedicated immutable event type", () => {

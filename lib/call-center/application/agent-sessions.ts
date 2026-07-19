@@ -38,8 +38,6 @@ export type AgentSessionRecord = {
   audioReady: boolean;
   clientInstanceId: string;
   connectionState: CallCenterAgentConnectionState;
-  currentCallId: string | null;
-  offeredCallId: string | null;
   endpointId: string;
   id: string;
   lastHeartbeatAt: Date;
@@ -83,9 +81,7 @@ export interface AgentSessionTransaction {
     userId: string,
     now: Date,
   ): Promise<AgentSessionRecord[]>;
-  createSession(
-    input: Omit<AgentSessionRecord, "currentCallId" | "offeredCallId">,
-  ): Promise<AgentSessionRecord>;
+  createSession(input: AgentSessionRecord): Promise<AgentSessionRecord>;
   findActiveSession(
     practiceId: string,
     userId: string,
@@ -97,6 +93,7 @@ export interface AgentSessionTransaction {
   ): Promise<AgentSessionRecord | null>;
   getAccessibleEndpoint(actor: AgentSessionActor): Promise<AgentSessionEndpoint | null>;
   hasActiveCall(endpointId: string): Promise<boolean>;
+  hasConnectedCall(endpointId: string): Promise<boolean>;
   hasQueueAccess(
     actor: AgentSessionActor,
     endpoint: AgentSessionEndpoint,
@@ -367,17 +364,29 @@ export async function updateAgentSessionReadiness(
       };
     }
 
-    if (input.presence === "OFFLINE" || input.connectionState === "CLOSED") {
+    if (
+      input.presence === "BUSY" ||
+      input.presence === "OFFLINE" ||
+      input.connectionState === "CLOSED"
+    ) {
       return {
-        error: new AgentSessionError("Use DELETE to release an agent session", 422),
+        error: new AgentSessionError(
+          "Browser readiness cannot set an owned call state",
+          422,
+        ),
       };
     }
 
+    const presence: CallCenterAgentPresence = (await transaction.hasConnectedCall(
+      session.endpointId,
+    ))
+      ? "BUSY"
+      : input.presence;
     const nextReadiness = {
       audioReady: input.audioReady,
       connectionState: input.connectionState,
       microphoneReady: input.microphoneReady,
-      presence: input.presence,
+      presence,
     };
     const validationError = readinessValidationError(nextReadiness);
     if (validationError) {
@@ -389,7 +398,7 @@ export async function updateAgentSessionReadiness(
       session.audioReady === input.audioReady &&
       session.connectionState === input.connectionState &&
       session.microphoneReady === input.microphoneReady &&
-      session.presence === input.presence &&
+      session.presence === presence &&
       (session.readyAt?.getTime() ?? null) === (readyAt?.getTime() ?? null);
     if (readinessUnchanged) {
       const heartbeat = await transaction.updateSession(session.id, {
@@ -405,7 +414,7 @@ export async function updateAgentSessionReadiness(
       lastHeartbeatAt: now,
       leaseExpiresAt: leaseExpiry(now),
       microphoneReady: input.microphoneReady,
-      presence: input.presence,
+      presence,
       readyAt,
       stateVersion: session.stateVersion + 1,
     });
@@ -453,13 +462,16 @@ export async function releaseAgentSession(
     }
 
     if (await transaction.hasActiveCall(session.endpointId)) {
+      const presence = (await transaction.hasConnectedCall(session.endpointId))
+        ? "BUSY"
+        : "PAUSED";
       const reconnecting = await transaction.updateSession(session.id, {
         audioReady: false,
         connectionState: "CONNECTING",
         lastHeartbeatAt: now,
         leaseExpiresAt: leaseExpiry(now),
         microphoneReady: false,
-        presence: "BUSY",
+        presence,
         readyAt: null,
         stateVersion: session.stateVersion + 1,
       });

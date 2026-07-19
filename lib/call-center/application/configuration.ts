@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { isValidQueuePolicy } from "@/lib/call-center/domain/queue-policy";
-
-export type CallCenterQueueRole = "AGENT" | "SUPERVISOR";
+type CallCenterQueueRole = "AGENT" | "SUPERVISOR";
 
 export type CallCenterConfigurationInput = {
   practiceId: string;
@@ -11,12 +9,8 @@ export type CallCenterConfigurationInput = {
     id: string;
     name: string;
     enabled: boolean;
-    ringTimeoutSec: number;
-    maxWaitSec: number;
-    wrapUpSec: number;
     voicemailEnabled: boolean;
     voicemailGreeting: string;
-    overflowQueueId: string | null;
     locationIds: string[];
     members: Array<{
       userId: string;
@@ -129,7 +123,7 @@ export type CallCenterConfigurationValidationContext = {
   currentConfiguration: ValidatedCallCenterConfiguration | null;
 };
 
-export type CallCenterConfigurationIssueCode =
+type CallCenterConfigurationIssueCode =
   | "PRACTICE_NOT_FOUND"
   | "REQUIRED_FIELD"
   | "DUPLICATE_VALUE"
@@ -138,10 +132,7 @@ export type CallCenterConfigurationIssueCode =
   | "UNKNOWN_PHONE_NUMBER"
   | "UNKNOWN_QUEUE"
   | "MEMBERSHIP_REQUIRED"
-  | "INVALID_QUEUE_POLICY"
   | "INBOUND_NUMBER_LOCATION_MISMATCH"
-  | "OVERFLOW_QUEUE_CYCLE"
-  | "DISABLED_OVERFLOW_QUEUE"
   | "INVALID_INBOUND_ROUTE"
   | "INVALID_OUTBOUND_NUMBER"
   | "ENDPOINT_CREDENTIALS_REQUIRED"
@@ -212,7 +203,6 @@ function normalizeConfiguration(
       id: clean(queue.id),
       name: clean(queue.name),
       voicemailGreeting: clean(queue.voicemailGreeting),
-      overflowQueueId: cleanOptional(queue.overflowQueueId),
       locationIds: queue.locationIds.map(clean),
       members: queue.members.map((member) => ({
         ...member,
@@ -331,20 +321,6 @@ function rejectCrossPracticeOwner(
       message: "Entity belongs to another practice",
     });
   }
-}
-
-function hasOverflowCycle(
-  startQueueId: string,
-  overflowByQueueId: ReadonlyMap<string, string | null>,
-) {
-  const visited = new Set<string>();
-  let queueId: string | null | undefined = startQueueId;
-  while (queueId) {
-    if (visited.has(queueId)) return true;
-    visited.add(queueId);
-    queueId = overflowByQueueId.get(queueId);
-  }
-  return false;
 }
 
 function rejectOmittedEnabledEntities(
@@ -487,9 +463,6 @@ export function validateCallCenterConfiguration(
   const queuesById = new Map(
     configuration.queues.map((queue) => [queue.id, queue] as const),
   );
-  const overflowByQueueId = new Map(
-    configuration.queues.map(({ id, overflowQueueId }) => [id, overflowQueueId] as const),
-  );
   rejectOmittedEnabledEntities(
     "queues",
     new Set(configuration.queues.map(({ id }) => id)),
@@ -534,13 +507,6 @@ export function validateCallCenterConfiguration(
       `${path}.id`,
       issues,
     );
-    if (!isValidQueuePolicy(queue)) {
-      issues.push({
-        code: "INVALID_QUEUE_POLICY",
-        path,
-        message: "Queue timeouts are outside the supported bounds",
-      });
-    }
     if (queue.voicemailEnabled && !queue.voicemailGreeting) {
       issues.push({
         code: "VOICEMAIL_GREETING_REQUIRED",
@@ -548,23 +514,6 @@ export function validateCallCenterConfiguration(
         message: "Enabled voicemail requires a greeting",
       });
     }
-    if (queue.overflowQueueId) {
-      const overflow = queuesById.get(queue.overflowQueueId);
-      if (!overflow) {
-        issues.push({
-          code: "UNKNOWN_QUEUE",
-          path: `${path}.overflowQueueId`,
-          message: "Overflow queue is not in this practice configuration",
-        });
-      } else if (queue.enabled && !overflow.enabled) {
-        issues.push({
-          code: "DISABLED_OVERFLOW_QUEUE",
-          path: `${path}.overflowQueueId`,
-          message: "An enabled queue cannot overflow to a disabled queue",
-        });
-      }
-    }
-
     addDuplicateIssues(
       queue.locationIds,
       (locationId) => locationId,
@@ -605,17 +554,6 @@ export function validateCallCenterConfiguration(
         });
       }
     });
-  }
-
-  for (const queue of configuration.queues) {
-    if (hasOverflowCycle(queue.id, overflowByQueueId)) {
-      issues.push({
-        code: "OVERFLOW_QUEUE_CYCLE",
-        path: "queues",
-        message: "Queue overflow configuration contains a cycle",
-      });
-      break;
-    }
   }
 
   for (const [numberIndex, number] of configuration.numbers.entries()) {
@@ -850,7 +788,7 @@ export async function saveCallCenterConfiguration(
   );
 }
 
-export async function saveCallCenterConfigurationInTransaction(
+async function saveCallCenterConfigurationInTransaction(
   transaction: CallCenterConfigurationTransaction,
   input: CallCenterConfigurationInput,
   expectedVersion: string,

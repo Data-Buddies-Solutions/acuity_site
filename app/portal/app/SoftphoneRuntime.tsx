@@ -44,7 +44,7 @@ function canonicalConnectionState(
 
 export function selectSoftphoneRuntimeCalls(
   observations: readonly MediaObservation[],
-  takingMediaLegId: string | null,
+  answeringMediaLegId: string | null,
 ) {
   const active =
     observations.find(({ state }) => ["ACTIVE", "HELD"].includes(state)) ?? null;
@@ -56,7 +56,7 @@ export function selectSoftphoneRuntimeCalls(
     active,
     incoming,
     ringtoneOfferId:
-      active || takingMediaLegId ? null : (incoming[0]?.mediaLegId ?? null),
+      active || answeringMediaLegId ? null : (incoming[0]?.mediaLegId ?? null),
   };
 }
 
@@ -66,9 +66,9 @@ type SoftphoneRuntimeValue = {
   media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
   ringtone: ReturnType<typeof useIncomingCallRingtone>;
   session: AgentSessionView | null;
-  take(mediaLegId: string): Promise<void>;
+  answer(mediaLegId: string): Promise<void>;
+  answeringMediaLegId: string | null;
   takeover(): Promise<void>;
-  takingMediaLegId: string | null;
 };
 
 const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
@@ -76,15 +76,14 @@ const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
 export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
-  const [takingMediaLegId, setTakingMediaLegId] = useState<string | null>(null);
+  const [answeringMediaLegId, setAnsweringMediaLegId] = useState<string | null>(null);
   const [mediaReadiness, setMediaReadiness] = useState({
     audioReady: false,
     connectionState: "CLOSED" as CanonicalAgentConnectionState,
     microphoneReady: false,
   });
-  const answeredRef = useRef(new Set<string>());
+  const answeringRef = useRef<string | null>(null);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
-  const takingRef = useRef<string | null>(null);
   const clientInstanceId = client?.clientInstanceId ?? null;
 
   useEffect(() => {
@@ -174,15 +173,18 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     };
   }, [clientInstanceId, stopSession]);
 
-  const visibleTakingMediaLegId =
-    takingMediaLegId &&
+  const visibleAnsweringMediaLegId =
+    answeringMediaLegId &&
     media.observations.some(
       ({ mediaLegId, state }) =>
-        mediaLegId === takingMediaLegId && ["CONNECTING", "RINGING"].includes(state),
+        mediaLegId === answeringMediaLegId && ["CONNECTING", "RINGING"].includes(state),
     )
-      ? takingMediaLegId
+      ? answeringMediaLegId
       : null;
-  const calls = selectSoftphoneRuntimeCalls(media.observations, visibleTakingMediaLegId);
+  const calls = selectSoftphoneRuntimeCalls(
+    media.observations,
+    visibleAnsweringMediaLegId,
+  );
   const ringtone = useIncomingCallRingtone(calls.ringtoneOfferId);
 
   useEffect(() => {
@@ -193,31 +195,21 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   }, [media, media.observations]);
 
   useEffect(() => {
-    for (const item of media.observations) {
-      if (["ENDED", "FAILED"].includes(item.state)) {
-        answeredRef.current.delete(item.mediaLegId);
-      }
+    if (answeringMediaLegId && !visibleAnsweringMediaLegId) {
+      answeringRef.current = null;
     }
-    if (takingMediaLegId && !visibleTakingMediaLegId) {
-      takingRef.current = null;
-    }
-  }, [media.observations, takingMediaLegId, visibleTakingMediaLegId]);
+  }, [answeringMediaLegId, visibleAnsweringMediaLegId]);
 
-  const take = useCallback(
+  const answer = useCallback(
     async (mediaLegId: string) => {
-      if (takingRef.current || calls.active || answeredRef.current.has(mediaLegId)) {
-        return;
-      }
-      takingRef.current = mediaLegId;
-      setTakingMediaLegId(mediaLegId);
-      answeredRef.current.add(mediaLegId);
+      if (answeringRef.current || calls.active) return;
+      answeringRef.current = mediaLegId;
+      setAnsweringMediaLegId(mediaLegId);
       try {
-        await Promise.resolve(media.answer(mediaLegId));
-        media.activate(mediaLegId);
+        await media.answer(mediaLegId);
       } catch (error) {
-        answeredRef.current.delete(mediaLegId);
-        takingRef.current = null;
-        setTakingMediaLegId(null);
+        answeringRef.current = null;
+        setAnsweringMediaLegId(null);
         throw error;
       }
     },
@@ -239,6 +231,8 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
 
   const value = useMemo<SoftphoneRuntimeValue>(
     () => ({
+      answer,
+      answeringMediaLegId: visibleAnsweringMediaLegId,
       clientInstanceId,
       error:
         identityError ??
@@ -247,20 +241,18 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       media,
       ringtone,
       session,
-      take,
       takeover,
-      takingMediaLegId: visibleTakingMediaLegId,
     }),
     [
       agentSession.error,
+      answer,
       clientInstanceId,
       identityError,
       media,
       ringtone,
       session,
-      take,
       takeover,
-      visibleTakingMediaLegId,
+      visibleAnsweringMediaLegId,
     ],
   );
 

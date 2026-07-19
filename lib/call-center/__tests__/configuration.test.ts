@@ -20,12 +20,8 @@ function validInput(): CallCenterConfigurationInput {
         id: "queue-1",
         name: " Optical ",
         enabled: true,
-        ringTimeoutSec: 20,
-        maxWaitSec: 30,
-        wrapUpSec: 0,
         voicemailEnabled: true,
         voicemailGreeting: " Please leave a message. ",
-        overflowQueueId: null,
         locationIds: ["location-1"],
         members: [{ userId: "user-1", role: "AGENT", enabled: true }],
       },
@@ -270,24 +266,13 @@ describe("call-center configuration validation", () => {
     );
   });
 
-  it("rejects queue policy violations and overflow cycles", () => {
-    const input = validInput();
-    input.queues[0]!.ringTimeoutSec = 31;
-    input.queues[0]!.maxWaitSec = 30;
-    input.queues[0]!.overflowQueueId = "queue-1";
-
-    expect(
-      issueCodes(() => validateCallCenterConfiguration(input, validContext())),
-    ).toEqual(expect.arrayContaining(["INVALID_QUEUE_POLICY", "OVERFLOW_QUEUE_CYCLE"]));
-  });
-
   it("rejects duplicate owners and out-of-snapshot queue or default references", () => {
     const input = validInput();
     input.queues.push({
       ...input.queues[0]!,
       name: "Duplicate queue ID",
     });
-    input.queues[0]!.overflowQueueId = "queue-foreign";
+    input.numbers[0]!.inboundQueueId = "queue-foreign";
     input.defaultOutboundNumberId = "number-foreign";
 
     expect(

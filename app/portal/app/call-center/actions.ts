@@ -13,9 +13,9 @@ import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 
-import { CALL_OUTCOME_SAVE_ERROR } from "./call-outcome";
-
 const CALL_CENTER_MUTATION_ERROR = "Call center action could not be completed";
+const CALL_OUTCOME_SAVE_ERROR =
+  "We couldn't save this outcome. Check the details and try again.";
 const CLOSING_DISPOSITIONS = new Set(["RESOLVED", "WRONG_NUMBER", "OTHER"]);
 
 type ActionContext = NonNullable<
@@ -184,7 +184,7 @@ async function saveCanonicalNote(
   });
 }
 
-export async function saveCallCenterNoteAction(formData: FormData) {
+async function saveCallCenterNoteAction(formData: FormData) {
   const context = await getCurrentPortalPracticeContext();
   const phone = String(formData.get("phone") || "").trim();
   const phoneVariants = phoneLookupVariants(phone);

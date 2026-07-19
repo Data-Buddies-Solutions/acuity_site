@@ -125,8 +125,8 @@ webhook must be resolved to a practice by phone number. Prefer explicit
    through the canonical agent-session APIs.
 4. Verified Telnyx callbacks enter the durable webhook inbox and update the
    canonical call, leg, event, task, and voicemail tables.
-5. The ordered SSE stream updates every eligible browser. `Take` atomically
-   claims one call; ringing alone does not make the user busy.
+5. The portal polls one versioned authoritative snapshot. `Answer` accepts the
+   exact offered browser leg; only a provider-confirmed bridge makes the user busy.
 6. Outbound caller IDs and direct-handoff routing come from the same database
    configuration. Provider credentials and webhook verification keys remain
    operational secrets.
@@ -287,7 +287,8 @@ Before production deploy:
 3. Confirm `BETTER_AUTH_URL` is the deployed origin.
 4. Confirm Telnyx webhook URL points at `https://<domain>/api/telnyx/webhooks`.
 5. Confirm `TELNYX_PUBLIC_KEY` is configured.
-6. Rotate any credential that was pasted into chat or logs before using it in production.
+6. Set `CRON_SECRET` so Vercel can authenticate the provider-command outbox drain.
+7. Rotate any credential that was pasted into chat or logs before using it in production.
 
 Vercel build command should use:
 
@@ -317,7 +318,7 @@ are deployed separately through GitHub Actions.
 4. Add the user to each queue they may answer and associate the queue with the allowed locations.
 5. Choose the practice default outbound number and confirm every enabled number has the intended inbound/outbound capability.
 6. Confirm Telnyx sends signed callbacks to `POST /api/telnyx/webhooks`.
-7. Sign into `/portal/app/call-center`, enable calling, and verify inbound Take/bridge plus outbound dialing.
+7. Sign into `/portal/app/call-center`, enable calling, and verify inbound Answer/bridge plus outbound dialing.
 
 ### Backfill Abita Analytics
 

@@ -47,20 +47,20 @@ describe("Telnyx provider command sender", () => {
       telnyxProviderSendErrorClassifier.classify(
         new TelnyxError("secret response", 429, "secret detail"),
       ),
-    ).toEqual({ category: "RETRYABLE", code: "PROVIDER_RATE_LIMITED" });
+    ).toEqual({ code: "PROVIDER_RATE_LIMITED" });
     expect(
       telnyxProviderSendErrorClassifier.classify(
         new TelnyxError("secret response", 422, "secret detail"),
       ),
-    ).toEqual({ category: "TERMINAL", code: "PROVIDER_VALIDATION_FAILED" });
+    ).toEqual({ code: "PROVIDER_VALIDATION_FAILED" });
     expect(
       telnyxProviderSendErrorClassifier.classify(
         new TelnyxError("secret response", 503, "secret detail"),
       ),
-    ).toEqual({ category: "RETRYABLE", code: "SENDING_OUTCOME_AMBIGUOUS" });
+    ).toEqual({ code: "SENDING_OUTCOME_AMBIGUOUS" });
   });
 
-  it("keeps the source bridged while dialing a transfer target", async () => {
+  it("prevents a dial from creating a second bridge", async () => {
     const dials: Record<string, unknown>[] = [];
     const sender = createTelnyxProviderCommandSender({
       answer: async () => new Response(null, { status: 204 }),
@@ -75,18 +75,13 @@ describe("Telnyx provider command sender", () => {
       ringbackContent: () => "ringback",
       speak: async () => new Response(null, { status: 204 }),
     });
-    const transfer = {
-      ...command,
-      arguments: { ...command.arguments, replacesLegId: "source-leg" },
-    } satisfies ProviderCommandDispatchData;
-
-    await sender.send(transfer);
+    await sender.send(command);
 
     const dialed = dials[0];
     expect(dialed).toMatchObject({
       bridgeOnAnswer: true,
       linkTo: "customer-control-1",
-      preventDoubleBridge: false,
+      preventDoubleBridge: true,
     });
     expect(
       JSON.parse(Buffer.from(String(dialed?.clientState), "base64").toString("utf8")),

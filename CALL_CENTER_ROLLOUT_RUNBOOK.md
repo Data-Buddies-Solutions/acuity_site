@@ -38,21 +38,21 @@ do not restore retired tables or run destructive reverse SQL.
 Use one controlled user in each configured queue and call every configured
 inbound number.
 
-1. Ready user: the portal rings, the user remains `AVAILABLE`, `Take` bridges
+1. Ready user: the portal rings, the user remains `AVAILABLE`, `Answer` bridges
    once, the winner becomes `BUSY`, losing offers disappear, and hangup returns
    the user to `AVAILABLE`.
-2. Idempotency: repeat and concurrently submit `Take`; only one call leg and
-   provider command win.
+2. Concurrency: answer from two eligible browsers; only one provider-confirmed
+   bridge wins and the losing leg ends.
 3. Reconnect: refresh or navigate away and back while ringing and while
    connected; the same server session/call state restores.
-4. No ready user: the queue waits for policy, starts voicemail once, retains the
-   recording, and creates one follow-up task.
+4. No ready user: voicemail starts immediately. With live offers, the fixed
+   20-second window expires once before voicemail starts and creates one task.
 5. Outbound: dial through each allowed caller ID, bridge, hang up, and confirm
    terminal history.
-6. Transfer: transfer to another logged-in user; the source remains connected
-   until the target bridges and only the target becomes the winner.
-7. Direct handoff: for configured agents, issue one handoff, confirm direct SIP
-   ingress without a public-number hop, then complete the normal ring/Take flow.
+6. Direct handoff: for configured agents, issue one handoff, confirm direct SIP
+   ingress without a public-number hop, then complete the normal ring/Answer flow.
+7. Recovery: leave a committed provider command pending and confirm the
+   authenticated outbox drain sends it once.
 
 ## Health queries
 

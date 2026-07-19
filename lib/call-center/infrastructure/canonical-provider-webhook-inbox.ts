@@ -1,14 +1,13 @@
 import { prisma } from "@/lib/prisma";
 
-export type CanonicalProjectionStatus =
+type CanonicalProjectionStatus =
   "FAILED" | "IGNORED" | "PROCESSED" | "PROCESSING" | "RECEIVED";
 
 export type CanonicalProjectionRecord = {
   canonicalProjectionAttemptCount: number;
   canonicalProjectionErrorCode: string | null;
-  canonicalProjectionNextAttemptAt: Date | null;
   canonicalProjectionStatus: CanonicalProjectionStatus;
-  effectOwner: "CANONICAL" | "LEGACY";
+  effectOwner: "CANONICAL";
   eventType: string;
   id: string;
   payload: unknown;
@@ -18,13 +17,15 @@ export type CanonicalProjectionRecord = {
   updatedAt: Date;
 };
 
+type CanonicalProjectionClaim = CanonicalProjectionRecord | "EXHAUSTED" | null;
+
 export type CanonicalProjectionInboxStore = {
   claim(input: {
     eventId: string;
     maxAttempts: number;
     now: Date;
     staleBefore: Date;
-  }): Promise<CanonicalProjectionRecord | null>;
+  }): Promise<CanonicalProjectionClaim>;
   completeIgnored(input: {
     attemptCount: number;
     eventId: string;
@@ -35,28 +36,17 @@ export type CanonicalProjectionInboxStore = {
     attemptCount: number;
     errorCode: string;
     eventId: string;
-    nextAttemptAt: Date | null;
-  }): Promise<boolean>;
-  hasIgnoredLegacySession(input: {
-    eventId: string;
-    providerCallSessionId: string;
   }): Promise<boolean>;
 };
 
-export const CANONICAL_PROJECTION_MAX_ATTEMPTS = 8;
+const CANONICAL_PROJECTION_MAX_ATTEMPTS = 8;
 const PROCESSING_LEASE_MS = 5 * 60_000;
-
-export const PASSIVE_LEGACY_OUT_OF_SCOPE_CODE = "LEGACY_OUT_OF_SCOPE";
 
 export const canonicalProjectionMainLaneWhere = {
   processingStatus: {
     in: ["PROCESSED", "IGNORED"] as Array<"PROCESSED" | "IGNORED">,
   },
 } as const;
-
-export function canonicalProjectionRetryAt(_attemptCount: number, _now: Date) {
-  return null;
-}
 
 export function createCanonicalProjectionInbox(
   store: CanonicalProjectionInboxStore,
@@ -73,17 +63,11 @@ export function createCanonicalProjectionInbox(
       });
     },
     completeIgnored: store.completeIgnored,
-    hasIgnoredLegacySession: store.hasIgnoredLegacySession,
     async fail(event: CanonicalProjectionRecord, errorCode: string) {
-      const now = clock();
       return store.fail({
         attemptCount: event.canonicalProjectionAttemptCount,
         errorCode: errorCode.slice(0, 100),
         eventId: event.id,
-        nextAttemptAt: canonicalProjectionRetryAt(
-          event.canonicalProjectionAttemptCount,
-          now,
-        ),
       });
     },
   };
@@ -92,7 +76,6 @@ export function createCanonicalProjectionInbox(
 const selectedFields = {
   canonicalProjectionAttemptCount: true,
   canonicalProjectionErrorCode: true,
-  canonicalProjectionNextAttemptAt: true,
   canonicalProjectionStatus: true,
   effectOwner: true,
   eventType: true,
@@ -106,39 +89,32 @@ const selectedFields = {
 
 function requireEffectOwner<T extends { effectOwner: "CANONICAL" | "LEGACY" | null }>(
   event: T,
-): Omit<T, "effectOwner"> & { effectOwner: "CANONICAL" | "LEGACY" } {
-  if (!event.effectOwner) {
-    throw new Error("Canonical projection claimed an event without an effect owner");
+): Omit<T, "effectOwner"> & { effectOwner: "CANONICAL" } {
+  if (event.effectOwner !== "CANONICAL") {
+    throw new Error("Canonical projection claimed an event outside its lane");
   }
 
-  return { ...event, effectOwner: event.effectOwner };
+  return { ...event, effectOwner: "CANONICAL" };
 }
 
-export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore = {
+const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore = {
   async claim({ eventId, maxAttempts, now, staleBefore }) {
     const claimed = await prisma.providerWebhookEvent.updateMany({
       data: {
         canonicalProjectionAttemptCount: { increment: 1 },
         canonicalProjectionErrorCode: null,
-        canonicalProjectionNextAttemptAt: null,
         canonicalProjectedAt: null,
         canonicalProjectionStatus: "PROCESSING",
       },
       where: {
         canonicalProjectionAttemptCount: { lt: maxAttempts },
-        effectOwner: { not: null },
+        effectOwner: "CANONICAL",
         id: eventId,
         ...canonicalProjectionMainLaneWhere,
         provider: "TELNYX",
         OR: [
           { canonicalProjectionStatus: "RECEIVED" },
-          {
-            canonicalProjectionStatus: "FAILED",
-            OR: [
-              { canonicalProjectionNextAttemptAt: null },
-              { canonicalProjectionNextAttemptAt: { lte: now } },
-            ],
-          },
+          { canonicalProjectionStatus: "FAILED" },
           {
             canonicalProjectionStatus: "PROCESSING",
             updatedAt: { lte: staleBefore },
@@ -147,7 +123,21 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
       },
     });
 
-    if (claimed.count !== 1) return null;
+    if (claimed.count !== 1) {
+      const current = await prisma.providerWebhookEvent.findUnique({
+        select: {
+          canonicalProjectionAttemptCount: true,
+          canonicalProjectionStatus: true,
+          effectOwner: true,
+        },
+        where: { id: eventId },
+      });
+      return current?.effectOwner === "CANONICAL" &&
+        current.canonicalProjectionStatus === "FAILED" &&
+        current.canonicalProjectionAttemptCount >= maxAttempts
+        ? "EXHAUSTED"
+        : null;
+    }
 
     const event = await prisma.providerWebhookEvent.findUnique({
       select: selectedFields,
@@ -160,7 +150,6 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
       data: {
         canonicalProjectedAt: now,
         canonicalProjectionErrorCode: reasonCode ?? null,
-        canonicalProjectionNextAttemptAt: null,
         canonicalProjectionStatus: "IGNORED",
       },
       where: {
@@ -171,25 +160,10 @@ export const prismaCanonicalProjectionInboxStore: CanonicalProjectionInboxStore 
     });
     return completed.count === 1;
   },
-  async hasIgnoredLegacySession({ eventId, providerCallSessionId }) {
-    const event = await prisma.providerWebhookEvent.findFirst({
-      select: { id: true },
-      where: {
-        canonicalProjectionErrorCode: PASSIVE_LEGACY_OUT_OF_SCOPE_CODE,
-        canonicalProjectionStatus: "IGNORED",
-        effectOwner: "LEGACY",
-        id: { not: eventId },
-        provider: "TELNYX",
-        providerCallSessionId,
-      },
-    });
-    return Boolean(event);
-  },
-  async fail({ attemptCount, errorCode, eventId, nextAttemptAt }) {
+  async fail({ attemptCount, errorCode, eventId }) {
     const failed = await prisma.providerWebhookEvent.updateMany({
       data: {
         canonicalProjectionErrorCode: errorCode,
-        canonicalProjectionNextAttemptAt: nextAttemptAt,
         canonicalProjectedAt: null,
         canonicalProjectionStatus: "FAILED",
       },

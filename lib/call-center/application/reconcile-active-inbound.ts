@@ -6,7 +6,7 @@ export type ActiveInboundReconciliationInput = {
   processedBridgeLegId: string | null;
 };
 
-export type ActiveInboundReconciliationResult =
+type ActiveInboundReconciliationResult =
   | {
       callId: string;
       commandIds: string[];

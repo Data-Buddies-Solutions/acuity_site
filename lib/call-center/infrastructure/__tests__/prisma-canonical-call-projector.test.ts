@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import type { CanonicalTelnyxCallFact } from "../telnyx-canonical-call-fact";
 import {
-  assertCanonicalCallEffectOwner,
   assertCanonicalProviderLegIdentity,
   canonicalCallObservation,
   confirmProviderCommand,
@@ -12,11 +11,8 @@ import {
   earliestObservedAt,
   enrichCanonicalCallIdentity,
   hasCanonicalAgentBridgeEvidence,
-  isConfirmedAgentConnection,
   processedWinningAgentLegId,
   projectedCallDeadline,
-  retainedAgentSessionIds,
-  requireCanonicalProjectionEffectOwner,
   resolveCanonicalPeerAgentLeg,
   selectCanonicalProviderCommand,
   settleProviderCommandCallback,
@@ -29,94 +25,28 @@ import {
 const later = new Date("2026-07-11T10:00:05.000Z");
 const earlier = new Date("2026-07-11T10:00:00.000Z");
 
-describe("canonical agent presence", () => {
-  const answeredAgent = {
-    eventType: "call.answered",
-    legKind: "AGENT",
-    legStatus: "ANSWERED",
-  };
-
-  it("requires provider confirmation from the owned inbound dial", () => {
-    expect(
-      isConfirmedAgentConnection({
-        ...answeredAgent,
-        confirmedCommandType: "DIAL_AGENT",
-        direction: "INBOUND",
-      }),
-    ).toBe(true);
-    expect(
-      isConfirmedAgentConnection({
-        ...answeredAgent,
-        confirmedCommandType: null,
-        direction: "INBOUND",
-      }),
-    ).toBe(false);
-  });
-
-  it("uses the exact outbound agent callback as confirmation", () => {
-    expect(
-      isConfirmedAgentConnection({
-        ...answeredAgent,
-        confirmedCommandType: null,
-        direction: "OUTBOUND",
-      }),
-    ).toBe(true);
-  });
-});
-
-describe("canonical effect ownership", () => {
-  it("requires every projected event to have a durable effect owner", () => {
-    expect(requireCanonicalProjectionEffectOwner({ effectOwner: "LEGACY" })).toBe(
-      "LEGACY",
-    );
-    expect(requireCanonicalProjectionEffectOwner({ effectOwner: "CANONICAL" })).toBe(
-      "CANONICAL",
-    );
-    expect(() => requireCanonicalProjectionEffectOwner({ effectOwner: null })).toThrow(
-      "CANONICAL_EFFECT_OWNER_MISSING",
-    );
-  });
-
-  it("rejects an event whose owner contradicts its call", () => {
-    expect(() =>
-      assertCanonicalCallEffectOwner({ effectOwner: "LEGACY" }, "CANONICAL"),
-    ).toThrow("CANONICAL_EFFECT_OWNER_MISMATCH");
-    expect(() =>
-      assertCanonicalCallEffectOwner({ effectOwner: "CANONICAL" }, "CANONICAL"),
-    ).not.toThrow();
-  });
-
-  it("plans only canonical inbound customer initiation regardless of queue metadata", () => {
+describe("canonical routing triggers", () => {
+  it("plans only inbound customer initiation regardless of queue metadata", () => {
     expect(
       shouldPlanCanonicalInboundRouting({
         direction: "INBOUND",
-        effectOwner: "CANONICAL",
         eventType: "call.initiated",
         legKind: "CUSTOMER",
       }),
     ).toBe(true);
     for (const input of [
       {
-        direction: "INBOUND" as const,
-        effectOwner: "LEGACY" as const,
-        eventType: "call.initiated",
-        legKind: "CUSTOMER" as const,
-      },
-      {
         direction: "OUTBOUND" as const,
-        effectOwner: "CANONICAL" as const,
         eventType: "call.initiated",
         legKind: "CUSTOMER" as const,
       },
       {
         direction: "INBOUND" as const,
-        effectOwner: "CANONICAL" as const,
         eventType: "call.answered",
         legKind: "CUSTOMER" as const,
       },
       {
         direction: "INBOUND" as const,
-        effectOwner: "CANONICAL" as const,
         eventType: "call.initiated",
         legKind: "AGENT" as const,
       },
@@ -129,7 +59,7 @@ describe("canonical effect ownership", () => {
     expect(
       shouldReconcileCanonicalInboundLifecycle({
         callDirection: "INBOUND",
-        effectOwner: "CANONICAL",
+        eventType: "call.answered",
         initialRoutingHadNoAgents: false,
         legKind: "AGENT",
       }),
@@ -137,11 +67,22 @@ describe("canonical effect ownership", () => {
     expect(
       shouldReconcileCanonicalInboundLifecycle({
         callDirection: "OUTBOUND",
-        effectOwner: "CANONICAL",
+        eventType: "call.answered",
         initialRoutingHadNoAgents: false,
         legKind: "AGENT",
       }),
     ).toBe(false);
+  });
+
+  it("uses the end of customer ringback as the fixed offer-window trigger", () => {
+    expect(
+      shouldReconcileCanonicalInboundLifecycle({
+        callDirection: "INBOUND",
+        eventType: "call.playback.ended",
+        initialRoutingHadNoAgents: false,
+        legKind: "CUSTOMER",
+      }),
+    ).toBe(true);
   });
 });
 
@@ -174,51 +115,6 @@ describe("direct handoff lifecycle", () => {
   });
 });
 
-describe("canonical agent reservation retention", () => {
-  const legs = [
-    { agentSessionId: "session-1", id: "leg-1", status: "BRIDGED" },
-    { agentSessionId: "session-2", id: "leg-2", status: "RINGING" },
-    { agentSessionId: "session-3", id: "leg-3", status: "FAILED" },
-  ];
-
-  it("keeps every live leg reserved until its terminal provider callback", () => {
-    expect([
-      ...retainedAgentSessionIds({
-        callStatus: "CONNECTED",
-        legs,
-      }),
-    ]).toEqual(["session-1", "session-2"]);
-  });
-
-  it("releases ended legs without releasing another live loser", () => {
-    expect([
-      ...retainedAgentSessionIds({
-        callStatus: "CONNECTED",
-        legs: legs.map((leg) => (leg.id === "leg-1" ? { ...leg, status: "ENDED" } : leg)),
-      }),
-    ]).toEqual(["session-2"]);
-  });
-
-  it("releases every reservation immediately when the call is terminal", () => {
-    expect([...retainedAgentSessionIds({ callStatus: "RINGING", legs })]).toEqual([
-      "session-1",
-      "session-2",
-    ]);
-    expect([
-      ...retainedAgentSessionIds({
-        callStatus: "COMPLETED",
-        legs,
-      }),
-    ]).toEqual([]);
-    expect([
-      ...retainedAgentSessionIds({
-        callStatus: "COMPLETED",
-        legs: legs.map((leg) => ({ ...leg, status: "ENDED" })),
-      }),
-    ]).toEqual([]);
-  });
-});
-
 describe("canonical bridge winner", () => {
   it("keeps the persisted winner instead of recomputing from timestamps", () => {
     expect(
@@ -247,29 +143,12 @@ describe("canonical bridge winner", () => {
     ).toBeNull();
   });
 
-  it("replaces the winner only through the target leg's authorized transfer command", () => {
-    const target = { id: "target", kind: "AGENT" as const, status: "BRIDGED" };
-    const transfer = {
-      arguments: { replacesLegId: "source" },
-      callId: "call-1",
-      id: "transfer-command",
-      legId: "target",
-      practiceId: "practice-1",
-      status: "CONFIRMED" as const,
-      type: "DIAL_AGENT" as const,
-    };
-
-    expect(processedWinningAgentLegId("source", target, transfer)).toBe("target");
+  it("never replaces a persisted winner", () => {
     expect(
-      processedWinningAgentLegId("source", target, {
-        ...transfer,
-        arguments: { replacesLegId: "other-source" },
-      }),
-    ).toBe("source");
-    expect(
-      processedWinningAgentLegId("source", target, {
-        ...transfer,
-        legId: "other-target",
+      processedWinningAgentLegId("source", {
+        id: "target",
+        kind: "AGENT",
+        status: "BRIDGED",
       }),
     ).toBe("source");
   });
@@ -355,7 +234,7 @@ describe("canonical bridge winner", () => {
     ).toBe("COMPLETED");
   });
 
-  it("ignores a failed transfer target and a late old-source hangup", () => {
+  it("ignores a failed losing leg and a late non-winner hangup", () => {
     const hangup = {
       ...fact({ direction: "OUTBOUND", eventType: "call.hangup", legKind: "AGENT" }),
       callObservation: null,
@@ -760,7 +639,7 @@ describe("canonical provider command correlation", () => {
     );
 
     expect(update).toMatchObject({
-      data: { errorCode: null, nextAttemptAt: null, status: "CONFIRMED" },
+      data: { errorCode: null, status: "CONFIRMED" },
       where: { id: "command-1", status: { in: ["SENDING", "SENT", "FAILED"] } },
     });
   });
@@ -788,14 +667,10 @@ describe("canonical provider command correlation", () => {
     ).rejects.toThrow("CANONICAL_COMMAND_CORRELATION_AMBIGUOUS");
   });
 
-  it("authorizes a transfer callback without command_id only from one exact-leg command", async () => {
-    const transferCommand = {
-      ...command,
-      arguments: { replacesLegId: "source-leg" },
-    };
+  it("authorizes a callback without command_id only from one exact-leg command", async () => {
     const tx = {
       callCenterCommand: {
-        findMany: async () => [transferCommand],
+        findMany: async () => [command],
         findUnique: async () => null,
         updateMany: async () => ({ count: 1 }),
       },
@@ -816,7 +691,7 @@ describe("canonical provider command correlation", () => {
         },
         target,
       ),
-    ).resolves.toEqual(transferCommand);
+    ).resolves.toEqual(command);
   });
 
   it("ignores unknown legacy IDs but rejects an unknown canonical command", async () => {
@@ -1015,7 +890,6 @@ describe("canonical provider lifecycle callbacks", () => {
       expect(update).toMatchObject({
         data: {
           errorCode: outcome === "FAILED" ? "PROVIDER_CALLBACK_FAILED" : null,
-          nextAttemptAt: null,
           status: outcome,
         },
       });

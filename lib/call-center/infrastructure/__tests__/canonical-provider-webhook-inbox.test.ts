@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   canonicalProjectionMainLaneWhere,
-  canonicalProjectionRetryAt,
   createCanonicalProjectionInbox,
   type CanonicalProjectionInboxStore,
   type CanonicalProjectionRecord,
@@ -14,7 +13,6 @@ function event(): CanonicalProjectionRecord {
   return {
     canonicalProjectionAttemptCount: 1,
     canonicalProjectionErrorCode: null,
-    canonicalProjectionNextAttemptAt: null,
     canonicalProjectionStatus: "PROCESSING",
     effectOwner: "CANONICAL",
     eventType: "call.initiated",
@@ -34,7 +32,6 @@ function store(
     claim: async () => event(),
     completeIgnored: async () => true,
     fail: async () => true,
-    hasIgnoredLegacySession: async () => false,
     ...overrides,
   };
 }
@@ -66,8 +63,11 @@ describe("canonical projection inbox", () => {
     ]);
   });
 
-  it("leaves projection retry timing to the provider", () => {
-    expect(canonicalProjectionRetryAt(1, now)).toBeNull();
-    expect(canonicalProjectionRetryAt(8, now)).toBeNull();
+  it("keeps exhausted canonical events on the failure path", async () => {
+    const inbox = createCanonicalProjectionInbox(
+      store({ claim: async () => "EXHAUSTED" }),
+    );
+
+    await expect(inbox.claim("event-1")).resolves.toBe("EXHAUSTED");
   });
 });
