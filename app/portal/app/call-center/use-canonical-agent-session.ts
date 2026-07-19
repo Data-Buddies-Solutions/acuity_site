@@ -6,6 +6,7 @@ import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 
 import { callCenterResponse, operatorErrorCopy } from "./call-center-errors";
+import { callCenterRetryDelay } from "./call-center-retry";
 
 export type CanonicalAgentConnectionState = "CLOSED" | "CONNECTING" | "ERROR" | "READY";
 
@@ -16,6 +17,7 @@ export type CanonicalAgentSessionOptions = {
   microphoneReady: boolean;
   presence: AgentSessionView["presence"];
   projectedSession?: AgentSessionView | null;
+  retryBaseMs?: number;
 };
 
 type AcquisitionResponse = {
@@ -39,15 +41,6 @@ type Readiness = Pick<
 >;
 
 const RECOVERY_RETRY_BASE_MS = 1_000;
-const RECOVERY_RETRY_MAX_MS = 30_000;
-
-function recoveryRetryDelay(attempt: number) {
-  const ceiling = Math.min(
-    RECOVERY_RETRY_BASE_MS * 2 ** Math.min(attempt, 5),
-    RECOVERY_RETRY_MAX_MS,
-  );
-  return Math.floor(ceiling * (0.75 + Math.random() * 0.25));
-}
 
 function needsRecovery(
   session: AgentSessionView,
@@ -67,6 +60,12 @@ function isRetryableRecoveryError(error: unknown) {
 
 export function canonicalHeartbeatPresence(requested: AgentSessionView["presence"]) {
   return requested === "BUSY" ? "AVAILABLE" : requested;
+}
+
+export function canonicalStartupConnectionState(readiness: Readiness) {
+  return readiness.presence !== "OFFLINE" && readiness.connectionState === "CLOSED"
+    ? ("CONNECTING" as const)
+    : readiness.connectionState;
 }
 
 function message(error: unknown, action: "connect" | "readiness") {
@@ -110,6 +109,7 @@ export function useCanonicalAgentSession({
   microphoneReady,
   presence,
   projectedSession = null,
+  retryBaseMs = RECOVERY_RETRY_BASE_MS,
 }: CanonicalAgentSessionOptions) {
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<AgentSessionView | null>(null);
@@ -129,6 +129,10 @@ export function useCanonicalAgentSession({
   const recoveryRetryAttemptRef = useRef(0);
   const recoveryRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPromiseRef = useRef<Promise<ActiveSession | undefined> | null>(null);
+  const startupPromiseRef = useRef<Promise<void> | null>(null);
+  const startupRetryAttemptRef = useRef(0);
+  const startupRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const readinessRef = useRef<Readiness>({
     audioReady,
     connectionState,
@@ -152,6 +156,17 @@ export function useCanonicalAgentSession({
     clearRecoveryTimer();
     recoveryRetryAttemptRef.current = 0;
   }, [clearRecoveryTimer]);
+
+  const clearStartupTimer = useCallback(() => {
+    if (!startupRetryRef.current) return;
+    clearTimeout(startupRetryRef.current);
+    startupRetryRef.current = null;
+  }, []);
+
+  const resetStartupRetry = useCallback(() => {
+    clearStartupTimer();
+    startupRetryAttemptRef.current = 0;
+  }, [clearStartupTimer]);
 
   const drainReadiness = useCallback(async () => {
     clearHeartbeat();
@@ -182,6 +197,7 @@ export function useCanonicalAgentSession({
           body: JSON.stringify({
             ...readinessRef.current,
             clientInstanceId: active.clientInstanceId,
+            connectionState: canonicalStartupConnectionState(readinessRef.current),
             expectedStateVersion: requestedStateVersion,
             presence: canonicalHeartbeatPresence(readinessRef.current.presence),
           }),
@@ -338,6 +354,7 @@ export function useCanonicalAgentSession({
     activeRef.current = null;
     clearHeartbeat();
     resetRecoveryRetry();
+    resetStartupRetry();
     patchRequestedRef.current = false;
     if (mountedRef.current) {
       setSession(null);
@@ -348,15 +365,16 @@ export function useCanonicalAgentSession({
     });
     releasePromiseRef.current = pending;
     await pending;
-  }, [clearHeartbeat, release, resetRecoveryRetry]);
+  }, [clearHeartbeat, release, resetRecoveryRetry, resetStartupRetry]);
 
   const stop = useCallback(async () => {
     lifecycleRef.current += 1;
+    resetStartupRetry();
     await deactivate();
-  }, [deactivate]);
+  }, [deactivate, resetStartupRetry]);
 
   const startSession = useCallback(
-    async (force = false) => {
+    async (force = false, propagateFailure = false) => {
       const generation = ++lifecycleRef.current;
       const previousStart = startPromiseRef.current;
       const pending = (async () => {
@@ -408,7 +426,7 @@ export function useCanonicalAgentSession({
           return active;
         } catch (startError) {
           if (mountedRef.current) setError(message(startError, "connect"));
-          if (force) throw startError;
+          if (force || propagateFailure) throw startError;
         }
       })().finally(() => {
         if (startPromiseRef.current === pending) startPromiseRef.current = null;
@@ -420,9 +438,39 @@ export function useCanonicalAgentSession({
     [clientInstanceId, deactivate, patchReadiness, release],
   );
 
-  const start = useCallback(async () => {
-    await startSession();
-  }, [startSession]);
+  const start = useCallback(() => {
+    if (startupPromiseRef.current) return startupPromiseRef.current;
+    clearStartupTimer();
+    const pending = startSession(false, true)
+      .then((active) => {
+        if (active) resetStartupRetry();
+      })
+      .catch((startError) => {
+        if (
+          mountedRef.current &&
+          identityRef.current.clientInstanceId &&
+          isRetryableRecoveryError(startError)
+        ) {
+          const delay = callCenterRetryDelay(startupRetryAttemptRef.current, retryBaseMs);
+          startupRetryAttemptRef.current += 1;
+          startupRetryRef.current = setTimeout(() => {
+            startupRetryRef.current = null;
+            void startRef.current();
+          }, delay);
+        } else {
+          startupRetryAttemptRef.current = 0;
+        }
+      })
+      .finally(() => {
+        if (startupPromiseRef.current === pending) startupPromiseRef.current = null;
+      });
+    startupPromiseRef.current = pending;
+    return pending;
+  }, [clearStartupTimer, resetStartupRetry, retryBaseMs, startSession]);
+
+  useEffect(() => {
+    startRef.current = start;
+  }, [start]);
 
   const recoverExpiredSession = useCallback(
     (serverExpired = false) => {
@@ -465,7 +513,10 @@ export function useCanonicalAgentSession({
             !active.stopping &&
             isRetryableRecoveryError(recoveryError)
           ) {
-            const delay = recoveryRetryDelay(recoveryRetryAttemptRef.current);
+            const delay = callCenterRetryDelay(
+              recoveryRetryAttemptRef.current,
+              RECOVERY_RETRY_BASE_MS,
+            );
             recoveryRetryAttemptRef.current += 1;
             recoveryRetryRef.current = setTimeout(() => {
               recoveryRetryRef.current = null;
@@ -542,11 +593,12 @@ export function useCanonicalAgentSession({
       mountedRef.current = false;
       lifecycleRef.current += 1;
       resetRecoveryRetry();
+      resetStartupRetry();
       const active = activeRef.current;
       activeRef.current = null;
       if (active) void release(active);
     };
-  }, [release, resetRecoveryRetry]);
+  }, [release, resetRecoveryRetry, resetStartupRetry]);
 
   const effectiveSession =
     projectedSession &&

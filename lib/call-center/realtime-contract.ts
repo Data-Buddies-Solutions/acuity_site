@@ -1,4 +1,4 @@
-export const CALL_CENTER_SCHEMA_VERSION = 3 as const;
+export const CALL_CENTER_SCHEMA_VERSION = 4 as const;
 
 export type CallView = {
   id: string;
@@ -47,29 +47,11 @@ export type AgentSessionView = {
   stateVersion: number;
 };
 
-type AgentProfileView = {
-  id: string;
-  label: string;
-  locationId: string | null;
-  enabled: boolean;
-};
-
-export type TaskView = {
-  id: string;
-  callId: string | null;
-  kind: "CALLBACK" | "FOLLOW_UP" | "MISSED_CALL" | "NOTE" | "VOICEMAIL";
-  status: "OPEN" | "RESOLVED";
-  callerPhone: string | null;
-  createdAt: string;
-};
-
 export type CallCenterSnapshot = {
   schemaVersion: typeof CALL_CENTER_SCHEMA_VERSION;
   queueId: string;
-  agentProfile: AgentProfileView | null;
+  observedAt: string;
   calls: CallView[];
-  openTaskCount: number;
-  tasks: TaskView[];
 };
 
 export function selectIncomingCalls(state: CallCenterSnapshot) {

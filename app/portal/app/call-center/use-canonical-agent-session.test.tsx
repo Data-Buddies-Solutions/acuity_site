@@ -41,6 +41,19 @@ function acquisition() {
   });
 }
 
+function temporaryFailure() {
+  return Response.json(
+    {
+      error: {
+        code: "TEMPORARY_SERVICE_FAILURE",
+        referenceId: "ABC123",
+        retryable: true,
+      },
+    },
+    { status: 503 },
+  );
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -108,6 +121,69 @@ describe("useCanonicalAgentSession", () => {
       microphoneReady: true,
       presence: "AVAILABLE",
     });
+  });
+
+  it("reports initial closed browser media as connecting readiness", async () => {
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      requests.push({ method, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (method === "POST") return acquisition();
+      return Response.json({ session: agentSession(1) });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalAgentSession({
+        audioReady: false,
+        clientInstanceId: "browser-1",
+        connectionState: "CLOSED",
+        microphoneReady: false,
+        presence: "PAUSED",
+      }),
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() =>
+      expect(requests.some(({ method }) => method === "PATCH")).toBe(true),
+    );
+    expect(requests.at(-1)?.body).toMatchObject({
+      connectionState: "CONNECTING",
+      presence: "PAUSED",
+    });
+  });
+
+  it("retries transient initial acquisition without concurrent requests", async () => {
+    let concurrentPosts = 0;
+    let maxConcurrentPosts = 0;
+    let postCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        concurrentPosts += 1;
+        maxConcurrentPosts = Math.max(maxConcurrentPosts, concurrentPosts);
+        await Promise.resolve();
+        concurrentPosts -= 1;
+        if (postCount === 1) return temporaryFailure();
+        return acquisition();
+      }
+      return Response.json({ session: agentSession(1) });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalAgentSession({
+        audioReady: false,
+        clientInstanceId: "browser-1",
+        connectionState: "CONNECTING",
+        microphoneReady: false,
+        presence: "PAUSED",
+        retryBaseMs: 10,
+      }),
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.id).toBe("session-1"));
+    expect(postCount).toBe(2);
+    expect(maxConcurrentPosts).toBe(1);
   });
 
   it("coalesces readiness changes behind the in-flight PATCH and reuses its revision", async () => {

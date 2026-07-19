@@ -93,6 +93,72 @@ describe("useSoftphoneMedia canonical credentials", () => {
     ]);
   });
 
+  it("retries a transient token failure without overlapping requests", async () => {
+    let concurrentRequests = 0;
+    let maxConcurrentRequests = 0;
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      concurrentRequests += 1;
+      maxConcurrentRequests = Math.max(maxConcurrentRequests, concurrentRequests);
+      await Promise.resolve();
+      concurrentRequests -= 1;
+      if (requestCount === 1) {
+        return Response.json(
+          {
+            error: {
+              code: "TEMPORARY_SERVICE_FAILURE",
+              referenceId: "ABC123",
+              retryable: true,
+            },
+          },
+          { status: 503 },
+        );
+      }
+      return Response.json({ token: "canonical-token" });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+        retryBaseMs: 10,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+    expect(requestCount).toBe(2);
+    expect(maxConcurrentRequests).toBe(1);
+    expect(clients).toHaveLength(1);
+  });
+
+  it("creates a fresh Telnyx client after fatal registration failure", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+        retryBaseMs: 10,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    act(() =>
+      clients[0]?.emit("telnyx.error", {
+        error: { fatal: true, message: "Registration failed" },
+      }),
+    );
+
+    await waitFor(() => expect(clients).toHaveLength(2));
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+    expect(clients[0]?.disconnectCount).toBe(1);
+  });
+
   it("treats provider recovery as connecting until ready or fatally failed", async () => {
     globalThis.fetch = mock(async () =>
       Response.json({ token: "canonical-token" }),
