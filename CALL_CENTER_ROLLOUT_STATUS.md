@@ -14,8 +14,8 @@ The portal uses one canonical call-center runtime:
   policy have no runtime owner;
 - provider commands dispatch inline, while one authenticated bounded outbox
   drain recovers committed commands after an interrupted request;
-- migration `20260719180000_remove_call_center_rollback_state` removes the
-  rollback-only columns after explicit release-owner confirmation.
+- migration `20260719180000_remove_call_center_rollback_state` removed the
+  rollback-only columns from production on July 19.
 
 ## Read-only production proof
 
@@ -34,19 +34,19 @@ The July 19 audit found:
 | Active legacy-owned calls                 |      0 |
 
 The 604 duplicate deadlines belong only to terminal historical calls; the
-migration drops that redundant timestamp without rewriting or deleting those
+migration dropped that redundant timestamp without rewriting or deleting those
 calls. The audit also recorded preservation baselines of 12,841 calls, 2,044
 legs, 28,696 events, 9,415 tasks, and 3,132 voicemails.
+
+Post-migration verification found zero retired columns, one successful migration
+attempt, zero unresolved attempts, both canonical Call fields
+(`deadlineAt`/`effectOwner`), and the Agent Session readiness constraint intact.
 
 ## Deployment gate
 
 Before merging, require schema validation, lint, TypeScript, the full functional
-suite, the isolated migration test, and a production build. While the cleanup
-migration is pending, production migration execution requires `confirm=DEPLOY`
-and `confirm_call_center_rollback_closed=ROLLBACK CLOSED`. The migration repeats
-the data gate and aborts before deletion if queue policy, session pointers, or
-an active duplicate deadline reappear. Later unrelated migrations do not require
-the issue-specific confirmation. Before production verification, configure
-`CRON_SECRET`. After deployment, prove inbound offer, Answer, one bridge winner,
-hangup/release, no-agent voicemail, outbound dial, direct handoff, terminal
-history, and outbox recovery.
+suite, a clean replay of the complete migration history, and a production build.
+Production migration execution requires only `confirm=DEPLOY`. Before production
+verification, configure `CRON_SECRET`. After deployment, prove inbound offer,
+Answer, one bridge winner, hangup/release, no-agent voicemail, outbound dial,
+direct handoff, terminal history, and outbox recovery.
