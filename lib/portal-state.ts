@@ -5,7 +5,12 @@ import { cache } from "react";
 import { isExplicitAdminEmail } from "./admin-auth";
 import { getAuthSession } from "./auth";
 import { getCurrentPortalPracticeContext } from "./portal-access";
-import { emptyPracticeBranding, type PracticeBranding } from "./practice-branding";
+import { prisma } from "./prisma";
+import {
+  emptyPracticeBranding,
+  getPracticeBranding,
+  type PracticeBranding,
+} from "./practice-branding";
 import {
   getPracticeWorkspaceSnapshotForPractice,
   getPracticeWorkspaceSnapshotForUser,
@@ -100,6 +105,12 @@ export type PortalWorkspaceState = {
   readyToLaunch: boolean;
   sections: PortalSection[];
   totalSections: number;
+};
+
+export type PortalShellState = {
+  branding: PracticeBranding;
+  launched: boolean;
+  practiceName: string;
 };
 
 export type PortalSection = PortalSectionDefinition & {
@@ -458,6 +469,58 @@ async function readPortalWorkspaceState(): Promise<PortalWorkspaceState> {
 }
 
 export const getPortalWorkspaceState = cache(readPortalWorkspaceState);
+
+async function readPortalShellState(): Promise<PortalShellState> {
+  const session = await getAuthSession();
+  if (!session) {
+    const cookieState = await readPortalCookieState();
+    return {
+      branding: emptyPracticeBranding,
+      launched: cookieState.launched,
+      practiceName: cookieState.draft.practiceName,
+    };
+  }
+  if (isExplicitAdminEmail(session.user.email)) {
+    redirect("/admin/practices");
+  }
+
+  const membership = await prisma.practiceMembership.findFirst({
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    select: {
+      practice: {
+        select: {
+          brandAccentColor: true,
+          brandLogoAlt: true,
+          brandLogoUrl: true,
+          brandMarkUrl: true,
+          brandPrimaryColor: true,
+          launchedAt: true,
+          name: true,
+          onboardingStatus: true,
+        },
+      },
+    },
+    where: { userId: session.user.id },
+  });
+  if (membership) {
+    return {
+      branding: getPracticeBranding(membership.practice),
+      launched:
+        Boolean(membership.practice.launchedAt) ||
+        membership.practice.onboardingStatus === "LIVE",
+      practiceName: membership.practice.name,
+    };
+  }
+
+  const cookieState = await readPortalCookieState();
+  return {
+    branding: emptyPracticeBranding,
+    launched: cookieState.launched,
+    practiceName: cookieState.draft.practiceName,
+  };
+}
+
+export const getPortalShellState = cache(readPortalShellState);
 
 export async function getFreshPortalWorkspaceState(): Promise<PortalWorkspaceState> {
   return readPortalWorkspaceState();

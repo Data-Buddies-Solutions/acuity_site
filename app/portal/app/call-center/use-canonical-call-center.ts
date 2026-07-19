@@ -9,9 +9,11 @@ import {
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 
 import { callCenterResponse } from "./call-center-errors";
+import { callCenterRetryDelay } from "./call-center-retry";
 
 type HookState = {
   error: Error | null;
+  errorAt: string | null;
   loading: boolean;
   scopeKey: string;
   state: CallCenterSnapshot | null;
@@ -19,6 +21,7 @@ type HookState = {
 
 const initialState: HookState = {
   error: null,
+  errorAt: null,
   loading: true,
   scopeKey: "",
   state: null,
@@ -48,23 +51,22 @@ function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapsho
     return false;
   }
   return (
-    Number.isInteger(value.openTaskCount) &&
-    Number(value.openTaskCount) >= 0 &&
+    typeof value.observedAt === "string" &&
+    Number.isFinite(Date.parse(value.observedAt)) &&
     Array.isArray(value.calls) &&
-    value.calls.every(hasVersion) &&
-    (value.agentProfile === null || hasId(value.agentProfile)) &&
-    Array.isArray(value.tasks) &&
-    value.tasks.every(hasId)
+    value.calls.every(hasVersion)
   );
 }
 
 export type UseCanonicalCallCenterOptions = {
   pollIntervalMs?: number;
   queueId: string;
+  retryBaseMs?: number;
 };
 
 export type UseCanonicalCallCenterResult = {
   error: Error | null;
+  errorAt: string | null;
   loading: boolean;
   refetch: () => void;
   state: CallCenterSnapshot | null;
@@ -76,6 +78,7 @@ export type UseCanonicalCallCenterResult = {
 export function useCanonicalCallCenter({
   pollIntervalMs = 2_000,
   queueId,
+  retryBaseMs = 1_000,
 }: UseCanonicalCallCenterOptions): UseCanonicalCallCenterResult {
   const [model, setModel] = useState(initialState);
   const readNowRef = useRef<() => void>(() => {});
@@ -87,11 +90,13 @@ export function useCanonicalCallCenter({
     let controller: AbortController | null = null;
     let inFlight = false;
     let readQueued = false;
+    let retryAttempt = 0;
+    let retryDelayMs = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const schedule = () => {
+    const schedule = (delayMs = pollIntervalMs) => {
       if (!active) return;
-      timer = setTimeout(read, pollIntervalMs);
+      timer = setTimeout(read, delayMs);
     };
 
     const readNow = () => {
@@ -115,15 +120,24 @@ export function useCanonicalCallCenter({
       try {
         const response = await fetch(
           requestUrl("/api/portal/call-center/snapshot", { queueId }),
-          { signal: controller.signal },
+          {
+            headers: {
+              "X-Call-Center-Retry-Attempt": String(retryAttempt),
+              "X-Call-Center-Retry-Delay-Ms": String(retryDelayMs),
+            },
+            signal: controller.signal,
+          },
         );
         const data: unknown = await callCenterResponse(response);
         if (!isSnapshot(data, queueId)) {
           throw new Error("Call center returned an incompatible snapshot");
         }
         if (!active) return;
+        retryAttempt = 0;
+        retryDelayMs = 0;
         setModel({
           error: null,
+          errorAt: null,
           loading: false,
           scopeKey,
           state: data,
@@ -134,9 +148,15 @@ export function useCanonicalCallCenter({
           error instanceof Error ? error : new Error("Failed to load call center");
         const accessDenied =
           error instanceof CallCenterRequestError &&
-          ["ACCESS_DENIED", "AUTH_REQUIRED"].includes(error.operatorError.code);
+          ["ACCESS_DENIED", "AUTH_REQUIRED", "QUEUE_UNAVAILABLE"].includes(
+            error.operatorError.code,
+          );
+        const retryable =
+          !(error instanceof CallCenterRequestError) || error.operatorError.retryable;
+        if (retryable) retryAttempt += 1;
         setModel((current) => ({
           error: nextError,
+          errorAt: new Date().toISOString(),
           loading: false,
           scopeKey,
           state: accessDenied || current.scopeKey !== scopeKey ? null : current.state,
@@ -149,7 +169,10 @@ export function useCanonicalCallCenter({
           readQueued = false;
           queueMicrotask(readNow);
         } else {
-          schedule();
+          retryDelayMs = retryAttempt
+            ? callCenterRetryDelay(Math.max(0, retryAttempt - 1), retryBaseMs)
+            : 0;
+          schedule(retryDelayMs || pollIntervalMs);
         }
       }
     }
@@ -163,7 +186,7 @@ export function useCanonicalCallCenter({
       if (timer) clearTimeout(timer);
       controller?.abort();
     };
-  }, [pollIntervalMs, queueId, scopeKey]);
+  }, [pollIntervalMs, queueId, retryBaseMs, scopeKey]);
 
   return {
     ...(model.scopeKey === scopeKey ? model : initialState),

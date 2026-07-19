@@ -8,14 +8,30 @@ import { useCanonicalCallCenter } from "./use-canonical-call-center";
 const originalFetch = globalThis.fetch;
 const originalEventSource = globalThis.EventSource;
 
-function snapshot(openTaskCount = 0, queueId = "queue-1"): CallCenterSnapshot {
+function snapshot(stateVersion = 0, queueId = "queue-1"): CallCenterSnapshot {
   return {
-    agentProfile: null,
-    calls: [],
-    openTaskCount,
+    calls: stateVersion
+      ? [
+          {
+            answeredAt: null,
+            callerName: null,
+            direction: "INBOUND",
+            endedAt: null,
+            fromPhone: "+17865550100",
+            id: "call-1",
+            legs: [],
+            queueId,
+            receivedAt: "2026-07-19T10:00:00.000Z",
+            stateVersion,
+            status: "RINGING",
+            toPhone: "+17865550101",
+            winningLegId: null,
+          },
+        ]
+      : [],
+    observedAt: "2026-07-19T10:00:00.000Z",
     queueId,
-    schemaVersion: 3,
-    tasks: [],
+    schemaVersion: 4,
   };
 }
 
@@ -29,6 +45,19 @@ function temporaryFailure() {
       },
     },
     { status: 503 },
+  );
+}
+
+function accessDenied() {
+  return Response.json(
+    {
+      error: {
+        code: "ACCESS_DENIED",
+        referenceId: "ABC123",
+        retryable: false,
+      },
+    },
+    { status: 403 },
   );
 }
 
@@ -58,7 +87,9 @@ describe("useCanonicalCallCenter", () => {
       }),
     );
 
-    await waitFor(() => expect(result.current.state?.openTaskCount).toBeGreaterThan(1));
+    await waitFor(() =>
+      expect(result.current.state?.calls[0]?.stateVersion).toBeGreaterThan(1),
+    );
     expect(result.current.loading).toBe(false);
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       1,
@@ -92,14 +123,16 @@ describe("useCanonicalCallCenter", () => {
     expect(result.current.loading).toBe(true);
 
     await act(async () => finish?.(Response.json(snapshot(1))));
-    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(1));
+    await waitFor(() => expect(result.current.state?.calls[0]?.stateVersion).toBe(1));
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
   });
 
   it("keeps the last state after a failed read and retries on the next interval", async () => {
     let requestCount = 0;
-    globalThis.fetch = mock(async () => {
+    const requestHeaders: Record<string, string>[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
       requestCount += 1;
+      requestHeaders.push(init?.headers as Record<string, string>);
       if (requestCount === 1) return Response.json(snapshot(1));
       if (requestCount === 2) return temporaryFailure();
       return Response.json(snapshot(3));
@@ -109,18 +142,25 @@ describe("useCanonicalCallCenter", () => {
       useCanonicalCallCenter({
         pollIntervalMs: 30,
         queueId: "queue-1",
+        retryBaseMs: 30,
       }),
     );
 
-    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(1));
+    await waitFor(() => expect(result.current.state?.calls[0]?.stateVersion).toBe(1));
     await waitFor(() =>
       expect(result.current.error?.message).toBe("TEMPORARY_SERVICE_FAILURE"),
     );
-    expect(result.current.state?.openTaskCount).toBe(1);
+    expect(result.current.state?.calls[0]?.stateVersion).toBe(1);
     expect(result.current.loading).toBe(false);
 
-    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(3));
+    await waitFor(() => expect(result.current.state?.calls[0]?.stateVersion).toBe(3));
     expect(result.current.error).toBeNull();
+    expect(
+      requestHeaders.slice(0, 3).map((headers) => headers["X-Call-Center-Retry-Attempt"]),
+    ).toEqual(["0", "0", "1"]);
+    expect(Number(requestHeaders[2]?.["X-Call-Center-Retry-Delay-Ms"])).toBeGreaterThan(
+      0,
+    );
   });
 
   it("supports an immediate read without overlapping the current request", async () => {
@@ -136,9 +176,28 @@ describe("useCanonicalCallCenter", () => {
       }),
     );
 
-    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(1));
+    await waitFor(() => expect(result.current.state?.calls[0]?.stateVersion).toBe(1));
     act(() => result.current.refetch());
-    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(2));
+    await waitFor(() => expect(result.current.state?.calls[0]?.stateVersion).toBe(2));
+  });
+
+  it("clears retained calls when queue authorization is lost", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return requestCount === 1 ? Response.json(snapshot(1)) : accessDenied();
+    }) as unknown as typeof fetch;
+    const { result } = renderHook(() =>
+      useCanonicalCallCenter({
+        pollIntervalMs: 60_000,
+        queueId: "queue-1",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.state?.calls[0]?.id).toBe("call-1"));
+    act(() => result.current.refetch());
+    await waitFor(() => expect(result.current.error?.message).toBe("ACCESS_DENIED"));
+    expect(result.current.state).toBeNull();
   });
 
   it("aborts an obsolete read when the operator scope changes", async () => {
@@ -166,7 +225,7 @@ describe("useCanonicalCallCenter", () => {
     expect(firstSignal?.aborted).toBe(true);
     resolveFirst?.(Response.json(snapshot(1)));
 
-    await waitFor(() => expect(result.current.state?.openTaskCount).toBe(2));
+    await waitFor(() => expect(result.current.state?.calls[0]?.stateVersion).toBe(2));
   });
 
   it("rejects an incompatible snapshot schema", async () => {

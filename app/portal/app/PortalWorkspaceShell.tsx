@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -40,19 +40,6 @@ type NavItem = {
   label: string;
 };
 
-type NavAttention = number | "new" | undefined;
-
-const BOOKING_SEEN_EVENT = "acuity:booking-seen";
-
-function subscribeToBookingSeen(onStoreChange: () => void) {
-  window.addEventListener("storage", onStoreChange);
-  window.addEventListener(BOOKING_SEEN_EVENT, onStoreChange);
-  return () => {
-    window.removeEventListener("storage", onStoreChange);
-    window.removeEventListener(BOOKING_SEEN_EVENT, onStoreChange);
-  };
-}
-
 const setupNavItems = [
   { href: "/portal/app/onboarding", icon: ClipboardList, label: "Onboarding" },
 ] satisfies NavItem[];
@@ -83,7 +70,7 @@ function isCurrentPath(pathname: string, href: string) {
 }
 
 function SidebarLink({
-  attention,
+  disablePrefetch = false,
   href,
   icon: Icon,
   isCollapsed = false,
@@ -91,26 +78,16 @@ function SidebarLink({
   label,
   pathname,
 }: NavItem & {
-  attention?: NavAttention;
+  disablePrefetch?: boolean;
   isCollapsed?: boolean;
   isIndented?: boolean;
   pathname: string;
 }) {
   const isActive = isCurrentPath(pathname, href);
-  const attentionLabel =
-    attention === "new"
-      ? "new booking"
-      : typeof attention === "number"
-        ? `${attention} outstanding ${attention === 1 ? "task" : "tasks"}`
-        : null;
 
   return (
     <Link
-      aria-label={
-        isCollapsed || attentionLabel
-          ? `${label}${attentionLabel ? `, ${attentionLabel}` : ""}`
-          : undefined
-      }
+      aria-label={isCollapsed ? label : undefined}
       className={cn(
         "group relative inline-flex h-11 items-center rounded-xl text-sm font-medium transition",
         isCollapsed ? "w-11 justify-center px-0" : "min-w-fit gap-3 px-3 xl:w-full",
@@ -120,24 +97,10 @@ function SidebarLink({
           : "text-[#667085] hover:bg-[#edf4ff] hover:text-[#536a91]",
       )}
       href={href}
+      prefetch={disablePrefetch ? false : undefined}
     >
       <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
       <span className={cn(isCollapsed ? "sr-only" : "truncate")}>{label}</span>
-      {attention ? (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "inline-flex items-center justify-center bg-[var(--portal-danger)] font-mono font-semibold tabular-nums text-white",
-            isCollapsed
-              ? "absolute right-1.5 top-1.5 min-h-3.5 min-w-3.5 rounded-full px-1 text-[9px] leading-none ring-2 ring-white"
-              : attention === "new"
-                ? "ml-auto h-5 rounded-full px-2 text-[10px]"
-                : "ml-auto h-5 min-w-5 rounded-full px-1.5 text-[10px]",
-          )}
-        >
-          {attention === "new" ? (isCollapsed ? "" : "New") : Math.min(attention, 99)}
-        </span>
-      ) : null}
       {isCollapsed ? (
         <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-lg bg-[#151a24] px-3 py-1.5 text-sm font-medium text-white opacity-0 shadow-[0_10px_30px_rgba(16,24,40,0.18)] transition group-hover:opacity-100 group-focus-visible:opacity-100">
           <span
@@ -152,23 +115,17 @@ function SidebarLink({
 }
 
 function MobileDockLink({
-  attention,
+  disablePrefetch = false,
   href,
   icon: Icon,
   label,
   pathname,
-}: NavItem & { attention?: NavAttention; pathname: string }) {
+}: NavItem & { disablePrefetch?: boolean; pathname: string }) {
   const isActive = isCurrentPath(pathname, href);
 
   return (
     <Link
-      aria-label={
-        attention === "new"
-          ? `${label}, new booking`
-          : typeof attention === "number"
-            ? `${label}, ${attention} outstanding ${attention === 1 ? "task" : "tasks"}`
-            : label
-      }
+      aria-label={label}
       className={cn(
         "relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition",
         isActive
@@ -176,18 +133,9 @@ function MobileDockLink({
           : "text-[var(--portal-muted)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
       )}
       href={href}
+      prefetch={disablePrefetch ? false : undefined}
     >
-      <span className="relative">
-        <Icon className="size-5" aria-hidden="true" />
-        {attention ? (
-          <span
-            aria-hidden="true"
-            className="absolute -right-2.5 -top-1.5 inline-flex min-h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--portal-danger)] px-1 font-mono text-[9px] font-semibold leading-none text-white ring-2 ring-white"
-          >
-            {attention === "new" ? "" : Math.min(attention, 99)}
-          </span>
-        ) : null}
-      </span>
+      <Icon className="size-5" aria-hidden="true" />
       <span className="max-w-full truncate">{label}</span>
     </Link>
   );
@@ -195,11 +143,13 @@ function MobileDockLink({
 
 function MobileMoreMenu({
   accountName,
+  disablePrefetch,
   pathname,
   practiceBranding,
   userEmail,
 }: {
   accountName: string;
+  disablePrefetch: boolean;
   pathname: string;
   practiceBranding: PracticeBranding;
   userEmail?: string;
@@ -250,6 +200,7 @@ function MobileMoreMenu({
                         : "text-[var(--portal-ink-soft)] hover:bg-[var(--portal-panel)] hover:text-[var(--portal-ink)]",
                     )}
                     href={href}
+                    prefetch={disablePrefetch ? false : undefined}
                   >
                     <Icon className="size-[18px]" aria-hidden="true" />
                     {label}
@@ -270,16 +221,12 @@ function MobileMoreMenu({
 export default function PortalWorkspaceShell({
   children,
   isLive,
-  latestBookingAt,
-  outstandingTaskCount,
   practiceBranding,
   practiceName,
   userEmail,
 }: Readonly<{
   children: React.ReactNode;
   isLive: boolean;
-  latestBookingAt: string | null;
-  outstandingTaskCount: number;
   practiceBranding: PracticeBranding;
   practiceName?: string;
   userEmail?: string;
@@ -296,49 +243,7 @@ export default function PortalWorkspaceShell({
   const isSidebarCollapsed = !isSidebarExpanded;
   const isPreparing = pathname.startsWith("/portal/app/preparing");
   const isFocusedSetup = pathname.startsWith("/portal/app/onboarding") || isPreparing;
-  const bookingSeenKey = `acuity.portal.booking-seen:${userEmail ?? accountName}`;
-  const hasNewBooking = useSyncExternalStore(
-    subscribeToBookingSeen,
-    () => {
-      if (!latestBookingAt || isCurrentPath(pathname, "/portal/app/bookings")) {
-        return false;
-      }
-      const latestTimestamp = Date.parse(latestBookingAt);
-      const seenBookingAt = window.localStorage.getItem(bookingSeenKey);
-      const seenTimestamp = seenBookingAt ? Date.parse(seenBookingAt) : Number.NaN;
-      return (
-        Number.isFinite(latestTimestamp) &&
-        Number.isFinite(seenTimestamp) &&
-        latestTimestamp > seenTimestamp
-      );
-    },
-    () => false,
-  );
-
-  useEffect(() => {
-    if (!latestBookingAt) return;
-
-    const latestTimestamp = Date.parse(latestBookingAt);
-    if (!Number.isFinite(latestTimestamp)) return;
-
-    const seenBookingAt = window.localStorage.getItem(bookingSeenKey);
-    const seenTimestamp = seenBookingAt ? Date.parse(seenBookingAt) : Number.NaN;
-    if (
-      isCurrentPath(pathname, "/portal/app/bookings") ||
-      !Number.isFinite(seenTimestamp)
-    ) {
-      window.localStorage.setItem(bookingSeenKey, latestBookingAt);
-      window.dispatchEvent(new Event(BOOKING_SEEN_EVENT));
-    }
-  }, [bookingSeenKey, latestBookingAt, pathname]);
-
-  function attentionForItem(item: NavItem): NavAttention {
-    if (item.href === "/portal/app/bookings" && hasNewBooking) return "new";
-    if (item.href === "/portal/app/tasking" && outstandingTaskCount > 0) {
-      return outstandingTaskCount;
-    }
-    return undefined;
-  }
+  const disablePrefetch = pathname === "/portal/app/call-center";
 
   if (isPreparing) {
     return <>{children}</>;
@@ -428,6 +333,7 @@ export default function PortalWorkspaceShell({
             {isLive ? (
               <MobileMoreMenu
                 accountName={accountName}
+                disablePrefetch={disablePrefetch}
                 pathname={pathname}
                 practiceBranding={practiceBranding}
                 userEmail={userEmail}
@@ -442,7 +348,7 @@ export default function PortalWorkspaceShell({
         <nav className="hidden gap-2 overflow-x-auto border-t border-[#edf0f5] px-4 py-3 md:flex xl:hidden">
           {navItems.map((item) => (
             <SidebarLink
-              attention={attentionForItem(item)}
+              disablePrefetch={disablePrefetch}
               key={item.href}
               {...item}
               pathname={pathname}
@@ -450,7 +356,12 @@ export default function PortalWorkspaceShell({
           ))}
           {isLive
             ? liveDocumentNavItems.map((item) => (
-                <SidebarLink key={item.href} {...item} pathname={pathname} />
+                <SidebarLink
+                  disablePrefetch={disablePrefetch}
+                  key={item.href}
+                  {...item}
+                  pathname={pathname}
+                />
               ))
             : null}
         </nav>
@@ -471,7 +382,7 @@ export default function PortalWorkspaceShell({
           >
             {navItems.map((item) => (
               <SidebarLink
-                attention={attentionForItem(item)}
+                disablePrefetch={disablePrefetch}
                 key={item.href}
                 {...item}
                 isCollapsed={isSidebarCollapsed}
@@ -483,6 +394,7 @@ export default function PortalWorkspaceShell({
               <div className="mt-4 flex flex-col items-center gap-1 border-t border-[#edf0f5] pt-4">
                 {liveDocumentNavItems.map((item) => (
                   <SidebarLink
+                    disablePrefetch={disablePrefetch}
                     key={item.href}
                     {...item}
                     isCollapsed
@@ -529,6 +441,7 @@ export default function PortalWorkspaceShell({
                     <div className="mt-2 flex flex-col gap-1">
                       {liveDocumentNavItems.map((item) => (
                         <SidebarLink
+                          disablePrefetch={disablePrefetch}
                           key={item.href}
                           {...item}
                           isIndented
@@ -590,7 +503,7 @@ export default function PortalWorkspaceShell({
         >
           {livePrimaryNavItems.map((item) => (
             <MobileDockLink
-              attention={attentionForItem(item)}
+              disablePrefetch={disablePrefetch}
               key={item.href}
               {...item}
               pathname={pathname}
