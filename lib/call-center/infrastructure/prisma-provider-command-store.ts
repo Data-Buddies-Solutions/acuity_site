@@ -273,11 +273,11 @@ async function loadProviderCommandClaim(
   }
 
   const leg = command.leg;
-  const cleanupHangup = command.type === "HANGUP_LEG";
+  const cleanupCommand = ["HANGUP_LEG", "STOP_HOLD_MUSIC"].includes(command.type);
   if (
     !leg ||
     leg.callId !== command.callId ||
-    (!cleanupHangup && ["ENDED", "FAILED"].includes(leg.status))
+    (!cleanupCommand && ["ENDED", "FAILED"].includes(leg.status))
   ) {
     return reject("COMMAND_PROVIDER_LEG_INVALID");
   }
@@ -287,6 +287,7 @@ async function loadProviderCommandClaim(
 
   const allowedAfterTerminal =
     command.type === "HANGUP_LEG" ||
+    command.type === "STOP_HOLD_MUSIC" ||
     (command.call.status === "VOICEMAIL" &&
       [
         "ANSWER_CUSTOMER",
@@ -313,6 +314,16 @@ async function loadProviderCommandClaim(
   ].includes(command.type);
   if (customerLegCommand && leg.kind !== "CUSTOMER") {
     return reject("COMMAND_CUSTOMER_LEG_INVALID");
+  }
+  const holdMusicCommand = ["START_HOLD_MUSIC", "STOP_HOLD_MUSIC"].includes(command.type);
+  if (
+    holdMusicCommand &&
+    (leg.kind !== "AGENT" ||
+      (command.type === "START_HOLD_MUSIC" &&
+        (command.call.status !== "CONNECTED" ||
+          !["ANSWERED", "BRIDGED"].includes(leg.status))))
+  ) {
+    return reject("COMMAND_AGENT_LEG_INVALID");
   }
 
   let dispatchArguments:
@@ -516,6 +527,12 @@ async function loadProviderCommandClaim(
     case "STOP_PLAYBACK":
       dispatchCommand = { ...base, arguments: {}, type: "STOP_PLAYBACK" };
       break;
+    case "START_HOLD_MUSIC":
+      dispatchCommand = { ...base, arguments: {}, type: "START_HOLD_MUSIC" };
+      break;
+    case "STOP_HOLD_MUSIC":
+      dispatchCommand = { ...base, arguments: {}, type: "STOP_HOLD_MUSIC" };
+      break;
     case "HANGUP_LEG":
       dispatchCommand = { ...base, arguments: {}, type: "HANGUP_LEG" };
       break;
@@ -616,6 +633,36 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
       },
     });
     return commands.map(({ id }) => id);
+  }
+
+  async markConfirmed(input: { attemptCount: number; commandId: string; now: Date }) {
+    return this.runTransaction(async (transaction) => {
+      const updated = await transaction.callCenterCommand.updateMany({
+        data: {
+          errorCode: null,
+          status: "CONFIRMED",
+          updatedAt: input.now,
+        },
+        where: {
+          attemptCount: input.attemptCount,
+          id: input.commandId,
+          status: "SENDING",
+        },
+      });
+      if (updated.count === 1) return "MARKED" as const;
+
+      const command = await transaction.callCenterCommand.findUnique({
+        select: { attemptCount: true, status: true },
+        where: { id: input.commandId },
+      });
+      return command
+        ? decideProviderCommandMarkSent(
+            command.status,
+            command.attemptCount,
+            input.attemptCount,
+          )
+        : "STALE";
+    });
   }
 
   async markSent(input: { attemptCount: number; commandId: string; now: Date }) {

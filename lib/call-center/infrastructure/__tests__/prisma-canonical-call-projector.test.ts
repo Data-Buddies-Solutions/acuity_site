@@ -18,6 +18,7 @@ import {
   resolveCanonicalPeerAgentLeg,
   selectCanonicalProviderCommand,
   settleProviderCommandCallback,
+  shouldConfirmCanonicalAgentCommand,
   shouldPlanCanonicalInboundRouting,
   shouldReconcileCanonicalInboundLifecycle,
   sipEndpointIdentityCandidates,
@@ -28,6 +29,25 @@ const later = new Date("2026-07-11T10:00:05.000Z");
 const earlier = new Date("2026-07-11T10:00:00.000Z");
 
 describe("canonical routing triggers", () => {
+  it("does not treat an ignored agent media callback as a dial confirmation", () => {
+    expect(
+      shouldConfirmCanonicalAgentCommand({
+        eventType: "call.playback.started",
+        legKind: "AGENT",
+        mediaCommandCallback: true,
+        settledCommand: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldConfirmCanonicalAgentCommand({
+        eventType: "call.answered",
+        legKind: "AGENT",
+        mediaCommandCallback: false,
+        settledCommand: false,
+      }),
+    ).toBe(true);
+  });
+
   it("plans only inbound customer initiation regardless of queue metadata", () => {
     expect(
       shouldPlanCanonicalInboundRouting({
@@ -442,6 +462,7 @@ function fact(overrides: Partial<CanonicalTelnyxCallFact> = {}): CanonicalTelnyx
     providerCallLegId: "leg-1",
     providerCallSessionId: "session-1",
     providerEventId: "event-1",
+    playbackStatus: null,
     recordingDurationSec: 0,
     recordingId: null,
     recordingUrl: null,
@@ -930,7 +951,9 @@ describe("canonical provider lifecycle callbacks", () => {
   const cases = [
     ["call.answered", "ANSWER_CUSTOMER", "CONFIRMED"],
     ["call.playback.started", "START_RINGBACK", "CONFIRMED"],
+    ["call.playback.started", "START_HOLD_MUSIC", "CONFIRMED"],
     ["call.playback.ended", "STOP_PLAYBACK", "CONFIRMED"],
+    ["call.playback.ended", "STOP_HOLD_MUSIC", "CONFIRMED"],
     ["call.speak.started", "PLAY_VOICEMAIL_GREETING", "CONFIRMED"],
     ["call.recording.error", "START_RECORDING", "FAILED"],
     ["call.hangup", "HANGUP_LEG", "CONFIRMED"],
@@ -941,6 +964,7 @@ describe("canonical provider lifecycle callbacks", () => {
       let update: { data: Record<string, unknown> } | null = null;
       const command = {
         callId: "call-1",
+        errorCode: null,
         id: "command-1",
         legId: "customer-leg-1",
         practiceId: "practice-1",
@@ -981,6 +1005,137 @@ describe("canonical provider lifecycle callbacks", () => {
         },
       });
     }
+  });
+
+  it("fails a confirmed hold command when playback asynchronously fails", async () => {
+    let update: { data: Record<string, unknown>; where: Record<string, unknown> } | null =
+      null;
+    const command = {
+      callId: "call-1",
+      errorCode: null,
+      id: "command-1",
+      legId: "agent-leg-1",
+      practiceId: "practice-1",
+      status: "CONFIRMED" as const,
+      type: "START_HOLD_MUSIC" as const,
+    };
+    const tx = {
+      callCenterCommand: {
+        findMany: async () => [],
+        findUnique: async () => command,
+        updateMany: async (input: {
+          data: Record<string, unknown>;
+          where: Record<string, unknown>;
+        }) => {
+          update = input;
+          return { count: 1 };
+        },
+      },
+    };
+
+    await settleProviderCommandCallback(
+      tx as never,
+      {
+        ...fact({
+          eventType: "call.playback.ended",
+          playbackStatus: "failed",
+          providerCommandId: "command-1",
+        }),
+        callObservation: null,
+        legKind: "AGENT",
+        legObservation: "ANSWERED",
+      },
+      { callId: "call-1", legId: "agent-leg-1", practiceId: "practice-1" },
+    );
+
+    expect(update).toMatchObject({
+      data: { errorCode: "PROVIDER_PLAYBACK_FAILED", status: "FAILED" },
+      where: { id: "command-1", status: { in: ["SENDING", "SENT", "CONFIRMED"] } },
+    });
+  });
+
+  it("keeps a confirmed hold command settled when playback ends normally", async () => {
+    let update: { data: Record<string, unknown>; where: Record<string, unknown> } | null =
+      null;
+    const tx = {
+      callCenterCommand: {
+        findUnique: async () => ({
+          callId: "call-1",
+          errorCode: null,
+          id: "command-1",
+          legId: "agent-leg-1",
+          practiceId: "practice-1",
+          status: "CONFIRMED",
+          type: "START_HOLD_MUSIC",
+        }),
+        updateMany: async (input: {
+          data: Record<string, unknown>;
+          where: Record<string, unknown>;
+        }) => {
+          update = input;
+          return { count: 0 };
+        },
+      },
+    };
+
+    await expect(
+      settleProviderCommandCallback(
+        tx as never,
+        {
+          ...fact({
+            eventType: "call.playback.ended",
+            playbackStatus: "cancelled",
+            providerCommandId: "command-1",
+          }),
+          callObservation: null,
+          legKind: "AGENT",
+          legObservation: "ANSWERED",
+        },
+        { callId: "call-1", legId: "agent-leg-1", practiceId: "practice-1" },
+      ),
+    ).resolves.toMatchObject({ status: "CONFIRMED" });
+    expect(update).toMatchObject({
+      data: { errorCode: null, status: "CONFIRMED" },
+      where: { id: "command-1", status: { in: ["SENDING", "SENT", "FAILED"] } },
+    });
+  });
+
+  it("does not fail routing when non-hold playback reports a media failure", async () => {
+    let update: { data: Record<string, unknown> } | null = null;
+    const command = {
+      callId: "call-1",
+      errorCode: null,
+      id: "command-1",
+      legId: "customer-leg-1",
+      practiceId: "practice-1",
+      status: "SENT" as const,
+      type: "START_RINGBACK" as const,
+    };
+    const tx = {
+      callCenterCommand: {
+        findUnique: async () => command,
+        updateMany: async (input: { data: Record<string, unknown> }) => {
+          update = input;
+          return { count: 1 };
+        },
+      },
+    };
+
+    await settleProviderCommandCallback(
+      tx as never,
+      {
+        ...fact({
+          eventType: "call.playback.ended",
+          providerCommandId: "command-1",
+        }),
+        callObservation: null,
+        legKind: "CUSTOMER",
+        legObservation: "ANSWERED",
+      },
+      { callId: "call-1", legId: "customer-leg-1", practiceId: "practice-1" },
+    );
+
+    expect(update).toMatchObject({ data: { errorCode: null, status: "CONFIRMED" } });
   });
 
   it("does not mistake stale client state on a remote hangup for a hangup command", async () => {

@@ -152,7 +152,7 @@ export async function settleProviderCommandsForTerminalLeg(
     legId: input.legId,
     ...(input.exceptTypes?.length ? { type: { notIn: input.exceptTypes } } : {}),
   });
-  const satisfiedTypes = new Set(["STOP_PLAYBACK", "HANGUP_LEG"]);
+  const satisfiedTypes = new Set(["STOP_PLAYBACK", "STOP_HOLD_MUSIC", "HANGUP_LEG"]);
   for (const command of commands) {
     if (satisfiedTypes.has(command.type)) {
       await confirmSatisfiedOne(transaction, command, input.now);

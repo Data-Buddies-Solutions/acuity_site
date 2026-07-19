@@ -356,6 +356,10 @@ function useSoftphoneMediaEngine({
             });
             return;
           }
+          if (event.error?.name === "HOLD_FAILED") {
+            debug("telnyx-hold-error", { causeName: event.error.name });
+            return;
+          }
           if (event.error?.fatal) {
             setConnection("FAILED");
             setError(mediaFailure());
@@ -519,6 +523,14 @@ function useSoftphoneMediaEngine({
     (mediaLegId: string) => callFor(mediaLegId).hangup(),
     [callFor],
   );
+  const hold = useCallback(
+    async (mediaLegId: string, held: boolean) => {
+      const call = callFor(mediaLegId);
+      const changed = await (held ? call.hold() : call.unhold());
+      if (!changed) throw localCallCenterError("PROVIDER_UNAVAILABLE", true);
+    },
+    [callFor],
+  );
   const mute = useCallback(
     (mediaLegId: string, muted: boolean) => {
       const call = callFor(mediaLegId);
@@ -541,6 +553,7 @@ function useSoftphoneMediaEngine({
     dial,
     error: enabled ? error : null,
     hangup,
+    hold,
     microphoneReady,
     mute,
     observations,

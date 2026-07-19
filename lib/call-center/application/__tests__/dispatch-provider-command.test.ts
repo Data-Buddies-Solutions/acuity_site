@@ -60,6 +60,9 @@ function setup({
   const calls = {
     claim: [] as Array<Parameters<ProviderCommandDispatchStore["claim"]>[0]>,
     fail: [] as Array<Parameters<ProviderCommandDispatchStore["fail"]>[0]>,
+    markConfirmed: [] as Array<
+      Parameters<ProviderCommandDispatchStore["markConfirmed"]>[0]
+    >,
     markSent: [] as Array<Parameters<ProviderCommandDispatchStore["markSent"]>[0]>,
     send: [] as ProviderCommandClaim["command"][],
   };
@@ -71,6 +74,10 @@ function setup({
     fail: async (input) => {
       calls.fail.push(input);
       return failResult;
+    },
+    markConfirmed: async (input) => {
+      calls.markConfirmed.push(input);
+      return "MARKED";
     },
     markSent: async (input) => {
       calls.markSent.push(input);
@@ -189,6 +196,7 @@ describe("provider command dispatcher", () => {
           return claim;
         },
         fail: async () => ({ commandIds: [] }),
+        markConfirmed: async () => "MARKED",
         markSent: async () => "MARKED",
       },
     });
@@ -265,6 +273,31 @@ describe("provider command dispatcher", () => {
     expect(calls.fail).toHaveLength(0);
   });
 
+  it("confirms a stop that the provider reports was already settled", async () => {
+    const calls: Array<Parameters<ProviderCommandDispatchStore["markConfirmed"]>[0]> = [];
+    const dispatch = createProviderCommandDispatcher({
+      classifyError: { classify: () => ({ code: "PROVIDER_UNKNOWN" }) },
+      clock: () => now,
+      enabled: true,
+      sender: { send: async () => ({ alreadySettled: true }) },
+      store: {
+        claim: async () => claim,
+        fail: async () => ({ commandIds: [] }),
+        markConfirmed: async (input) => {
+          calls.push(input);
+          return "MARKED";
+        },
+        markSent: async () => "MARKED",
+      },
+    });
+
+    await expect(dispatch("command-1")).resolves.toEqual({
+      commandId: "command-1",
+      status: "SETTLED",
+    });
+    expect(calls).toEqual([{ attemptCount: 1, commandId: "command-1", now }]);
+  });
+
   it("leaves an ambiguous send for the stale-command recovery owner", async () => {
     const { calls, dispatch, throwOnSend } = setup();
     throwOnSend(new Error("sanitized only by classifier"));
@@ -333,6 +366,7 @@ describe("provider command dispatcher", () => {
           calls.push(input);
           return { commandIds: [] };
         },
+        markConfirmed: async () => "MARKED",
         markSent: async () => "MARKED",
       },
     });
