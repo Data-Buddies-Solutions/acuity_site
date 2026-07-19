@@ -26,6 +26,19 @@ import { useIncomingCallRingtone } from "./call-center/use-incoming-call-rington
 import { useSoftphoneMedia } from "./call-center/use-softphone";
 
 const PHONE_OWNER_CHANNEL = "acuity-call-center-phone-owner";
+const PHONE_ACTIVE_ELSEWHERE = "Phone active in another tab";
+
+export function phoneOwnerMessageError(
+  data: unknown,
+  clientInstanceId: string,
+): string | null {
+  return data &&
+    typeof data === "object" &&
+    "clientInstanceId" in data &&
+    data.clientInstanceId !== clientInstanceId
+    ? PHONE_ACTIVE_ELSEWHERE
+    : null;
+}
 
 function canonicalConnectionState(
   state: ReturnType<typeof useSoftphoneMedia>["connection"],
@@ -158,12 +171,9 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     const channel = new BroadcastChannel(PHONE_OWNER_CHANNEL);
     ownerChannelRef.current = channel;
     channel.onmessage = ({ data }) => {
-      if (
-        data &&
-        typeof data === "object" &&
-        "clientInstanceId" in data &&
-        data.clientInstanceId !== clientInstanceId
-      ) {
+      const ownershipError = phoneOwnerMessageError(data, clientInstanceId);
+      if (ownershipError) {
+        setIdentityError(ownershipError);
         void stopSession();
       }
     };
@@ -225,6 +235,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     if (!response.ok) {
       throw new Error("The phone could not move to this tab");
     }
+    setIdentityError(null);
     ownerChannelRef.current?.postMessage({ clientInstanceId });
     await startSession();
   }, [clientInstanceId, startSession]);

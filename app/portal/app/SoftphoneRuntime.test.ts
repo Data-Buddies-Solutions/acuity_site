@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
 import type { MediaObservation } from "./call-center/softphone-media-adapter";
-import { selectSoftphoneRuntimeCalls } from "./SoftphoneRuntime";
+import {
+  phoneOwnerMessageError,
+  selectSoftphoneRuntimeCalls,
+} from "./SoftphoneRuntime";
 
 function observation(
   mediaLegId: string,
@@ -20,6 +23,15 @@ function observation(
 }
 
 describe("Softphone Runtime", () => {
+  it("turns another tab's ownership event into the active-elsewhere banner", () => {
+    expect(
+      phoneOwnerMessageError({ clientInstanceId: "tab-2" }, "tab-1"),
+    ).toBe("Phone active in another tab");
+    expect(
+      phoneOwnerMessageError({ clientInstanceId: "tab-1" }, "tab-1"),
+    ).toBeNull();
+  });
+
   it("keeps multiple incoming Telnyx calls and drives one ringtone", () => {
     const result = selectSoftphoneRuntimeCalls(
       [observation("leg-1", "RINGING"), observation("leg-2", "RINGING")],
