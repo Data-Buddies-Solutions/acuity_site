@@ -28,7 +28,7 @@ export type RoutingSessionCandidate = {
   leaseExpiresAt: Date;
   microphoneReady: boolean;
   occupied: boolean;
-  presence: "AVAILABLE" | "PAUSED" | "BUSY" | "WRAP_UP" | "OFFLINE";
+  presence: "AVAILABLE" | "PAUSED" | "BUSY" | "OFFLINE";
 };
 
 export type RoutingQueueSnapshot = {

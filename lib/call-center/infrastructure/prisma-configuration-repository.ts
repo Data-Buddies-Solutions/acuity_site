@@ -215,13 +215,9 @@ export async function persistConfigurationSnapshot(
   for (const queue of configuration.queues) {
     const data = {
       enabled: queue.enabled,
-      maxWaitSec: queue.maxWaitSec,
       name: queue.name,
-      overflowQueueId: null,
-      ringTimeoutSec: queue.ringTimeoutSec,
       voicemailEnabled: queue.voicemailEnabled,
       voicemailGreeting: queue.voicemailGreeting,
-      wrapUpSec: queue.wrapUpSec,
     };
     await transaction.callCenterQueue.upsert({
       create: { ...data, id: queue.id, practiceId: configuration.practiceId },
@@ -287,14 +283,6 @@ export async function persistConfigurationSnapshot(
       create: { ...data, id: endpoint.id, practiceId: configuration.practiceId },
       update: data,
       where: { id: endpoint.id },
-    });
-  }
-
-  for (const queue of configuration.queues) {
-    if (!queue.overflowQueueId) continue;
-    await transaction.callCenterQueue.update({
-      data: { overflowQueueId: queue.overflowQueueId },
-      where: { id: queue.id },
     });
   }
 
@@ -375,12 +363,8 @@ export async function readCallCenterConfiguration(
           id: true,
           name: true,
           enabled: true,
-          ringTimeoutSec: true,
-          maxWaitSec: true,
-          wrapUpSec: true,
           voicemailEnabled: true,
           voicemailGreeting: true,
-          overflowQueueId: true,
           locations: {
             orderBy: { locationId: "asc" },
             select: { locationId: true },

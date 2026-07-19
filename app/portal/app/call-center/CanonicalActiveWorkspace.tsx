@@ -395,7 +395,7 @@ function ConnectedCanonicalActiveWorkspace({
   const outboundHelp = activeCall
     ? "Finish the current call before starting another."
     : !callingReady
-      ? "Start taking calls before placing an outbound call."
+      ? "Connect to calling before placing an outbound call."
       : session?.presence !== "AVAILABLE"
         ? "Wait until you are Ready to place a call."
         : !selectedNumberId
@@ -522,7 +522,7 @@ function ConnectedCanonicalActiveWorkspace({
                         size="sm"
                         variant="primary"
                       >
-                        {taking ? "Taking" : "Take"}
+                        {taking ? "Answering" : "Answer"}
                       </Button>
                     </li>
                   );

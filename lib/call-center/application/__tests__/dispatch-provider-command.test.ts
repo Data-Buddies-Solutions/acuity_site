@@ -8,7 +8,9 @@ import type {
 
 import {
   createProviderCommandDispatcher,
+  dispatchProviderCommandGraph,
   type ProviderCommandDispatchStore,
+  type ProviderCommandRejectedClaim,
 } from "../dispatch-provider-command";
 
 const now = new Date("2026-07-12T12:00:00.000Z");
@@ -39,16 +41,15 @@ function setup({
   claimed = claim,
   enabled = true,
   errorClassification = {
-    category: "RETRYABLE",
     code: "SENDING_OUTCOME_AMBIGUOUS",
   } as const,
-  failResult = true,
+  failResult = { commandIds: [] } as { commandIds: string[] } | null,
   markSentResult = "MARKED" as ProviderCommandMarkSentResult,
 }: {
-  claimed?: ProviderCommandClaim | null;
+  claimed?: ProviderCommandClaim | ProviderCommandRejectedClaim | null;
   enabled?: boolean;
   errorClassification?: ProviderSendErrorClassification;
-  failResult?: boolean;
+  failResult?: { commandIds: string[] } | null;
   markSentResult?: ProviderCommandMarkSentResult;
 } = {}) {
   const calls = {
@@ -95,11 +96,86 @@ function setup({
 }
 
 describe("provider command dispatcher", () => {
+  it("dispatches every committed inline command without the recovery batch cap", async () => {
+    const commandIds = Array.from({ length: 502 }, (_, index) => `command-${index}`);
+
+    await expect(
+      dispatchProviderCommandGraph({
+        commandIds,
+        dispatch: async (commandId) => ({
+          commandId,
+          markSent: "MARKED",
+          status: "DISPATCHED",
+        }),
+      }),
+    ).resolves.toMatchObject({
+      attempted: 502,
+      deferred: [],
+      dispatched: 502,
+      failures: [],
+    });
+  });
+
+  it("reports commands left behind by an explicit recovery batch cap", async () => {
+    await expect(
+      dispatchProviderCommandGraph({
+        commandIds: ["command-1", "command-2", "command-3"],
+        dispatch: async (commandId) => ({
+          commandId,
+          markSent: "MARKED",
+          status: "DISPATCHED",
+        }),
+        limit: 2,
+      }),
+    ).resolves.toEqual({
+      attempted: 2,
+      deferred: ["command-3"],
+      dispatched: 2,
+      failures: [],
+    });
+  });
+
+  it("retries dependency-blocked commands in concurrent progress rounds", async () => {
+    let prerequisiteSent = false;
+    const attempts: string[] = [];
+
+    await expect(
+      dispatchProviderCommandGraph({
+        commandIds: ["answer-command", "dial-command"],
+        dispatch: async (commandId) => {
+          attempts.push(commandId);
+          if (commandId === "answer-command") {
+            await Promise.resolve();
+            prerequisiteSent = true;
+            return {
+              commandId,
+              markSent: "MARKED",
+              status: "DISPATCHED",
+            };
+          }
+          return prerequisiteSent
+            ? {
+                commandId,
+                markSent: "MARKED",
+                status: "DISPATCHED",
+              }
+            : { status: "NOT_CLAIMED" };
+        },
+      }),
+    ).resolves.toEqual({
+      attempted: 2,
+      deferred: [],
+      dispatched: 2,
+      failures: [],
+    });
+    expect(attempts).toEqual(["answer-command", "dial-command", "dial-command"]);
+  });
+
   it("is disabled by default before claim or send", async () => {
     let claims = 0;
     const dispatch = createProviderCommandDispatcher({
       classifyError: {
-        classify: () => ({ category: "UNKNOWN", code: "PROVIDER_UNKNOWN" }),
+        classify: () => ({ code: "PROVIDER_UNKNOWN" }),
       },
       sender: { send: async () => {} },
       store: {
@@ -107,7 +183,7 @@ describe("provider command dispatcher", () => {
           claims += 1;
           return claim;
         },
-        fail: async () => true,
+        fail: async () => ({ commandIds: [] }),
         markSent: async () => "MARKED",
       },
     });
@@ -123,6 +199,25 @@ describe("provider command dispatcher", () => {
     expect(calls.send).toHaveLength(0);
   });
 
+  it("returns follow-up commands from a terminal claim rejection", async () => {
+    const { calls, dispatch } = setup({
+      claimed: {
+        commandId: "command-1",
+        errorCode: "COMMAND_ARGUMENTS_INVALID",
+        followUpCommandIds: ["voicemail-command"],
+        rejected: true,
+      },
+    });
+
+    await expect(dispatch("command-1")).resolves.toEqual({
+      commandId: "command-1",
+      errorCode: "COMMAND_ARGUMENTS_INVALID",
+      followUpCommandIds: ["voicemail-command"],
+      status: "REJECTED",
+    });
+    expect(calls.send).toHaveLength(0);
+  });
+
   it("sends the typed command and atomically marks the claimed attempt", async () => {
     const { calls, dispatch } = setup();
 
@@ -134,7 +229,6 @@ describe("provider command dispatcher", () => {
     expect(calls.claim).toEqual([
       {
         commandId: "command-1",
-        maxAttempts: 5,
         now,
         staleBefore: new Date(now.getTime() - 60_000),
       },
@@ -154,15 +248,14 @@ describe("provider command dispatcher", () => {
     expect(calls.fail).toHaveLength(0);
   });
 
-  it("schedules a bounded retry for a classified transient failure", async () => {
+  it("records one classified failure without inventing an unowned retry", async () => {
     const { calls, dispatch, throwOnSend } = setup();
     throwOnSend(new Error("sanitized only by classifier"));
 
     await expect(dispatch("command-1")).resolves.toEqual({
       commandId: "command-1",
       errorCode: "SENDING_OUTCOME_AMBIGUOUS",
-      nextAttemptAt: new Date(now.getTime() + 2_000),
-      retryScheduled: true,
+      followUpCommandIds: [],
       status: "FAILED",
     });
     expect(calls.fail).toEqual([
@@ -170,28 +263,14 @@ describe("provider command dispatcher", () => {
         attemptCount: 1,
         commandId: "command-1",
         errorCode: "SENDING_OUTCOME_AMBIGUOUS",
-        nextAttemptAt: new Date(now.getTime() + 2_000),
         now,
       },
     ]);
     expect(calls.markSent).toHaveLength(0);
   });
 
-  it("stops retrying at the attempt bound", async () => {
-    const exhausted = { ...claim, attemptCount: 5 };
-    const { calls, dispatch, throwOnSend } = setup({ claimed: exhausted });
-    throwOnSend(new Error("timeout"));
-
-    await expect(dispatch("command-1")).resolves.toMatchObject({
-      nextAttemptAt: null,
-      retryScheduled: false,
-      status: "FAILED",
-    });
-    expect(calls.fail[0]?.nextAttemptAt).toBeNull();
-  });
-
   it("does not overwrite a callback or a newer claim", async () => {
-    const failed = setup({ failResult: false });
+    const failed = setup({ failResult: null });
     failed.throwOnSend(new Error("timeout"));
     await expect(failed.dispatch("command-1")).resolves.toEqual({
       commandId: "command-1",
@@ -226,7 +305,7 @@ describe("provider command dispatcher", () => {
         claim: async () => claim,
         fail: async (input) => {
           calls.push(input);
-          return true;
+          return { commandIds: [] };
         },
         markSent: async () => "MARKED",
       },
@@ -234,8 +313,6 @@ describe("provider command dispatcher", () => {
 
     await expect(dispatch("command-1")).resolves.toMatchObject({
       errorCode: "PROVIDER_UNKNOWN",
-      nextAttemptAt: null,
-      retryScheduled: false,
       status: "FAILED",
     });
     expect(calls[0]?.errorCode).toBe("PROVIDER_UNKNOWN");

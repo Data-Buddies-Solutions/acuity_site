@@ -51,12 +51,10 @@ function readySession(update: Partial<AgentSessionView> = {}): AgentSessionView 
     audioReady: true,
     clientInstanceId: "browser-1",
     connectionState: "READY",
-    currentCallId: null,
     endpointId: "endpoint-1",
     id: "session-1",
     leaseExpiresAt: "2026-07-14T12:01:00.000Z",
     microphoneReady: true,
-    offeredCallId: null,
     presence: "AVAILABLE",
     stateVersion: 1,
     ...update,
@@ -100,11 +98,7 @@ describe("call readiness", () => {
     );
     expect(screen.getByRole("status").textContent).toBe("Connected");
 
-    view.rerender(
-      <CallConnectionStatus
-        session={readySession({ currentCallId: "call-1", presence: "BUSY" })}
-      />,
-    );
+    view.rerender(<CallConnectionStatus session={readySession({ presence: "BUSY" })} />);
     expect(screen.getByRole("status").textContent).toBe("Connected");
 
     view.rerender(

@@ -20,6 +20,7 @@ const actor = {
 };
 
 class FakeStore implements AgentSessionStore {
+  activeCallEndpoints = new Set<string>();
   endpoint = {
     id: "seat-legacy-id",
     label: "Optical",
@@ -80,11 +81,7 @@ class FakeStore implements AgentSessionStore {
         return expired.map((session) => ({ ...session }));
       },
       createSession: async (input) => {
-        const created: AgentSessionRecord = {
-          ...input,
-          currentCallId: null,
-          offeredCallId: null,
-        };
+        const created: AgentSessionRecord = { ...input };
         this.sessions.push(created);
         return { ...created };
       },
@@ -93,8 +90,7 @@ class FakeStore implements AgentSessionStore {
           (session) =>
             session.practiceId === practiceId &&
             session.userId === userId &&
-            (session.currentCallId !== null ||
-              session.offeredCallId !== null ||
+            (this.activeCallEndpoints.has(session.endpointId) ||
               (session.presence !== "OFFLINE" && session.connectionState !== "CLOSED")),
         );
         return found ? { ...found } : null;
@@ -116,11 +112,7 @@ class FakeStore implements AgentSessionStore {
           ? this.endpoint
           : null;
       },
-      hasActiveCall: async (endpointId) =>
-        this.sessions.some(
-          (session) =>
-            session.endpointId === endpointId && session.currentCallId !== null,
-        ),
+      hasActiveCall: async (endpointId) => this.activeCallEndpoints.has(endpointId),
       hasQueueAccess: async () => this.queueAccess,
       updateSession: async (id, update) => {
         const session = this.sessions.find((candidate) => candidate.id === id);
@@ -191,7 +183,7 @@ describe("canonical agent sessions", () => {
   it("does not move a phone lease during an active call", async () => {
     const store = new FakeStore();
     await acquireAgentSession(store, actor, identity, start);
-    store.sessions[0]!.currentCallId = "call-1";
+    store.activeCallEndpoints.add(store.sessions[0]!.endpointId);
 
     await expect(
       acquireAgentSession(
@@ -452,7 +444,7 @@ describe("canonical agent sessions", () => {
   it("reserves a session with an active call for reconnect instead of releasing it", async () => {
     const store = new FakeStore();
     const acquired = await acquireAgentSession(store, actor, identity, start);
-    store.sessions[0].currentCallId = "call-1";
+    store.activeCallEndpoints.add(store.sessions[0].endpointId);
     store.sessions[0].presence = "BUSY";
 
     const released = await releaseAgentSession(
@@ -468,7 +460,6 @@ describe("canonical agent sessions", () => {
 
     expect(released.session).toMatchObject({
       connectionState: "CONNECTING",
-      currentCallId: "call-1",
       presence: "BUSY",
       stateVersion: 1,
     });
@@ -481,7 +472,7 @@ describe("canonical agent sessions", () => {
   it("restores an expired active-call session for the same browser", async () => {
     const store = new FakeStore();
     const acquired = await acquireAgentSession(store, actor, identity, start);
-    store.sessions[0].currentCallId = "call-1";
+    store.activeCallEndpoints.add(store.sessions[0].endpointId);
     store.sessions[0].presence = "BUSY";
 
     const reconnected = await acquireAgentSession(
@@ -493,7 +484,6 @@ describe("canonical agent sessions", () => {
 
     expect(reconnected.session).toMatchObject({
       connectionState: "CONNECTING",
-      currentCallId: "call-1",
       id: acquired.session.id,
       presence: "PAUSED",
       stateVersion: 2,
@@ -508,7 +498,7 @@ describe("canonical agent sessions", () => {
   it("does not let another browser steal an expired active-call session", async () => {
     const store = new FakeStore();
     await acquireAgentSession(store, actor, identity, start);
-    store.sessions[0].currentCallId = "call-1";
+    store.activeCallEndpoints.add(store.sessions[0].endpointId);
     store.sessions[0].presence = "BUSY";
 
     await expect(

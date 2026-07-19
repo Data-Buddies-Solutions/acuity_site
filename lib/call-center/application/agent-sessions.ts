@@ -38,8 +38,6 @@ export type AgentSessionRecord = {
   audioReady: boolean;
   clientInstanceId: string;
   connectionState: CallCenterAgentConnectionState;
-  currentCallId: string | null;
-  offeredCallId: string | null;
   endpointId: string;
   id: string;
   lastHeartbeatAt: Date;
@@ -83,9 +81,7 @@ export interface AgentSessionTransaction {
     userId: string,
     now: Date,
   ): Promise<AgentSessionRecord[]>;
-  createSession(
-    input: Omit<AgentSessionRecord, "currentCallId" | "offeredCallId">,
-  ): Promise<AgentSessionRecord>;
+  createSession(input: AgentSessionRecord): Promise<AgentSessionRecord>;
   findActiveSession(
     practiceId: string,
     userId: string,

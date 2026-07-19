@@ -12,6 +12,7 @@ import {
   type PortalRecentCallItem,
 } from "@/lib/call-center/portal-model";
 import { canonicalCallOutcome } from "@/lib/call-center/domain/canonical-call-outcome";
+import { normalizeCanonicalCallStatus } from "@/lib/call-center/domain/canonical-call-state";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { getPracticeBranding } from "@/lib/practice-branding";
 import { prisma } from "@/lib/prisma";
@@ -69,7 +70,7 @@ function rangeCutoff(range: PortalCallCenterHistoryRange, now: Date) {
   return null;
 }
 
-const connectedHistoryStatuses = ["CONNECTED", "WRAP_UP", "COMPLETED"] as const;
+const connectedHistoryStatuses = ["CONNECTED", "COMPLETED"] as const;
 
 function portalStatus(call: {
   answeredAt: Date | null;
@@ -84,13 +85,12 @@ function portalStatus(call: {
   const outcome = canonicalCallOutcome(call);
   if (outcome === "MISSED_CALL") return "MISSED" as const;
   if (outcome === "VOICEMAIL") return "VOICEMAIL" as const;
-  switch (call.status) {
+  switch (normalizeCanonicalCallStatus(call.status)) {
     case "RECEIVED":
     case "QUEUED":
     case "RINGING":
       return "RINGING" as const;
     case "CONNECTED":
-    case "WRAP_UP":
       return "ACTIVE" as const;
     case "COMPLETED":
       return "COMPLETED" as const;

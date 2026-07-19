@@ -9,7 +9,6 @@ import {
   type CallCenterRealtimeState,
   type CallCenterSnapshot,
 } from "@/lib/call-center/realtime-contract";
-import { parseRevision } from "@/lib/call-center/realtime";
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 
 import { callCenterResponse } from "./call-center-errors";
@@ -57,9 +56,6 @@ function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapsho
   if (!isRecord(value) || value.schemaVersion !== CALL_CENTER_SCHEMA_VERSION) {
     return false;
   }
-  if (typeof value.revision !== "string" || parseRevision(value.revision) === null) {
-    return false;
-  }
   if (!isRecord(value.queue) || value.queue.id !== queueId) {
     return false;
   }
@@ -70,22 +66,9 @@ function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapsho
     Array.isArray(value.calls) &&
     value.calls.every(hasVersion) &&
     (value.agentProfile === null || hasId(value.agentProfile)) &&
-    Array.isArray(value.transferTargets) &&
-    value.transferTargets.every(
-      (target) =>
-        isRecord(target) &&
-        typeof target.name === "string" &&
-        typeof target.userId === "string",
-    ) &&
     Array.isArray(value.tasks) &&
     value.tasks.every(hasId) &&
-    (value.agentSession === null || hasVersion(value.agentSession)) &&
-    (value.operations === null ||
-      (Array.isArray(value.operations) &&
-        value.operations.every(
-          (operation) =>
-            isRecord(operation) && typeof operation.operationEventRevision === "string",
-        )))
+    (value.agentSession === null || hasVersion(value.agentSession))
   );
 }
 

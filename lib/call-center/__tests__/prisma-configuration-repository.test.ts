@@ -20,12 +20,8 @@ function configuration(): ValidatedCallCenterConfiguration {
         id: "queue-1",
         name: "Optical",
         enabled: true,
-        ringTimeoutSec: 20,
-        maxWaitSec: 30,
-        wrapUpSec: 0,
         voicemailEnabled: true,
         voicemailGreeting: "Leave a message.",
-        overflowQueueId: "queue-2",
         locationIds: ["location-1"],
         members: [{ userId: "user-1", role: "AGENT", enabled: true }],
       },
@@ -33,12 +29,8 @@ function configuration(): ValidatedCallCenterConfiguration {
         id: "queue-2",
         name: "Overflow",
         enabled: false,
-        ringTimeoutSec: 20,
-        maxWaitSec: 30,
-        wrapUpSec: 0,
         voicemailEnabled: true,
         voicemailGreeting: "Leave a message.",
-        overflowQueueId: null,
         locationIds: ["location-1"],
         members: [],
       },
@@ -126,9 +118,6 @@ describe("Prisma call-center configuration persistence", () => {
       names.indexOf("callCenterQueueMember.upsert"),
     );
     expect(names.indexOf("callCenterNumber.upsert")).toBeLessThan(
-      names.indexOf("callCenterQueue.update"),
-    );
-    expect(names.indexOf("callCenterQueue.update")).toBeLessThan(
       names.indexOf("practiceCallCenterSettings.upsert"),
     );
     expect(names.indexOf("practiceCallCenterSettings.upsert")).toBeLessThan(

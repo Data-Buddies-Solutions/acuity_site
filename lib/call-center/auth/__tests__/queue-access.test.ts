@@ -1,11 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  QueueAccessError,
-  queueAccessWhere,
-  rehydrateQueueAccessActor,
-  resolveQueueAccess,
-} from "../queue-access";
+import { QueueAccessError, queueAccessWhere, resolveQueueAccess } from "../queue-access";
 
 const actor = {
   allowedLocationIds: ["location-1"],
@@ -43,9 +38,7 @@ describe("call center queue access", () => {
           return {
             id: "unscoped",
             locations: [],
-            maxWaitSec: 30,
             name: "Practice wide",
-            ringTimeoutSec: 20,
           };
         },
       },
@@ -56,26 +49,6 @@ describe("call center queue access", () => {
     });
     expect(receivedWhere).toMatchObject({
       OR: expect.arrayContaining([{ locations: { none: {} } }]),
-    });
-  });
-
-  it("rehydrates current location grants instead of trusting the stream actor", async () => {
-    const database = {
-      practiceMembership: {
-        findUnique: async () => ({
-          locationScope: "SELECTED",
-          locations: [{ locationId: "current-location" }],
-        }),
-      },
-    } as never;
-
-    await expect(
-      rehydrateQueueAccessActor({ practiceId: "practice-1", userId: "user-1" }, database),
-    ).resolves.toEqual({
-      allowedLocationIds: ["current-location"],
-      hasAllLocationAccess: false,
-      practiceId: "practice-1",
-      userId: "user-1",
     });
   });
 

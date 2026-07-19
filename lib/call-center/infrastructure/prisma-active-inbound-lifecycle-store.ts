@@ -11,7 +11,6 @@ import {
 } from "@/lib/call-center/domain/active-inbound-lifecycle";
 import { canonicalVoicemailGreetingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { persistCanonicalUnansweredTask } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
-import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 
 type Transaction = Prisma.TransactionClient;
@@ -25,20 +24,10 @@ const LIVE_LEG_STATUSES = [
   "BRIDGED",
 ] as const;
 const LIFECYCLE_EVENT = "CALL_ACTIVE_LIFECYCLE_RECONCILED";
-const OVERFLOW_EVENT = "CALL_ACTIVE_OVERFLOWED";
 
-type RouteQueueRound = typeof routeActiveInboundCallInTransaction;
 type SettleAgentLegs = typeof settleCanonicalCallLegs;
 
 type LifecycleCall = NonNullable<Awaited<ReturnType<typeof loadLifecycleCall>>>;
-
-function eventQueueIds(data: Prisma.JsonValue) {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return [];
-  const value = data as Record<string, Prisma.JsonValue>;
-  return [value.fromQueueId, value.queueId].filter(
-    (id): id is string => typeof id === "string",
-  );
-}
 
 async function loadLifecycleCall(
   transaction: Transaction,
@@ -54,12 +43,6 @@ async function loadLifecycleCall(
       id: true,
       legs: {
         select: {
-          commands: {
-            orderBy: { createdAt: "desc" },
-            select: { arguments: true },
-            take: 1,
-            where: { type: "DIAL_AGENT" },
-          },
           id: true,
           kind: true,
           status: true,
@@ -69,21 +52,10 @@ async function loadLifecycleCall(
       queue: {
         select: {
           id: true,
-          maxWaitSec: true,
-          overflowQueue: {
-            select: {
-              enabled: true,
-              id: true,
-              practiceId: true,
-            },
-          },
-          overflowQueueId: true,
-          ringTimeoutSec: true,
           voicemailEnabled: true,
           voicemailGreeting: true,
         },
       },
-      queueDeadlineAt: true,
       queueId: true,
       stateVersion: true,
       status: true,
@@ -91,21 +63,6 @@ async function loadLifecycleCall(
     },
     where: { id: callId, practiceId },
   });
-}
-
-async function visitedQueueIds(transaction: Transaction, call: LifecycleCall) {
-  const events = await transaction.callCenterEvent.findMany({
-    select: { data: true },
-    where: {
-      aggregateId: call.id,
-      aggregateType: "CALL",
-      practiceId: call.practiceId,
-      type: OVERFLOW_EVENT,
-    },
-  });
-  return [call.queueId, ...events.flatMap(({ data }) => eventQueueIds(data))].filter(
-    (id): id is string => Boolean(id),
-  );
 }
 
 async function routingPrerequisite(transaction: Transaction, call: LifecycleCall) {
@@ -130,9 +87,14 @@ async function routingPrerequisite(transaction: Transaction, call: LifecycleCall
   ) {
     return undefined;
   }
+  const ringback = await transaction.callCenterCommand.findUnique({
+    select: { status: true },
+    where: { id: data.startRingbackCommandId },
+  });
   return {
     answerCommandId: data.answerCommandId,
-    startRingbackCommandId: data.startRingbackCommandId,
+    startRingbackCommandId:
+      ringback?.status === "FAILED" ? null : data.startRingbackCommandId,
   };
 }
 
@@ -142,15 +104,6 @@ function commandType(intent: ActiveInboundLifecycleIntent) {
     return intent.type;
   }
   return null;
-}
-
-function replacementSourceLegId(commands: readonly { arguments: Prisma.JsonValue }[]) {
-  const value = commands[0]?.arguments;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const replacesLegId = (value as Record<string, Prisma.JsonValue>).replacesLegId;
-  return typeof replacesLegId === "string" && replacesLegId.length > 0
-    ? replacesLegId
-    : null;
 }
 
 async function persistCommand(
@@ -207,12 +160,6 @@ function reconciliationKey(
   switch (decision.disposition) {
     case "CONNECTED":
       return `${call.id}:connected:${decision.winningLegId}`;
-    case "OVERFLOW": {
-      const overflow = decision.intents.find(
-        (intent) => intent.type === "ROUTE_OVERFLOW_QUEUE",
-      );
-      return `${call.id}:overflow:${call.queueId}:${overflow?.queueId ?? "missing"}`;
-    }
     case "VOICEMAIL":
       return `${call.id}:voicemail:${call.queueId}`;
     case "ABANDONED":
@@ -267,9 +214,7 @@ async function persistState(
       if (
         call.winningLegId === decision.winningLegId &&
         call.status === "CONNECTED" &&
-        (decision.pendingReplacementLegIds.length > 0
-          ? call.deadlineAt?.getTime() === decision.deadlineAt.getTime()
-          : !call.deadlineAt)
+        !call.deadlineAt
       ) {
         return;
       }
@@ -277,31 +222,13 @@ async function persistState(
         data: {
           ...common,
           answeredAt: call.answeredAt ?? now,
-          deadlineAt:
-            decision.pendingReplacementLegIds.length > 0 ? decision.deadlineAt : null,
+          deadlineAt: null,
           status: "CONNECTED",
           winningLegId: call.winningLegId ?? decision.winningLegId,
         },
         where: { id: call.id },
       });
       return;
-    case "OVERFLOW": {
-      const overflow = decision.intents.find(
-        (intent) => intent.type === "ROUTE_OVERFLOW_QUEUE",
-      );
-      if (!overflow) return;
-      await transaction.callCenterCall.update({
-        data: {
-          ...common,
-          deadlineAt: null,
-          queueDeadlineAt: decision.queueDeadlineAt,
-          queueId: overflow.queueId,
-          status: "QUEUED",
-        },
-        where: { id: call.id },
-      });
-      return;
-    }
     case "VOICEMAIL":
       await transaction.callCenterCall.update({
         data: {
@@ -328,12 +255,11 @@ async function persistState(
       });
       return;
     case "WAITING_FOR_AGENT":
-      if (call.deadlineAt && call.queueDeadlineAt) return;
+      if (call.deadlineAt) return;
       await transaction.callCenterCall.update({
         data: {
           ...common,
           deadlineAt: decision.deadlineAt,
-          queueDeadlineAt: decision.queueDeadlineAt,
           status: decision.status,
         },
         where: { id: call.id },
@@ -363,7 +289,6 @@ async function reconcileLockedCall(
   transaction: Transaction,
   input: ActiveInboundReconciliationInput,
   now: Date,
-  routeQueueRound: RouteQueueRound,
   settleAgentLegs: SettleAgentLegs,
 ): Promise<ActiveInboundReconciliationSuccess> {
   const call = await loadLifecycleCall(transaction, input.practiceId, input.callId);
@@ -384,37 +309,19 @@ async function reconcileLockedCall(
     return { callId: input.callId, commandIds: [], decision: null, status: "SKIPPED" };
   }
 
-  const overflowQueue = call.queue.overflowQueue;
-  const validOverflowQueueId =
-    overflowQueue?.enabled && overflowQueue.practiceId === call.practiceId
-      ? overflowQueue.id
-      : null;
-  const visited = await visitedQueueIds(transaction, call);
   const decision = decideActiveInboundLifecycle({
     agentLegs: call.legs
       .filter((leg) => leg.kind === "AGENT")
-      .map((leg) => ({
-        id: leg.id,
-        replacesLegId: replacementSourceLegId(leg.commands),
-        status: leg.status,
-      })),
+      .map((leg) => ({ id: leg.id, status: leg.status })),
     callId: call.id,
     customerLegId: customerLeg.id,
     deadlineAt: call.deadlineAt,
-    // This runs only after a routing round has committed. If no live leg
-    // remains, that round has no agent left to answer and must fall through.
-    eligibleAgentCount: 0,
     now,
     processedBridgeLegId: input.processedBridgeLegId,
     queue: {
       id: call.queue.id,
-      maxWaitSec: call.queue.maxWaitSec,
-      overflowQueueId: validOverflowQueueId,
-      ringTimeoutSec: call.queue.ringTimeoutSec,
       voicemailEnabled: call.queue.voicemailEnabled,
     },
-    queueDeadlineAt: call.queueDeadlineAt,
-    visitedQueueIds: visited,
     winningLegId: call.winningLegId,
   });
 
@@ -462,59 +369,6 @@ async function reconcileLockedCall(
   const event = await persistEvent(transaction, call, decision, now);
   await persistMissedCallTask(transaction, call, decision, event.revision);
 
-  if (decision.disposition === "OVERFLOW") {
-    const overflow = decision.intents.find(
-      (intent) => intent.type === "ROUTE_OVERFLOW_QUEUE",
-    );
-    if (overflow) {
-      await transaction.callCenterEvent.upsert({
-        create: {
-          aggregateId: call.id,
-          aggregateType: "CALL",
-          data: { fromQueueId: call.queue.id, queueId: overflow.queueId },
-          idempotencyKey: `${call.id}:${call.queue.id}:${overflow.queueId}`,
-          occurredAt: now,
-          practiceId: call.practiceId,
-          type: OVERFLOW_EVENT,
-        },
-        update: {},
-        where: {
-          practiceId_type_idempotencyKey: {
-            idempotencyKey: `${call.id}:${call.queue.id}:${overflow.queueId}`,
-            practiceId: call.practiceId,
-            type: OVERFLOW_EVENT,
-          },
-        },
-      });
-      const routed = await routeQueueRound(
-        transaction,
-        {
-          callId: call.id,
-          practiceId: call.practiceId,
-          prerequisite,
-          routingKey: `overflow:${call.id}:${call.queue.id}:${overflow.queueId}`,
-        },
-        now,
-      );
-      if (!("status" in routed)) {
-        commandIds.push(...routed.commandIds);
-        if (routed.routed.length === 0) {
-          const fallback = await reconcileLockedCall(
-            transaction,
-            { ...input, processedBridgeLegId: null },
-            now,
-            routeQueueRound,
-            settleAgentLegs,
-          );
-          return {
-            ...fallback,
-            commandIds: [...commandIds, ...fallback.commandIds],
-          };
-        }
-      }
-    }
-  }
-
   return { callId: call.id, commandIds, decision, status: "APPLIED" };
 }
 
@@ -523,11 +377,10 @@ export async function reconcileActiveInboundCallInTransaction(
   transaction: Transaction,
   input: ActiveInboundReconciliationInput,
   now: Date,
-  routeQueueRound: RouteQueueRound = routeActiveInboundCallInTransaction,
   settleAgentLegs: SettleAgentLegs = settleCanonicalCallLegs,
 ) {
   await transaction.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "practiceId" = ${input.practiceId} AND "id" = ${input.callId} FOR UPDATE`,
   );
-  return reconcileLockedCall(transaction, input, now, routeQueueRound, settleAgentLegs);
+  return reconcileLockedCall(transaction, input, now, settleAgentLegs);
 }

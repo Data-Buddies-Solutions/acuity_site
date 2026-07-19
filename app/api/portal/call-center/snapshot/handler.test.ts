@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
 import { QueueAccessError } from "@/lib/call-center/auth/queue-access";
-import { CALL_CENTER_SCHEMA_VERSION } from "@/lib/call-center/realtime-contract";
 
 import { createSnapshotHandler } from "./handler";
 
@@ -45,16 +44,8 @@ describe("canonical call center snapshot route", () => {
           calls: [],
           counts: { active: 0, openTasks: 0, recent: 0, waiting: 0 },
           agentProfile: null,
-          transferTargets: [],
-          operations: null,
-          queue: {
-            id: "queue-1",
-            maxWaitSec: 30,
-            name: "Optical",
-            ringTimeoutSec: 20,
-          },
-          revision: "9223372036854775800",
-          schemaVersion: CALL_CENTER_SCHEMA_VERSION,
+          queue: { id: "queue-1", name: "Optical" },
+          schemaVersion: 2,
           tasks: [],
         };
       },
@@ -66,7 +57,10 @@ describe("canonical call center snapshot route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect((await response.json()).revision).toBe("9223372036854775800");
+    expect((await response.json()).queue).toEqual({
+      id: "queue-1",
+      name: "Optical",
+    });
   });
 
   it("does not reveal whether an inaccessible queue exists", async () => {

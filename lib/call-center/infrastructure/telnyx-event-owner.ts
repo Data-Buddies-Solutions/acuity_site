@@ -5,7 +5,8 @@ import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/pro
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
-export type TelnyxEventOwner = "CANONICAL" | "LEGACY";
+export type TelnyxEventOwner = "CANONICAL";
+type StoredEffectOwner = TelnyxEventOwner | "LEGACY";
 
 type OwnerDatabase = Pick<PrismaClient, "$transaction">;
 type OwnerTransaction = Pick<
@@ -20,7 +21,7 @@ type OwnerTransaction = Pick<
 >;
 
 type PersistedOwner = {
-  effectOwner: TelnyxEventOwner;
+  effectOwner: StoredEffectOwner;
   id: string;
   providerCallSessionId: string | null;
 };
@@ -317,10 +318,13 @@ async function resolveTrustedOutboundIdentity(tx: OwnerTransaction, raw: RawIden
   return { ...raw, canonicalCallId: mapping.aggregateId, canonicalLegId: legId };
 }
 
-function assertSameOwner(owners: Array<TelnyxEventOwner | null | undefined>) {
-  const known = [...new Set(owners.filter(Boolean))] as TelnyxEventOwner[];
+function assertSameOwner(owners: Array<StoredEffectOwner | null | undefined>) {
+  const known = [...new Set(owners.filter(Boolean))] as StoredEffectOwner[];
   if (known.length > 1) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_OWNER_CONTRADICTION");
+  }
+  if (known[0] === "LEGACY") {
+    throw new TelnyxEventOwnerError("TELNYX_EVENT_OUT_OF_SCOPE");
   }
   return known[0] ?? null;
 }
@@ -354,15 +358,22 @@ async function storedSessionOwner(
   const rejected = await tx.providerWebhookEvent.findFirst({
     select: { errorCode: true },
     where: {
-      errorCode: { startsWith: "TELNYX_DIRECT_HANDOFF_" },
       id: { not: event.id },
       processingStatus: "IGNORED",
       provider: "TELNYX",
       providerCallSessionId,
+      OR: [
+        { errorCode: { startsWith: "TELNYX_DIRECT_HANDOFF_" } },
+        { errorCode: "TELNYX_EVENT_OUT_OF_SCOPE" },
+      ],
     },
   });
   if (rejected) {
-    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE");
+    throw new TelnyxEventOwnerError(
+      rejected.errorCode === "TELNYX_EVENT_OUT_OF_SCOPE"
+        ? "TELNYX_EVENT_OUT_OF_SCOPE"
+        : "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE",
+    );
   }
   const rows = await tx.providerWebhookEvent.findMany({
     distinct: ["effectOwner"],
@@ -566,7 +577,7 @@ async function persistInboundOwner(tx: OwnerTransaction, raw: RawIdentity) {
   }
 
   const number = await configuredInboundNumber(tx, raw.toPhone);
-  if (!number) return "LEGACY" as const;
+  if (!number) return null;
   if (!number.inboundQueueId) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_NUMBER_QUEUE_MISSING");
   }
@@ -674,8 +685,10 @@ export async function resolveTelnyxEventOwner(
     const effectOwner =
       existingOwner ??
       (await persistDirectHandoffOwner(ownerTx, raw, raw.occurredAt)) ??
-      (await persistInboundOwner(ownerTx, raw)) ??
-      "LEGACY";
+      (await persistInboundOwner(ownerTx, raw));
+    if (!effectOwner) {
+      throw new TelnyxEventOwnerError("TELNYX_EVENT_OUT_OF_SCOPE");
+    }
 
     await persistEventOwner(ownerTx, event, raw, effectOwner);
     return effectOwner;

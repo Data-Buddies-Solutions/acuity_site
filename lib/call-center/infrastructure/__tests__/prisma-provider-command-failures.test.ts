@@ -17,7 +17,6 @@ describe("provider command dependency failures", () => {
       callId: "call-1",
       id: "ringback-command",
       leg: null,
-      nextAttemptAt: null,
       practiceId: "practice-1",
       status: "PENDING",
       type: "START_RINGBACK",
@@ -27,7 +26,6 @@ describe("provider command dependency failures", () => {
       callId: "call-1",
       id: "dial-command",
       leg: { agentSessionId: "session-1", id: "agent-leg" },
-      nextAttemptAt: null,
       practiceId: "practice-1",
       status: "PENDING",
       type: "DIAL_AGENT",
@@ -38,7 +36,6 @@ describe("provider command dependency failures", () => {
         findUnique: async () => ({
           audioReady: true,
           connectionState: "READY",
-          currentCallId: "call-1",
           endpointId: "endpoint-1",
           id: "session-1",
           leaseExpiresAt: new Date(now.getTime() + 60_000),
@@ -104,12 +101,10 @@ describe("provider command dependency failures", () => {
     expect(updates).toEqual([
       expect.objectContaining({
         errorCode: "COMMAND_DEPENDENCY_FAILED",
-        nextAttemptAt: null,
         status: "FAILED",
       }),
       expect.objectContaining({
         errorCode: "COMMAND_DEPENDENCY_FAILED",
-        nextAttemptAt: null,
         status: "FAILED",
       }),
     ]);
@@ -131,7 +126,6 @@ describe("provider command dependency failures", () => {
                   callId: "call-1",
                   id: "stop-command",
                   leg: null,
-                  nextAttemptAt: null,
                   practiceId: "practice-1",
                   status: "SENT",
                   type: "STOP_PLAYBACK",
@@ -160,7 +154,6 @@ describe("provider command dependency failures", () => {
     expect(updates).toEqual([
       expect.objectContaining({
         errorCode: null,
-        nextAttemptAt: null,
         status: "CONFIRMED",
       }),
     ]);

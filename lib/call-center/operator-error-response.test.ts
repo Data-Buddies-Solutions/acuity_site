@@ -59,30 +59,6 @@ describe("call-center operator error response", () => {
     expect(JSON.stringify(logs)).not.toContain("PrismaClientKnownRequestError");
   });
 
-  it("maps a stale offered call to a stable actionable code", async () => {
-    const handler = withCallCenterApiHandler(
-      async (_request: Request) => {
-        throw Object.assign(new Error("Call was already answered"), { status: 409 });
-      },
-      {
-        errorCode: "TEMPORARY_SERVICE_FAILURE",
-        logLabel: "claim failed",
-        reportFailure: () => {},
-      },
-    );
-
-    const response = await handler(request());
-
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
-      error: {
-        code: "CALL_ALREADY_CLAIMED",
-        referenceId: "ABC123",
-        retryable: false,
-      },
-    });
-  });
-
   it("classifies provider payloads without exposing them", async () => {
     const handler = withCallCenterApiHandler(
       async (_request: Request) => {

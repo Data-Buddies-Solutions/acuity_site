@@ -8,8 +8,6 @@ type AgentSessionWireSource = {
   audioReady: boolean;
   clientInstanceId: string;
   connectionState: CallCenterAgentConnectionState;
-  currentCallId: string | null;
-  offeredCallId: string | null;
   endpointId: string;
   id: string;
   leaseExpiresAt: Date;
@@ -34,6 +32,12 @@ export function serializeAgentConnectionState(
   return CONNECTION_STATE_WIRE[state];
 }
 
+export function normalizeAgentPresence(
+  presence: CallCenterAgentPresence,
+): AgentSessionView["presence"] {
+  return presence === "WRAP_UP" ? "BUSY" : presence;
+}
+
 export function serializeAgentSessionView(
   session: AgentSessionWireSource,
 ): AgentSessionView {
@@ -41,13 +45,11 @@ export function serializeAgentSessionView(
     audioReady: session.audioReady,
     clientInstanceId: session.clientInstanceId,
     connectionState: serializeAgentConnectionState(session.connectionState),
-    currentCallId: session.currentCallId,
-    offeredCallId: session.offeredCallId,
     endpointId: session.endpointId,
     id: session.id,
     leaseExpiresAt: session.leaseExpiresAt.toISOString(),
     microphoneReady: session.microphoneReady,
-    presence: session.presence,
+    presence: normalizeAgentPresence(session.presence),
     stateVersion: session.stateVersion,
   };
 }

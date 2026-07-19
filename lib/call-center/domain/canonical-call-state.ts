@@ -6,8 +6,7 @@ export type CanonicalCallStatus =
   | "QUEUED"
   | "RECEIVED"
   | "RINGING"
-  | "VOICEMAIL"
-  | "WRAP_UP";
+  | "VOICEMAIL";
 
 export type CanonicalCallState = {
   answeredAt: Date | null;
@@ -18,6 +17,20 @@ export type CanonicalCallState = {
   status: CanonicalCallStatus;
   voicemailStartedAt: Date | null;
 };
+
+export function normalizeCanonicalCallState<
+  T extends { status: CanonicalCallStatus | "WRAP_UP" },
+>(state: T): Omit<T, "status"> & { status: CanonicalCallStatus } {
+  return state.status === "WRAP_UP"
+    ? { ...state, status: "COMPLETED" }
+    : (state as Omit<T, "status"> & { status: CanonicalCallStatus });
+}
+
+export function normalizeCanonicalCallStatus(
+  status: CanonicalCallStatus | "WRAP_UP",
+): CanonicalCallStatus {
+  return status === "WRAP_UP" ? "COMPLETED" : status;
+}
 
 export type CanonicalLegStatus =
   "ANSWERED" | "BRIDGED" | "CREATED" | "DIALING" | "ENDED" | "FAILED" | "RINGING";
@@ -34,7 +47,6 @@ const CALL_RANK: Partial<Record<CanonicalCallStatus, number>> = {
   QUEUED: 1,
   RINGING: 2,
   CONNECTED: 3,
-  WRAP_UP: 4,
 };
 const TERMINAL_CALL_STATUSES = new Set<CanonicalCallStatus>([
   "ABANDONED",
@@ -112,7 +124,7 @@ export function advanceCanonicalCall(
   if (observed === "VOICEMAIL") {
     next.voicemailStartedAt = earliest(next.voicemailStartedAt, occurredAt);
   }
-  if (TERMINAL_CALL_STATUSES.has(observed) || observed === "WRAP_UP") {
+  if (TERMINAL_CALL_STATUSES.has(observed)) {
     next.endedAt = earliest(next.endedAt, occurredAt);
   }
 
@@ -159,19 +171,5 @@ export function advanceCanonicalLeg(
 export function terminalCallObservation(
   current: CanonicalCallStatus,
 ): "ABANDONED" | "COMPLETED" {
-  return current === "CONNECTED" || current === "WRAP_UP" ? "COMPLETED" : "ABANDONED";
-}
-
-export function selectWinningAgentLeg(
-  legs: ReadonlyArray<{ bridgedAt: Date | null; id: string }>,
-) {
-  return (
-    legs
-      .filter((leg): leg is { bridgedAt: Date; id: string } => Boolean(leg.bridgedAt))
-      .toSorted(
-        (left, right) =>
-          left.bridgedAt.getTime() - right.bridgedAt.getTime() ||
-          left.id.localeCompare(right.id),
-      )[0]?.id ?? null
-  );
+  return current === "CONNECTED" ? "COMPLETED" : "ABANDONED";
 }

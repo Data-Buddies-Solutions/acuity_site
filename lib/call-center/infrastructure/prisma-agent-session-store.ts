@@ -16,8 +16,6 @@ const sessionSelect = {
   audioReady: true,
   browserSessionId: true,
   connectionState: true,
-  currentCallId: true,
-  offeredCallId: true,
   endpointId: true,
   id: true,
   lastHeartbeatAt: true,
@@ -94,9 +92,7 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     return closed.map(toAgentSessionRecord);
   }
 
-  async createSession(
-    input: Omit<AgentSessionRecord, "currentCallId" | "offeredCallId">,
-  ) {
+  async createSession(input: AgentSessionRecord) {
     const { clientInstanceId, ...data } = input;
     const session = await this.transaction.callCenterAgentSession.create({
       data: { ...data, browserSessionId: clientInstanceId },

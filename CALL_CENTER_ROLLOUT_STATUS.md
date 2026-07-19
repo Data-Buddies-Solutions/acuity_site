@@ -1,68 +1,43 @@
-# Call Center Redesign Status
+# Call Center Runtime Status
 
-Last updated: July 15, 2026
+Last updated: July 19, 2026
 
-## Current position
+## Current contract
 
-The production call center is already using canonical inbound, outbound,
-user-owned browser endpoints, internal transfer, ordered realtime state, and
-direct SIP handoff. The remaining cleanup is implemented on branch
-`codex/call-center-canonical-cleanup` and is not production until its PR merges
-to `main`, its migration runs, and `main` deploys.
+The portal uses one canonical call-center runtime:
 
-This cleanup replaces the phased rollout structure with one production
-contract:
+- one call owns many provider-observed legs and at most one bridged winner;
+- inbound offers use one fixed 20-second window, with immediate voicemail when
+  no agent leg can be offered;
+- the browser reads one versioned authoritative snapshot without SSE cursors;
+- transfer, wrap-up, overflow, browser call pointers, and configurable ring/wait
+  policy have no runtime owner;
+- provider commands dispatch inline, while one authenticated bounded outbox
+  drain recovers committed commands after an interrupted request;
+- old database columns and enum values remain physically intact for deployment
+  rollback, but the canonical runtime does not read or write them.
 
-- configured enabled queues and numbers are canonical immediately;
-- queue `LEGACY / SHADOW / ACTIVE` modes are removed;
-- activation preflight, global activation/rollback configuration, migration
-  reports, bootstrap scripts, recovery reports, and the shadow UI are removed;
-- the station selector and legacy softphone/workspace APIs are removed;
-- the portal, history, follow-up, caller thread, voicemail playback, and actions
-  read and write canonical calls/tasks only;
-- legacy sessions, queue items, ring attempts, seats, presence, missed calls,
-  notes, and profile branches are deleted after their history is migrated.
+## Read-only production proof
 
-## Data proof
+The July 19 audit found:
 
-The cleanup migration passes from an empty database and from a seeded legacy
-database containing duplicate session legs, duplicate recordings, a missed
-call, a linked note, and a note with no direct source row. The seeded result is
-2 calls, 2 voicemail recordings, and 5 canonical tasks/events with no lost row.
+| Check                                     | Result |
+| ----------------------------------------- | -----: |
+| Agent sessions                            |    195 |
+| Sessions with `offeredCallId`             |      0 |
+| Sessions with `currentCallId`             |      0 |
+| Sessions or calls in `WRAP_UP`            |      0 |
+| Queues                                    |      4 |
+| Queues outside the fixed 20-second policy |      0 |
+| Queues with overflow                      |      0 |
+| Active legacy-owned calls                 |      0 |
 
-The July 15 production read-only audit found:
+Historical legacy-owned calls remain terminal and inert.
 
-| Check                                           | Result |
-| ----------------------------------------------- | -----: |
-| Legacy sessions                                 | 14,641 |
-| Missed calls                                    |  4,846 |
-| Voicemail recordings                            |  2,980 |
-| Notes                                           |    946 |
-| Orphan notes                                    |     21 |
-| Orphan notes with deterministic call mapping    |     21 |
-| Missed calls without a session                  |      0 |
-| Voicemails without a session or canonical call  |      0 |
-| Session-owning practices without a phone number |      0 |
-| Maximum recordings sharing one legacy source    |      2 |
+## Deployment gate
 
-The migration explicitly preserves the duplicate recording case and fails
-closed if any historical row cannot be mapped.
-
-## Verification receipt
-
-- Prisma schema validation: pass.
-- TypeScript: pass.
-- Functional suite: 582 passed, 1 PostgreSQL concurrency test intentionally
-  skipped without its dedicated test database.
-- Empty-database migration: pass.
-- Seeded legacy migration: pass.
-- Production history mapping audit: pass, read-only.
-- Full repository lint: pass.
-- Full production build: pass.
-- Final CI-equivalent rerun: pass.
-
-## Remaining gate
-
-Open one PR to `main`, merge it, run the production migration workflow, deploy
-`main`, and execute the controlled inbound, outbound, reconnect, voicemail,
-transfer, and direct-handoff checks in the deployment runbook.
+Before merging, require schema validation, lint, TypeScript, the full functional
+suite, and a production build. Before production verification, configure
+`CRON_SECRET`. After deployment, prove inbound offer, Answer, one bridge winner,
+hangup/release, no-agent voicemail, outbound dial, direct handoff, terminal
+history, and outbox recovery.

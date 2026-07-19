@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   canonicalProjectionMainLaneWhere,
-  canonicalProjectionRetryAt,
   createCanonicalProjectionInbox,
   type CanonicalProjectionInboxStore,
   type CanonicalProjectionRecord,
@@ -14,7 +13,6 @@ function event(): CanonicalProjectionRecord {
   return {
     canonicalProjectionAttemptCount: 1,
     canonicalProjectionErrorCode: null,
-    canonicalProjectionNextAttemptAt: null,
     canonicalProjectionStatus: "PROCESSING",
     effectOwner: "CANONICAL",
     eventType: "call.initiated",
@@ -34,7 +32,6 @@ function store(
     claim: async () => event(),
     completeIgnored: async () => true,
     fail: async () => true,
-    hasIgnoredLegacySession: async () => false,
     ...overrides,
   };
 }
@@ -64,10 +61,5 @@ describe("canonical projection inbox", () => {
         staleBefore: new Date("2026-07-11T11:55:00.000Z"),
       },
     ]);
-  });
-
-  it("leaves projection retry timing to the provider", () => {
-    expect(canonicalProjectionRetryAt(1, now)).toBeNull();
-    expect(canonicalProjectionRetryAt(8, now)).toBeNull();
   });
 });

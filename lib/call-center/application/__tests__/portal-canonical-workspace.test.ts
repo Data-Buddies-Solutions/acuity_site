@@ -10,9 +10,7 @@ function queue(id: string, locationIds: string[]) {
   return {
     id,
     locations: locationIds.map((locationId) => ({ locationId })),
-    maxWaitSec: 30,
     name: id,
-    ringTimeoutSec: 20,
   };
 }
 

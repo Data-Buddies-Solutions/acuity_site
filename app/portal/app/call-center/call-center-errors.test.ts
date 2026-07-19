@@ -5,31 +5,14 @@ import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import { callCenterResponse, operatorErrorCopy } from "./call-center-errors";
 
 describe("call-center operator error catalog", () => {
-  it("gives an already-claimed call a specific next action", () => {
-    const copy = operatorErrorCopy(
-      new CallCenterRequestError({
-        code: "CALL_ALREADY_CLAIMED",
-        referenceId: "K7M2Q9",
-        retryable: false,
-      }),
-      "take",
-    );
-
-    expect(copy).toEqual({
-      message: "Call taken by another agent",
-      presentation: "inline",
-      retryable: false,
-    });
-  });
-
   it("keeps unknown provider details out of the calm action-specific fallback", () => {
     const copy = operatorErrorCopy(
       new Error('Telnyx payload {"patient":"+17865550100"}'),
-      "transfer",
+      "outbound",
     );
 
     expect(copy.message).toBe(
-      "We couldn't transfer this call. Try again. If it keeps happening, contact support.",
+      "We couldn't start this call. Try again. If it keeps happening, contact support.",
     );
     expect(copy.message).not.toContain("Telnyx");
     expect(copy.retryable).toBe(true);

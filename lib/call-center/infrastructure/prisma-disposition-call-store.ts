@@ -55,9 +55,7 @@ class PrismaDispositionCallTransaction implements DispositionCallTransaction {
     if (call.stateVersion !== input.expectedStateVersion) {
       throw new DispositionCallError("Call changed; refresh and try again", 409);
     }
-    if (
-      !["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED", "WRAP_UP"].includes(call.status)
-    ) {
+    if (!["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"].includes(call.status)) {
       throw new DispositionCallError("Call is not ready for disposition", 409);
     }
     const tasks = input.taskIds.length

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  normalizeAgentPresence,
   serializeAgentConnectionState,
   serializeAgentSessionView,
 } from "../agent-session-wire";
@@ -15,14 +16,16 @@ describe("canonical agent-session wire serializer", () => {
     expect(serializeAgentConnectionState(database)).toBe(wire);
   });
 
+  it("keeps rollback-only wrap-up sessions busy in the canonical runtime", () => {
+    expect(normalizeAgentPresence("WRAP_UP")).toBe("BUSY");
+  });
+
   it("exposes the canonical client identity and monotonic version", () => {
     expect(
       serializeAgentSessionView({
         audioReady: false,
         clientInstanceId: "client-1",
         connectionState: "ERROR",
-        currentCallId: "call-1",
-        offeredCallId: null,
         endpointId: "endpoint-1",
         id: "session-1",
         leaseExpiresAt: new Date("2026-07-11T12:01:00.000Z"),
@@ -34,8 +37,6 @@ describe("canonical agent-session wire serializer", () => {
       audioReady: false,
       clientInstanceId: "client-1",
       connectionState: "FAILED",
-      currentCallId: "call-1",
-      offeredCallId: null,
       endpointId: "endpoint-1",
       id: "session-1",
       leaseExpiresAt: "2026-07-11T12:01:00.000Z",

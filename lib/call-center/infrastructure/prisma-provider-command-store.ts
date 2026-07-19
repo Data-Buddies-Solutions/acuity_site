@@ -1,11 +1,13 @@
 import { Prisma } from "@/generated/prisma/client";
-import type { ProviderCommandDispatchStore } from "@/lib/call-center/application/dispatch-provider-command";
+import type {
+  ProviderCommandDispatchStore,
+  ProviderCommandRejectedClaim,
+} from "@/lib/call-center/application/dispatch-provider-command";
 import {
   decideProviderCommandMarkSent,
   type ProviderCommandClaim,
 } from "@/lib/call-center/domain/provider-command";
-import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
-import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
+import { reconcileActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-lifecycle-store";
 import { failProviderCommandDependents } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 import { prisma } from "@/lib/prisma";
 
@@ -13,10 +15,16 @@ type Transaction = Prisma.TransactionClient;
 export type ProviderCommandTransactionRunner = <T>(
   operation: (transaction: Transaction) => Promise<T>,
 ) => Promise<T>;
-export type ProviderCommandPrismaDelegate = Pick<
-  typeof prisma.callCenterCommand,
-  "findMany" | "findUnique" | "updateMany"
->;
+type ReconcileActiveInbound = typeof reconcileActiveInboundCallInTransaction;
+type ProviderCommandBacklogDelegate = Pick<typeof prisma.callCenterCommand, "findMany">;
+
+type TerminalProviderCommand = {
+  callId: string;
+  id: string;
+  leg: { id: string; kind: "AGENT" | "CUSTOMER" } | null;
+  practiceId: string;
+  type: string;
+};
 
 function recordArguments(value: Prisma.JsonValue) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -27,22 +35,12 @@ function recordArguments(value: Prisma.JsonValue) {
 function dialAgentArguments(value: Prisma.JsonValue) {
   const record = recordArguments(value);
   if (!record) return null;
-  const { agentSessionId, endpointId, replacesLegId } = record;
-  if (
-    replacesLegId !== undefined &&
-    (typeof replacesLegId !== "string" || replacesLegId.length === 0)
-  ) {
-    return null;
-  }
+  const { agentSessionId, endpointId } = record;
   return typeof agentSessionId === "string" &&
     agentSessionId.length > 0 &&
     typeof endpointId === "string" &&
     endpointId.length > 0
-    ? {
-        agentSessionId,
-        endpointId,
-        ...(typeof replacesLegId === "string" ? { replacesLegId } : {}),
-      }
+    ? { agentSessionId, endpointId }
     : null;
 }
 
@@ -79,46 +77,24 @@ function sipUri(username: string) {
 
 function isClaimable(
   command: {
-    attemptCount: number;
-    nextAttemptAt: Date | null;
     status: "PENDING" | "SENDING" | "SENT" | "CONFIRMED" | "FAILED";
     updatedAt: Date;
   },
-  input: { maxAttempts: number; now: Date; staleBefore: Date },
+  staleBefore: Date,
 ) {
-  if (command.attemptCount >= input.maxAttempts) return false;
   if (command.status === "PENDING") return true;
-  if (command.status === "FAILED") {
-    return Boolean(command.nextAttemptAt && command.nextAttemptAt <= input.now);
-  }
-  return command.status === "SENDING" && command.updatedAt <= input.staleBefore;
+  return command.status === "SENDING" && command.updatedAt <= staleBefore;
 }
 
-async function rejectProviderCommandClaim(
+async function settleTerminalProviderCommand(
   transaction: Transaction,
-  command: {
-    attemptCount: number;
-    callId: string;
-    id: string;
-    leg: { agentSessionId: string | null; id: string } | null;
-    practiceId: string;
-    status: "PENDING" | "SENDING" | "SENT" | "CONFIRMED" | "FAILED";
-  },
+  command: TerminalProviderCommand,
   errorCode: string,
   now: Date,
-  rejectLeg = false,
+  reconcileActiveInbound: ReconcileActiveInbound,
 ) {
-  const rejected = await transaction.callCenterCommand.updateMany({
-    data: { errorCode, nextAttemptAt: null, status: "FAILED", updatedAt: now },
-    where: {
-      attemptCount: command.attemptCount,
-      id: command.id,
-      status: command.status,
-    },
-  });
-  if (rejected.count !== 1) return null;
-
-  const leg = rejectLeg ? command.leg : null;
+  const leg =
+    command.type === "DIAL_AGENT" && command.leg?.kind === "AGENT" ? command.leg : null;
   if (leg) {
     await transaction.callCenterCallLeg.updateMany({
       data: { errorCode, status: "FAILED" },
@@ -136,32 +112,79 @@ async function rejectProviderCommandClaim(
         aggregateId: command.callId,
         aggregateType: "CALL",
         data: { commandId: command.id, errorCode, legId: leg.id },
-        idempotencyKey: `${command.id}:claim-rejected`,
+        idempotencyKey: `${command.id}:terminal-failure`,
         occurredAt: now,
         practiceId: command.practiceId,
         type: "CALL_AGENT_DIAL_FAILED",
       },
     });
-    await clearSettledTransferDeadline(transaction, command.callId);
   }
-  await appendCommandOperationStatus(transaction, {
-    attemptCount: command.attemptCount,
-    commandId: command.id,
-    now,
-    status: "FAILED",
-  });
   await failProviderCommandDependents(transaction, {
     commandId: command.id,
     now,
   });
-  return null;
+  const lifecycle = await reconcileActiveInbound(
+    transaction,
+    {
+      callId: command.callId,
+      practiceId: command.practiceId,
+      processedBridgeLegId: null,
+    },
+    now,
+  );
+  return lifecycle?.commandIds ?? [];
+}
+
+async function rejectProviderCommandClaim(
+  transaction: Transaction,
+  command: {
+    attemptCount: number;
+    callId: string;
+    id: string;
+    leg: {
+      agentSessionId: string | null;
+      id: string;
+      kind: "AGENT" | "CUSTOMER";
+    } | null;
+    practiceId: string;
+    status: "PENDING" | "SENDING" | "SENT" | "CONFIRMED" | "FAILED";
+    type: string;
+  },
+  errorCode: string,
+  now: Date,
+  reconcileActiveInbound: ReconcileActiveInbound,
+): Promise<ProviderCommandRejectedClaim | null> {
+  const rejected = await transaction.callCenterCommand.updateMany({
+    data: { errorCode, status: "FAILED", updatedAt: now },
+    where: {
+      attemptCount: command.attemptCount,
+      id: command.id,
+      status: command.status,
+    },
+  });
+  if (rejected.count !== 1) return null;
+
+  const followUpCommandIds = await settleTerminalProviderCommand(
+    transaction,
+    command,
+    errorCode,
+    now,
+    reconcileActiveInbound,
+  );
+  return {
+    commandId: command.id,
+    errorCode,
+    followUpCommandIds,
+    rejected: true,
+  };
 }
 
 async function loadProviderCommandClaim(
   tx: Transaction,
   commandId: string,
-  input: { maxAttempts: number; now: Date; staleBefore: Date },
-): Promise<ProviderCommandClaim | null> {
+  input: { now: Date; staleBefore: Date },
+  reconcileActiveInbound: ReconcileActiveInbound,
+): Promise<ProviderCommandClaim | ProviderCommandRejectedClaim | null> {
   const target = await tx.callCenterCommand.findUnique({
     select: { callId: true },
     where: { id: commandId },
@@ -202,23 +225,19 @@ async function loadProviderCommandClaim(
         },
       },
       dependsOnCommand: {
-        select: { callId: true, nextAttemptAt: true, practiceId: true, status: true },
+        select: { callId: true, practiceId: true, status: true },
       },
       leg: { include: { agentSession: true, endpoint: true } },
       practice: { include: { callCenterSettings: true } },
     },
     where: { id: commandId },
   });
-  if (!command || !isClaimable(command, input)) return null;
+  if (!command || !isClaimable(command, input.staleBefore)) return null;
+  const reject = (errorCode: string): Promise<ProviderCommandRejectedClaim | null> =>
+    rejectProviderCommandClaim(tx, command, errorCode, input.now, reconcileActiveInbound);
   const isDialAgent = command.type === "DIAL_AGENT";
   if (command.call.effectOwner !== "CANONICAL") {
-    return rejectProviderCommandClaim(
-      tx,
-      command,
-      "COMMAND_CALL_NOT_CANONICAL",
-      input.now,
-      isDialAgent,
-    );
+    return reject("COMMAND_CALL_NOT_CANONICAL");
   }
 
   const dependency = command.dependsOnCommand;
@@ -226,30 +245,17 @@ async function loadProviderCommandClaim(
     dependency &&
     (dependency.callId !== command.callId || dependency.practiceId !== command.practiceId)
   ) {
-    return rejectProviderCommandClaim(
-      tx,
-      command,
-      "COMMAND_DEPENDENCY_INVALID",
-      input.now,
-      isDialAgent,
-    );
+    return reject("COMMAND_DEPENDENCY_INVALID");
   }
-  if (dependency?.status === "FAILED" && dependency.nextAttemptAt === null) {
-    await rejectProviderCommandClaim(
-      tx,
-      command,
-      "COMMAND_DEPENDENCY_FAILED",
-      input.now,
-      isDialAgent,
-    );
-    return null;
+  if (dependency?.status === "FAILED") {
+    return reject("COMMAND_DEPENDENCY_FAILED");
   }
   if (dependency && !["SENT", "CONFIRMED"].includes(dependency.status)) {
     return null;
   }
 
   if (command.type === "BRIDGE_LEGS") {
-    return rejectProviderCommandClaim(tx, command, "COMMAND_TYPE_UNSUPPORTED", input.now);
+    return reject("COMMAND_TYPE_UNSUPPORTED");
   }
 
   const leg = command.leg;
@@ -259,21 +265,10 @@ async function loadProviderCommandClaim(
     leg.callId !== command.callId ||
     (!cleanupHangup && ["ENDED", "FAILED"].includes(leg.status))
   ) {
-    return rejectProviderCommandClaim(
-      tx,
-      command,
-      "COMMAND_PROVIDER_LEG_INVALID",
-      input.now,
-      isDialAgent,
-    );
+    return reject("COMMAND_PROVIDER_LEG_INVALID");
   }
   if (!isDialAgent && !leg.providerCallControlId) {
-    return rejectProviderCommandClaim(
-      tx,
-      command,
-      "COMMAND_PROVIDER_LEG_INVALID",
-      input.now,
-    );
+    return reject("COMMAND_PROVIDER_LEG_INVALID");
   }
 
   const allowedAfterTerminal =
@@ -292,13 +287,7 @@ async function loadProviderCommandClaim(
     command.call.status,
   );
   if (terminalCall && !allowedAfterTerminal) {
-    return rejectProviderCommandClaim(
-      tx,
-      command,
-      "COMMAND_CALL_TERMINAL",
-      input.now,
-      isDialAgent,
-    );
+    return reject("COMMAND_CALL_TERMINAL");
   }
 
   const customerLegCommand = [
@@ -309,19 +298,14 @@ async function loadProviderCommandClaim(
     "START_RECORDING",
   ].includes(command.type);
   if (customerLegCommand && leg.kind !== "CUSTOMER") {
-    return rejectProviderCommandClaim(
-      tx,
-      command,
-      "COMMAND_CUSTOMER_LEG_INVALID",
-      input.now,
-    );
+    return reject("COMMAND_CUSTOMER_LEG_INVALID");
   }
 
   let dispatchArguments:
     | Record<string, never>
     | { timeoutSeconds: number }
     | { greeting: string }
-    | { agentSessionId: string; endpointId: string; replacesLegId?: string }
+    | { agentSessionId: string; endpointId: string }
     | null;
   switch (command.type) {
     case "START_RINGBACK":
@@ -337,88 +321,29 @@ async function loadProviderCommandClaim(
       dispatchArguments = emptyArguments(command.arguments);
   }
   if (!dispatchArguments) {
-    return rejectProviderCommandClaim(
-      tx,
-      command,
-      "COMMAND_ARGUMENTS_INVALID",
-      input.now,
-      isDialAgent,
-    );
+    return reject("COMMAND_ARGUMENTS_INVALID");
   }
 
   if (command.type === "DIAL_AGENT") {
     const args = dispatchArguments as {
       agentSessionId: string;
       endpointId: string;
-      replacesLegId?: string;
     };
     if (
       leg.kind !== "AGENT" ||
       leg.endpointId !== args.endpointId ||
       leg.agentSessionId !== args.agentSessionId
     ) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_AGENT_LEG_INVALID",
-        input.now,
-      );
+      return reject("COMMAND_AGENT_LEG_INVALID");
     }
     if (!command.call.queue?.enabled) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_QUEUE_NOT_ENABLED",
-        input.now,
-        true,
-      );
-    }
-    let transferSource: { id: string; providerCallControlId: string | null } | null =
-      null;
-    if (args.replacesLegId) {
-      if (
-        command.call.status !== "CONNECTED" ||
-        command.call.winningLegId !== args.replacesLegId
-      ) {
-        return rejectProviderCommandClaim(
-          tx,
-          command,
-          "COMMAND_TRANSFER_SOURCE_CHANGED",
-          input.now,
-          true,
-        );
-      }
-      const source = await tx.callCenterCallLeg.findFirst({
-        select: { id: true, providerCallControlId: true },
-        where: {
-          callId: command.callId,
-          id: args.replacesLegId,
-          kind: "AGENT",
-          status: "BRIDGED",
-        },
-      });
-      if (!source) {
-        return rejectProviderCommandClaim(
-          tx,
-          command,
-          "COMMAND_TRANSFER_SOURCE_INVALID",
-          input.now,
-          true,
-        );
-      }
-      transferSource = source;
+      return reject("COMMAND_QUEUE_NOT_ENABLED");
     }
     const endpoint = leg.endpoint;
     const session = leg.agentSession;
     const settings = command.practice.callCenterSettings;
     if (!endpoint?.enabled || !endpoint.sipUsername || !settings) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_PROVIDER_TARGET_INVALID",
-        input.now,
-        true,
-      );
+      return reject("COMMAND_PROVIDER_TARGET_INVALID");
     }
     await tx.$queryRaw(
       Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${args.endpointId} FOR UPDATE`,
@@ -451,22 +376,10 @@ async function loadProviderCommandClaim(
       !session.audioReady ||
       session.leaseExpiresAt <= input.now
     ) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_AGENT_SESSION_NOT_READY",
-        input.now,
-        true,
-      );
+      return reject("COMMAND_AGENT_SESSION_NOT_READY");
     }
     if (!command.call.queue.members.some(({ userId }) => userId === session.userId)) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_AGENT_MEMBERSHIP_INVALID",
-        input.now,
-        true,
-      );
+      return reject("COMMAND_AGENT_MEMBERSHIP_INVALID");
     }
     const practiceMembership = await tx.practiceMembership.findUnique({
       select: {
@@ -498,13 +411,7 @@ async function loadProviderCommandClaim(
           !numberLocationId ||
           !allowedLocationIds.has(numberLocationId)))
     ) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_AGENT_LOCATION_ACCESS_INVALID",
-        input.now,
-        true,
-      );
+      return reject("COMMAND_AGENT_LOCATION_ACCESS_INVALID");
     }
     if (
       queueLocationIds.size > 0 &&
@@ -513,54 +420,32 @@ async function loadProviderCommandClaim(
         !numberLocationId ||
         !queueLocationIds.has(numberLocationId))
     ) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_LOCATION_SCOPE_INVALID",
-        input.now,
-        true,
-      );
+      return reject("COMMAND_LOCATION_SCOPE_INVALID");
     }
     const connectionId = settings.telnyxConnectionId?.trim();
     const from = command.call.number.practicePhoneNumber.phoneNumber.trim();
     if (!connectionId || !from) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_PROVIDER_CONFIGURATION_INVALID",
-        input.now,
-        true,
-      );
+      return reject("COMMAND_PROVIDER_CONFIGURATION_INVALID");
     }
-    const linkedLeg =
-      args.replacesLegId && command.call.direction === "OUTBOUND"
-        ? transferSource
-        : await tx.callCenterCallLeg.findFirst({
-            orderBy: [{ startedAt: "asc" }, { id: "asc" }],
-            select: { providerCallControlId: true },
-            where: {
-              callId: command.callId,
-              kind: "CUSTOMER",
-              providerCallControlId: { not: null },
-              status: { in: ["ANSWERED", "BRIDGED"] },
-            },
-          });
+    const linkedLeg = await tx.callCenterCallLeg.findFirst({
+      orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+      select: { providerCallControlId: true },
+      where: {
+        callId: command.callId,
+        kind: "CUSTOMER",
+        providerCallControlId: { not: null },
+        status: { in: ["ANSWERED", "BRIDGED"] },
+      },
+    });
     const linkTo = linkedLeg?.providerCallControlId;
     if (!linkTo) {
-      return rejectProviderCommandClaim(
-        tx,
-        command,
-        "COMMAND_LINK_LEG_UNAVAILABLE",
-        input.now,
-        true,
-      );
+      return reject("COMMAND_LINK_LEG_UNAVAILABLE");
     }
 
     const claimed = await tx.callCenterCommand.update({
       data: {
         attemptCount: { increment: 1 },
         errorCode: null,
-        nextAttemptAt: null,
         status: "SENDING",
       },
       select: { attemptCount: true },
@@ -591,7 +476,6 @@ async function loadProviderCommandClaim(
     data: {
       attemptCount: { increment: 1 },
       errorCode: null,
-      nextAttemptAt: null,
       status: "SENDING",
     },
     select: { attemptCount: true },
@@ -646,12 +530,13 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
   constructor(
     private readonly runTransaction: ProviderCommandTransactionRunner = (operation) =>
       prisma.$transaction(operation),
-    private readonly commands: ProviderCommandPrismaDelegate = prisma.callCenterCommand,
+    private readonly reconcileActiveInbound: ReconcileActiveInbound = reconcileActiveInboundCallInTransaction,
+    private readonly commands: ProviderCommandBacklogDelegate = prisma.callCenterCommand,
   ) {}
 
-  claim(input: { commandId: string; maxAttempts: number; now: Date; staleBefore: Date }) {
+  claim(input: { commandId: string; now: Date; staleBefore: Date }) {
     return this.runTransaction((tx) =>
-      loadProviderCommandClaim(tx, input.commandId, input),
+      loadProviderCommandClaim(tx, input.commandId, input, this.reconcileActiveInbound),
     );
   }
 
@@ -664,27 +549,25 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
       | "PROVIDER_AUTHORIZATION_FAILED"
       | "PROVIDER_VALIDATION_FAILED"
       | "PROVIDER_UNKNOWN";
-    nextAttemptAt: Date | null;
     now: Date;
   }) {
     return this.runTransaction(async (transaction) => {
       const target = await transaction.callCenterCommand.findUnique({
         select: {
           callId: true,
-          leg: { select: { agentSessionId: true, id: true } },
+          leg: { select: { id: true, kind: true } },
           practiceId: true,
           type: true,
         },
         where: { id: input.commandId },
       });
-      if (!target) return false;
+      if (!target) return null;
       await transaction.$queryRaw(
         Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${target.callId} FOR UPDATE`,
       );
       const result = await transaction.callCenterCommand.updateMany({
         data: {
           errorCode: input.errorCode,
-          nextAttemptAt: input.nextAttemptAt,
           status: "FAILED",
           updatedAt: input.now,
         },
@@ -694,53 +577,33 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
           status: "SENDING",
         },
       });
-      if (result.count !== 1) return false;
+      if (result.count !== 1) return null;
 
-      if (!input.nextAttemptAt && target.type === "DIAL_AGENT") {
-        if (target.leg) {
-          await transaction.callCenterCallLeg.updateMany({
-            data: { errorCode: input.errorCode, status: "FAILED" },
-            where: {
-              id: target.leg.id,
-              status: { in: ["CREATED", "DIALING", "RINGING"] },
-            },
-          });
-          await transaction.callCenterCall.update({
-            data: { stateVersion: { increment: 1 } },
-            where: { id: target.callId },
-          });
-          await transaction.callCenterEvent.create({
-            data: {
-              aggregateId: target.callId,
-              aggregateType: "CALL",
-              data: {
-                commandId: input.commandId,
-                errorCode: input.errorCode,
-                legId: target.leg.id,
-              },
-              idempotencyKey: `${input.commandId}:terminal-failure`,
-              occurredAt: input.now,
-              practiceId: target.practiceId,
-              type: "CALL_AGENT_DIAL_FAILED",
-            },
-          });
-          await clearSettledTransferDeadline(transaction, target.callId);
-        }
-      }
-      await appendCommandOperationStatus(transaction, {
-        attemptCount: input.attemptCount,
-        commandId: input.commandId,
-        now: input.now,
-        status: input.nextAttemptAt ? "PENDING" : "FAILED",
-      });
-      if (!input.nextAttemptAt) {
-        await failProviderCommandDependents(transaction, {
-          commandId: input.commandId,
-          now: input.now,
-        });
-      }
-      return true;
+      const commandIds = await settleTerminalProviderCommand(
+        transaction,
+        { ...target, id: input.commandId },
+        input.errorCode,
+        input.now,
+        this.reconcileActiveInbound,
+      );
+      return { commandIds };
     });
+  }
+
+  async listDispatchable(input: { limit: number; staleBefore: Date }) {
+    const commands = await this.commands.findMany({
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+      take: input.limit,
+      where: {
+        call: { effectOwner: "CANONICAL" },
+        OR: [
+          { status: "PENDING" },
+          { status: "SENDING", updatedAt: { lte: input.staleBefore } },
+        ],
+      },
+    });
+    return commands.map(({ id }) => id);
   }
 
   async markSent(input: { attemptCount: number; commandId: string; now: Date }) {
@@ -748,7 +611,6 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
       const updated = await transaction.callCenterCommand.updateMany({
         data: {
           errorCode: null,
-          nextAttemptAt: null,
           status: "SENT",
           updatedAt: input.now,
         },
@@ -759,12 +621,6 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
         },
       });
       if (updated.count === 1) {
-        await appendCommandOperationStatus(transaction, {
-          attemptCount: input.attemptCount,
-          commandId: input.commandId,
-          now: input.now,
-          status: "SENT",
-        });
         return "MARKED" as const;
       }
 

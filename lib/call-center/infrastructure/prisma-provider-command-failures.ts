@@ -1,14 +1,9 @@
 import type { Prisma } from "@/generated/prisma/client";
-import { appendCommandOperationStatus } from "@/lib/call-center/infrastructure/prisma-command-operation-events";
-import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
 
 type Transaction = Prisma.TransactionClient;
 
 const unsettledWhere: Prisma.CallCenterCommandWhereInput = {
-  OR: [
-    { status: { in: ["PENDING", "SENDING", "SENT"] } },
-    { nextAttemptAt: { not: null }, status: "FAILED" },
-  ],
+  status: { in: ["PENDING", "SENDING", "SENT"] },
 };
 
 const commandFailureSelect = {
@@ -16,7 +11,6 @@ const commandFailureSelect = {
   callId: true,
   id: true,
   leg: { select: { id: true } },
-  nextAttemptAt: true,
   practiceId: true,
   status: true,
   type: true,
@@ -44,10 +38,9 @@ async function failOne(
   now: Date,
 ) {
   const failed = await transaction.callCenterCommand.updateMany({
-    data: { errorCode, nextAttemptAt: null, status: "FAILED", updatedAt: now },
+    data: { errorCode, status: "FAILED", updatedAt: now },
     where: {
       id: command.id,
-      nextAttemptAt: command.nextAttemptAt,
       status: command.status,
     },
   });
@@ -78,15 +71,8 @@ async function failOne(
         },
       });
     }
-    await clearSettledTransferDeadline(transaction, command.callId);
   }
 
-  await appendCommandOperationStatus(transaction, {
-    attemptCount: command.attemptCount,
-    commandId: command.id,
-    now,
-    status: "FAILED",
-  });
   return true;
 }
 
@@ -96,21 +82,14 @@ async function confirmSatisfiedOne(
   now: Date,
 ) {
   const confirmed = await transaction.callCenterCommand.updateMany({
-    data: { errorCode: null, nextAttemptAt: null, status: "CONFIRMED", updatedAt: now },
+    data: { errorCode: null, status: "CONFIRMED", updatedAt: now },
     where: {
       id: command.id,
-      nextAttemptAt: command.nextAttemptAt,
       status: command.status,
     },
   });
   if (confirmed.count !== 1) return false;
 
-  await appendCommandOperationStatus(transaction, {
-    attemptCount: command.attemptCount,
-    commandId: command.id,
-    now,
-    status: "CONFIRMED",
-  });
   return true;
 }
 

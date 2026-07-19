@@ -32,7 +32,6 @@ function fakeDatabase({ failedReservation = false } = {}) {
       leaseExpiresAt: new Date(now.getTime() + 60_000),
       microphoneReady: true,
       occupied: false,
-      offeredCallId: "older-ringing-call",
       presence: "AVAILABLE" as const,
       stateVersion: 2,
       userId: "user-1",
@@ -54,7 +53,6 @@ function fakeDatabase({ failedReservation = false } = {}) {
       leaseExpiresAt: new Date(now.getTime() + 60_000),
       microphoneReady: true,
       occupied: false,
-      offeredCallId: null,
       presence: "AVAILABLE" as const,
       stateVersion: 7,
       userId: "user-2",
@@ -64,12 +62,10 @@ function fakeDatabase({ failedReservation = false } = {}) {
     enabled: true,
     id: "queue-1",
     locations: [{ locationId: "location-1" }],
-    maxWaitSec: 30,
     members: [
       { enabled: true, userId: "user-1" },
       { enabled: true, userId: "user-2" },
     ],
-    ringTimeoutSec: 20,
   };
   const transaction = {
     $queryRaw: async (query: { strings: readonly string[] }) => {
@@ -104,7 +100,6 @@ function fakeDatabase({ failedReservation = false } = {}) {
         return {
           deadlineAt: null,
           queuedAt: null,
-          queueDeadlineAt: null,
           stateVersion,
         };
       },
@@ -112,7 +107,6 @@ function fakeDatabase({ failedReservation = false } = {}) {
         operations.push("call.update");
         expect(data).toMatchObject({
           deadlineAt: new Date("2026-07-12T12:00:20.000Z"),
-          queueDeadlineAt: new Date("2026-07-12T12:00:20.000Z"),
           status: "QUEUED",
         });
         expect(data).not.toHaveProperty("firstRingAt");
@@ -282,7 +276,7 @@ describe("Prisma canonical active inbound routing", () => {
     ).toHaveLength(2);
   });
 
-  it("reuses active prerequisites for a later queue round and returns only new dials", async () => {
+  it("reuses committed prerequisites and returns only new dials", async () => {
     const fake = fakeDatabase({ failedReservation: true });
     const result = await routeActiveInboundCall(
       fake.store,
@@ -293,7 +287,7 @@ describe("Prisma canonical active inbound routing", () => {
           answerCommandId: "answer-existing",
           startRingbackCommandId: "ringback-existing",
         },
-        routingKey: "overflow:call-1:queue-1:queue-2",
+        routingKey: "initial:call-1",
       },
       now,
     );

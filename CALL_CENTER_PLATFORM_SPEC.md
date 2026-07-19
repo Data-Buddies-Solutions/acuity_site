@@ -2,7 +2,7 @@
 
 Status: Canonical production runtime
 
-Last reviewed: 2026-07-15
+Last reviewed: 2026-07-19
 
 ## Decision
 
@@ -15,14 +15,14 @@ Customer differences are data:
 
 - `CallCenterNumber` maps a practice phone number to an inbound queue and
   controls whether it may be used for outbound caller ID.
-- `CallCenterQueue` owns ring, wait, overflow, and voicemail policy.
+- `CallCenterQueue` owns membership, location scope, and voicemail configuration.
 - `CallCenterQueueMember` authorizes users to receive a queue's calls.
 - `CallCenterEndpoint` binds one provider calling identity to one portal user.
 - `CallCenterAgentSession` represents one user's current browser connection and
   readiness.
 
 The application remains a modular monolith: Next.js, Postgres, Telnyx, and one
-ordered SSE stream. Provider callbacks and commands are durable database work;
+versioned snapshot. Provider callbacks and commands are durable database work;
 the browser is never the source of call truth.
 
 ## Runtime
@@ -35,21 +35,19 @@ flowchart LR
   Projector --> Call["Call, legs, tasks, events"]
   Call --> Router["Queue routing and durable commands"]
   Router --> Telnyx
-  Call --> SSE["Ordered resumable SSE"]
-  SSE --> Portal["Portal call center"]
+  Call --> Snapshot["Versioned snapshot"]
+  Snapshot --> Portal["Portal call center"]
   Portal --> API["Authenticated idempotent actions"]
   API --> Call
 ```
 
 Inbound calls ring every eligible ready browser in deterministic order. A user
-remains `AVAILABLE` while a call is only offered. `Take` atomically claims the
-call, answers the exact browser media leg, and the user becomes `BUSY` only
-after authoritative answer or bridge state. Hangup releases the user.
+remains `AVAILABLE` while a call is only offered. `Answer` accepts the exact
+browser media leg, and the user becomes `BUSY` only after a provider-confirmed
+bridge. Hangup releases the user.
 
 Outbound calls create the canonical call and customer leg first, then dispatch
-one durable provider command. Internal transfer targets a user, resolves that
-user's ready endpoint transactionally, and preserves the original customer leg
-until the target bridges.
+one durable provider command.
 
 Direct handoff uses:
 
@@ -66,12 +64,12 @@ not a browser endpoint.
 
 - `CallCenterCall`: one logical inbound or outbound call and terminal outcome.
 - `CallCenterCallLeg`: one customer or agent provider leg.
-- `CallCenterCommand`: one retryable provider effect with one idempotency key.
+- `CallCenterCommand`: one durable provider effect with one idempotency key.
 - `ProviderWebhookEvent`: one verified, deduplicated provider callback.
-- `CallCenterEvent`: append-only audit and realtime revision.
+- `CallCenterEvent`: append-only audit revision.
 - `CallCenterTask`: one missed-call, voicemail, note, callback, or follow-up item.
 - `CallCenterVoicemail`: one recording attached to one call.
-- `CallCenterAgentSession`: one browser lease, presence, offer, and active call.
+- `CallCenterAgentSession`: one browser lease, connection, and readiness state.
 
 `effectOwner` remains only as an immutable compatibility fence for provider
 sessions admitted before this cleanup. Every newly configured call is
@@ -84,7 +82,7 @@ or the portal.
    session.
 2. `AVAILABLE` requires a fresh lease, ready provider connection, microphone,
    and browser audio.
-3. Ringing does not make a user `BUSY`; confirmed answer or bridge does.
+3. Ringing or answer does not make a user `BUSY`; a confirmed bridge does.
 4. One call has at most one winning agent leg; losing legs are canceled.
 5. Customer answer is not staff answer.
 6. A call cannot enter voicemail while a live agent leg remains.
@@ -92,12 +90,12 @@ or the portal.
 8. Provider event IDs and command idempotency keys are unique and replay-safe.
 9. All command authorization is practice, location, queue, user, session, and
    call scoped.
-10. Realtime state is ordered and resumable; browser media observations never
+10. Each versioned snapshot is authoritative; browser media observations never
     independently change logical call state.
 11. Logs contain IDs and categorical errors, not patient data, credentials, or
     raw provider payloads.
-12. Provider callbacks and commands are processed immediately and failures remain
-    visible for operator diagnosis.
+12. Provider commands dispatch immediately and a bounded outbox drain recovers
+    interrupted sends; terminal failures remain visible for operator diagnosis.
 
 ## Schema cleanup
 
@@ -115,15 +113,15 @@ bootstrap, recovery report, and activation preflight have no runtime path.
 
 ## Configuration and secrets
 
-There are no rollout environment variables or call-center cron secret. Provider
+`CRON_SECRET` authenticates the bounded provider-command outbox drain. Provider
 credentials, the direct-handoff service credential/SIP destination, and database
 connectivity remain operational secrets. Queue, number, membership, endpoint,
 and caller-ID behavior belongs in Postgres.
 
 ## Verification contract
 
-For each configured number, prove inbound ring, Take/bridge, duplicate Take,
-browser refresh/reconnect, hangup/release, no-ready voicemail, outbound dial,
-internal transfer, direct handoff where configured, and terminal history/task
-state. Duplicate and out-of-order provider fixtures must converge without a
-second provider effect.
+For each configured number, prove inbound ring, Answer/bridge, concurrent
+answers with one bridge winner, browser refresh/reconnect, hangup/release,
+no-ready voicemail, outbound dial, direct handoff where configured, outbox
+recovery, and terminal history/task state. Duplicate and out-of-order provider
+fixtures must converge without a second provider effect.

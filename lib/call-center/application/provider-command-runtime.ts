@@ -1,4 +1,5 @@
 import { createProviderCommandDispatcher } from "@/lib/call-center/application/dispatch-provider-command";
+import { createProviderCommandDrainer } from "@/lib/call-center/application/drain-provider-commands";
 import { prismaProviderCommandStore } from "@/lib/call-center/infrastructure/prisma-provider-command-store";
 import {
   telnyxProviderCommandSender,
@@ -8,7 +9,11 @@ import {
 export const dispatchProviderCommand = createProviderCommandDispatcher({
   classifyError: telnyxProviderSendErrorClassifier,
   enabled: true,
-  maxAttempts: 1,
   sender: telnyxProviderCommandSender,
   store: prismaProviderCommandStore,
+});
+
+export const drainProviderCommands = createProviderCommandDrainer({
+  backlog: prismaProviderCommandStore,
+  dispatch: dispatchProviderCommand,
 });

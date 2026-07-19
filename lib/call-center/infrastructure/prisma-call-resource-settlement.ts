@@ -1,6 +1,5 @@
 import { Prisma } from "@/generated/prisma/client";
 import { settleProviderCommandsForTerminalLeg } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
-import { clearSettledTransferDeadline } from "@/lib/call-center/infrastructure/prisma-transfer-lifecycle";
 
 type Transaction = Prisma.TransactionClient;
 
@@ -44,10 +43,7 @@ export async function settleCanonicalCallLegs(
       ...(input.legIds ? { id: { in: [...input.legIds] } } : {}),
     },
   });
-  if (legs.length === 0) {
-    await clearSettledTransferDeadline(transaction, input.callId);
-    return [];
-  }
+  if (legs.length === 0) return [];
 
   const call = await transaction.callCenterCall.findUnique({
     select: { practiceId: true },
@@ -113,6 +109,5 @@ export async function settleCanonicalCallLegs(
     }
   }
 
-  await clearSettledTransferDeadline(transaction, input.callId);
   return [...new Set(commandIds)];
 }

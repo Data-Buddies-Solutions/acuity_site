@@ -101,7 +101,7 @@ export function createTelnyxProviderCommandSender(
             connectionId: command.provider.connectionId,
             from: command.provider.from,
             linkTo: command.provider.linkTo,
-            preventDoubleBridge: !command.arguments.replacesLegId,
+            preventDoubleBridge: true,
             timeoutSecs: command.provider.timeoutSeconds,
             to: command.provider.sipUri,
           });
@@ -161,24 +161,24 @@ export const telnyxProviderSendErrorClassifier: ProviderSendErrorClassifier = {
   classify(error) {
     if (error instanceof TelnyxError) {
       if (error.status === 401 || error.status === 403) {
-        return { category: "TERMINAL", code: "PROVIDER_AUTHORIZATION_FAILED" };
+        return { code: "PROVIDER_AUTHORIZATION_FAILED" };
       }
       if (error.status === 408) {
-        return { category: "RETRYABLE", code: "SENDING_OUTCOME_AMBIGUOUS" };
+        return { code: "SENDING_OUTCOME_AMBIGUOUS" };
       }
       if (error.status === 429) {
-        return { category: "RETRYABLE", code: "PROVIDER_RATE_LIMITED" };
+        return { code: "PROVIDER_RATE_LIMITED" };
       }
       if (error.status >= 500) {
-        return { category: "RETRYABLE", code: "SENDING_OUTCOME_AMBIGUOUS" };
+        return { code: "SENDING_OUTCOME_AMBIGUOUS" };
       }
       if (error.status >= 400) {
-        return { category: "TERMINAL", code: "PROVIDER_VALIDATION_FAILED" };
+        return { code: "PROVIDER_VALIDATION_FAILED" };
       }
     }
     if (error instanceof Error && error.name === "TimeoutError") {
-      return { category: "RETRYABLE", code: "SENDING_OUTCOME_AMBIGUOUS" };
+      return { code: "SENDING_OUTCOME_AMBIGUOUS" };
     }
-    return { category: "UNKNOWN", code: "PROVIDER_UNKNOWN" };
+    return { code: "PROVIDER_UNKNOWN" };
   },
 };

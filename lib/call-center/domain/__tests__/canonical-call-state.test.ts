@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   advanceCanonicalCall,
   advanceCanonicalLeg,
-  selectWinningAgentLeg,
+  normalizeCanonicalCallState,
   terminalCallObservation,
   type CanonicalCallStatus,
   type CanonicalCallState,
@@ -45,6 +45,10 @@ function permutations<T>(values: ReadonlyArray<T>): T[][] {
 }
 
 describe("passive canonical call state", () => {
+  it("reads rollback-only wrap-up calls as completed", () => {
+    expect(normalizeCanonicalCallState({ status: "WRAP_UP" }).status).toBe("COMPLETED");
+  });
+
   it("converges under duplicate and out-of-order non-terminal observations", () => {
     const forward: ReadonlyArray<readonly [CanonicalCallStatus, string]> = [
       ["QUEUED", "2026-07-11T10:00:00.000Z"],
@@ -153,16 +157,5 @@ describe("passive canonical call state", () => {
       bridgedAt: at("2026-07-11T10:00:05Z"),
       status: "ENDED",
     });
-  });
-
-  it("elects the earliest provider bridge independent of delivery order", () => {
-    const legs = [
-      { bridgedAt: at("2026-07-11T10:00:06Z"), id: "leg-b" },
-      { bridgedAt: at("2026-07-11T10:00:05Z"), id: "leg-c" },
-      { bridgedAt: at("2026-07-11T10:00:05Z"), id: "leg-a" },
-    ];
-
-    expect(selectWinningAgentLeg(legs)).toBe("leg-a");
-    expect(selectWinningAgentLeg(legs.toReversed())).toBe("leg-a");
   });
 });

@@ -9,9 +9,7 @@ export type QueueAccessActor = {
   userId: string;
 };
 
-export type QueueAccessIdentity = Pick<QueueAccessActor, "practiceId" | "userId">;
-
-type QueueDatabase = Pick<PrismaClient, "callCenterQueue" | "practiceMembership">;
+type QueueDatabase = Pick<PrismaClient, "callCenterQueue">;
 
 export class QueueAccessError extends Error {
   readonly status = 404;
@@ -20,12 +18,6 @@ export class QueueAccessError extends Error {
     super("Call center queue not found");
     this.name = "QueueAccessError";
   }
-}
-
-export function queueAccessKey(actor: QueueAccessActor) {
-  return actor.hasAllLocationAccess
-    ? "ALL"
-    : `SELECTED:${[...actor.allowedLocationIds].sort().join(",")}`;
 }
 
 export function queueAccessWhere(
@@ -61,9 +53,7 @@ export function queueAccessWhere(
 const queueAccessSelect = {
   id: true,
   locations: { select: { locationId: true } },
-  maxWaitSec: true,
   name: true,
-  ringTimeoutSec: true,
 } satisfies Prisma.CallCenterQueueSelect;
 
 export async function resolveQueueAccess(
@@ -89,29 +79,4 @@ export async function listAccessibleQueues(
     select: queueAccessSelect,
     where: queueAccessWhere(actor),
   });
-}
-
-export async function rehydrateQueueAccessActor(
-  identity: QueueAccessIdentity,
-  database: QueueDatabase = prisma,
-): Promise<QueueAccessActor> {
-  const membership = await database.practiceMembership.findUnique({
-    select: {
-      locationScope: true,
-      locations: {
-        select: { locationId: true },
-        where: { location: { practiceId: identity.practiceId } },
-      },
-    },
-    where: {
-      practiceId_userId: identity,
-    },
-  });
-
-  if (!membership) throw new QueueAccessError();
-  return {
-    allowedLocationIds: membership.locations.map(({ locationId }) => locationId),
-    hasAllLocationAccess: membership.locationScope !== "SELECTED",
-    ...identity,
-  };
 }
