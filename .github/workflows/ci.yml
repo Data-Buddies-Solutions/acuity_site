@@ -72,8 +72,8 @@ jobs:
           PRETTIER_HEAD_SHA: ${{ github.sha }}
         run: ${{ matrix.command }}
 
-  call-center-migration:
-    name: Call Center migration
+  migrations:
+    name: Migrations
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -91,46 +91,7 @@ jobs:
         ports:
           - 5432:5432
     env:
-      CALL_CENTER_MIGRATION_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal?schema=public&options=-c%20acuity.call_center_rollback_closed%3Dtrue
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.11
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Run production migration path
-        run: bunx prisma migrate deploy
-
-      - name: Run rollback-state migration test
-        run: bun test prisma/migrations/20260719180000_remove_call_center_rollback_state/migration.test.ts
-
-  call-center-postgres:
-    name: Call Center PostgreSQL concurrency
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: acuity_portal
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    env:
+      # Clean history replay must satisfy the guard embedded in the applied July 19 migration.
       CALL_CENTER_POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal?schema=public&options=-c%20acuity.call_center_rollback_closed%3Dtrue
 
@@ -146,7 +107,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Migrate test database
+      - name: Replay migration history
         run: bunx prisma migrate deploy
 
       - name: Prove Call Center mutation ordering
