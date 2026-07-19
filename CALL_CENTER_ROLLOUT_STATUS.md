@@ -71,7 +71,12 @@ retained legacy event ID had a final `delivered` or `failed` delivery record
 before the 72-hour observation window closed. The provider delivery API exposes
 read-only list/retrieve operations, not a replay command.
 
-This closes the compatibility fence and authorizes
+Telnyx does not publish a default Voice webhook retry ceiling. The release owner
+therefore explicitly accepts the residual assumption that Telnyx will not
+automatically or manually redeliver a finalized Voice webhook more than 72 hours
+after its final delivery record. That assumption, together with the observed
+production and provider evidence above, closes the compatibility fence and
+authorizes
 `20260719190000_retire_dual_webhook_lifecycle`. The migration retains historical
 rows, copies the authoritative projection checkpoint into the one remaining
 lifecycle, and refuses to run if a legacy call/event or active claim reopens the

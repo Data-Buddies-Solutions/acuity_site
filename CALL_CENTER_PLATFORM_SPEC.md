@@ -139,7 +139,11 @@ session compatibility window. It refuses to run with a nonterminal legacy call,
 an unresolved legacy/admission event, or an active event claim; moves the
 canonical checkpoint into the retained processing fields; then removes
 `effectOwner`, the second status/retry/error/timestamp set, and their indexes.
-Historical calls and events remain intact.
+Historical calls and events remain intact. The release decision combines the
+sanitized production/provider evidence with an explicit release-owner
+assumption that Telnyx will not automatically or manually redeliver a finalized
+Voice webhook more than 72 hours after its final delivery record; Telnyx does
+not publish the default Voice retry ceiling.
 
 This migration is forward-only. Application rollback is limited to a revision
 that understands the one-lifecycle schema; rollback must not restore the

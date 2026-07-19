@@ -1,9 +1,11 @@
 BEGIN;
 
 -- Removal was authorized on 2026-07-19 after production and Telnyx delivery
--- evidence showed no nonterminal legacy call, no unresolved legacy event, and
--- no retained provider delivery that could still retry. Keep the database gate
--- decisive in case production changes before this migration runs.
+-- evidence showed no nonterminal legacy call or unresolved legacy event, and
+-- the release owner accepted the residual assumption that Telnyx will not
+-- redeliver a finalized Voice webhook more than 72 hours after its final
+-- delivery record. Keep the database gate decisive in case production changes
+-- before this migration runs.
 -- Match runtime lock order, then prevent a new call/event claim between the
 -- guard, checkpoint backfill, and column removal.
 LOCK TABLE "call_center_call" IN ACCESS EXCLUSIVE MODE;

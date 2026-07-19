@@ -35,6 +35,13 @@ to a revision that understands the single provider-event status and the schema
 without `effectOwner`; do not restore the owner fence, dual inbox, retired
 tables, or run destructive reverse SQL.
 
+This retirement accepts one provider-contract risk: Telnyx does not publish its
+default Voice webhook retry ceiling. The release owner assumes a finalized
+Voice webhook will not be automatically or manually redelivered more than 72
+hours after its final delivery record. If a later callback disproves that
+assumption, preserve the event and canonical call evidence; do not recreate the
+dual lifecycle.
+
 ## Production verification
 
 Use one controlled user in each configured queue and call every configured
