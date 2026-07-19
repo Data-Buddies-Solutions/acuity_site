@@ -12,6 +12,7 @@ import {
   startTelnyxPlayback,
   startTelnyxRecording,
   stopTelnyxPlayback,
+  transferTelnyxCall,
   TelnyxError,
 } from "@/lib/telnyx";
 
@@ -33,6 +34,35 @@ export function canonicalCommandClientState(command: ProviderCommandDispatchData
   ).toString("base64");
 }
 
+export function transferCommandClientStates(
+  command: Extract<ProviderCommandDispatchData, { type: "TRANSFER_AGENT" }>,
+) {
+  const encode = (value: Record<string, unknown>) =>
+    Buffer.from(JSON.stringify(value), "utf8").toString("base64");
+  const common = {
+    callId: command.callId,
+    canonicalCommand: true,
+    commandId: command.commandId,
+  };
+  return {
+    source: encode({
+      ...common,
+      ...(command.arguments.providerSourceLegId === command.arguments.sourceLegId
+        ? { internalAgentLeg: true }
+        : {}),
+      internalTransferSource: true,
+      legId: command.arguments.providerSourceLegId,
+    }),
+    target: encode({
+      ...common,
+      endpointId: command.arguments.endpointId,
+      internalAgentLeg: true,
+      internalTransferTarget: true,
+      legId: command.legId,
+    }),
+  };
+}
+
 type TelnyxCommandOperations = {
   answer: typeof answerTelnyxCall;
   dial: typeof dialTelnyxCall;
@@ -42,6 +72,7 @@ type TelnyxCommandOperations = {
   recordStart: typeof startTelnyxRecording;
   ringbackContent: typeof ringbackWavBase64For;
   speak: typeof speakOnTelnyxCall;
+  transfer: typeof transferTelnyxCall;
 };
 
 const telnyxOperations: TelnyxCommandOperations = {
@@ -53,6 +84,7 @@ const telnyxOperations: TelnyxCommandOperations = {
   recordStart: startTelnyxRecording,
   ringbackContent: ringbackWavBase64For,
   speak: speakOnTelnyxCall,
+  transfer: transferTelnyxCall,
 };
 
 function requireSuccessfulResponse(response: Response, action: string) {
@@ -106,6 +138,21 @@ export function createTelnyxProviderCommandSender(
             to: command.provider.sipUri,
           });
           return;
+        case "TRANSFER_AGENT": {
+          const clientStates = transferCommandClientStates(command);
+          requireSuccessfulResponse(
+            await operations.transfer({
+              callControlId: command.provider.callControlId,
+              clientState: clientStates.source,
+              commandId: command.commandId,
+              targetLegClientState: clientStates.target,
+              timeoutSecs: command.provider.timeoutSeconds,
+              to: command.provider.sipUri,
+            }),
+            "transfer",
+          );
+          return;
+        }
         case "STOP_PLAYBACK": {
           const response = await operations.playbackStop(
             command.provider.callControlId,

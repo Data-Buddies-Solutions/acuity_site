@@ -5,12 +5,14 @@ import type {
   ProviderCommandSettledClaim,
 } from "@/lib/call-center/application/dispatch-provider-command";
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
+import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import {
   decideProviderCommandMarkSent,
   type ProviderCommandClaim,
 } from "@/lib/call-center/domain/provider-command";
 import { reconcileActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-lifecycle-store";
 import { failProviderCommandDependents } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
+import { reconcileFailedTransferWithEndedSource } from "@/lib/call-center/infrastructure/prisma-failed-transfer-reconciliation";
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
@@ -43,6 +45,22 @@ function dialAgentArguments(value: Prisma.JsonValue) {
     typeof endpointId === "string" &&
     endpointId.length > 0
     ? { agentSessionId, endpointId }
+    : null;
+}
+
+function transferAgentArguments(value: Prisma.JsonValue) {
+  const record = recordArguments(value);
+  if (!record) return null;
+  const { agentSessionId, endpointId, providerSourceLegId, sourceLegId } = record;
+  return typeof agentSessionId === "string" &&
+    agentSessionId.length > 0 &&
+    typeof endpointId === "string" &&
+    endpointId.length > 0 &&
+    typeof providerSourceLegId === "string" &&
+    providerSourceLegId.length > 0 &&
+    typeof sourceLegId === "string" &&
+    sourceLegId.length > 0
+    ? { agentSessionId, endpointId, providerSourceLegId, sourceLegId }
     : null;
 }
 
@@ -96,7 +114,10 @@ async function settleTerminalProviderCommand(
   reconcileActiveInbound: ReconcileActiveInbound,
 ) {
   const leg =
-    command.type === "DIAL_AGENT" && command.leg?.kind === "AGENT" ? command.leg : null;
+    ["DIAL_AGENT", "TRANSFER_AGENT"].includes(command.type) &&
+    command.leg?.kind === "AGENT"
+      ? command.leg
+      : null;
   if (leg) {
     await transaction.callCenterCallLeg.updateMany({
       data: { errorCode, status: "FAILED" },
@@ -117,7 +138,10 @@ async function settleTerminalProviderCommand(
         idempotencyKey: `${command.id}:terminal-failure`,
         occurredAt: now,
         practiceId: command.practiceId,
-        type: "CALL_AGENT_DIAL_FAILED",
+        type:
+          command.type === "TRANSFER_AGENT"
+            ? "CALL_TRANSFER_FAILED"
+            : "CALL_AGENT_DIAL_FAILED",
       },
     });
   }
@@ -125,6 +149,17 @@ async function settleTerminalProviderCommand(
     commandId: command.id,
     now,
   });
+  if (command.type === "TRANSFER_AGENT") {
+    const transfer = await reconcileFailedTransferWithEndedSource(
+      transaction,
+      {
+        commandId: command.id,
+        now,
+      },
+      settleCanonicalCallLegs,
+    );
+    return transfer.commandIds;
+  }
   const lifecycle = await reconcileActiveInbound(
     transaction,
     {
@@ -253,6 +288,7 @@ async function loadProviderCommandClaim(
   const reject = (errorCode: string): Promise<ProviderCommandRejectedClaim | null> =>
     rejectProviderCommandClaim(tx, command, errorCode, input.now, reconcileActiveInbound);
   const isDialAgent = command.type === "DIAL_AGENT";
+  const isTransferAgent = command.type === "TRANSFER_AGENT";
 
   const dependency = command.dependsOnCommand;
   if (
@@ -281,7 +317,7 @@ async function loadProviderCommandClaim(
   ) {
     return reject("COMMAND_PROVIDER_LEG_INVALID");
   }
-  if (!isDialAgent && !leg.providerCallControlId) {
+  if (!isDialAgent && !isTransferAgent && !leg.providerCallControlId) {
     return reject("COMMAND_PROVIDER_LEG_INVALID");
   }
 
@@ -320,6 +356,12 @@ async function loadProviderCommandClaim(
     | { timeoutSeconds: number }
     | { greeting: string }
     | { agentSessionId: string; endpointId: string }
+    | {
+        agentSessionId: string;
+        endpointId: string;
+        providerSourceLegId: string;
+        sourceLegId: string;
+      }
     | null;
   switch (command.type) {
     case "START_RINGBACK":
@@ -331,11 +373,159 @@ async function loadProviderCommandClaim(
     case "DIAL_AGENT":
       dispatchArguments = dialAgentArguments(command.arguments);
       break;
+    case "TRANSFER_AGENT":
+      dispatchArguments = transferAgentArguments(command.arguments);
+      break;
     default:
       dispatchArguments = emptyArguments(command.arguments);
   }
   if (!dispatchArguments) {
     return reject("COMMAND_ARGUMENTS_INVALID");
+  }
+
+  if (command.type === "TRANSFER_AGENT") {
+    const args = dispatchArguments as {
+      agentSessionId: string;
+      endpointId: string;
+      providerSourceLegId: string;
+      sourceLegId: string;
+    };
+    if (
+      leg.kind !== "AGENT" ||
+      leg.endpointId !== args.endpointId ||
+      leg.agentSessionId !== args.agentSessionId ||
+      command.call.status !== "CONNECTED"
+    ) {
+      return reject("COMMAND_TRANSFER_STATE_INVALID");
+    }
+    if (!command.call.queue?.enabled) {
+      return reject("COMMAND_QUEUE_NOT_ENABLED");
+    }
+    const endpoint = leg.endpoint;
+    const session = leg.agentSession;
+    if (!endpoint?.enabled || !endpoint.sipUsername) {
+      return reject("COMMAND_PROVIDER_TARGET_INVALID");
+    }
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${args.endpointId} FOR UPDATE`,
+    );
+    const source = await tx.callCenterCallLeg.findFirst({
+      include: { endpoint: { select: { userId: true } } },
+      where: {
+        callId: command.callId,
+        id: args.sourceLegId,
+        kind: "AGENT",
+        providerCallControlId: { not: null },
+        status: { in: ["ANSWERED", "BRIDGED"] },
+      },
+    });
+    const providerSource = await tx.callCenterCallLeg.findFirst({
+      select: { id: true, kind: true, providerCallControlId: true },
+      where: {
+        callId: command.callId,
+        id: args.providerSourceLegId,
+        providerCallControlId: { not: null },
+        status: { in: ["ANSWERED", "BRIDGED"] },
+      },
+    });
+    const liveTarget = await tx.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        id: leg.id,
+        status: { in: ["CREATED", "DIALING", "RINGING"] },
+      },
+    });
+    const occupied = await tx.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        endpointId: args.endpointId,
+        id: { not: leg.id },
+        kind: "AGENT",
+        status: { in: ["ANSWERED", "BRIDGED"] },
+      },
+    });
+    if (
+      !source?.providerCallControlId ||
+      !providerSource?.providerCallControlId ||
+      (command.call.direction === "INBOUND" && providerSource.kind !== "CUSTOMER") ||
+      (command.call.direction === "OUTBOUND" && providerSource.id !== source.id) ||
+      (command.call.winningLegId !== source.id &&
+        !(command.call.direction === "OUTBOUND" && !command.call.winningLegId)) ||
+      source.endpointId === args.endpointId ||
+      source.endpoint?.userId === session?.userId ||
+      !session ||
+      !liveTarget ||
+      session.id !== args.agentSessionId ||
+      session.endpointId !== args.endpointId ||
+      session.presence !== "AVAILABLE" ||
+      occupied ||
+      session.connectionState !== "READY" ||
+      !session.microphoneReady ||
+      !session.audioReady ||
+      session.leaseExpiresAt <= input.now
+    ) {
+      return reject("COMMAND_AGENT_SESSION_NOT_READY");
+    }
+    if (!command.call.queue.members.some(({ userId }) => userId === session.userId)) {
+      return reject("COMMAND_AGENT_MEMBERSHIP_INVALID");
+    }
+    const numberLocationId = command.call.number.practicePhoneNumber.locationId;
+    const queueLocationIds = new Set(
+      command.call.queue.locations.map(({ locationId }) => locationId),
+    );
+    if (
+      !numberLocationId ||
+      endpoint.locationId !== numberLocationId ||
+      (queueLocationIds.size > 0 && !queueLocationIds.has(numberLocationId))
+    ) {
+      return reject("COMMAND_LOCATION_SCOPE_INVALID");
+    }
+    const membership = await tx.practiceMembership.findUnique({
+      select: {
+        locationScope: true,
+        locations: { select: { locationId: true } },
+      },
+      where: {
+        practiceId_userId: {
+          practiceId: command.practiceId,
+          userId: session.userId,
+        },
+      },
+    });
+    if (
+      !membership ||
+      (membership.locationScope === "SELECTED" &&
+        !membership.locations.some(({ locationId }) => locationId === numberLocationId))
+    ) {
+      return reject("COMMAND_AGENT_LOCATION_ACCESS_INVALID");
+    }
+
+    const claimed = await tx.callCenterCommand.update({
+      data: {
+        attemptCount: { increment: 1 },
+        errorCode: null,
+        status: "SENDING",
+      },
+      select: { attemptCount: true },
+      where: { id: command.id },
+    });
+    return {
+      attemptCount: claimed.attemptCount,
+      command: {
+        arguments: args,
+        callId: command.callId,
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        legId: leg.id,
+        practiceId: command.practiceId,
+        provider: {
+          callControlId: providerSource.providerCallControlId,
+          sipUri: sipUri(endpoint.sipUsername.trim()),
+          timeoutSeconds: 20,
+        },
+        type: "TRANSFER_AGENT",
+      },
+    };
   }
 
   if (command.type === "DIAL_AGENT") {

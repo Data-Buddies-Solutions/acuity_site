@@ -15,6 +15,13 @@ import {
 import { prisma } from "@/lib/prisma";
 
 const ACTIVE_CALL_STATUSES = ["RECEIVED", "QUEUED", "RINGING", "CONNECTED"] as const;
+const LIVE_AGENT_LEG_STATUSES = [
+  "CREATED",
+  "DIALING",
+  "RINGING",
+  "ANSWERED",
+  "BRIDGED",
+] as const;
 const TERMINAL_CALL_STATUSES = ["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"] as const;
 export const CALL_CENTER_READ_TRANSACTION_OPTIONS = {
   isolationLevel: "RepeatableRead" as const,
@@ -122,21 +129,17 @@ export function queueCallWhere(
   };
 }
 
-function endpointWhere(
+export function agentEndpointWhere(
   actor: QueueAccessActor,
-  queueLocationIds: string[],
 ): Prisma.CallCenterEndpointWhereInput {
-  const locationIds = accessibleQueueLocationIds(actor, queueLocationIds);
   return {
     enabled: true,
     practiceId: actor.practiceId,
-    ...(queueLocationIds.length
-      ? { locationId: { in: locationIds } }
-      : actor.hasAllLocationAccess
-        ? {}
-        : actor.allowedLocationIds.length
-          ? { locationId: { in: actor.allowedLocationIds } }
-          : { id: { in: [] } }),
+    ...(actor.hasAllLocationAccess
+      ? {}
+      : actor.allowedLocationIds.length
+        ? { locationId: { in: actor.allowedLocationIds } }
+        : { id: { in: [] } }),
   };
 }
 
@@ -147,6 +150,31 @@ function readOpenTaskCount(
 ): Promise<number> {
   const taskWhere = { call: callWhere, practiceId, status: "OPEN" } as const;
   return transaction.callCenterTask.count({ where: taskWhere });
+}
+
+export function activeCallWhere(
+  callWhere: Prisma.CallCenterCallWhereInput,
+  practiceId: string,
+  agentEndpointId: string | null,
+): Prisma.CallCenterCallWhereInput {
+  const scope = agentEndpointId
+    ? {
+        OR: [
+          callWhere,
+          {
+            legs: {
+              some: {
+                endpointId: agentEndpointId,
+                kind: "AGENT" as const,
+                status: { in: [...LIVE_AGENT_LEG_STATUSES] },
+              },
+            },
+            practiceId,
+          },
+        ],
+      }
+    : callWhere;
+  return { AND: [scope, { status: { in: [...ACTIVE_CALL_STATUSES] } }] };
 }
 
 export async function readCallCenterSnapshot(
@@ -163,14 +191,19 @@ export async function readCallCenterSnapshot(
       const callWhere = queueCallWhere(actor, queueId, queueLocationIds);
       const agentProfile = await transaction.callCenterEndpoint.findFirst({
         select: { enabled: true, id: true, label: true, locationId: true },
-        where: { ...endpointWhere(actor, queueLocationIds), userId: actor.userId },
+        where: { ...agentEndpointWhere(actor), userId: actor.userId },
       });
+      const activeWhere = activeCallWhere(
+        callWhere,
+        actor.practiceId,
+        agentProfile?.id ?? null,
+      );
       const [activeCalls, recentCalls, tasks, openTaskCount] = await Promise.all([
         transaction.callCenterCall.findMany({
           orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
           select: callSelect,
           take: 100,
-          where: { ...callWhere, status: { in: [...ACTIVE_CALL_STATUSES] } },
+          where: activeWhere,
         }),
         transaction.callCenterCall.findMany({
           orderBy: [{ receivedAt: "desc" }, { id: "desc" }],

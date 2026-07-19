@@ -10,7 +10,9 @@ The portal uses one canonical call-center runtime:
 - inbound offers use one fixed 20-second window, with immediate voicemail when
   no agent leg can be offered;
 - the browser reads one versioned authoritative snapshot without SSE cursors;
-- transfer, wrap-up, overflow, browser call pointers, and configurable ring/wait
+- same-location cold transfer rings one available queue member and changes the
+  winning leg only after that person answers and bridge evidence exists; warm
+  transfer, wrap-up, overflow, browser call pointers, and configurable ring/wait
   policy have no runtime owner;
 - provider commands dispatch inline, while one authenticated bounded outbox
   drain recovers committed commands after an interrupted request;

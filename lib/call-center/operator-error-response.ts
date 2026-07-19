@@ -87,6 +87,10 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
   },
   "Call changed; refresh and try again": { code: "SESSION_STALE", retryable: true },
   "Call is not ready for disposition": { code: "CALL_NOT_READY", retryable: true },
+  "Call is not connected to this phone": {
+    code: "CALL_NOT_CONNECTED",
+    retryable: false,
+  },
   "Endpoint is not eligible for this queue": { code: "ACCESS_DENIED", retryable: false },
   "Endpoint is not eligible for this user": { code: "ACCESS_DENIED", retryable: false },
   "Idempotency key was already used for another target": {
@@ -94,6 +98,9 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     retryable: false,
   },
   "One or more follow-up tasks changed": { code: "SESSION_STALE", retryable: true },
+  "A transfer is already in progress": { code: "CALL_NOT_READY", retryable: true },
+  "Transfer could not be started": { code: "PROVIDER_UNAVAILABLE", retryable: true },
+  "Transfer target is not available": { code: "CALL_NOT_READY", retryable: true },
   "Outbound phone numbers must be valid E.164": {
     code: "OUTBOUND_NUMBER_INVALID",
     retryable: false,

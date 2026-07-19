@@ -46,7 +46,7 @@ async function failOne(
   });
   if (failed.count !== 1) return false;
 
-  if (command.type === "DIAL_AGENT" && command.leg) {
+  if (["DIAL_AGENT", "TRANSFER_AGENT"].includes(command.type) && command.leg) {
     const leg = await transaction.callCenterCallLeg.updateMany({
       data: { errorCode, status: "FAILED" },
       where: {
@@ -54,22 +54,38 @@ async function failOne(
         status: { in: ["CREATED", "DIALING", "RINGING", "ANSWERED"] },
       },
     });
-    if (leg.count === 1) {
+    if (leg.count === 1 || command.type === "TRANSFER_AGENT") {
       await transaction.callCenterCall.update({
         data: { stateVersion: { increment: 1 } },
         where: { id: command.callId },
       });
-      await transaction.callCenterEvent.create({
-        data: {
-          aggregateId: command.callId,
-          aggregateType: "CALL",
-          data: { commandId: command.id, errorCode, legId: command.leg.id },
-          idempotencyKey: `${command.id}:${errorCode}`,
-          occurredAt: now,
-          practiceId: command.practiceId,
-          type: "CALL_AGENT_DIAL_FAILED",
-        },
-      });
+      const eventData = {
+        aggregateId: command.callId,
+        aggregateType: "CALL" as const,
+        data: { commandId: command.id, errorCode, legId: command.leg.id },
+        idempotencyKey: `${command.id}:${errorCode}`,
+        occurredAt: now,
+        practiceId: command.practiceId,
+        type:
+          command.type === "TRANSFER_AGENT"
+            ? "CALL_TRANSFER_FAILED"
+            : "CALL_AGENT_DIAL_FAILED",
+      };
+      if (command.type === "TRANSFER_AGENT") {
+        await transaction.callCenterEvent.upsert({
+          create: eventData,
+          update: {},
+          where: {
+            practiceId_type_idempotencyKey: {
+              idempotencyKey: eventData.idempotencyKey,
+              practiceId: eventData.practiceId,
+              type: eventData.type,
+            },
+          },
+        });
+      } else {
+        await transaction.callCenterEvent.create({ data: eventData });
+      }
     }
   }
 

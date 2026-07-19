@@ -11,13 +11,17 @@ import {
   earliestObservedAt,
   enrichCanonicalCallIdentity,
   hasCanonicalAgentBridgeEvidence,
+  isCanonicalTransferCompleted,
   pendingDialAgentCommandIdsForCustomerCallback,
   processedWinningAgentLegId,
+  projectedTransferTargetLegStatus,
   projectedCallDeadline,
   resolveCanonicalCustomerCall,
   resolveCanonicalPeerAgentLeg,
+  resolveCanonicalTransferContext,
   selectCanonicalProviderCommand,
   settleProviderCommandCallback,
+  shouldCompleteCanonicalTransfer,
   shouldPlanCanonicalInboundRouting,
   shouldReconcileCanonicalInboundLifecycle,
   sipEndpointIdentityCandidates,
@@ -70,6 +74,24 @@ describe("canonical routing triggers", () => {
       shouldReconcileCanonicalInboundLifecycle({
         callDirection: "OUTBOUND",
         eventType: "call.answered",
+        initialRoutingHadNoAgents: false,
+        legKind: "AGENT",
+      }),
+    ).toBe(false);
+    expect(
+      shouldReconcileCanonicalInboundLifecycle({
+        callDirection: "INBOUND",
+        eventType: "call.bridged",
+        initialRoutingHadNoAgents: false,
+        internalTransferTarget: true,
+        legKind: "AGENT",
+      }),
+    ).toBe(false);
+    expect(
+      shouldReconcileCanonicalInboundLifecycle({
+        callDirection: "INBOUND",
+        deferTransferSourceHangup: true,
+        eventType: "call.hangup",
         initialRoutingHadNoAgents: false,
         legKind: "AGENT",
       }),
@@ -241,6 +263,122 @@ describe("canonical bridge winner", () => {
     ).toBe("source");
   });
 
+  it("replaces the source winner only for its bridged transfer target", () => {
+    expect(
+      processedWinningAgentLegId(
+        "source",
+        { id: "target", kind: "AGENT", status: "BRIDGED" },
+        "source",
+      ),
+    ).toBe("target");
+    expect(
+      processedWinningAgentLegId(
+        "other-source",
+        { id: "target", kind: "AGENT", status: "BRIDGED" },
+        "source",
+      ),
+    ).toBe("other-source");
+  });
+
+  it("completes a transfer only after both target answer and bridge evidence", () => {
+    const transfer = {
+      commandId: "transfer-1",
+      sourceLegId: "source",
+      status: "SENT" as const,
+      targetLegId: "target",
+    };
+    expect(
+      isCanonicalTransferCompleted({
+        hasExplicitAnswer: false,
+        targetLeg: { bridgedAt: later, id: "target", status: "BRIDGED" },
+        transfer,
+      }),
+    ).toBe(false);
+    expect(
+      isCanonicalTransferCompleted({
+        hasExplicitAnswer: true,
+        targetLeg: { bridgedAt: null, id: "target", status: "BRIDGED" },
+        transfer,
+      }),
+    ).toBe(false);
+    expect(
+      isCanonicalTransferCompleted({
+        hasExplicitAnswer: true,
+        targetLeg: { bridgedAt: later, id: "target", status: "BRIDGED" },
+        transfer,
+      }),
+    ).toBe(true);
+    expect(shouldCompleteCanonicalTransfer(true, "source", transfer)).toBe(true);
+    expect(
+      shouldCompleteCanonicalTransfer(true, null, transfer, {
+        allowMissingSource: true,
+      }),
+    ).toBe(true);
+    expect(shouldCompleteCanonicalTransfer(true, "target", transfer)).toBe(false);
+    expect(() => shouldCompleteCanonicalTransfer(true, "other", transfer)).toThrow(
+      "CANONICAL_TRANSFER_SOURCE_CHANGED",
+    );
+  });
+
+  it("never completes a transfer to a terminal target with delayed callbacks", () => {
+    const transfer = {
+      commandId: "transfer-1",
+      sourceLegId: "source",
+      status: "FAILED" as const,
+      targetLegId: "target",
+    };
+    expect(
+      projectedTransferTargetLegStatus({
+        currentStatus: "FAILED",
+        eventType: "call.answered",
+        hasBridgeEvidence: true,
+        hasExplicitAnswer: true,
+        internalTransferTarget: true,
+        nextStatus: "FAILED",
+      }),
+    ).toBe("FAILED");
+    expect(
+      isCanonicalTransferCompleted({
+        hasExplicitAnswer: true,
+        targetLeg: { bridgedAt: later, id: "target", status: "FAILED" },
+        transfer,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps an early-media target ringing until explicit answer", () => {
+    expect(
+      projectedTransferTargetLegStatus({
+        currentStatus: "RINGING",
+        eventType: "call.bridged",
+        hasBridgeEvidence: true,
+        hasExplicitAnswer: false,
+        internalTransferTarget: true,
+        nextStatus: "BRIDGED",
+      }),
+    ).toBe("RINGING");
+    expect(
+      projectedTransferTargetLegStatus({
+        currentStatus: "RINGING",
+        eventType: "call.bridged",
+        hasBridgeEvidence: true,
+        hasExplicitAnswer: true,
+        internalTransferTarget: true,
+        nextStatus: "BRIDGED",
+      }),
+    ).toBe("BRIDGED");
+    expect(
+      projectedTransferTargetLegStatus({
+        currentStatus: "RINGING",
+        eventType: "call.answered",
+        hasBridgeEvidence: true,
+        hasExplicitAnswer: true,
+        internalTransferTarget: true,
+        nextStatus: "ANSWERED",
+      }),
+    ).toBe("BRIDGED");
+  });
+
   it("does not connect an inbound call when the customer bridge arrives first", () => {
     const call = {
       direction: "INBOUND" as const,
@@ -372,6 +510,26 @@ describe("canonical bridge winner", () => {
         "winner",
       ),
     ).toBe("COMPLETED");
+  });
+
+  it("defers only a pending transfer source hangup", () => {
+    const hangup = {
+      ...fact({ direction: "INBOUND", eventType: "call.hangup", legKind: "AGENT" }),
+      callObservation: null,
+      legKind: "AGENT" as const,
+      legObservation: "ENDED" as const,
+    };
+    const call = {
+      direction: "INBOUND" as const,
+      status: "CONNECTED" as const,
+      winningLegId: "source",
+    };
+    expect(
+      canonicalCallObservation(hangup, call, "source", {
+        deferTransferSourceHangup: true,
+      }),
+    ).toBeNull();
+    expect(canonicalCallObservation(hangup, call, "source")).toBe("COMPLETED");
   });
 
   it("settles customer media for closed calls but not active voicemail recording", () => {
@@ -555,6 +713,104 @@ describe("canonical browser peer legs", () => {
       "opaque-browser-credential",
     ]);
     expect(sipEndpointIdentityCandidates("+19542872010")).toEqual([]);
+  });
+});
+
+describe("canonical transfer correlation", () => {
+  const hangup = {
+    ...fact({ eventType: "call.hangup", legKind: "AGENT" }),
+    callObservation: null,
+    legKind: "AGENT" as const,
+    legObservation: "ENDED" as const,
+  };
+  const input = {
+    callId: "call-1",
+    endpointId: "endpoint-1",
+    legId: "source-leg",
+    practiceId: "practice-1",
+  };
+
+  it("treats an ordinary untagged agent hangup as a normal call callback", async () => {
+    const tx = {
+      callCenterCommand: { findMany: async () => [] },
+    };
+
+    await expect(
+      resolveCanonicalTransferContext(tx as never, hangup, input),
+    ).resolves.toBeNull();
+  });
+
+  it("matches an untagged hangup only to its pending transfer source", async () => {
+    const tx = {
+      callCenterCommand: {
+        findMany: async () => [
+          {
+            arguments: {
+              endpointId: "endpoint-2",
+              providerSourceLegId: "customer-leg",
+              sourceLegId: "source-leg",
+            },
+            callId: "call-1",
+            id: "transfer-1",
+            legId: "target-leg",
+            practiceId: "practice-1",
+            status: "SENT",
+            type: "TRANSFER_AGENT",
+          },
+        ],
+      },
+    };
+
+    await expect(
+      resolveCanonicalTransferContext(tx as never, hangup, input),
+    ).resolves.toEqual({
+      commandId: "transfer-1",
+      sourceLegId: "source-leg",
+      status: "SENT",
+      targetLegId: "target-leg",
+    });
+  });
+
+  it("prefers a chained pending transfer over stale target client state", async () => {
+    const tx = {
+      callCenterCommand: {
+        findMany: async () => [
+          {
+            arguments: {
+              endpointId: "endpoint-3",
+              providerSourceLegId: "customer-leg",
+              sourceLegId: "source-leg",
+            },
+            callId: "call-1",
+            id: "transfer-2",
+            legId: "next-target-leg",
+            practiceId: "practice-1",
+            status: "SENT",
+            type: "TRANSFER_AGENT",
+          },
+        ],
+        findUnique: async () => {
+          throw new Error("stale transfer command must not be loaded");
+        },
+      },
+    };
+
+    await expect(
+      resolveCanonicalTransferContext(
+        tx as never,
+        {
+          ...hangup,
+          internalTransferTarget: true,
+          providerCommandId: "transfer-1",
+        },
+        input,
+      ),
+    ).resolves.toEqual({
+      commandId: "transfer-2",
+      sourceLegId: "source-leg",
+      status: "SENT",
+      targetLegId: "next-target-leg",
+    });
   });
 });
 

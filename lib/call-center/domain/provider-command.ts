@@ -64,10 +64,27 @@ type DialAgentDispatchData = ProviderCommandDispatchBase & {
   type: "DIAL_AGENT";
 };
 
+type TransferAgentDispatchData = ProviderCommandDispatchBase & {
+  arguments: {
+    agentSessionId: string;
+    endpointId: string;
+    providerSourceLegId: string;
+    sourceLegId: string;
+  };
+  /** Resolved at claim time; provider credentials never enter durable arguments. */
+  provider: {
+    callControlId: string;
+    sipUri: string;
+    timeoutSeconds: number;
+  };
+  type: "TRANSFER_AGENT";
+};
+
 export type ProviderCommandDispatchData =
   | AnswerCustomerDispatchData
   | StartRingbackDispatchData
   | DialAgentDispatchData
+  | TransferAgentDispatchData
   | StopPlaybackDispatchData
   | HangupLegDispatchData
   | PlayVoicemailGreetingDispatchData

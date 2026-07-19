@@ -12,6 +12,7 @@ import {
   MicOff,
   Phone,
   PhoneIncoming,
+  PhoneForwarded,
   PhoneOff,
   PhoneOutgoing,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { PortalNeedsActionGroup } from "@/lib/call-center/portal-model";
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import {
   selectIncomingCalls,
@@ -41,8 +43,11 @@ import { canonicalTaskSignal } from "./canonical-task-signal";
 import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
+  hasCanonicalPendingTransfer,
+  isCanonicalTransferOffer,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
+  selectCanonicalTransferOffers,
 } from "./canonical-active-call-center";
 import ActivityRail from "./ActivityRail";
 import type { CanonicalAgentConnectionState } from "./use-canonical-agent-session";
@@ -252,7 +257,15 @@ function ConnectedCanonicalActiveWorkspace({
     }
   }, [router, taskSignal]);
 
-  const incomingCalls = useMemo(() => (state ? selectIncomingCalls(state) : []), [state]);
+  const incomingCalls = useMemo(() => {
+    if (!state) return [];
+    const queued = selectIncomingCalls(state);
+    const transfers = selectCanonicalTransferOffers(state.calls, session);
+    return [
+      ...queued,
+      ...transfers.filter((call) => !queued.some(({ id }) => id === call.id)),
+    ];
+  }, [session, state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
 
   const callingReady = Boolean(session && isAgentSessionViewReady(session));
@@ -490,7 +503,13 @@ function ConnectedCanonicalActiveWorkspace({
                         </p>
                         <p className="mt-1 text-xs text-[var(--portal-muted)]">
                           {call.callerName ? `${phone} · ` : ""}
-                          {answering ? "Connecting…" : match ? "Ringing" : "Preparing"}
+                          {answering
+                            ? "Connecting…"
+                            : match
+                              ? isCanonicalTransferOffer(call, session)
+                                ? "Transfer ringing"
+                                : "Ringing"
+                              : "Preparing"}
                         </p>
                       </div>
                       <Button
@@ -584,6 +603,7 @@ function ConnectedCanonicalActiveWorkspace({
                 <CanonicalActiveCall
                   call={activeCall}
                   endpointId={agentProfileId}
+                  clientInstanceId={clientInstanceId}
                   key={activeCall.id}
                   media={media}
                   sessionId={session?.id ?? null}
@@ -648,11 +668,13 @@ function ConnectedCanonicalActiveWorkspace({
 
 export function CanonicalActiveCall({
   call,
+  clientInstanceId,
   endpointId,
   media,
   sessionId,
 }: {
   call: CallView;
+  clientInstanceId: string;
   endpointId: string;
   media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
   sessionId: string | null;
@@ -661,6 +683,18 @@ export function CanonicalActiveCall({
   const [controlError, setControlError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const [isMuted, setMuted] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferTargets, setTransferTargets] = useState<
+    Array<{ endpointId: string; label: string }>
+  >([]);
+  const [targetEndpointId, setTargetEndpointId] = useState("");
+  const [loadingTargets, setLoadingTargets] = useState(false);
+  const [transferring, setTransferring] = useState(false);
+  const [transferTargetLegId, setTransferTargetLegId] = useState<string | null>(null);
+  const transferOperationRef = useRef<{ key: string; targetEndpointId: string } | null>(
+    null,
+  );
+  const transferInProgress = transferring || hasCanonicalPendingTransfer(call);
   const match = sessionId
     ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
     : null;
@@ -707,7 +741,7 @@ export function CanonicalActiveCall({
   };
 
   const endCall = async () => {
-    if (!mediaLegId || ending) return;
+    if (!mediaLegId || ending || transferInProgress) return;
 
     setEnding(true);
     try {
@@ -718,6 +752,94 @@ export function CanonicalActiveCall({
       setEnding(false);
     }
   };
+
+  const openTransfer = async () => {
+    if (loadingTargets || transferInProgress) return;
+    if (transferOpen) {
+      setTransferOpen(false);
+      return;
+    }
+    setTransferOpen(true);
+    setLoadingTargets(true);
+    setControlError(null);
+    try {
+      const response = await fetch(
+        `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/transfer?clientInstanceId=${encodeURIComponent(clientInstanceId)}`,
+      );
+      const body = await callCenterResponse<{
+        targets?: Array<{ endpointId?: unknown; label?: unknown }>;
+      }>(response);
+      const targets = (body.targets ?? []).filter(
+        (target): target is { endpointId: string; label: string } =>
+          typeof target.endpointId === "string" && typeof target.label === "string",
+      );
+      setTransferTargets(targets);
+      setTargetEndpointId((current) =>
+        targets.some(({ endpointId: id }) => id === current)
+          ? current
+          : (targets[0]?.endpointId ?? ""),
+      );
+    } catch (error) {
+      showControlError(error, "transfer");
+    } finally {
+      setLoadingTargets(false);
+    }
+  };
+
+  const startTransfer = async () => {
+    if (!targetEndpointId || transferring) return;
+    setTransferring(true);
+    setControlError(null);
+    const prior = transferOperationRef.current;
+    const key =
+      prior?.targetEndpointId === targetEndpointId
+        ? prior.key
+        : `canonical-transfer:${clientInstanceId}:${crypto.randomUUID()}`;
+    transferOperationRef.current = { key, targetEndpointId };
+    try {
+      const response = await fetch(
+        `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/transfer`,
+        {
+          body: JSON.stringify({
+            clientInstanceId,
+            expectedStateVersion: call.stateVersion,
+            targetEndpointId,
+          }),
+          headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+          method: "POST",
+        },
+      );
+      const body = await callCenterResponse<{ targetLegId?: unknown }>(response);
+      if (typeof body.targetLegId !== "string") {
+        throw localCallCenterError("TEMPORARY_SERVICE_FAILURE");
+      }
+      setTransferTargetLegId(body.targetLegId);
+    } catch (error) {
+      showControlError(error, "transfer");
+      if (
+        error instanceof CallCenterRequestError &&
+        Boolean(error.operatorError.referenceId)
+      ) {
+        transferOperationRef.current = null;
+      }
+      setTransferring(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!transferTargetLegId) return;
+    const target = call.legs.find(({ id }) => id === transferTargetLegId);
+    if (!target) return;
+    if (["ENDED", "FAILED"].includes(target.status)) {
+      const timeout = window.setTimeout(() => {
+        setControlError("The staff member did not answer. You still have the caller.");
+        setTransferring(false);
+        setTransferTargetLegId(null);
+        transferOperationRef.current = null;
+      }, 0);
+      return () => window.clearTimeout(timeout);
+    }
+  }, [call.legs, transferTargetLegId]);
 
   if (connected) {
     return (
@@ -743,7 +865,7 @@ export function CanonicalActiveCall({
           </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-3 gap-2">
           <Button
             aria-pressed={isMuted}
             disabled={!controlsEnabled || ending}
@@ -758,7 +880,15 @@ export function CanonicalActiveCall({
             {isMuted ? "Unmute" : "Mute"}
           </Button>
           <Button
-            disabled={!controlsEnabled || ending}
+            disabled={!controlsEnabled || ending || transferInProgress}
+            onClick={() => void openTransfer()}
+            variant="secondary"
+          >
+            <PhoneForwarded className="h-4 w-4" aria-hidden="true" />
+            Transfer
+          </Button>
+          <Button
+            disabled={!controlsEnabled || ending || transferInProgress}
             onClick={() => void endCall()}
             variant="secondary"
           >
@@ -766,6 +896,49 @@ export function CanonicalActiveCall({
             {ending ? "Ending" : "End"}
           </Button>
         </div>
+
+        {transferOpen ? (
+          <div className="mt-3 space-y-2 border-t border-[var(--portal-border)] pt-3">
+            {loadingTargets ? (
+              <p className="text-xs text-[var(--portal-muted)]">
+                Finding available staff…
+              </p>
+            ) : transferTargets.length ? (
+              <>
+                <PortalSelect
+                  aria-label="Transfer to"
+                  disabled={transferring}
+                  onChange={(event) => {
+                    setTargetEndpointId(event.target.value);
+                    transferOperationRef.current = null;
+                  }}
+                  value={targetEndpointId}
+                >
+                  {transferTargets.map((target) => (
+                    <option key={target.endpointId} value={target.endpointId}>
+                      {target.label}
+                    </option>
+                  ))}
+                </PortalSelect>
+                <Button
+                  className="w-full"
+                  disabled={!targetEndpointId || transferring}
+                  onClick={() => void startTransfer()}
+                  variant="primary"
+                >
+                  {transferring ? "Ringing staff…" : "Transfer call"}
+                </Button>
+                <p className="text-xs text-[var(--portal-muted)]">
+                  You stay connected until they answer.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-[var(--portal-muted)]">
+                No staff at this location are available.
+              </p>
+            )}
+          </div>
+        ) : null}
       </div>
     );
   }

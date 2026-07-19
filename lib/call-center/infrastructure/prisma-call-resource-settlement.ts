@@ -1,4 +1,5 @@
 import { Prisma } from "@/generated/prisma/client";
+import { reconcileFailedTransferWithEndedSource } from "@/lib/call-center/infrastructure/prisma-failed-transfer-reconciliation";
 import { settleProviderCommandsForTerminalLeg } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 
 type Transaction = Prisma.TransactionClient;
@@ -53,11 +54,19 @@ export async function settleCanonicalCallLegs(
 
   const commandIds: string[] = [];
   for (const leg of legs) {
-    await settleProviderCommandsForTerminalLeg(transaction, {
+    const failedCommandIds = await settleProviderCommandsForTerminalLeg(transaction, {
       exceptTypes: ["HANGUP_LEG"],
       legId: leg.id,
       now: input.now,
     });
+    for (const commandId of failedCommandIds) {
+      const transfer = await reconcileFailedTransferWithEndedSource(
+        transaction,
+        { commandId, now: input.now },
+        settleCanonicalCallLegs,
+      );
+      commandIds.push(...transfer.commandIds);
+    }
 
     if (
       leg.providerCallControlId &&

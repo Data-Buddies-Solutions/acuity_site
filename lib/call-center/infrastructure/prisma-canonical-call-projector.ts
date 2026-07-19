@@ -5,10 +5,12 @@ import {
   normalizeCanonicalCallState,
   reconcileCanonicalCallOutcome,
   terminalCallObservation,
+  type CanonicalLegStatus,
 } from "@/lib/call-center/domain/canonical-call-state";
 import { canonicalVoicemailRecordingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
+import { reconcileFailedTransferWithEndedSource } from "@/lib/call-center/infrastructure/prisma-failed-transfer-reconciliation";
 import {
   failProviderCommandDependents,
   settleProviderCommandsForTerminalLeg,
@@ -87,12 +89,18 @@ export function shouldPlanCanonicalInboundRouting(input: {
 
 export function shouldReconcileCanonicalInboundLifecycle(input: {
   callDirection: "INBOUND" | "OUTBOUND";
+  deferTransferSourceHangup?: boolean;
   eventType: string;
   initialRoutingHadNoAgents: boolean;
+  internalTransferSource?: boolean;
+  internalTransferTarget?: boolean;
   legKind: "AGENT" | "CUSTOMER";
 }) {
   return (
     input.callDirection === "INBOUND" &&
+    !input.deferTransferSourceHangup &&
+    !input.internalTransferSource &&
+    !input.internalTransferTarget &&
     (input.legKind === "AGENT" ||
       input.initialRoutingHadNoAgents ||
       input.eventType === "call.playback.ended")
@@ -166,6 +174,7 @@ type ProviderCommandLink = {
     | "ANSWER_CUSTOMER"
     | "START_RINGBACK"
     | "DIAL_AGENT"
+    | "TRANSFER_AGENT"
     | "STOP_PLAYBACK"
     | "BRIDGE_LEGS"
     | "HANGUP_LEG"
@@ -175,7 +184,12 @@ type ProviderCommandLink = {
 
 export function selectCanonicalProviderCommand(
   candidates: ProviderCommandLink[],
-  target: { callId: string; legId: string; practiceId: string },
+  target: {
+    callId: string;
+    expectedType?: "DIAL_AGENT" | "TRANSFER_AGENT";
+    legId: string;
+    practiceId: string;
+  },
 ) {
   if (candidates.length > 1) {
     throw new CanonicalProjectionError("CANONICAL_COMMAND_CORRELATION_AMBIGUOUS");
@@ -186,7 +200,7 @@ export function selectCanonicalProviderCommand(
     (command.practiceId !== target.practiceId ||
       command.callId !== target.callId ||
       command.legId !== target.legId ||
-      command.type !== "DIAL_AGENT")
+      command.type !== (target.expectedType ?? "DIAL_AGENT"))
   ) {
     throw new CanonicalProjectionError("CANONICAL_COMMAND_LINK_MISMATCH");
   }
@@ -369,6 +383,7 @@ export async function confirmProviderCommand(
     return;
   }
 
+  const expectedType = fact.internalTransferTarget ? "TRANSFER_AGENT" : "DIAL_AGENT";
   let candidates: ProviderCommandLink[] = explicit ? [explicit] : [];
   if (!explicit) {
     candidates = await tx.callCenterCommand.findMany({
@@ -387,12 +402,12 @@ export async function confirmProviderCommand(
         callId: input.callId,
         legId: input.legId,
         practiceId: input.practiceId,
-        type: "DIAL_AGENT",
+        type: expectedType,
       },
     });
   }
 
-  const command = selectCanonicalProviderCommand(candidates, input);
+  const command = selectCanonicalProviderCommand(candidates, { ...input, expectedType });
   if (!command) return;
   if (command.status === "PENDING") {
     throw new CanonicalProjectionError("CANONICAL_COMMAND_NOT_SENT");
@@ -526,6 +541,9 @@ export async function settleProviderCommandCallback(
     where: { id: fact.providerCommandId },
   });
   if (!command) throw new CanonicalProjectionError("CANONICAL_COMMAND_NOT_FOUND");
+  if (fact.internalTransferSource && command.type === "TRANSFER_AGENT") {
+    return null;
+  }
   if (
     command.callId !== input.callId ||
     command.legId !== input.legId ||
@@ -626,7 +644,16 @@ export function earliestObservedAt(current: Date, observed: Date) {
 export function processedWinningAgentLegId(
   currentWinnerId: string | null,
   processedLeg: { id: string; kind: "AGENT" | "CUSTOMER"; status: string },
+  transferSourceLegId: string | null = null,
 ) {
+  if (
+    currentWinnerId &&
+    transferSourceLegId === currentWinnerId &&
+    processedLeg.kind === "AGENT" &&
+    processedLeg.status === "BRIDGED"
+  ) {
+    return processedLeg.id;
+  }
   if (currentWinnerId) return currentWinnerId;
   return processedLeg.kind === "AGENT" && processedLeg.status === "BRIDGED"
     ? processedLeg.id
@@ -770,6 +797,7 @@ export function canonicalCallObservation(
     winningLegId: string | null;
   },
   processedLegId: string,
+  { deferTransferSourceHangup = false }: { deferTransferSourceHangup?: boolean } = {},
 ) {
   if (
     call.direction === "INBOUND" &&
@@ -779,6 +807,9 @@ export function canonicalCallObservation(
     return null;
   }
   if (fact.legKind === "AGENT") {
+    if (fact.eventType === "call.hangup" && deferTransferSourceHangup) {
+      return null;
+    }
     if (call.direction === "OUTBOUND" && fact.eventType === "call.answered") {
       return "CONNECTED" as const;
     }
@@ -795,6 +826,195 @@ export function canonicalCallObservation(
   return fact.callObservation === "HANGUP"
     ? terminalCallObservation(call.status)
     : fact.callObservation;
+}
+
+type CanonicalTransferContext = {
+  commandId: string;
+  sourceLegId: string;
+  status: "SENDING" | "SENT" | "CONFIRMED" | "FAILED";
+  targetLegId: string;
+};
+
+const CALL_TRANSFER_TARGET_ANSWERED_EVENT = "CALL_TRANSFER_TARGET_ANSWERED";
+
+export function isCanonicalTransferCompleted(input: {
+  hasExplicitAnswer: boolean;
+  targetLeg: { bridgedAt: Date | null; id: string; status: CanonicalLegStatus };
+  transfer: CanonicalTransferContext;
+}) {
+  return (
+    input.hasExplicitAnswer &&
+    input.targetLeg.id === input.transfer.targetLegId &&
+    input.targetLeg.status === "BRIDGED" &&
+    Boolean(input.targetLeg.bridgedAt)
+  );
+}
+
+export function shouldCompleteCanonicalTransfer(
+  ready: boolean,
+  currentWinningLegId: string | null,
+  transfer: CanonicalTransferContext,
+  { allowMissingSource = false }: { allowMissingSource?: boolean } = {},
+) {
+  if (!ready || currentWinningLegId === transfer.targetLegId) return false;
+  if (allowMissingSource && currentWinningLegId === null) return true;
+  if (currentWinningLegId !== transfer.sourceLegId) {
+    throw new CanonicalProjectionError("CANONICAL_TRANSFER_SOURCE_CHANGED");
+  }
+  return true;
+}
+
+export function projectedTransferTargetLegStatus(input: {
+  currentStatus: CanonicalLegStatus;
+  eventType: string;
+  hasBridgeEvidence: boolean;
+  hasExplicitAnswer: boolean;
+  internalTransferTarget: boolean;
+  nextStatus: CanonicalLegStatus;
+}) {
+  if (!input.internalTransferTarget) return input.nextStatus;
+  if (input.currentStatus === "ENDED" || input.currentStatus === "FAILED") {
+    return input.currentStatus;
+  }
+  if (input.hasExplicitAnswer && input.hasBridgeEvidence) return "BRIDGED";
+  return input.eventType === "call.bridged" ? input.currentStatus : input.nextStatus;
+}
+
+async function hasCanonicalTransferTargetAnswer(
+  tx: Transaction,
+  fact: ResolvedCanonicalTelnyxCallFact,
+  call: { id: string; practiceId: string },
+  transfer: CanonicalTransferContext | null,
+) {
+  if (!transfer || !fact.internalTransferTarget) return false;
+  const identity = {
+    idempotencyKey: `${transfer.commandId}:target-answered`,
+    practiceId: call.practiceId,
+    type: CALL_TRANSFER_TARGET_ANSWERED_EVENT,
+  };
+  if (fact.eventType === "call.answered") {
+    await tx.callCenterEvent.upsert({
+      create: {
+        aggregateId: call.id,
+        aggregateType: "CALL",
+        data: { commandId: transfer.commandId, targetLegId: transfer.targetLegId },
+        ...identity,
+        occurredAt: fact.occurredAt,
+      },
+      update: {},
+      where: { practiceId_type_idempotencyKey: identity },
+    });
+    return true;
+  }
+  return Boolean(
+    await tx.callCenterEvent.findUnique({
+      select: { revision: true },
+      where: { practiceId_type_idempotencyKey: identity },
+    }),
+  );
+}
+
+function transferArguments(value: Prisma.JsonValue) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return typeof record.providerSourceLegId === "string" &&
+    record.providerSourceLegId &&
+    typeof record.sourceLegId === "string" &&
+    record.sourceLegId &&
+    typeof record.endpointId === "string" &&
+    record.endpointId
+    ? {
+        endpointId: record.endpointId,
+        providerSourceLegId: record.providerSourceLegId,
+        sourceLegId: record.sourceLegId,
+      }
+    : null;
+}
+
+export async function resolveCanonicalTransferContext(
+  tx: Transaction,
+  fact: ResolvedCanonicalTelnyxCallFact,
+  input: { callId: string; endpointId: string | null; legId: string; practiceId: string },
+): Promise<CanonicalTransferContext | null> {
+  const agentHangup = fact.eventType === "call.hangup" && fact.legKind === "AGENT";
+  if (!fact.internalTransferSource && !fact.internalTransferTarget && !agentHangup) {
+    return null;
+  }
+  if (fact.internalTransferSource && fact.internalTransferTarget) {
+    throw new CanonicalProjectionError("CANONICAL_TRANSFER_ROLE_INVALID");
+  }
+  const select = {
+    arguments: true,
+    callId: true,
+    id: true,
+    legId: true,
+    practiceId: true,
+    status: true,
+    type: true,
+  } as const;
+  const sourceTransfers = agentHangup
+    ? await tx.callCenterCommand.findMany({
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select,
+        take: 2,
+        where: {
+          arguments: { equals: input.legId, path: ["sourceLegId"] },
+          callId: input.callId,
+          practiceId: input.practiceId,
+          status: { in: ["SENDING", "SENT"] },
+          type: "TRANSFER_AGENT",
+        },
+      })
+    : [];
+  if (sourceTransfers.length > 1) {
+    throw new CanonicalProjectionError("CANONICAL_TRANSFER_AMBIGUOUS");
+  }
+  const pendingSourceTransfer = sourceTransfers[0] ?? null;
+  if (
+    !pendingSourceTransfer &&
+    !fact.internalTransferSource &&
+    !fact.internalTransferTarget
+  ) {
+    return null;
+  }
+  if (!pendingSourceTransfer && !fact.providerCommandId) {
+    throw new CanonicalProjectionError("CANONICAL_COMMAND_ID_MISSING");
+  }
+  const command =
+    pendingSourceTransfer ??
+    (await tx.callCenterCommand.findUnique({
+      select,
+      where: { id: fact.providerCommandId! },
+    }));
+  const matchedPendingSource = command?.id === pendingSourceTransfer?.id;
+  const args = command ? transferArguments(command.arguments) : null;
+  if (!command || !args) {
+    throw new CanonicalProjectionError("CANONICAL_COMMAND_NOT_FOUND");
+  }
+  if (
+    command.type !== "TRANSFER_AGENT" ||
+    command.callId !== input.callId ||
+    command.practiceId !== input.practiceId ||
+    command.status === "PENDING" ||
+    (!matchedPendingSource &&
+      fact.internalTransferTarget &&
+      (command.legId !== input.legId || args.endpointId !== input.endpointId)) ||
+    (!matchedPendingSource &&
+      fact.internalTransferSource &&
+      args.providerSourceLegId !== input.legId) ||
+    (matchedPendingSource && args.sourceLegId !== input.legId)
+  ) {
+    throw new CanonicalProjectionError("CANONICAL_COMMAND_LINK_MISMATCH");
+  }
+  if (!command.legId) {
+    throw new CanonicalProjectionError("CANONICAL_COMMAND_LINK_MISMATCH");
+  }
+  return {
+    commandId: command.id,
+    sourceLegId: args.sourceLegId,
+    status: command.status,
+    targetLegId: command.legId,
+  };
 }
 
 export function projectedCallDeadline(
@@ -915,11 +1135,35 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         });
       }
 
+      const transfer = await resolveCanonicalTransferContext(tx, resolvedFact, {
+        callId: call.id,
+        endpointId: leg.endpointId,
+        legId: leg.id,
+        practiceId: call.practiceId,
+      });
+      const transferTargetAnswered = await hasCanonicalTransferTargetAnswer(
+        tx,
+        resolvedFact,
+        call,
+        transfer,
+      );
+
       let nextLeg = advanceCanonicalLeg(
         leg,
         resolvedFact.legObservation,
         resolvedFact.occurredAt,
       );
+      nextLeg = {
+        ...nextLeg,
+        status: projectedTransferTargetLegStatus({
+          currentStatus: leg.status,
+          eventType: resolvedFact.eventType,
+          hasBridgeEvidence: Boolean(nextLeg.bridgedAt),
+          hasExplicitAnswer: transferTargetAnswered,
+          internalTransferTarget: Boolean(resolvedFact.internalTransferTarget),
+          nextStatus: nextLeg.status,
+        }),
+      };
       let preemptedCommandIds: string[] = [];
       if (
         leg.kind === "AGENT" &&
@@ -979,7 +1223,12 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
               practiceId: call.practiceId,
             })
           : null;
-      if (resolvedFact.legKind === "AGENT" && settledCommand?.type !== "HANGUP_LEG") {
+      if (
+        resolvedFact.legKind === "AGENT" &&
+        !resolvedFact.internalTransferSource &&
+        !resolvedFact.internalTransferTarget &&
+        settledCommand?.type !== "HANGUP_LEG"
+      ) {
         await confirmProviderCommand(tx, resolvedFact, {
           callId: call.id,
           legId: leg.id,
@@ -991,6 +1240,20 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           legId: leg.id,
           now: resolvedFact.occurredAt,
         });
+        if (transfer && resolvedFact.internalTransferTarget) {
+          const failedTransfer = await reconcileFailedTransferWithEndedSource(
+            tx,
+            {
+              commandId: transfer.commandId,
+              now: resolvedFact.occurredAt,
+            },
+            settleCanonicalCallLegs,
+          );
+          preemptedCommandIds.push(...failedTransfer.commandIds);
+          if (failedTransfer.completed) {
+            call = normalizeCanonicalCallState(await lockCall(tx, call.id));
+          }
+        }
         if (
           resolvedFact.legKind === "AGENT" &&
           resolvedFact.eventType !== "call.hangup" &&
@@ -1013,12 +1276,40 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         where: { bridgedAt: { not: null }, callId: call.id },
       });
       const previousWinningLegId = call.winningLegId;
-      const winningLegId = processedWinningAgentLegId(previousWinningLegId, leg);
+      const transferReady = Boolean(
+        transfer &&
+        resolvedFact.internalTransferTarget &&
+        isCanonicalTransferCompleted({
+          hasExplicitAnswer: transferTargetAnswered,
+          targetLeg: leg,
+          transfer,
+        }),
+      );
+      const transferCompleted = Boolean(
+        transfer &&
+        shouldCompleteCanonicalTransfer(transferReady, previousWinningLegId, transfer, {
+          allowMissingSource:
+            call.direction === "OUTBOUND" && previousWinningLegId === null,
+        }),
+      );
+      const winningLegId = processedWinningAgentLegId(
+        previousWinningLegId,
+        leg,
+        transferCompleted ? (transfer?.sourceLegId ?? null) : null,
+      );
       const hasBridgeEvidence = hasCanonicalAgentBridgeEvidence(
         winningLegId,
         bridgedLegs,
       );
-      const observedCall = canonicalCallObservation(resolvedFact, call, leg.id);
+      const deferTransferSourceHangup = Boolean(
+        transfer &&
+        leg.id === transfer.sourceLegId &&
+        resolvedFact.eventType === "call.hangup" &&
+        (transfer.status === "SENDING" || transfer.status === "SENT"),
+      );
+      const observedCall = canonicalCallObservation(resolvedFact, call, leg.id, {
+        deferTransferSourceHangup,
+      });
       const nextCall = observedCall
         ? advanceCanonicalCall(call, observedCall, resolvedFact.occurredAt, {
             hasBridgeEvidence,
@@ -1031,8 +1322,15 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         resolvedFact,
         resolvedFact.legKind,
       );
+      const transferFailed = Boolean(
+        transfer &&
+        resolvedFact.internalTransferTarget &&
+        (leg.status === "ENDED" || leg.status === "FAILED") &&
+        !transferCompleted,
+      );
       const callProjectionChanged =
         nextCall !== call ||
+        transferFailed ||
         winningLegId !== call.winningLegId ||
         identity.callerName !== call.callerName ||
         identity.fromPhone !== call.fromPhone ||
@@ -1062,6 +1360,49 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           where: { id: call.id },
         }),
       );
+
+      if (transferCompleted && transfer) {
+        await confirmProviderCommand(tx, resolvedFact, {
+          callId: call.id,
+          legId: leg.id,
+          practiceId: call.practiceId,
+        });
+        await tx.callCenterCallLeg.updateMany({
+          data: {
+            endedAt: resolvedFact.occurredAt,
+            errorCode: "TRANSFERRED",
+            status: "ENDED",
+          },
+          where: {
+            callId: call.id,
+            id: transfer.sourceLegId,
+            status: { in: ["ANSWERED", "BRIDGED"] },
+          },
+        });
+        await tx.callCenterEvent.upsert({
+          create: {
+            aggregateId: call.id,
+            aggregateType: "CALL",
+            data: {
+              commandId: transfer.commandId,
+              sourceLegId: transfer.sourceLegId,
+              targetLegId: transfer.targetLegId,
+            },
+            idempotencyKey: `${transfer.commandId}:completed`,
+            occurredAt: resolvedFact.occurredAt,
+            practiceId: call.practiceId,
+            type: "CALL_TRANSFER_COMPLETED",
+          },
+          update: {},
+          where: {
+            practiceId_type_idempotencyKey: {
+              idempotencyKey: `${transfer.commandId}:completed`,
+              practiceId: call.practiceId,
+              type: "CALL_TRANSFER_COMPLETED",
+            },
+          },
+        });
+      }
 
       const commandIds: string[] = [
         ...preemptedCommandIds,
@@ -1177,8 +1518,11 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
       if (
         shouldReconcileCanonicalInboundLifecycle({
           callDirection: call.direction,
+          deferTransferSourceHangup,
           eventType: resolvedFact.eventType,
           initialRoutingHadNoAgents,
+          internalTransferSource: resolvedFact.internalTransferSource,
+          internalTransferTarget: resolvedFact.internalTransferTarget,
           legKind: resolvedFact.legKind,
         })
       ) {
@@ -1200,7 +1544,10 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           await tx.callCenterCall.findUniqueOrThrow({ where: { id: call.id } }),
         );
       }
-      if (!previousWinningLegId && winningLegId === leg.id && leg.endpointId) {
+      if (
+        ((!previousWinningLegId && winningLegId === leg.id) || transferCompleted) &&
+        leg.endpointId
+      ) {
         commandIds.push(
           ...(await settleCompetingAgentOffers(tx, {
             endpointId: leg.endpointId,

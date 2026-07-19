@@ -5,8 +5,11 @@ import type { CallView } from "@/lib/call-center/realtime-contract";
 import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
+  hasCanonicalPendingTransfer,
+  isCanonicalTransferOffer,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
+  selectCanonicalTransferOffers,
 } from "./canonical-active-call-center";
 
 const call: CallView = {
@@ -80,6 +83,91 @@ describe("canonical active call center correlation", () => {
         { ...observation, mediaLegId: "media-2" },
       ]),
     ).toBeNull();
+  });
+
+  it("shows a connected non-winning leg only to the transfer target", () => {
+    const transferred = {
+      ...call,
+      answeredAt: "2026-07-12T12:00:10.000Z",
+      legs: [
+        { ...call.legs[0]!, status: "BRIDGED" as const },
+        {
+          ...call.legs[0]!,
+          agentSessionId: "session-2",
+          endpointId: "endpoint-2",
+          id: "leg-2",
+          providerCallControlId: "control-2",
+          providerCallLegId: "provider-leg-2",
+          status: "RINGING" as const,
+        },
+      ],
+      status: "CONNECTED" as const,
+      winningLegId: "leg-1",
+    };
+    const target = { endpointId: "endpoint-2", id: "session-2" };
+    expect(isCanonicalTransferOffer(transferred, target)).toBe(true);
+    expect(hasCanonicalPendingTransfer(transferred)).toBe(true);
+    expect(selectCanonicalTransferOffers([transferred], target)).toEqual([transferred]);
+    expect(
+      selectCanonicalAgentActiveCall([{ ...transferred, direction: "OUTBOUND" }], target),
+    ).toBeNull();
+    expect(
+      selectCanonicalAgentActiveCall([{ ...transferred, direction: "OUTBOUND" }], {
+        endpointId: "endpoint-1",
+        id: "session-1",
+      }),
+    ).not.toBeNull();
+    expect(
+      selectCanonicalTransferOffers([transferred], {
+        endpointId: "endpoint-1",
+        id: "session-1",
+      }),
+    ).toEqual([]);
+  });
+
+  it("keeps a null-winner outbound source active and its transfer target answerable", () => {
+    const outbound = {
+      ...call,
+      answeredAt: "2026-07-12T12:00:10.000Z",
+      direction: "OUTBOUND" as const,
+      legs: [
+        { ...call.legs[0]!, status: "ANSWERED" as const },
+        {
+          ...call.legs[0]!,
+          agentSessionId: "session-2",
+          endpointId: "endpoint-2",
+          id: "leg-2",
+          providerCallControlId: "control-2",
+          providerCallLegId: "provider-leg-2",
+          status: "RINGING" as const,
+        },
+      ],
+      status: "CONNECTED" as const,
+      winningLegId: null,
+    };
+    const source = { endpointId: "endpoint-1", id: "session-1" };
+    const target = { endpointId: "endpoint-2", id: "session-2" };
+
+    expect(selectCanonicalAgentActiveCall([outbound], source)).toEqual(outbound);
+    expect(selectCanonicalAgentActiveCall([outbound], target)).toBeNull();
+    expect(isCanonicalTransferOffer(outbound, source)).toBe(false);
+    expect(isCanonicalTransferOffer(outbound, target)).toBe(true);
+    expect(hasCanonicalPendingTransfer(outbound)).toBe(true);
+  });
+
+  it("does not treat a lone null-winner outbound source as a transfer offer", () => {
+    const outbound = {
+      ...call,
+      answeredAt: "2026-07-12T12:00:10.000Z",
+      direction: "OUTBOUND" as const,
+      legs: [{ ...call.legs[0]!, status: "ANSWERED" as const }],
+      status: "CONNECTED" as const,
+      winningLegId: null,
+    };
+    const source = { endpointId: "endpoint-1", id: "session-1" };
+
+    expect(isCanonicalTransferOffer(outbound, source)).toBe(false);
+    expect(hasCanonicalPendingTransfer(outbound)).toBe(false);
   });
 
   it("reuses one outbound operation key until that operation completes", () => {
