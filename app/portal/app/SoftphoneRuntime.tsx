@@ -52,11 +52,20 @@ export function selectSoftphoneRuntimeCalls(
     ({ direction, state }) =>
       direction === "INBOUND" && ["CONNECTING", "RINGING"].includes(state),
   );
+  const answering =
+    answeringMediaLegId &&
+    observations.some(
+      ({ mediaLegId, state }) =>
+        mediaLegId === answeringMediaLegId &&
+        ["ACTIVE", "CONNECTING", "HELD", "RINGING"].includes(state),
+    )
+      ? answeringMediaLegId
+      : null;
   return {
     active,
+    answeringMediaLegId: answering,
     incoming,
-    ringtoneOfferId:
-      active || answeringMediaLegId ? null : (incoming[0]?.mediaLegId ?? null),
+    ringtoneOfferId: active || answering ? null : (incoming[0]?.mediaLegId ?? null),
   };
 }
 
@@ -173,18 +182,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     };
   }, [clientInstanceId, stopSession]);
 
-  const visibleAnsweringMediaLegId =
-    answeringMediaLegId &&
-    media.observations.some(
-      ({ mediaLegId, state }) =>
-        mediaLegId === answeringMediaLegId && ["CONNECTING", "RINGING"].includes(state),
-    )
-      ? answeringMediaLegId
-      : null;
-  const calls = selectSoftphoneRuntimeCalls(
-    media.observations,
-    visibleAnsweringMediaLegId,
-  );
+  const calls = selectSoftphoneRuntimeCalls(media.observations, answeringMediaLegId);
   const ringtone = useIncomingCallRingtone(calls.ringtoneOfferId);
 
   useEffect(() => {
@@ -195,10 +193,13 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   }, [media, media.observations]);
 
   useEffect(() => {
-    if (answeringMediaLegId && !visibleAnsweringMediaLegId) {
+    if (answeringMediaLegId && !calls.answeringMediaLegId) {
       answeringRef.current = null;
+      // Provider observations are an external subscription snapshot.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAnsweringMediaLegId(null);
     }
-  }, [answeringMediaLegId, visibleAnsweringMediaLegId]);
+  }, [answeringMediaLegId, calls.answeringMediaLegId]);
 
   const answer = useCallback(
     async (mediaLegId: string) => {
@@ -232,7 +233,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const value = useMemo<SoftphoneRuntimeValue>(
     () => ({
       answer,
-      answeringMediaLegId: visibleAnsweringMediaLegId,
+      answeringMediaLegId: calls.answeringMediaLegId,
       clientInstanceId,
       error:
         identityError ??
@@ -252,7 +253,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       ringtone,
       session,
       takeover,
-      visibleAnsweringMediaLegId,
+      calls.answeringMediaLegId,
     ],
   );
 
