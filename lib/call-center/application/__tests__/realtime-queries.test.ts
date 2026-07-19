@@ -15,7 +15,12 @@ const now = new Date("2026-07-11T12:00:00.000Z");
 describe("call center snapshot", () => {
   it("includes live calls offered to this endpoint outside the selected queue", () => {
     const selectedQueue = { practiceId: "practice-1", queueId: "queue-1" };
-    expect(activeCallWhere(selectedQueue, "practice-1", "endpoint-1")).toEqual({
+    expect(
+      activeCallWhere(selectedQueue, {
+        practiceId: "practice-1",
+        userId: "user-1",
+      }),
+    ).toEqual({
       AND: [
         {
           OR: [
@@ -23,7 +28,10 @@ describe("call center snapshot", () => {
             {
               legs: {
                 some: {
-                  endpointId: "endpoint-1",
+                  agentSession: {
+                    practiceId: "practice-1",
+                    userId: "user-1",
+                  },
                   kind: "AGENT",
                   status: {
                     in: ["CREATED", "DIALING", "RINGING", "ANSWERED", "BRIDGED"],
@@ -122,66 +130,44 @@ describe("call center snapshot", () => {
     expect(options).toEqual(CALL_CENTER_READ_TRANSACTION_OPTIONS);
   });
 
-  it("loads the agent endpoint outside the selected queue for transfer offers", async () => {
-    let endpointQuery: unknown;
-    const callQueries: unknown[] = [];
-    const actor = {
-      allowedLocationIds: ["location-1", "location-2"],
-      hasAllLocationAccess: false,
-      practiceId: "practice-1",
-      userId: "user-1",
-    };
+  it("returns only authorized active calls in a two-query budget", async () => {
+    const operations: string[] = [];
     const database = {
       $transaction: async (work: (transaction: unknown) => unknown) =>
         work({
           callCenterCall: {
-            findMany: async (input: unknown) => {
-              callQueries.push(input);
+            findMany: async () => {
+              operations.push("active-calls");
               return [];
             },
           },
-          callCenterEndpoint: {
-            findFirst: async (input: unknown) => {
-              endpointQuery = input;
-              return {
-                enabled: true,
-                id: "endpoint-2",
-                label: "Location 2 phone",
-                locationId: "location-2",
-              };
-            },
-          },
           callCenterQueue: {
-            findMany: async () => [
-              {
-                id: "queue-1",
-                locations: [{ locationId: "location-1" }],
-                name: "Location 1 queue",
-              },
-            ],
-          },
-          callCenterTask: {
-            count: async () => 0,
-            findMany: async () => [],
+            findMany: async () => {
+              operations.push("queue-access");
+              return [{ id: "queue-1", locations: [], name: "Main queue" }];
+            },
           },
         }),
     } as never;
 
-    await readCallCenterSnapshot(actor, "queue-1", database);
-
-    expect(endpointQuery).toMatchObject({
-      where: {
-        locationId: { in: ["location-1", "location-2"] },
+    const state = await readCallCenterSnapshot(
+      {
+        allowedLocationIds: [],
+        hasAllLocationAccess: true,
         practiceId: "practice-1",
         userId: "user-1",
       },
-    });
-    expect(callQueries[0]).toMatchObject({
-      where: activeCallWhere(
-        queueCallWhere(actor, "queue-1", ["location-1"]),
-        "practice-1",
-        "endpoint-2",
-      ),
+      "queue-1",
+      database,
+      () => now,
+    );
+
+    expect(operations).toEqual(["queue-access", "active-calls"]);
+    expect(state).toEqual({
+      calls: [],
+      observedAt: "2026-07-11T12:00:00.000Z",
+      queueId: "queue-1",
+      schemaVersion: 4,
     });
   });
 

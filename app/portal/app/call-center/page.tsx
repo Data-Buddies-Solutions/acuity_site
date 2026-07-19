@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 
 import { readPortalCallCenterPage } from "@/lib/call-center/application/portal-canonical-workspace";
-import { getPortalWorkspaceState } from "@/lib/portal-state";
 
 import { PracticePageHeader } from "../PracticePageHeader";
 
@@ -18,12 +17,6 @@ export default async function PortalCallCenterPage({
 }: {
   searchParams?: SearchParamsInput;
 }) {
-  const portalState = await getPortalWorkspaceState();
-
-  if (!portalState.launched) {
-    redirect("/portal/app/onboarding");
-  }
-
   const params = searchParams ? await searchParams : {};
   const selectedLocationId = Array.isArray(params.office)
     ? params.office[0]
@@ -34,6 +27,9 @@ export default async function PortalCallCenterPage({
 
   if (!data) {
     redirect("/portal");
+  }
+  if (!data.launched) {
+    redirect("/portal/app/onboarding");
   }
 
   const selectedLocation = data.selectedLocation;
@@ -75,17 +71,19 @@ export default async function PortalCallCenterPage({
               office={selectedOfficeId}
               queues={canonicalWorkspace.availableQueues}
             />
+          ) : canonicalWorkspace ? (
+            <span className="inline-flex h-10 items-center rounded-lg border border-[var(--portal-border)] bg-white px-3 text-sm font-medium text-[var(--portal-ink-soft)]">
+              {canonicalWorkspace.availableQueues[0]?.name ?? "Call queue"}
+            </span>
           ) : null}
         </div>
       </PracticePageHeader>
 
       <CanonicalActiveWorkspace
+        agentProfileLabel={canonicalWorkspace?.agentProfile?.label ?? null}
         followUpHref={followUpHref}
         historyHref={historyHref}
         initialDialNumber={initialDialNumber}
-        needsAction={data.needsAction}
-        needsActionCount={data.needsActionCount}
-        office={selectedOfficeId}
         outboundNumbers={canonicalWorkspace?.outboundNumbers ?? []}
         queueId={canonicalWorkspace?.queueId ?? null}
       />

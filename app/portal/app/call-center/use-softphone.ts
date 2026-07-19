@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Call, INotification, TelnyxRTC } from "@telnyx/webrtc";
 
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
+
 import {
   normalizeMediaObservation,
   upsertMediaObservation,
@@ -14,6 +16,7 @@ import {
   localCallCenterError,
   operatorErrorCopy,
 } from "./call-center-errors";
+import { callCenterRetryDelay } from "./call-center-retry";
 
 type TelnyxTokenResponse =
   | { callerNumber?: string; login: string; password: string }
@@ -32,6 +35,7 @@ type SoftphoneMediaOptions = {
   enabled: boolean;
   onDebug?: (event: string, details?: Record<string, unknown>) => void;
   onObservation?: (observation: MediaObservation) => void;
+  retryBaseMs?: number;
 };
 
 const TELNYX_CLIENT_EVENTS = [
@@ -44,6 +48,10 @@ const TELNYX_CLIENT_EVENTS = [
   "telnyx.warning",
 ] as const;
 const ANSWER_CONFIRMATION_TIMEOUT_MS = 20_000;
+
+function isRetryableConnectError(error: unknown) {
+  return !(error instanceof CallCenterRequestError) || error.operatorError.retryable;
+}
 
 async function readTokenResponse(response: Response): Promise<TelnyxTokenResponse> {
   const body = await callCenterResponse<TelnyxTokenResponse>(response);
@@ -117,6 +125,7 @@ function useSoftphoneMediaEngine({
   enabled,
   onDebug,
   onObservation,
+  retryBaseMs = 1_000,
 }: SoftphoneMediaOptions) {
   const clientRef = useRef<TelnyxRTC | null>(null);
   const callsRef = useRef(new Map<string, Call>());
@@ -136,6 +145,7 @@ function useSoftphoneMediaEngine({
     enabled ? "CONNECTING" : "OFFLINE",
   );
   const [error, setError] = useState<string | null>(null);
+  const [microphoneError, setMicrophoneError] = useState<string | null>(null);
   const [microphoneReady, setMicrophoneReady] = useState(false);
   const [observations, setObservations] = useState<readonly MediaObservation[]>([]);
   const [soundReady, setSoundReady] = useState(false);
@@ -237,9 +247,13 @@ function useSoftphoneMediaEngine({
         });
         stream.getTracks().forEach((track) => track.stop());
         setMicrophoneReady(true);
+        setMicrophoneError(null);
         return true;
       } catch (permissionError) {
         setMicrophoneReady(false);
+        setMicrophoneError(
+          "Microphone access is blocked. Allow microphone access in your browser, then retry.",
+        );
         debug("microphone-permission-failed", {
           causeName: permissionError instanceof Error ? permissionError.name : "unknown",
         });
@@ -301,10 +315,36 @@ function useSoftphoneMediaEngine({
     const adapterConnectionId = connectionId();
     const calls = callsRef.current;
     let cancelled = false;
+    let connecting = false;
+    let retryAttempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const retireClient = (client: TelnyxRTC | null) => {
+      if (!client) return;
+      for (const event of TELNYX_CLIENT_EVENTS) client.off(event);
+      client.disconnect();
+      if (clientRef.current === client) clientRef.current = null;
+    };
+
+    const scheduleRetry = () => {
+      if (cancelled || retryTimer) return;
+      const delay = callCenterRetryDelay(retryAttempt, retryBaseMs);
+      retryAttempt += 1;
+      debug("telnyx-retry-scheduled", { attempt: retryAttempt, delayMs: delay });
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void connect();
+      }, delay);
+    };
 
     async function connect() {
+      if (cancelled || connecting) return;
+      connecting = true;
       await Promise.resolve();
-      if (cancelled) return;
+      if (cancelled) {
+        connecting = false;
+        return;
+      }
       setConnection("CONNECTING");
       try {
         debug("token-request-start");
@@ -337,6 +377,11 @@ function useSoftphoneMediaEngine({
 
         client.on("telnyx.ready", () => {
           if (cancelled) return;
+          retryAttempt = 0;
+          if (retryTimer) {
+            clearTimeout(retryTimer);
+            retryTimer = null;
+          }
           setConnection("READY");
           setError(null);
           debug("telnyx-ready", { connectionId: adapterConnectionId });
@@ -359,6 +404,8 @@ function useSoftphoneMediaEngine({
           if (event.error?.fatal) {
             setConnection("FAILED");
             setError(mediaFailure());
+            retireClient(client);
+            scheduleRetry();
           } else {
             setConnection("CONNECTING");
             setError(null);
@@ -375,12 +422,16 @@ function useSoftphoneMediaEngine({
           if (cancelled) return;
           setConnection("FAILED");
           setError(mediaFailure());
+          retireClient(client);
+          scheduleRetry();
           debug("telnyx-media-error", { causeName: "TelnyxMediaError" });
         });
         client.on("telnyx.rtc.peerConnectionFailureError", (event: unknown) => {
           if (cancelled) return;
           setConnection("FAILED");
           setError(mediaFailure());
+          retireClient(client);
+          scheduleRetry();
           debug("telnyx-peer-connection-failure", {
             causeName: "TelnyxPeerConnectionFailure",
           });
@@ -435,14 +486,17 @@ function useSoftphoneMediaEngine({
         });
 
         debug("telnyx-connect-start", { connectionId: adapterConnectionId });
-        client.connect();
         clientRef.current = client;
+        client.connect();
       } catch (connectError) {
         if (cancelled) return;
         const message = operatorErrorCopy(connectError, "connect").message;
         setConnection("FAILED");
         setError(message);
         debug("telnyx-connect-failed", { message });
+        if (isRetryableConnectError(connectError)) scheduleRetry();
+      } finally {
+        connecting = false;
       }
     }
 
@@ -450,6 +504,7 @@ function useSoftphoneMediaEngine({
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       debug("softphone-cleanup", { connectionId: adapterConnectionId });
       calls.clear();
       if (pendingAnswerRef.current) {
@@ -461,12 +516,9 @@ function useSoftphoneMediaEngine({
         current.filter(({ connectionId: id }) => id !== adapterConnectionId),
       );
       detachAudio();
-      const client = clientRef.current;
-      for (const event of TELNYX_CLIENT_EVENTS) client?.off(event);
-      client?.disconnect();
-      clientRef.current = null;
+      retireClient(clientRef.current);
     };
-  }, [agentSessionId, browserSessionId, debug, detachAudio, enabled]);
+  }, [agentSessionId, browserSessionId, debug, detachAudio, enabled, retryBaseMs]);
 
   const callFor = useCallback((mediaLegId: string) => {
     const call = callsRef.current.get(mediaLegId);
@@ -541,9 +593,11 @@ function useSoftphoneMediaEngine({
     dial,
     error: enabled ? error : null,
     hangup,
+    microphoneError,
     microphoneReady,
     mute,
     observations,
+    prepare,
     setRemoteAudioElement,
     soundReady,
   };

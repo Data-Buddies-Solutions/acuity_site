@@ -10,7 +10,6 @@ import {
   CALL_CENTER_SCHEMA_VERSION,
   type CallCenterSnapshot,
   type CallView,
-  type TaskView,
 } from "@/lib/call-center/realtime-contract";
 import { prisma } from "@/lib/prisma";
 
@@ -22,7 +21,6 @@ const LIVE_AGENT_LEG_STATUSES = [
   "ANSWERED",
   "BRIDGED",
 ] as const;
-const TERMINAL_CALL_STATUSES = ["COMPLETED", "VOICEMAIL", "ABANDONED", "FAILED"] as const;
 export const CALL_CENTER_READ_TRANSACTION_OPTIONS = {
   isolationLevel: "RepeatableRead" as const,
   maxWait: 2_000,
@@ -57,16 +55,7 @@ const callSelect = {
   winningLegId: true,
 } satisfies Prisma.CallCenterCallSelect;
 
-const taskSelect = {
-  callId: true,
-  call: { select: { direction: true, fromPhone: true, toPhone: true } },
-  createdAt: true,
-  id: true,
-  kind: true,
-  status: true,
-} satisfies Prisma.CallCenterTaskSelect;
 type SelectedCall = Prisma.CallCenterCallGetPayload<{ select: typeof callSelect }>;
-type SelectedTask = Prisma.CallCenterTaskGetPayload<{ select: typeof taskSelect }>;
 
 export function serializeCall(call: SelectedCall): CallView {
   return {
@@ -76,15 +65,6 @@ export function serializeCall(call: SelectedCall): CallView {
     legs: call.legs,
     receivedAt: call.receivedAt.toISOString(),
     status: normalizeCanonicalCallStatus(call.status),
-  };
-}
-
-function serializeTask(task: SelectedTask): TaskView {
-  const { call, ...view } = task;
-  return {
-    ...view,
-    callerPhone: call.direction === "OUTBOUND" ? call.toPhone : call.fromPhone,
-    createdAt: task.createdAt.toISOString(),
   };
 }
 
@@ -129,58 +109,40 @@ export function queueCallWhere(
   };
 }
 
-export function agentEndpointWhere(
-  actor: QueueAccessActor,
-): Prisma.CallCenterEndpointWhereInput {
-  return {
-    enabled: true,
-    practiceId: actor.practiceId,
-    ...(actor.hasAllLocationAccess
-      ? {}
-      : actor.allowedLocationIds.length
-        ? { locationId: { in: actor.allowedLocationIds } }
-        : { id: { in: [] } }),
-  };
-}
-
-function readOpenTaskCount(
-  transaction: Prisma.TransactionClient,
-  callWhere: Prisma.CallCenterCallWhereInput,
-  practiceId: string,
-): Promise<number> {
-  const taskWhere = { call: callWhere, practiceId, status: "OPEN" } as const;
-  return transaction.callCenterTask.count({ where: taskWhere });
-}
-
 export function activeCallWhere(
   callWhere: Prisma.CallCenterCallWhereInput,
-  practiceId: string,
-  agentEndpointId: string | null,
+  actor: Pick<QueueAccessActor, "practiceId" | "userId">,
 ): Prisma.CallCenterCallWhereInput {
-  const scope = agentEndpointId
-    ? {
+  return {
+    AND: [
+      {
         OR: [
           callWhere,
           {
             legs: {
               some: {
-                endpointId: agentEndpointId,
-                kind: "AGENT" as const,
+                agentSession: {
+                  practiceId: actor.practiceId,
+                  userId: actor.userId,
+                },
+                kind: "AGENT",
                 status: { in: [...LIVE_AGENT_LEG_STATUSES] },
               },
             },
-            practiceId,
+            practiceId: actor.practiceId,
           },
         ],
-      }
-    : callWhere;
-  return { AND: [scope, { status: { in: [...ACTIVE_CALL_STATUSES] } }] };
+      },
+      { status: { in: [...ACTIVE_CALL_STATUSES] } },
+    ],
+  };
 }
 
 export async function readCallCenterSnapshot(
   actor: QueueAccessActor,
   queueId: string,
   database: Pick<PrismaClient, "$transaction"> = prisma,
+  clock: () => Date = () => new Date(),
 ): Promise<CallCenterSnapshot> {
   return database.$transaction(
     async (transaction) => {
@@ -189,44 +151,18 @@ export async function readCallCenterSnapshot(
       if (!queue) throw new QueueAccessError();
       const queueLocationIds = queue.locations.map(({ locationId }) => locationId);
       const callWhere = queueCallWhere(actor, queueId, queueLocationIds);
-      const agentProfile = await transaction.callCenterEndpoint.findFirst({
-        select: { enabled: true, id: true, label: true, locationId: true },
-        where: { ...agentEndpointWhere(actor), userId: actor.userId },
+      const activeCalls = await transaction.callCenterCall.findMany({
+        orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
+        select: callSelect,
+        take: 100,
+        where: activeCallWhere(callWhere, actor),
       });
-      const activeWhere = activeCallWhere(
-        callWhere,
-        actor.practiceId,
-        agentProfile?.id ?? null,
-      );
-      const [activeCalls, recentCalls, tasks, openTaskCount] = await Promise.all([
-        transaction.callCenterCall.findMany({
-          orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
-          select: callSelect,
-          take: 100,
-          where: activeWhere,
-        }),
-        transaction.callCenterCall.findMany({
-          orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
-          select: callSelect,
-          take: 50,
-          where: { ...callWhere, status: { in: [...TERMINAL_CALL_STATUSES] } },
-        }),
-        transaction.callCenterTask.findMany({
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          select: taskSelect,
-          take: 100,
-          where: { call: callWhere, practiceId: actor.practiceId, status: "OPEN" },
-        }),
-        readOpenTaskCount(transaction, callWhere, actor.practiceId),
-      ]);
 
       return {
-        agentProfile,
-        calls: [...activeCalls, ...recentCalls].map(serializeCall),
-        openTaskCount,
+        calls: activeCalls.map(serializeCall),
+        observedAt: clock().toISOString(),
         queueId: queue.id,
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
-        tasks: tasks.map(serializeTask),
       };
     },
     { ...CALL_CENTER_READ_TRANSACTION_OPTIONS },

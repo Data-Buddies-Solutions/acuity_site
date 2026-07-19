@@ -3,11 +3,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
-import {
-  CallConnectionStatus,
-  canonicalSessionConnectionState,
-  CanonicalActiveCall,
-} from "./CanonicalActiveWorkspace";
+import { CanonicalActiveCall, OperatorStateWarning } from "./CanonicalActiveWorkspace";
+import { CallConnectionStatus } from "./CallConnectionStatus";
+import { canonicalStartupConnectionState } from "./use-canonical-agent-session";
 import type { useSoftphoneMedia } from "./use-softphone";
 
 const originalFetch = globalThis.fetch;
@@ -63,12 +61,26 @@ function readySession(update: Partial<AgentSessionView> = {}): AgentSessionView 
 
 describe("call readiness", () => {
   it("reports automatic startup as connecting instead of trying to release", () => {
-    expect(canonicalSessionConnectionState("CLOSED", true)).toBe("CONNECTING");
-    expect(canonicalSessionConnectionState("CLOSED", false)).toBe("CLOSED");
+    expect(
+      canonicalStartupConnectionState({
+        audioReady: false,
+        connectionState: "CLOSED",
+        microphoneReady: false,
+        presence: "PAUSED",
+      }),
+    ).toBe("CONNECTING");
+    expect(
+      canonicalStartupConnectionState({
+        audioReady: false,
+        connectionState: "CLOSED",
+        microphoneReady: false,
+        presence: "OFFLINE",
+      }),
+    ).toBe("CLOSED");
   });
 
   it("renders one durable connection status with no readiness control", () => {
-    const view = render(<CallConnectionStatus session={null} />);
+    const view = render(<CallConnectionStatus connectionState="OFFLINE" />);
 
     expect(screen.getByRole("status").textContent).toBe(
       "Phone disconnected — reconnecting",
@@ -76,39 +88,36 @@ describe("call readiness", () => {
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByRole("button")).toBeNull();
 
-    view.rerender(<CallConnectionStatus session={readySession()} />);
+    view.rerender(<CallConnectionStatus connectionState="READY" />);
     expect(screen.getByRole("status").textContent).toBe("Connected");
 
-    view.rerender(<CallConnectionStatus restoring session={readySession()} />);
+    view.rerender(<CallConnectionStatus connectionState="READY" restoring />);
     expect(screen.getByRole("status").textContent).toBe("Restoring calling…");
 
-    view.rerender(
-      <CallConnectionStatus
-        session={readySession({ microphoneReady: false, presence: "PAUSED" })}
-      />,
-    );
+    view.rerender(<CallConnectionStatus connectionState="CONNECTING" />);
+    expect(screen.getByRole("status").textContent).toBe("Phone connecting…");
+
+    view.rerender(<CallConnectionStatus connectionState="FAILED" />);
     expect(screen.getByRole("status").textContent).toBe(
       "Phone disconnected — reconnecting",
     );
+  });
 
-    view.rerender(
-      <CallConnectionStatus
-        session={readySession({ connectionState: "CONNECTING", presence: "PAUSED" })}
+  it("keeps stale operator state visibly distinct from phone registration", () => {
+    const retry = mock(() => {});
+    render(
+      <OperatorStateWarning
+        failedAt="2026-07-19T10:01:05.000Z"
+        observedAt="2026-07-19T10:00:00.000Z"
+        retry={retry}
       />,
     );
-    expect(screen.getByRole("status").textContent).toBe("Connected");
 
-    view.rerender(<CallConnectionStatus session={readySession({ presence: "BUSY" })} />);
-    expect(screen.getByRole("status").textContent).toBe("Connected");
-
-    view.rerender(
-      <CallConnectionStatus
-        session={readySession({ connectionState: "FAILED", presence: "PAUSED" })}
-      />,
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Last updated 1m ago. Retained calls may be stale.",
     );
-    expect(screen.getByRole("status").textContent).toBe(
-      "Phone disconnected — reconnecting",
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });
 

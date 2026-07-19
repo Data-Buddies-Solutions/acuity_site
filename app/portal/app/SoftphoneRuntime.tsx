@@ -249,6 +249,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       error:
         identityError ??
         agentSession.error ??
+        media.microphoneError ??
         (media.connection === "FAILED" ? "Phone disconnected — reconnecting" : null),
       media,
       ringtone,
