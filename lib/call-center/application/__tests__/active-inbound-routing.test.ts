@@ -17,7 +17,6 @@ function context(overrides: Partial<ActiveRoutingContext> = {}): ActiveRoutingCo
   return {
     callId: "call-1",
     direction: "INBOUND",
-    effectOwner: "CANONICAL",
     practiceId: "practice-1",
     queue: {
       enabled: true,
@@ -151,36 +150,6 @@ describe("canonical active inbound routing", () => {
       "routing.start",
       "routing.find",
     ]);
-  });
-
-  it("uses immutable ownership instead of mutable queue mode", async () => {
-    const legacy = fakeTransaction(context({ effectOwner: "LEGACY" }));
-    await expect(
-      routeActiveInboundCall(
-        {
-          withCallLock: (_practiceId, _callId, operation) =>
-            operation(legacy.transaction),
-        },
-        { callId: "call-1", practiceId: "practice-1" },
-        now,
-      ),
-    ).resolves.toMatchObject({ status: "SKIPPED" });
-    expect(legacy.calls).not.toContain("routing.start");
-
-    const canonical = fakeTransaction(context());
-    await expect(
-      routeActiveInboundCall(
-        {
-          withCallLock: (_practiceId, _callId, operation) =>
-            operation(canonical.transaction),
-        },
-        { callId: "call-1", practiceId: "practice-1" },
-        now,
-      ),
-    ).resolves.toMatchObject({
-      commandIds: ["command-answer", "command-ringback", "command-dial"],
-    });
-    expect(canonical.calls).toContain("routing.start");
   });
 
   it("uses an explicit idempotency key for one routing attempt", async () => {

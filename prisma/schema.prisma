@@ -177,11 +177,6 @@ enum CallCenterQueueMemberRole {
   SUPERVISOR
 }
 
-enum CallCenterEffectOwner {
-  LEGACY
-  CANONICAL
-}
-
 enum CallCenterAgentPresence {
   AVAILABLE
   PAUSED
@@ -1070,8 +1065,7 @@ model CallCenterCall {
   queueId               String?
   numberId              String
   direction             CallCenterCallDirection
-  effectOwner           CallCenterEffectOwner   @default(CANONICAL)
-  status                CallCenterCallStatus    @default(RECEIVED)
+  status                CallCenterCallStatus     @default(RECEIVED)
   fromPhone             String
   toPhone               String
   callerName            String?
@@ -1099,7 +1093,7 @@ model CallCenterCall {
 
   @@index([practiceId, status, receivedAt])
   @@index([practiceId, queueId, status, receivedAt])
-  @@index([direction, effectOwner, status, deadlineAt])
+  @@index([direction, status, deadlineAt])
   @@index([numberId])
   @@map("call_center_call")
 }
@@ -1200,34 +1194,27 @@ model CallCenterTask {
 }
 
 model ProviderWebhookEvent {
-  id                               String                          @id @default(cuid())
-  provider                         CallCenterProvider
-  providerEventId                  String
-  eventType                        String
-  effectOwner                      CallCenterEffectOwner?          @default(CANONICAL)
-  providerCallSessionId            String?
-  directHandoffTokenHash           String?                         @db.VarChar(64)
-  occurredAt                       DateTime?
-  receivedAt                       DateTime                        @default(now())
-  processingStatus                 ProviderWebhookProcessingStatus @default(RECEIVED)
-  attemptCount                     Int                             @default(0)
-  nextAttemptAt                    DateTime?
-  errorCode                        String?
-  payload                          Json
-  processedAt                      DateTime?
-  canonicalProjectionStatus        ProviderWebhookProcessingStatus @default(RECEIVED)
-  canonicalProjectionAttemptCount  Int                             @default(0)
-  canonicalProjectionNextAttemptAt DateTime?
-  canonicalProjectionErrorCode     String?                         @db.VarChar(100)
-  canonicalProjectedAt             DateTime?
-  createdAt                        DateTime                        @default(now())
-  updatedAt                        DateTime                        @updatedAt
+  id                     String                          @id @default(cuid())
+  provider               CallCenterProvider
+  providerEventId        String
+  eventType              String
+  providerCallSessionId  String?
+  directHandoffTokenHash String?                         @db.VarChar(64)
+  occurredAt             DateTime?
+  receivedAt             DateTime                        @default(now())
+  processingStatus       ProviderWebhookProcessingStatus @default(RECEIVED)
+  attemptCount           Int                             @default(0)
+  nextAttemptAt          DateTime?
+  errorCode              String?
+  payload                Json
+  processedAt            DateTime?
+  createdAt              DateTime                        @default(now())
+  updatedAt              DateTime                        @updatedAt
 
   @@unique([provider, providerEventId])
   @@index([processingStatus, nextAttemptAt, receivedAt])
-  @@index([canonicalProjectionStatus, canonicalProjectionNextAttemptAt, receivedAt], map: "provider_webhook_event_canonical_projection_recovery_idx")
   @@index([provider, eventType, receivedAt])
-  @@index([provider, providerCallSessionId, effectOwner], map: "provider_webhook_event_session_owner_idx")
+  @@index([provider, providerCallSessionId])
   @@map("provider_webhook_event")
 }
 

@@ -41,7 +41,7 @@ class PrismaDispositionCallTransaction implements DispositionCallTransaction {
       },
       where: { id: input.callId, practiceId: actor.practiceId },
     });
-    if (!call?.queueId || call.effectOwner !== "CANONICAL") {
+    if (!call?.queueId) {
       throw new DispositionCallError("Canonical call not found", 404);
     }
     await resolveQueueAccess(actor, call.queueId, this.transaction);

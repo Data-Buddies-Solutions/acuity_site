@@ -1,20 +1,29 @@
+import { dispatchProviderCommandGraph } from "@/lib/call-center/application/dispatch-provider-command";
+import { dispatchProviderCommand } from "@/lib/call-center/application/provider-command-runtime";
+import {
+  CanonicalProjectionError,
+  prismaCanonicalCallProjector,
+  type CanonicalCallProjector,
+} from "@/lib/call-center/infrastructure/prisma-canonical-call-projector";
 import {
   providerWebhookInbox,
   type ProviderWebhookInbox,
   type ProviderWebhookRecord,
 } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
-import type { TelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
 import {
-  resolveTelnyxEventOwner,
-  TelnyxEventOwnerError,
-  type TelnyxEventOwner,
-} from "@/lib/call-center/infrastructure/telnyx-event-owner";
+  admitTelnyxEvent,
+  TelnyxEventAdmissionError,
+} from "@/lib/call-center/infrastructure/prisma-telnyx-event-admission";
+import {
+  CanonicalTelnyxFactError,
+  parseCanonicalTelnyxCallFact,
+} from "@/lib/call-center/infrastructure/telnyx-canonical-call-fact";
+import type { TelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
 import { createLogger } from "@/lib/logger";
 
-const logger = createLogger("call-center-webhook-processor");
-const OWNER_RESOLUTION_ERROR = "event_owner_resolution_failed";
-const INBOX_COMPLETION_ERROR = "provider_webhook_completion_failed";
-const TERMINAL_DIRECT_HANDOFF_ERRORS = new Set([
+const logger = createLogger("call-center-provider-event");
+const MAX_ERROR_CODE_LENGTH = 100;
+const TERMINAL_ADMISSION_ERRORS = new Set([
   "TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS",
   "TELNYX_DIRECT_HANDOFF_IDENTITY_INVALID",
   "TELNYX_DIRECT_HANDOFF_NOT_FOUND",
@@ -25,10 +34,17 @@ const TERMINAL_DIRECT_HANDOFF_ERRORS = new Set([
   "TELNYX_EVENT_OUT_OF_SCOPE",
 ]);
 
-type TelnyxVoiceEventProcessorDependencies = {
+type ProviderEventInbox = Pick<
+  ProviderWebhookInbox,
+  "claim" | "completeIgnored" | "fail" | "receive" | "retryAt"
+>;
+
+type Dependencies = {
+  admit(event: ProviderWebhookRecord): Promise<unknown>;
   clock?: () => Date;
-  inbox: ProviderWebhookInbox;
-  resolveOwner?: (event: ProviderWebhookRecord) => Promise<TelnyxEventOwner>;
+  dispatchCommand?: typeof dispatchProviderCommand;
+  inbox: ProviderEventInbox;
+  projector: CanonicalCallProjector;
 };
 
 class ProviderWebhookProcessingPendingError extends Error {
@@ -44,12 +60,51 @@ class ProviderWebhookProcessingPendingError extends Error {
   }
 }
 
-/** Claims one durable provider event and persists its immutable admission. */
-function createTelnyxVoiceEventProcessor({
+async function dispatchCommittedCommands(
+  projection: Awaited<ReturnType<CanonicalCallProjector["projectAndComplete"]>>,
+  dispatch: typeof dispatchProviderCommand,
+) {
+  if (projection.commandIds.length === 0) return;
+
+  const result = await dispatchProviderCommandGraph({
+    commandIds: projection.commandIds,
+    dispatch,
+  });
+  for (const failure of result.failures) {
+    logger.error("provider command failed", failure);
+  }
+  for (const commandId of result.deferred) {
+    logger.warn("provider command not dispatched", { commandId });
+  }
+}
+
+export function providerEventErrorCode(error: unknown) {
+  if (
+    error instanceof CanonicalProjectionError ||
+    error instanceof CanonicalTelnyxFactError ||
+    error instanceof TelnyxEventAdmissionError
+  ) {
+    return error.code.slice(0, MAX_ERROR_CODE_LENGTH);
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    /^P\d{4}$/.test(error.code)
+  ) {
+    return `CANONICAL_PRISMA_${error.code}`;
+  }
+  return "PROVIDER_EVENT_FAILED";
+}
+
+export function createTelnyxVoiceEventProcessor({
+  admit,
   clock = () => new Date(),
+  dispatchCommand = dispatchProviderCommand,
   inbox,
-  resolveOwner = async () => "CANONICAL",
-}: TelnyxVoiceEventProcessorDependencies) {
+  projector,
+}: Dependencies) {
   return async function processTelnyxVoiceEvent(envelope: TelnyxVoiceWebhookEnvelope) {
     const received = await inbox.receive(envelope);
     const claim = await inbox.claim(received);
@@ -58,122 +113,98 @@ function createTelnyxVoiceEventProcessor({
       if (claim.decision === "PROCESSING" || claim.decision === "RETRY_SCHEDULED") {
         throw new ProviderWebhookProcessingPendingError(claim.decision);
       }
-
       if (claim.decision === "EXHAUSTED") {
-        const errorCode = received.errorCode ?? "provider_webhook_attempts_exhausted";
-        logger.error("webhook processing exhausted", {
+        const errorCode = received.errorCode ?? "PROVIDER_EVENT_RETRIES_EXHAUSTED";
+        logger.error("provider event attempts exhausted", {
           errorCode,
           eventType: received.eventType,
           providerEventId: received.providerEventId,
         });
         return {
+          duplicate: false as const,
           errorCode,
-          exhausted: true as const,
+          outcome: "FAILED" as const,
           providerWebhookEventId: received.id,
-          processingStatus: received.processingStatus,
         };
       }
-
-      logger.info("duplicate webhook skipped", {
-        eventType: received.eventType,
-        processingStatus: received.processingStatus,
-        providerEventId: received.providerEventId,
-      });
       return {
         duplicate: true as const,
+        outcome: received.processingStatus as "IGNORED" | "PROCESSED",
         providerWebhookEventId: received.id,
-        processingStatus: received.processingStatus,
       };
     }
 
     const event = claim.event;
-    let phase: "COMPLETE" | "OWNER" = "OWNER";
-
     try {
-      const owner = await resolveOwner(event);
-      const result = {
-        ignored: true,
-        reason: owner === "CANONICAL" ? "canonical_owner" : "out_of_scope",
-      };
-      phase = "COMPLETE";
-      const processingStatus = result.ignored ? "IGNORED" : "PROCESSED";
-      const completed = await inbox.complete({
-        attemptCount: event.attemptCount,
-        effectOwner: owner,
-        eventId: event.id,
-        now: clock(),
-        status: processingStatus,
-      });
-
-      if (!completed) {
-        throw new Error("Provider webhook processing claim was lost");
-      }
-
-      return {
-        ...result,
-        duplicate: false as const,
-        providerWebhookEventId: received.id,
-        processingStatus,
-      };
-    } catch (error) {
-      if (
-        phase === "OWNER" &&
-        error instanceof TelnyxEventOwnerError &&
-        TERMINAL_DIRECT_HANDOFF_ERRORS.has(error.code)
-      ) {
-        const completed = await inbox.complete({
+      await admit(event);
+      const fact = parseCanonicalTelnyxCallFact(event.payload, event.receivedAt);
+      if (!fact) {
+        const completed = await inbox.completeIgnored({
           attemptCount: event.attemptCount,
-          effectOwner: null,
-          errorCode: error.code,
           eventId: event.id,
           now: clock(),
-          status: "IGNORED",
         });
-        if (!completed) {
-          await markProjectionFailed(inbox, event, INBOX_COMPLETION_ERROR);
-          throw new Error("Provider webhook processing claim was lost");
-        }
+        if (!completed) throw new CanonicalProjectionError("PROVIDER_EVENT_CLAIM_LOST");
         return {
           duplicate: false as const,
-          ignored: true as const,
-          providerWebhookEventId: received.id,
-          processingStatus: "IGNORED" as const,
-          reason: error.code,
+          outcome: "IGNORED" as const,
+          providerWebhookEventId: event.id,
         };
       }
-      const errorCode = processingErrorCode(phase, error);
-      await markProjectionFailed(inbox, event, errorCode);
-      logger.error("webhook processing failed", {
+
+      const projection = await projector.projectAndComplete(event, fact, clock());
+      await dispatchCommittedCommands(projection, dispatchCommand);
+      return {
+        duplicate: false as const,
+        outcome: "PROCESSED" as const,
+        projection,
+        providerWebhookEventId: event.id,
+      };
+    } catch (error) {
+      const errorCode = providerEventErrorCode(error);
+      if (
+        error instanceof TelnyxEventAdmissionError &&
+        TERMINAL_ADMISSION_ERRORS.has(error.code)
+      ) {
+        const completed = await inbox.completeIgnored({
+          attemptCount: event.attemptCount,
+          errorCode,
+          eventId: event.id,
+          now: clock(),
+        });
+        if (!completed) throw new CanonicalProjectionError("PROVIDER_EVENT_CLAIM_LOST");
+        return {
+          duplicate: false as const,
+          errorCode,
+          outcome: "IGNORED" as const,
+          providerWebhookEventId: event.id,
+        };
+      }
+
+      const failed = await inbox.fail({
+        attemptCount: event.attemptCount,
+        errorCode,
+        eventId: event.id,
+        nextAttemptAt: inbox.retryAt(event.attemptCount),
+      });
+      if (!failed) throw new CanonicalProjectionError("PROVIDER_EVENT_CLAIM_LOST");
+      logger.warn("provider event failed", {
         errorCode,
         eventType: event.eventType,
         providerEventId: event.providerEventId,
       });
-      throw error;
+      return {
+        duplicate: false as const,
+        errorCode,
+        outcome: "FAILED" as const,
+        providerWebhookEventId: event.id,
+      };
     }
   };
 }
 
-function processingErrorCode(phase: "COMPLETE" | "OWNER", error: unknown) {
-  if (phase === "COMPLETE") return INBOX_COMPLETION_ERROR;
-  return error instanceof TelnyxEventOwnerError
-    ? error.code.slice(0, 100)
-    : OWNER_RESOLUTION_ERROR;
-}
-
-async function markProjectionFailed(
-  inbox: ProviderWebhookInbox,
-  event: ProviderWebhookRecord,
-  errorCode: string,
-) {
-  await inbox.fail({
-    attemptCount: event.attemptCount,
-    errorCode,
-    eventId: event.id,
-    nextAttemptAt: inbox.retryAt(event.attemptCount),
-  });
-}
-
 export const processTelnyxVoiceEvent = createTelnyxVoiceEventProcessor({
+  admit: admitTelnyxEvent,
   inbox: providerWebhookInbox,
-  resolveOwner: resolveTelnyxEventOwner,
+  projector: prismaCanonicalCallProjector,
 });

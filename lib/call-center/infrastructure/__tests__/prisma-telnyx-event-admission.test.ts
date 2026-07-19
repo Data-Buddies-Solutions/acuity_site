@@ -3,11 +3,9 @@ import { describe, expect, it } from "bun:test";
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import {
-  resolveTelnyxEventOwner,
-  telnyxEventOwnerLockKey,
-  TelnyxEventOwnerError,
-  type TelnyxEventOwner,
-} from "@/lib/call-center/infrastructure/telnyx-event-owner";
+  admitTelnyxEvent,
+  telnyxEventAdmissionLockKey,
+} from "@/lib/call-center/infrastructure/prisma-telnyx-event-admission";
 import {
   directHandoffToken,
   directHandoffTokenHash,
@@ -18,15 +16,12 @@ import {
 } from "@/lib/call-center/infrastructure/direct-handoff-uri";
 
 const occurredAt = new Date("2026-07-12T12:00:00.000Z");
-type StoredEffectOwner = TelnyxEventOwner | "LEGACY";
-
 function event({
   callControlId = "control-1",
   callLegId = "provider-leg-1",
   callSessionId = "provider-session-1",
   clientState,
   direction = "incoming",
-  effectOwner = null,
   eventId = "event-1",
   eventType = "call.initiated",
   from = "+17865550100",
@@ -38,7 +33,6 @@ function event({
   callSessionId?: string | null;
   clientState?: Record<string, unknown>;
   direction?: "incoming" | "outgoing" | null;
-  effectOwner?: StoredEffectOwner | null;
   eventId?: string;
   eventType?: string;
   from?: string;
@@ -69,7 +63,6 @@ function event({
   return {
     attemptCount: 1,
     directHandoffTokenHash: sanitized.tokenHash,
-    effectOwner,
     errorCode: null,
     eventType,
     id: `inbox-${eventId}`,
@@ -79,12 +72,12 @@ function event({
     processingStatus: "PROCESSING",
     providerCallSessionId: callSessionId,
     providerEventId: eventId,
+    receivedAt: occurredAt,
     updatedAt: occurredAt,
   };
 }
 
 type PersistedCall = {
-  effectOwner: StoredEffectOwner;
   id: string;
   practiceId: string;
   providerCallSessionId: string | null;
@@ -154,7 +147,6 @@ function strippedHandoff(overrides: Partial<TestHandoff> = {}): TestHandoff {
 type TestDatabaseOptions = {
   assignmentCount?: number;
   calls?: PersistedCall[];
-  eventOwners?: StoredEffectOwner[];
   handoff?: TestHandoff | null;
   handoffCandidates?: TestHandoff[];
   legs?: PersistedLeg[];
@@ -191,7 +183,6 @@ type TestDatabaseOptions = {
 function database({
   assignmentCount = 1,
   calls = [],
-  eventOwners = [],
   handoff = null,
   handoffCandidates,
   legs = [],
@@ -211,7 +202,7 @@ function database({
   },
   rejectedSessions = [],
 }: TestDatabaseOptions = {}) {
-  const assigned: TelnyxEventOwner[] = [];
+  const assigned: Array<string | null> = [];
   const created: Array<Record<string, unknown>> = [];
   const createdLegs: Array<Record<string, unknown>> = [];
   const operations: string[] = [];
@@ -271,6 +262,15 @@ function database({
         operations.push("call-and-customer-leg.create");
         created.push(data);
         createdLegs.push((data.legs as { create: Record<string, unknown> }).create);
+        calls.push({
+          id: "created-call",
+          practiceId:
+            typeof data.practiceId === "string" ? data.practiceId : "practice-1",
+          providerCallSessionId:
+            typeof data.providerCallSessionId === "string"
+              ? data.providerCallSessionId
+              : null,
+        });
         return { id: "created-call" };
       },
       findUnique: async ({ where }: { where: { providerCallSessionId: string } }) =>
@@ -366,12 +366,14 @@ function database({
           : rejectedSessions.includes(where.providerCallSessionId)
             ? { errorCode: "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID" }
             : null,
-      findMany: async () => eventOwners.map((effectOwner) => ({ effectOwner })),
-      updateMany: async ({ data }: { data: { effectOwner: TelnyxEventOwner } }) => {
+      updateMany: async ({
+        data,
+      }: {
+        data: { providerCallSessionId: string | null };
+      }) => {
         if (assignmentCount !== 1) return { count: assignmentCount };
-        operations.push("event-owner.assign");
-        assigned.push(data.effectOwner);
-        if (!eventOwners.includes(data.effectOwner)) eventOwners.push(data.effectOwner);
+        operations.push("provider-session.bind");
+        assigned.push(data.providerCallSessionId);
         return { count: 1 };
       },
     },
@@ -386,16 +388,16 @@ function database({
     prisma: {
       $transaction: async (operation: (tx: typeof transaction) => Promise<unknown>) => {
         const assignedCount = assigned.length;
+        const callCount = calls.length;
         const createdCount = created.length;
         const createdLegCount = createdLegs.length;
-        const owners = [...eventOwners];
         try {
           return await operation(transaction);
         } catch (error) {
           assigned.splice(assignedCount);
+          calls.splice(callCount);
           created.splice(createdCount);
           createdLegs.splice(createdLegCount);
-          eventOwners.splice(0, eventOwners.length, ...owners);
           throw error;
         }
       },
@@ -412,7 +414,6 @@ const trustedOutboundState = {
 
 function outboundDatabase() {
   const call = {
-    effectOwner: "CANONICAL" as const,
     id: "outbound-call",
     practiceId: "practice-1",
     providerCallSessionId: null,
@@ -437,25 +438,24 @@ function outboundDatabase() {
   });
 }
 
-describe("Telnyx event effect owner", () => {
+describe("Telnyx event admission", () => {
   it("uses PostgreSQL-safe advisory lock keys", () => {
-    expect(telnyxEventOwnerLockKey("event-1", "session-1")).toBe(
+    expect(telnyxEventAdmissionLockKey("event-1", "session-1")).toBe(
       "TELNYX_SESSION:session-1",
     );
-    expect(telnyxEventOwnerLockKey("event-1", null)).toBe("TELNYX_EVENT:event-1");
-    expect(telnyxEventOwnerLockKey("event-1", "session-1")).not.toContain("\u0000");
+    expect(telnyxEventAdmissionLockKey("event-1", null)).toBe("TELNYX_EVENT:event-1");
+    expect(telnyxEventAdmissionLockKey("event-1", "session-1")).not.toContain("\u0000");
   });
 
-  it("records call and event ownership before canonical projection", async () => {
+  it("records call and event admission before canonical projection", async () => {
     const db = database();
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("CANONICAL");
+    await expect(admitTelnyxEvent(event(), db.prisma)).resolves.toBe("ADMITTED");
 
-    expect(db.assigned).toEqual(["CANONICAL"]);
+    expect(db.assigned).toEqual(["provider-session-1"]);
     expect(db.queries[0]).toContain("pg_advisory_xact_lock");
     expect(db.queries[0]).toContain('::text AS "lock"');
     expect(db.created[0]).toMatchObject({
       direction: "INBOUND",
-      effectOwner: "CANONICAL",
       numberId: "number-1",
       practiceId: "practice-1",
       providerCallSessionId: "provider-session-1",
@@ -463,15 +463,15 @@ describe("Telnyx event effect owner", () => {
     });
 
     await expect(
-      resolveTelnyxEventOwner(event({ eventId: "event-after-rollback" }), db.prisma),
-    ).resolves.toBe("CANONICAL");
+      admitTelnyxEvent(event({ eventId: "event-after-rollback" }), db.prisma),
+    ).resolves.toBe("ADMITTED");
     expect(db.created).toHaveLength(1);
   });
 
   it("orders configured inbound admission under the shared practice lock", async () => {
     const db = database();
 
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("CANONICAL");
+    await expect(admitTelnyxEvent(event(), db.prisma)).resolves.toBe("ADMITTED");
 
     expect(db.operations).toEqual([
       "provider-session.lock",
@@ -479,7 +479,7 @@ describe("Telnyx event effect owner", () => {
       "queue.row-lock",
       "number.row-lock",
       "call-and-customer-leg.create",
-      "event-owner.assign",
+      "provider-session.bind",
     ]);
     expect(db.created[0]).toMatchObject({
       numberId: "number-1",
@@ -518,19 +518,19 @@ describe("Telnyx event effect owner", () => {
     };
     const db = database({ handoff, number: null });
 
-    const owner = await resolveTelnyxEventOwner(
-      event({
-        to: directHandoffSipUri(
-          "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
-          token,
-        ),
-      }),
-      db.prisma,
-    );
-    expect(owner).toBe("CANONICAL");
+    await expect(
+      admitTelnyxEvent(
+        event({
+          to: directHandoffSipUri(
+            "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+            token,
+          ),
+        }),
+        db.prisma,
+      ),
+    ).resolves.toBe("ADMITTED");
 
     expect(db.created[0]).toMatchObject({
-      effectOwner: "CANONICAL",
       fromPhone: "+17865550100",
       numberId: "number-1",
       queueId: "queue-1",
@@ -544,7 +544,7 @@ describe("Telnyx event effect owner", () => {
 
     const replayDb = database({ handoff, number: null });
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           callControlId: "control-2",
           callLegId: "provider-leg-2",
@@ -570,7 +570,7 @@ describe("Telnyx event effect owner", () => {
     const db = database({ handoff, number: null });
 
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           to: directHandoffSipUri(
             "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
@@ -579,7 +579,7 @@ describe("Telnyx event effect owner", () => {
         }),
         db.prisma,
       ),
-    ).resolves.toBe("CANONICAL");
+    ).resolves.toBe("ADMITTED");
 
     expect(db.operations).toEqual([
       "provider-session.lock",
@@ -589,7 +589,7 @@ describe("Telnyx event effect owner", () => {
       "number.row-lock",
       "queue.row-lock",
       "call-and-customer-leg.create",
-      "event-owner.assign",
+      "provider-session.bind",
     ]);
   });
 
@@ -597,11 +597,10 @@ describe("Telnyx event effect owner", () => {
     const handoff = strippedHandoff();
     const db = database({ handoff });
 
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("CANONICAL");
+    await expect(admitTelnyxEvent(event(), db.prisma)).resolves.toBe("ADMITTED");
 
     expect(db.created).toHaveLength(1);
     expect(db.created[0]).toMatchObject({
-      effectOwner: "CANONICAL",
       fromPhone: "+17865550100",
       numberId: "number-1",
       providerCallSessionId: "provider-session-1",
@@ -629,7 +628,7 @@ describe("Telnyx event effect owner", () => {
       ],
     });
 
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
+    await expect(admitTelnyxEvent(event(), db.prisma)).rejects.toMatchObject({
       code: "TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS",
     });
     expect(db.created).toHaveLength(0);
@@ -643,7 +642,7 @@ describe("Telnyx event effect owner", () => {
     });
     const db = database({ handoff: consumed });
 
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
+    await expect(admitTelnyxEvent(event(), db.prisma)).rejects.toMatchObject({
       code: "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE",
     });
     expect(db.created).toHaveLength(0);
@@ -652,7 +651,7 @@ describe("Telnyx event effect owner", () => {
   it("keeps every callback for a rejected direct session terminal", async () => {
     const db = database({ rejectedSessions: ["provider-session-1"] });
 
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
+    await expect(admitTelnyxEvent(event(), db.prisma)).rejects.toMatchObject({
       code: "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE",
     });
     expect(db.created).toHaveLength(0);
@@ -661,7 +660,7 @@ describe("Telnyx event effect owner", () => {
   it("does not admit an unknown URI token through configured-number fallback", async () => {
     const db = database();
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           to: directHandoffSipUri(
             "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
@@ -674,35 +673,40 @@ describe("Telnyx event effect owner", () => {
     expect(db.created).toHaveLength(0);
   });
 
-  it("canonically admits every configured queue", async () => {
+  it("admits every configured queue", async () => {
     const db = database();
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("CANONICAL");
+    await expect(admitTelnyxEvent(event(), db.prisma)).resolves.toBe("ADMITTED");
   });
 
   it("keeps an unconfigured provider session out of canonical routing", async () => {
     const db = database({ number: null });
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
+    await expect(admitTelnyxEvent(event(), db.prisma)).rejects.toMatchObject({
       code: "TELNYX_EVENT_OUT_OF_SCOPE",
     });
     const afterConfiguration = database({
       outOfScopeSessions: ["provider-session-1"],
     });
     await expect(
-      resolveTelnyxEventOwner(event({ eventId: "event-2" }), afterConfiguration.prisma),
+      admitTelnyxEvent(event({ eventId: "event-2" }), afterConfiguration.prisma),
     ).rejects.toMatchObject({ code: "TELNYX_EVENT_OUT_OF_SCOPE" });
     expect(db.created).toHaveLength(0);
     expect(db.assigned).toEqual([]);
   });
 
   it("keeps reordered callbacks sticky to their admitted provider session", async () => {
-    const db = database({ eventOwners: ["CANONICAL"], number: null });
+    const admittedCall = {
+      id: "call-1",
+      practiceId: "practice-1",
+      providerCallSessionId: "provider-session-1",
+    };
+    const db = database({ calls: [admittedCall], number: null });
 
     await expect(
-      resolveTelnyxEventOwner(event({ eventType: "call.answered" }), db.prisma),
-    ).resolves.toBe("CANONICAL");
+      admitTelnyxEvent(event({ eventType: "call.answered" }), db.prisma),
+    ).resolves.toBe("ADMITTED");
 
     expect(db.created).toEqual([]);
-    expect(db.assigned).toEqual(["CANONICAL"]);
+    expect(db.assigned).toEqual(["provider-session-1"]);
   });
 
   it("aborts admission when the configured number changes after practice locking", async () => {
@@ -718,7 +722,7 @@ describe("Telnyx event effect owner", () => {
       },
     });
 
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
+    await expect(admitTelnyxEvent(event(), db.prisma)).rejects.toMatchObject({
       code: "TELNYX_EVENT_NUMBER_CHANGED",
     });
     expect(db.created).toEqual([]);
@@ -726,27 +730,26 @@ describe("Telnyx event effect owner", () => {
     expect(db.assigned).toEqual([]);
   });
 
-  it("rolls back the Call, customer leg, and event owner when admission fails", async () => {
+  it("rolls back the Call, customer leg, and provider session when admission fails", async () => {
     const db = database({ assignmentCount: 0 });
 
-    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
-      code: "TELNYX_EVENT_OWNER_ASSIGNMENT_LOST",
+    await expect(admitTelnyxEvent(event(), db.prisma)).rejects.toMatchObject({
+      code: "TELNYX_EVENT_ADMISSION_CLAIM_LOST",
     });
     expect(db.created).toEqual([]);
     expect(db.createdLegs).toEqual([]);
     expect(db.assigned).toEqual([]);
   });
 
-  it("uses immutable call ownership for session-only voicemail", async () => {
+  it("uses the admitted call identity for session-only voicemail", async () => {
     const call = {
-      effectOwner: "CANONICAL" as const,
       id: "call-1",
       practiceId: "practice-1",
       providerCallSessionId: "provider-session-1",
     };
     const db = database({ calls: [call], number: null });
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           callControlId: null,
           callLegId: null,
@@ -754,12 +757,11 @@ describe("Telnyx event effect owner", () => {
         }),
         db.prisma,
       ),
-    ).resolves.toBe("CANONICAL");
+    ).resolves.toBe("ADMITTED");
   });
 
-  it("atomically binds the first canonical agent callback identities", async () => {
+  it("atomically binds the first agent callback identities", async () => {
     const call = {
-      effectOwner: "CANONICAL" as const,
       id: "call-1",
       practiceId: "practice-1",
       providerCallSessionId: "customer-session",
@@ -778,12 +780,12 @@ describe("Telnyx event effect owner", () => {
       clientState: { callId: "call-1", legId: "agent-leg-1" },
       eventType: "call.initiated",
     });
-    await expect(resolveTelnyxEventOwner(first, db.prisma)).resolves.toBe("CANONICAL");
+    await expect(admitTelnyxEvent(first, db.prisma)).resolves.toBe("ADMITTED");
     expect(db.operations).toEqual([
       "provider-session.lock",
       "practice.lock",
       "call-leg.row-lock",
-      "event-owner.assign",
+      "provider-session.bind",
     ]);
     expect(db.legs[0]).toMatchObject({
       providerCallControlId: "control-1",
@@ -792,7 +794,7 @@ describe("Telnyx event effect owner", () => {
     });
 
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           callSessionId: "agent-session",
           eventId: "event-2",
@@ -800,14 +802,14 @@ describe("Telnyx event effect owner", () => {
         }),
         db.prisma,
       ),
-    ).resolves.toBe("CANONICAL");
+    ).resolves.toBe("ADMITTED");
   });
 
   it("resolves a persisted outbound token when direction is absent", async () => {
     const db = outboundDatabase();
 
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           callSessionId: "outbound-session",
           clientState: trustedOutboundState,
@@ -815,7 +817,7 @@ describe("Telnyx event effect owner", () => {
         }),
         db.prisma,
       ),
-    ).resolves.toBe("CANONICAL");
+    ).resolves.toBe("ADMITTED");
     expect(db.legs[0]).toMatchObject({
       id: "outbound-leg",
       providerCallControlId: "control-1",
@@ -828,7 +830,7 @@ describe("Telnyx event effect owner", () => {
     const db = outboundDatabase();
 
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({ clientState: trustedOutboundState, direction: "incoming" }),
         db.prisma,
       ),
@@ -840,7 +842,7 @@ describe("Telnyx event effect owner", () => {
     const db = outboundDatabase();
 
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           callSessionId: "outbound-session",
           clientState: trustedOutboundState,
@@ -848,7 +850,7 @@ describe("Telnyx event effect owner", () => {
         }),
         db.prisma,
       ),
-    ).resolves.toBe("CANONICAL");
+    ).resolves.toBe("ADMITTED");
     expect(db.legs[0]).toMatchObject({
       id: "outbound-leg",
       providerCallControlId: "control-1",
@@ -857,7 +859,7 @@ describe("Telnyx event effect owner", () => {
     });
 
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           callSessionId: "replayed-session",
           clientState: trustedOutboundState,
@@ -868,7 +870,7 @@ describe("Telnyx event effect owner", () => {
       ),
     ).rejects.toThrow("TELNYX_EVENT_IDENTITY_MISMATCH");
     await expect(
-      resolveTelnyxEventOwner(
+      admitTelnyxEvent(
         event({
           clientState: {
             canonicalOutboundToken: "forged-token",
@@ -882,46 +884,18 @@ describe("Telnyx event effect owner", () => {
     ).rejects.toThrow("TELNYX_EVENT_OUTBOUND_TOKEN_NOT_FOUND");
   });
 
-  it("admits a canonical callback before initiated projection", async () => {
+  it("admits a callback before initiated projection", async () => {
     const db = database();
     await expect(
-      resolveTelnyxEventOwner(event({ eventType: "call.answered" }), db.prisma),
-    ).resolves.toBe("CANONICAL");
+      admitTelnyxEvent(event({ eventType: "call.answered" }), db.prisma),
+    ).resolves.toBe("ADMITTED");
     expect(db.created).toHaveLength(1);
-  });
-
-  it("fails closed when canonical, provider, and stored owners disagree", async () => {
-    const call = {
-      effectOwner: "LEGACY" as const,
-      id: "legacy-call",
-      practiceId: "practice-1",
-      providerCallSessionId: "provider-session-1",
-    };
-    const db = database({
-      eventOwners: ["CANONICAL"],
-      legs: [
-        {
-          call,
-          id: "legacy-leg",
-          kind: "CUSTOMER",
-          providerCallControlId: "control-1",
-          providerCallLegId: "provider-leg-1",
-          providerCallSessionId: "provider-session-1",
-        },
-      ],
-    });
-    await expect(
-      resolveTelnyxEventOwner(
-        event({ clientState: { callId: "call-1", legId: "leg-1" } }),
-        db.prisma,
-      ),
-    ).rejects.toBeInstanceOf(TelnyxEventOwnerError);
   });
 
   it("treats malformed opaque client state as absent", async () => {
     const db = database({ number: null });
     await expect(
-      resolveTelnyxEventOwner(event({ payloadClientState: "not-base64" }), db.prisma),
+      admitTelnyxEvent(event({ payloadClientState: "not-base64" }), db.prisma),
     ).rejects.toMatchObject({ code: "TELNYX_EVENT_OUT_OF_SCOPE" });
     expect(db.assigned).toEqual([]);
   });

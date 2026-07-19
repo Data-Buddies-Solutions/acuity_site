@@ -85,11 +85,10 @@ function fakeDatabase({ failedReservation = false } = {}) {
     },
     callCenterCall: {
       findFirst: async ({ select }: { select: Record<string, unknown> }) => {
-        if (select.effectOwner) {
+        if (select.direction) {
           operations.push("context.load");
           return {
             direction: "INBOUND",
-            effectOwner: "CANONICAL",
             id: "call-1",
             practiceId: "practice-1",
             queueId: "queue-1",

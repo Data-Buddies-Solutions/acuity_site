@@ -8,7 +8,6 @@ import {
 import { processTelnyxVoiceEvent } from "@/lib/call-center/application/process-telnyx-voice-event";
 import { dispatchProviderCommandGraph } from "@/lib/call-center/application/dispatch-provider-command";
 import { dispatchProviderCommand } from "@/lib/call-center/application/provider-command-runtime";
-import { processCanonicalTelnyxEvent } from "@/lib/call-center/application/project-canonical-telnyx-event";
 import { readCallCenterSnapshot } from "@/lib/call-center/application/realtime-queries";
 import {
   startOutboundCall,
@@ -23,12 +22,6 @@ import {
 import { prismaAgentSessionStore } from "@/lib/call-center/infrastructure/prisma-agent-session-store";
 import { prismaStartOutboundCallStore } from "@/lib/call-center/infrastructure/prisma-start-outbound-call-store";
 import type { TelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
-
-type EventIntake = {
-  duplicate?: boolean;
-  providerWebhookEventId: string;
-  processingStatus: string;
-};
 
 type AgentIdentity = {
   clientInstanceId: string;
@@ -111,9 +104,8 @@ type Dependencies<
     input: AgentIdentity,
     now?: Date,
   ): Promise<AcquiredAgent>;
-  applyEvent(eventId: string): Promise<Projection>;
+  applyProviderEvent(envelope: TelnyxVoiceWebhookEnvelope): Promise<Projection>;
   readState(actor: QueueAccessActor, queueId: string): Promise<OperatorState>;
-  receiveEvent(envelope: TelnyxVoiceWebhookEnvelope): Promise<EventIntake>;
   releaseAgent(
     actor: AgentSessionActor,
     input: AgentRelease,
@@ -166,10 +158,8 @@ export function createCallCenter<
       return dependencies.reserveHandoff(input, options);
     },
 
-    async applyProviderEvent(envelope: TelnyxVoiceWebhookEnvelope) {
-      const intake = await dependencies.receiveEvent(envelope);
-      const projection = await dependencies.applyEvent(intake.providerWebhookEventId);
-      return { ...intake, projection };
+    applyProviderEvent(envelope: TelnyxVoiceWebhookEnvelope) {
+      return dependencies.applyProviderEvent(envelope);
     },
 
     readOperatorState(actor: QueueAccessActor, queueId: string) {
@@ -200,9 +190,8 @@ export function createCallCenter<
 export const callCenter = createCallCenter({
   acquireAgent: (actor, input, now) =>
     acquireAgentSession(prismaAgentSessionStore, actor, input, now),
-  applyEvent: processCanonicalTelnyxEvent,
+  applyProviderEvent: processTelnyxVoiceEvent,
   readState: readCallCenterSnapshot,
-  receiveEvent: processTelnyxVoiceEvent,
   releaseAgent: (actor, input, now) =>
     releaseAgentSession(prismaAgentSessionStore, actor, input, now),
   reserveHandoff: reserveDirectHandoff,

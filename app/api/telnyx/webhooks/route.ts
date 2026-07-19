@@ -38,13 +38,12 @@ export const POST = withApiHandler(
       const applied = await callCenter.applyProviderEvent(
         parseTelnyxVoiceWebhookEnvelope(body),
       );
-      if (applied.projection.outcome === "FAILED") {
+      if (applied.outcome === "FAILED") {
         throw new ApiError("Call center event could not be applied", 503);
       }
       result = {
         duplicate: applied.duplicate ?? false,
-        processingStatus: applied.processingStatus,
-        projection: applied.projection.outcome,
+        processingStatus: applied.outcome,
       };
     }
 

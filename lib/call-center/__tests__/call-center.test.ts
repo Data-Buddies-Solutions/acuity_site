@@ -85,23 +85,16 @@ describe("server Call Center module", () => {
       acquireAgent: async () => {
         throw new Error("unused");
       },
-      applyEvent: async (eventId) => {
-        calls.push(`apply:${eventId}`);
+      applyProviderEvent: async (receivedEnvelope) => {
+        calls.push(`apply:${receivedEnvelope.providerEventId}`);
         return {
+          duplicate: false,
           outcome: "PROCESSED" as const,
           projection: { callId: "call-1", commandIds: [] },
         };
       },
       readState: async () => {
         throw new Error("unused");
-      },
-      receiveEvent: async () => {
-        calls.push("receive");
-        return {
-          duplicate: false,
-          providerWebhookEventId: "stored-event-1",
-          processingStatus: "IGNORED",
-        };
       },
       releaseAgent: async () => {
         throw new Error("unused");
@@ -119,26 +112,19 @@ describe("server Call Center module", () => {
 
     const result = await callCenter.applyProviderEvent(envelope);
 
-    expect(calls).toEqual(["receive", "apply:stored-event-1"]);
+    expect(calls).toEqual(["apply:event-1"]);
     expect(result).toMatchObject({
       duplicate: false,
-      projection: {
-        outcome: "PROCESSED",
-        projection: { callId: "call-1" },
-      },
+      outcome: "PROCESSED",
+      projection: { callId: "call-1" },
     });
   });
 
   it("keeps the five external actor operations behind one interface", () => {
     const callCenter = createCallCenter({
       acquireAgent: async () => ({ session: { id: "session-1" } }),
-      applyEvent: async () => ({ outcome: "SKIPPED" as const }),
+      applyProviderEvent: async () => ({ outcome: "IGNORED" as const }),
       readState: async () => ({ revision: "1" }),
-      receiveEvent: async () => ({
-        duplicate: true,
-        providerWebhookEventId: "event-1",
-        processingStatus: "IGNORED",
-      }),
       releaseAgent: async () => ({ session: { id: "session-1" } }),
       reserveHandoff: async () => ({ handoffId: "handoff-1" }),
       startOutbound: async () => ({ callId: "call-1" }),

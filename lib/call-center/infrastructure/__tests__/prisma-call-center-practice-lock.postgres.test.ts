@@ -16,9 +16,9 @@ import {
   readCallCenterConfiguration,
 } from "@/lib/call-center/infrastructure/prisma-configuration-repository";
 import {
-  resolveTelnyxEventOwner,
-  TelnyxEventOwnerError,
-} from "@/lib/call-center/infrastructure/telnyx-event-owner";
+  admitTelnyxEvent,
+  TelnyxEventAdmissionError,
+} from "@/lib/call-center/infrastructure/prisma-telnyx-event-admission";
 const postgresUrl = process.env.CALL_CENTER_POSTGRES_TEST_URL ?? "";
 const describePostgres = postgresUrl ? describe : describe.skip;
 
@@ -141,7 +141,6 @@ describePostgres("call-center practice lock on PostgreSQL", () => {
     const event: ProviderWebhookRecord = {
       attemptCount: 1,
       directHandoffTokenHash: null,
-      effectOwner: null,
       errorCode: null,
       eventType: "call.initiated",
       id: inboxId,
@@ -165,12 +164,12 @@ describePostgres("call-center practice lock on PostgreSQL", () => {
       processingStatus: "PROCESSING",
       providerCallSessionId: providerSessionId,
       providerEventId: `provider-event-${key}`,
+      receivedAt: occurredAt,
       updatedAt: occurredAt,
     };
     await adminPrisma.providerWebhookEvent.create({
       data: {
         attemptCount: event.attemptCount,
-        effectOwner: null,
         eventType: event.eventType,
         id: event.id,
         payload: event.payload as Prisma.InputJsonValue,
@@ -268,9 +267,9 @@ describePostgres("call-center practice lock on PostgreSQL", () => {
         }),
       ]);
 
-      const admissionResult = resolveTelnyxEventOwner(event, admissionPrisma).then(
-        (owner) => ({ error: null, owner }),
-        (error: unknown) => ({ error, owner: null }),
+      const admissionResult = admitTelnyxEvent(event, admissionPrisma).then(
+        (outcome) => ({ error: null, outcome }),
+        (error: unknown) => ({ error, outcome: null }),
       );
       admission = admissionResult;
 
@@ -279,19 +278,19 @@ describePostgres("call-center practice lock on PostgreSQL", () => {
       await configurationWrite;
 
       const result = await admissionResult;
-      expect(result.error).toBeInstanceOf(TelnyxEventOwnerError);
+      expect(result.error).toBeInstanceOf(TelnyxEventAdmissionError);
       expect(result.error).toMatchObject({ code: "TELNYX_EVENT_QUEUE_DISABLED" });
-      expect(result.owner).toBeNull();
+      expect(result.outcome).toBeNull();
       expect(await adminPrisma.callCenterCall.count({ where: { practiceId } })).toBe(0);
       expect(
         await adminPrisma.callCenterCallLeg.count({ where: { call: { practiceId } } }),
       ).toBe(0);
       expect(
         await adminPrisma.providerWebhookEvent.findUnique({
-          select: { effectOwner: true, providerCallSessionId: true },
+          select: { providerCallSessionId: true },
           where: { id: inboxId },
         }),
-      ).toEqual({ effectOwner: null, providerCallSessionId: providerSessionId });
+      ).toEqual({ providerCallSessionId: providerSessionId });
       expect(await readCallCenterConfiguration(practiceId, adminPrisma)).toMatchObject({
         configuration: {
           numbers: [{ id: numberId, inboundQueueId: newQueueId }],

@@ -253,9 +253,6 @@ async function loadProviderCommandClaim(
   const reject = (errorCode: string): Promise<ProviderCommandRejectedClaim | null> =>
     rejectProviderCommandClaim(tx, command, errorCode, input.now, reconcileActiveInbound);
   const isDialAgent = command.type === "DIAL_AGENT";
-  if (command.call.effectOwner !== "CANONICAL") {
-    return reject("COMMAND_CALL_NOT_CANONICAL");
-  }
 
   const dependency = command.dependsOnCommand;
   if (
@@ -612,7 +609,6 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
       select: { id: true },
       take: input.limit,
       where: {
-        call: { effectOwner: "CANONICAL" },
         OR: [
           { status: "PENDING" },
           { status: "SENDING", updatedAt: { lte: input.staleBefore } },
