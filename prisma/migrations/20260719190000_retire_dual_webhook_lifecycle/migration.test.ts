@@ -15,10 +15,18 @@ async function withWebhookLifecycleFixture({
   verify,
 }: {
   setup?: (client: Client) => Promise<void>;
-  verify: (client: Client) => Promise<void>;
+  verify: (
+    client: Client,
+    context: { applicationName: string; schema: string },
+  ) => Promise<void>;
 }) {
-  const client = new Client({ connectionString: databaseUrl });
-  const schema = `webhook_lifecycle_${crypto.randomUUID().replaceAll("-", "")}`;
+  const id = crypto.randomUUID().replaceAll("-", "");
+  const applicationName = `webhook_migration_${id}`;
+  const client = new Client({
+    application_name: applicationName,
+    connectionString: databaseUrl,
+  });
+  const schema = `webhook_lifecycle_${id}`;
   const quotedSchema = quotedIdentifier(schema);
   await client.connect();
   try {
@@ -162,7 +170,7 @@ async function withWebhookLifecycleFixture({
         );
     `);
     if (setup) await setup(client);
-    await verify(client);
+    await verify(client, { applicationName, schema });
   } finally {
     await client.query("ROLLBACK").catch(() => undefined);
     await client.query(`DROP SCHEMA ${quotedSchema} CASCADE`);
@@ -281,6 +289,47 @@ describe.skipIf(!databaseUrl)("single provider-webhook lifecycle migration", () 
         await expect(client.query(migrationSql)).rejects.toThrow(
           "Cannot retire effectOwner while a legacy provider event is unresolved",
         );
+      },
+    });
+  });
+
+  it("rechecks a concurrent claim before destructive cleanup", async () => {
+    await withWebhookLifecycleFixture({
+      verify: async (client, { applicationName, schema }) => {
+        const claimant = new Client({ connectionString: databaseUrl });
+        await claimant.connect();
+        try {
+          await claimant.query(`SET search_path TO ${quotedIdentifier(schema)}, public`);
+          await claimant.query("BEGIN");
+          await claimant.query(`
+            UPDATE "provider_webhook_event"
+            SET "processingStatus" = 'PROCESSING'
+            WHERE "id" = 'canonical-event'
+          `);
+
+          const migration = client.query(migrationSql);
+          void migration.catch(() => undefined);
+          let migrationIsWaiting = false;
+          for (let attempt = 0; attempt < 50; attempt += 1) {
+            const activity = await claimant.query<{ wait_event_type: string | null }>(
+              `SELECT wait_event_type
+               FROM pg_stat_activity
+               WHERE application_name = $1`,
+              [applicationName],
+            );
+            migrationIsWaiting = activity.rows[0]?.wait_event_type === "Lock";
+            if (migrationIsWaiting) break;
+          }
+          expect(migrationIsWaiting).toBe(true);
+
+          await claimant.query("COMMIT");
+          await expect(migration).rejects.toThrow(
+            "Cannot consolidate provider-event lifecycle while an event claim is active",
+          );
+        } finally {
+          await claimant.query("ROLLBACK").catch(() => undefined);
+          await claimant.end();
+        }
       },
     });
   });
