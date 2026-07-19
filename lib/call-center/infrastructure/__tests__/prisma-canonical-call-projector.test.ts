@@ -11,6 +11,7 @@ import {
   earliestObservedAt,
   enrichCanonicalCallIdentity,
   hasCanonicalAgentBridgeEvidence,
+  pendingDialAgentCommandIdsForCustomerCallback,
   processedWinningAgentLegId,
   projectedCallDeadline,
   resolveCanonicalCustomerCall,
@@ -84,6 +85,40 @@ describe("canonical routing triggers", () => {
         legKind: "CUSTOMER",
       }),
     ).toBe(true);
+  });
+
+  it("wakes both pending agent dials from answer and ringback callbacks", async () => {
+    for (const eventType of ["call.answered", "call.playback.started"]) {
+      let query: unknown;
+      const tx = {
+        callCenterCommand: {
+          findMany: async (input: unknown) => {
+            query = input;
+            return [{ id: "dial-agent-a" }, { id: "dial-agent-b" }];
+          },
+        },
+      };
+
+      await expect(
+        pendingDialAgentCommandIdsForCustomerCallback(tx as never, {
+          callDirection: "INBOUND",
+          callId: "call-1",
+          eventType,
+          legKind: "CUSTOMER",
+          practiceId: "practice-1",
+        }),
+      ).resolves.toEqual(["dial-agent-a", "dial-agent-b"]);
+      expect(query).toEqual({
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true },
+        where: {
+          callId: "call-1",
+          practiceId: "practice-1",
+          status: "PENDING",
+          type: "DIAL_AGENT",
+        },
+      });
+    }
   });
 });
 
