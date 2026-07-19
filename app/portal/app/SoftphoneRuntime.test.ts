@@ -42,4 +42,29 @@ describe("Softphone Runtime", () => {
     expect(result.incoming).toHaveLength(2);
     expect(result.ringtoneOfferId).toBeNull();
   });
+
+  it("keeps the answered leg owned while its local media is active or held", () => {
+    const states = ["ACTIVE", "HELD"] as const;
+
+    expect(
+      states.map(
+        (state) =>
+          selectSoftphoneRuntimeCalls([observation("leg-1", state)], "leg-1")
+            .answeringMediaLegId,
+      ),
+    ).toEqual(["leg-1", "leg-1"]);
+  });
+
+  it("releases the answered leg without known-live local media", () => {
+    const states = ["ENDED", "FAILED", "UNKNOWN"] as const;
+
+    expect(
+      states.map(
+        (state) =>
+          selectSoftphoneRuntimeCalls([observation("leg-1", state)], "leg-1")
+            .answeringMediaLegId,
+      ),
+    ).toEqual([null, null, null]);
+    expect(selectSoftphoneRuntimeCalls([], "leg-1").answeringMediaLegId).toBeNull();
+  });
 });
