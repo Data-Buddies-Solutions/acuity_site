@@ -35,6 +35,17 @@ export function normalizeCanonicalCallStatus(
 export type CanonicalLegStatus =
   "ANSWERED" | "BRIDGED" | "CREATED" | "DIALING" | "ENDED" | "FAILED" | "RINGING";
 
+export const UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES = [
+  "CREATED",
+  "DIALING",
+  "RINGING",
+  "ANSWERED",
+] as const satisfies readonly CanonicalLegStatus[];
+export const LIVE_CANONICAL_LEG_STATUSES = [
+  ...UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
+  "BRIDGED",
+] as const satisfies readonly CanonicalLegStatus[];
+
 export type CanonicalLegState = {
   answeredAt: Date | null;
   bridgedAt: Date | null;

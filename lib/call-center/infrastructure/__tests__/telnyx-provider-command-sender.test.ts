@@ -74,6 +74,7 @@ describe("Telnyx provider command sender", () => {
       recordStart: async () => new Response(null, { status: 204 }),
       ringbackContent: () => "ringback",
       speak: async () => new Response(null, { status: 204 }),
+      transfer: async () => new Response(null, { status: 204 }),
     });
     await sender.send(command);
 
@@ -128,6 +129,10 @@ describe("Telnyx provider command sender", () => {
         calls.push(["speak", args]);
         return response();
       },
+      transfer: async (args) => {
+        calls.push(["transfer", args]);
+        return response();
+      },
     });
     const target = {
       callId: "call-1",
@@ -168,6 +173,25 @@ describe("Telnyx provider command sender", () => {
     });
     await sender.send({ ...target, arguments: {}, type: "START_RECORDING" });
     await sender.send(command);
+    await sender.send({
+      arguments: {
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        providerSourceLegId: "customer-leg-1",
+        sourceLegId: "leg-1",
+      },
+      callId: "call-1",
+      commandId: "transfer-command-1",
+      idempotencyKey: "transfer-1",
+      legId: "leg-2",
+      practiceId: "practice-1",
+      provider: {
+        callControlId: "customer-control-1",
+        sipUri: "sip:agent-2@example.test",
+        timeoutSeconds: 20,
+      },
+      type: "TRANSFER_AGENT",
+    });
 
     expect(calls).toEqual([
       ["answer", ["customer-control-1", "command-1", undefined, expect.any(String)]],
@@ -228,7 +252,29 @@ describe("Telnyx provider command sender", () => {
           to: "sip:agent-1@example.test",
         }),
       ],
+      [
+        "transfer",
+        expect.objectContaining({
+          callControlId: "customer-control-1",
+          commandId: "transfer-command-1",
+          timeoutSecs: 20,
+          to: "sip:agent-2@example.test",
+        }),
+      ],
     ]);
+    const transfer = calls.at(-1)?.[1] as {
+      clientState: string;
+      targetLegClientState: string;
+    };
+    expect(
+      JSON.parse(Buffer.from(transfer.clientState, "base64").toString("utf8")),
+    ).toMatchObject({
+      internalTransferSource: true,
+      legId: "customer-leg-1",
+    });
+    expect(
+      JSON.parse(Buffer.from(transfer.targetLegClientState, "base64").toString("utf8")),
+    ).toMatchObject({ internalTransferTarget: true, legId: "leg-2" });
   });
 
   it("turns unsuccessful helper responses into classified errors", async () => {
@@ -241,6 +287,7 @@ describe("Telnyx provider command sender", () => {
       recordStart: async () => new Response(null, { status: 204 }),
       ringbackContent: () => "ringback",
       speak: async () => new Response(null, { status: 204 }),
+      transfer: async () => new Response(null, { status: 204 }),
     });
 
     await expect(
@@ -268,6 +315,7 @@ describe("Telnyx provider command sender", () => {
         recordStart: async () => new Response(null, { status: 204 }),
         ringbackContent: () => "ringback",
         speak: async () => new Response(null, { status: 204 }),
+        transfer: async () => new Response(null, { status: 204 }),
       });
 
       await expect(
@@ -325,6 +373,7 @@ describe("Telnyx provider command sender", () => {
         recordStart: async () => new Response(null, { status: 204 }),
         ringbackContent: () => "ringback",
         speak: async () => new Response(null, { status: 204 }),
+        transfer: async () => new Response(null, { status: 204 }),
       });
 
       await expect(

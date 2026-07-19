@@ -1,6 +1,10 @@
 import { randomUUID } from "crypto";
 
-import { Prisma, type PrismaClient } from "@/generated/prisma/client";
+import {
+  Prisma,
+  type CallCenterLegStatus,
+  type PrismaClient,
+} from "@/generated/prisma/client";
 import type {
   AgentSessionActor,
   AgentSessionEndpoint,
@@ -39,6 +43,22 @@ function toAgentSessionRecord(session: PersistedAgentSession): AgentSessionRecor
 
 type Database = Pick<PrismaClient, "$transaction">;
 type TransactionClient = Prisma.TransactionClient;
+
+export function isConnectedAgentCallLeg(input: {
+  callDirection: "INBOUND" | "OUTBOUND";
+  callStatus: string;
+  callWinningLegId: string | null;
+  legId: string;
+  legStatus: CallCenterLegStatus;
+}) {
+  if (input.callStatus !== "CONNECTED") return false;
+  if (input.legStatus === "BRIDGED") return true;
+  if (input.legStatus !== "ANSWERED") return false;
+  return (
+    input.callDirection === "OUTBOUND" &&
+    (input.callWinningLegId === null || input.callWinningLegId === input.legId)
+  );
+}
 
 class PrismaAgentSessionTransaction implements AgentSessionTransaction {
   constructor(private readonly transaction: TransactionClient) {}
@@ -168,8 +188,12 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
   }
 
   async hasConnectedCall(endpointId: string) {
-    const leg = await this.transaction.callCenterCallLeg.findFirst({
-      select: { id: true },
+    const legs = await this.transaction.callCenterCallLeg.findMany({
+      select: {
+        call: { select: { direction: true, status: true, winningLegId: true } },
+        id: true,
+        status: true,
+      },
       where: {
         call: { status: "CONNECTED" },
         endpointId,
@@ -177,7 +201,15 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
         status: { in: ["ANSWERED", "BRIDGED"] },
       },
     });
-    return Boolean(leg);
+    return legs.some((leg) =>
+      isConnectedAgentCallLeg({
+        callDirection: leg.call.direction,
+        callStatus: leg.call.status,
+        callWinningLegId: leg.call.winningLegId,
+        legId: leg.id,
+        legStatus: leg.status,
+      }),
+    );
   }
 
   async hasQueueAccess(actor: AgentSessionActor, endpoint: AgentSessionEndpoint) {

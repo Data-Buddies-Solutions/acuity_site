@@ -90,7 +90,9 @@ durable lifecycle.
    and browser audio.
 3. An inbound ring or answer does not make a user `BUSY`; a confirmed bridge
    does. An outbound remote answer is already a connected call.
-4. One call has at most one winning agent leg; losing legs are canceled.
+4. One call has at most one winning agent leg. A cold transfer may replace that
+   winner only after the same-location target explicitly answers and bridge
+   evidence exists; failure leaves the source winner connected.
 5. Customer answer is not staff answer.
 6. A call cannot enter voicemail while a live agent leg remains.
 7. Terminal call and leg states never regress.
@@ -160,6 +162,7 @@ and caller-ID behavior belongs in Postgres.
 
 For each configured number, prove inbound ring, Answer/bridge, concurrent
 answers with one bridge winner, browser refresh/reconnect, hangup/release,
-no-ready voicemail, outbound dial, direct handoff where configured, outbox
-recovery, and terminal history/task state. Duplicate and out-of-order provider
-fixtures must converge without a second provider effect.
+no-ready voicemail, outbound dial, same-location cold transfer, direct handoff
+where configured, outbox recovery, and terminal history/task state. Duplicate
+and out-of-order provider fixtures must converge without a second provider
+effect.

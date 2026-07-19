@@ -1,3 +1,7 @@
+import {
+  LIVE_CANONICAL_LEG_STATUSES,
+  UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
+} from "@/lib/call-center/domain/canonical-call-state";
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
 import type { MediaObservation } from "./softphone-media-adapter";
@@ -5,6 +9,16 @@ import type { MediaObservation } from "./softphone-media-adapter";
 const OUTBOUND_OPERATION_STORAGE_KEY = "acuity-call-center:outbound-operation";
 
 type OutboundOperationStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
+
+function outboundSourceLegId(call: CallView) {
+  return call.direction === "OUTBOUND"
+    ? (call.legs.find((leg) => leg.kind === "AGENT")?.id ?? null)
+    : null;
+}
+
+function transferSourceLegId(call: CallView) {
+  return call.winningLegId ?? outboundSourceLegId(call);
+}
 
 export function selectCanonicalAgentActiveCall(
   calls: readonly CallView[],
@@ -20,7 +34,15 @@ export function selectCanonicalAgentActiveCall(
           leg.endpointId === session.endpointId &&
           !["ENDED", "FAILED"].includes(leg.status),
       );
-      if (call.direction === "OUTBOUND") return Boolean(ownedLeg);
+      if (call.direction === "OUTBOUND") {
+        if (call.status === "CONNECTED") {
+          return (
+            transferSourceLegId(call) === ownedLeg?.id &&
+            ["ANSWERED", "BRIDGED"].includes(ownedLeg.status)
+          );
+        }
+        return Boolean(ownedLeg);
+      }
       return (
         call.status === "CONNECTED" &&
         Boolean(call.answeredAt) &&
@@ -28,6 +50,43 @@ export function selectCanonicalAgentActiveCall(
         ownedLeg.status === "BRIDGED"
       );
     }) ?? null
+  );
+}
+
+export function isCanonicalTransferOffer(
+  call: CallView,
+  session: Pick<AgentSessionView, "endpointId" | "id"> | null,
+) {
+  if (!session || call.status !== "CONNECTED") return false;
+  const sourceLegId = transferSourceLegId(call);
+  if (!sourceLegId) return false;
+  return call.legs.some(
+    (leg) =>
+      leg.kind === "AGENT" &&
+      leg.agentSessionId === session.id &&
+      leg.endpointId === session.endpointId &&
+      leg.id !== sourceLegId &&
+      UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never),
+  );
+}
+
+export function selectCanonicalTransferOffers(
+  calls: readonly CallView[],
+  session: Pick<AgentSessionView, "endpointId" | "id"> | null,
+) {
+  return calls.filter((call) => isCanonicalTransferOffer(call, session));
+}
+
+export function hasCanonicalPendingTransfer(call: CallView) {
+  const sourceLegId = transferSourceLegId(call);
+  return Boolean(
+    sourceLegId &&
+    call.legs.some(
+      (leg) =>
+        leg.kind === "AGENT" &&
+        leg.id !== sourceLegId &&
+        LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never),
+    ),
   );
 }
 

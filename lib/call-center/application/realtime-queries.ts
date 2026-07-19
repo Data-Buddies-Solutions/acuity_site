@@ -5,7 +5,10 @@ import {
   QueueAccessError,
   type QueueAccessActor,
 } from "@/lib/call-center/auth/queue-access";
-import { normalizeCanonicalCallStatus } from "@/lib/call-center/domain/canonical-call-state";
+import {
+  LIVE_CANONICAL_LEG_STATUSES,
+  normalizeCanonicalCallStatus,
+} from "@/lib/call-center/domain/canonical-call-state";
 import {
   CALL_CENTER_SCHEMA_VERSION,
   type CallCenterSnapshot,
@@ -102,6 +105,35 @@ export function queueCallWhere(
   };
 }
 
+export function activeCallWhere(
+  callWhere: Prisma.CallCenterCallWhereInput,
+  actor: Pick<QueueAccessActor, "practiceId" | "userId">,
+): Prisma.CallCenterCallWhereInput {
+  return {
+    AND: [
+      {
+        OR: [
+          callWhere,
+          {
+            legs: {
+              some: {
+                agentSession: {
+                  practiceId: actor.practiceId,
+                  userId: actor.userId,
+                },
+                kind: "AGENT",
+                status: { in: [...LIVE_CANONICAL_LEG_STATUSES] },
+              },
+            },
+            practiceId: actor.practiceId,
+          },
+        ],
+      },
+      { status: { in: [...ACTIVE_CALL_STATUSES] } },
+    ],
+  };
+}
+
 export async function readCallCenterSnapshot(
   actor: QueueAccessActor,
   queueId: string,
@@ -119,7 +151,7 @@ export async function readCallCenterSnapshot(
         orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
         select: callSelect,
         take: 100,
-        where: { ...callWhere, status: { in: [...ACTIVE_CALL_STATUSES] } },
+        where: activeCallWhere(callWhere, actor),
       });
 
       return {

@@ -1,15 +1,9 @@
 import { Prisma } from "@/generated/prisma/client";
+import { LIVE_CANONICAL_LEG_STATUSES } from "@/lib/call-center/domain/canonical-call-state";
+import { reconcileFailedTransferWithEndedSource } from "@/lib/call-center/infrastructure/prisma-failed-transfer-reconciliation";
 import { settleProviderCommandsForTerminalLeg } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 
 type Transaction = Prisma.TransactionClient;
-
-const LIVE_AGENT_LEG_STATUSES = [
-  "CREATED",
-  "DIALING",
-  "RINGING",
-  "ANSWERED",
-  "BRIDGED",
-] as const;
 
 type SettlementInput = {
   callId: string;
@@ -53,15 +47,23 @@ export async function settleCanonicalCallLegs(
 
   const commandIds: string[] = [];
   for (const leg of legs) {
-    await settleProviderCommandsForTerminalLeg(transaction, {
+    const failedCommandIds = await settleProviderCommandsForTerminalLeg(transaction, {
       exceptTypes: ["HANGUP_LEG"],
       legId: leg.id,
       now: input.now,
     });
+    for (const commandId of failedCommandIds) {
+      const transfer = await reconcileFailedTransferWithEndedSource(
+        transaction,
+        { commandId, now: input.now },
+        settleCanonicalCallLegs,
+      );
+      commandIds.push(...transfer.commandIds);
+    }
 
     if (
       leg.providerCallControlId &&
-      (LIVE_AGENT_LEG_STATUSES.includes(leg.status as never) ||
+      (LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never) ||
         input.includeTerminalProviderLegs)
     ) {
       const existing = await transaction.callCenterCommand.findFirst({
@@ -97,7 +99,7 @@ export async function settleCanonicalCallLegs(
       commandIds.push(command.id);
     }
 
-    if (LIVE_AGENT_LEG_STATUSES.includes(leg.status as never)) {
+    if (LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never)) {
       await transaction.callCenterCallLeg.updateMany({
         data: {
           endedAt: input.now,

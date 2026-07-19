@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
@@ -169,6 +169,7 @@ describe("CanonicalActiveCall", () => {
     render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={media}
         sessionId="session-1"
@@ -211,6 +212,7 @@ describe("CanonicalActiveCall", () => {
     const view = render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={media}
         sessionId="session-1"
@@ -224,6 +226,7 @@ describe("CanonicalActiveCall", () => {
     view.rerender(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={withMediaState(media, "HELD")}
         sessionId="session-1"
@@ -255,6 +258,7 @@ describe("CanonicalActiveCall", () => {
     render(
       <CanonicalActiveCall
         call={call}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={mediaControls("HELD")}
         sessionId="session-1"
@@ -289,6 +293,7 @@ describe("CanonicalActiveCall", () => {
     render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={media}
         sessionId="session-1"
@@ -315,6 +320,7 @@ describe("CanonicalActiveCall", () => {
     render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={mediaControls()}
         sessionId="session-1"
@@ -359,6 +365,7 @@ describe("CanonicalActiveCall", () => {
     const view = render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={media}
         sessionId="session-1"
@@ -374,6 +381,7 @@ describe("CanonicalActiveCall", () => {
     view.rerender(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={withMediaState(media, "HELD")}
         sessionId="session-1"
@@ -400,6 +408,7 @@ describe("CanonicalActiveCall", () => {
     const view = render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={media}
         sessionId="session-1"
@@ -415,6 +424,7 @@ describe("CanonicalActiveCall", () => {
     view.rerender(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={withMediaState(media, "HELD")}
         sessionId="session-1"
@@ -443,6 +453,7 @@ describe("CanonicalActiveCall", () => {
     render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={media}
         sessionId="session-1"
@@ -473,6 +484,7 @@ describe("CanonicalActiveCall", () => {
     render(
       <CanonicalActiveCall
         call={offered}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={media}
         sessionId="session-1"
@@ -491,6 +503,7 @@ describe("CanonicalActiveCall", () => {
     render(
       <CanonicalActiveCall
         call={connectedCall("OUTBOUND")}
+        clientInstanceId="browser-1"
         endpointId="endpoint-1"
         media={mediaControls()}
         sessionId="session-1"
@@ -501,5 +514,131 @@ describe("CanonicalActiveCall", () => {
     expect(screen.getByText("Outbound")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mute" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
+  });
+
+  it("rings one available staff member while keeping the caller connected", async () => {
+    const requests: Array<{ body: unknown; method: string; url: string }> = [];
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+        method: init?.method ?? "GET",
+        url,
+      });
+      return url.includes("clientInstanceId=")
+        ? Response.json({
+            targets: [{ endpointId: "endpoint-2", label: "Front desk" }],
+          })
+        : Response.json({ targetLegId: "agent-leg-2" }, { status: 202 });
+    }) as never;
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={mediaControls()}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
+    await screen.findByRole("option", { name: "Front desk" });
+    expect(screen.getByText("You stay connected until they answer.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Transfer call" }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]).toEqual(
+      expect.objectContaining({
+        body: {
+          clientInstanceId: "browser-1",
+          expectedStateVersion: 2,
+          targetEndpointId: "endpoint-2",
+        },
+        method: "POST",
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Ringing staff…" })).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "End" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("uses a new operation key after a definitive transfer-start failure", async () => {
+    const operationKeys: string[] = [];
+    let postCount = 0;
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes("clientInstanceId=")) {
+        return Response.json({
+          targets: [{ endpointId: "endpoint-2", label: "Front desk" }],
+        });
+      }
+      postCount += 1;
+      operationKeys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
+      return postCount === 1
+        ? Response.json(
+            {
+              error: {
+                code: "PROVIDER_UNAVAILABLE",
+                referenceId: "ABC123",
+                retryable: true,
+              },
+            },
+            { status: 503 },
+          )
+        : Response.json({ targetLegId: "agent-leg-2" }, { status: 202 });
+    }) as never;
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={mediaControls()}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
+    await screen.findByRole("option", { name: "Front desk" });
+    fireEvent.click(screen.getByRole("button", { name: "Transfer call" }));
+    await screen.findByRole("button", { name: "Transfer call" });
+    fireEvent.click(screen.getByRole("button", { name: "Transfer call" }));
+    await waitFor(() => expect(operationKeys).toHaveLength(2));
+    expect(operationKeys[0]).not.toBe(operationKeys[1]);
+  });
+
+  it("reuses the operation key when the transfer response is lost", async () => {
+    const operationKeys: string[] = [];
+    let postCount = 0;
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes("clientInstanceId=")) {
+        return Response.json({
+          targets: [{ endpointId: "endpoint-2", label: "Front desk" }],
+        });
+      }
+      postCount += 1;
+      operationKeys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
+      if (postCount === 1) throw new TypeError("response lost");
+      return Response.json({ targetLegId: "agent-leg-2" }, { status: 202 });
+    }) as never;
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={mediaControls()}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
+    await screen.findByRole("option", { name: "Front desk" });
+    fireEvent.click(screen.getByRole("button", { name: "Transfer call" }));
+    await screen.findByRole("button", { name: "Transfer call" });
+    fireEvent.click(screen.getByRole("button", { name: "Transfer call" }));
+    await waitFor(() => expect(operationKeys).toHaveLength(2));
+    expect(operationKeys[0]).toBe(operationKeys[1]);
   });
 });

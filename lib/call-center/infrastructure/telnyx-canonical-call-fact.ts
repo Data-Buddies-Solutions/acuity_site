@@ -17,6 +17,8 @@ export type CanonicalTelnyxCallFact = {
   eventType: string;
   fromPhone: string;
   hangupCauseCode: string | null;
+  internalTransferSource?: boolean;
+  internalTransferTarget?: boolean;
   legKind: "AGENT" | "CUSTOMER" | null;
   occurredAt: Date;
   providerCallControlId: string | null;
@@ -304,6 +306,8 @@ export function parseCanonicalTelnyxCallFact(
     eventType,
     fromPhone: from,
     hangupCauseCode: boundedCode(payload.hangup_cause),
+    internalTransferSource: clientState?.internalTransferSource === true,
+    internalTransferTarget: clientState?.internalTransferTarget === true,
     legKind,
     occurredAt,
     providerCallControlId,

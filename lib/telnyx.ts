@@ -213,6 +213,40 @@ export async function speakOnTelnyxCall({
   });
 }
 
+export async function transferTelnyxCall({
+  callControlId,
+  clientState,
+  commandId,
+  signal,
+  targetLegClientState,
+  timeoutSecs,
+  to,
+}: {
+  callControlId: string;
+  clientState?: string;
+  commandId?: string;
+  signal?: AbortSignal;
+  targetLegClientState?: string;
+  timeoutSecs?: number;
+  to: string;
+}) {
+  if (!callControlId || !to) {
+    throw new TelnyxError("A source call and transfer destination are required", 400);
+  }
+
+  return telnyxFetch(`/v2/calls/${callControlId}/actions/transfer`, {
+    body: JSON.stringify({
+      ...(clientState ? { client_state: clientState } : {}),
+      ...(commandId ? { command_id: commandId } : {}),
+      ...(targetLegClientState ? { target_leg_client_state: targetLegClientState } : {}),
+      ...(timeoutSecs ? { timeout_secs: timeoutSecs } : {}),
+      to,
+    }),
+    method: "POST",
+    signal,
+  });
+}
+
 export async function startTelnyxPlayback({
   audioType = "wav",
   callControlId,

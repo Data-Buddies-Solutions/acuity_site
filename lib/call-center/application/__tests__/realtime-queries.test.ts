@@ -4,6 +4,7 @@ import { QueueAccessError } from "@/lib/call-center/auth/queue-access";
 
 import {
   CALL_CENTER_READ_TRANSACTION_OPTIONS,
+  activeCallWhere,
   queueCallWhere,
   readCallCenterSnapshot,
   serializeCall,
@@ -12,6 +13,40 @@ import {
 const now = new Date("2026-07-11T12:00:00.000Z");
 
 describe("call center snapshot", () => {
+  it("includes live calls offered to this endpoint outside the selected queue", () => {
+    const selectedQueue = { practiceId: "practice-1", queueId: "queue-1" };
+    expect(
+      activeCallWhere(selectedQueue, {
+        practiceId: "practice-1",
+        userId: "user-1",
+      }),
+    ).toEqual({
+      AND: [
+        {
+          OR: [
+            selectedQueue,
+            {
+              legs: {
+                some: {
+                  agentSession: {
+                    practiceId: "practice-1",
+                    userId: "user-1",
+                  },
+                  kind: "AGENT",
+                  status: {
+                    in: ["CREATED", "DIALING", "RINGING", "ANSWERED", "BRIDGED"],
+                  },
+                },
+              },
+              practiceId: "practice-1",
+            },
+          ],
+        },
+        { status: { in: ["RECEIVED", "QUEUED", "RINGING", "CONNECTED"] } },
+      ],
+    });
+  });
+
   it("scopes queue calls through the configured number location", () => {
     expect(
       queueCallWhere(

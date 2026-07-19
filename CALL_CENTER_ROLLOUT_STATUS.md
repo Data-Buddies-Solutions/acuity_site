@@ -10,7 +10,9 @@ The portal uses one canonical call-center runtime:
 - inbound offers use one fixed 20-second window, with immediate voicemail when
   no agent leg can be offered;
 - the browser reads one versioned authoritative snapshot without SSE cursors;
-- transfer, wrap-up, overflow, browser call pointers, and configurable ring/wait
+- same-location cold transfer rings one available queue member and changes the
+  winning leg only after that person answers and bridge evidence exists; warm
+  transfer, wrap-up, overflow, browser call pointers, and configurable ring/wait
   policy have no runtime owner;
 - provider commands dispatch inline, while one authenticated bounded outbox
   drain recovers committed commands after an interrupted request;
@@ -90,6 +92,7 @@ the complete migration history, and a production build. Production migration
 execution requires only `confirm=DEPLOY`. Before production verification,
 configure `CRON_SECRET`. After deployment, prove inbound offer, Answer, one
 bridge winner, hangup/release, no-agent voicemail, outbound dial, direct handoff,
-terminal history, and outbox recovery. Compare provider-event status counts
-before and after the webhook migration, and sample late callbacks for terminal
-convergence.
+same-location cold transfer for inbound, outbound, chained, and cross-queue
+calls, no-answer and provider-failure source continuity, terminal history, and
+outbox recovery. Compare provider-event status counts before and after the
+webhook migration, and sample late callbacks for terminal convergence.

@@ -29,13 +29,24 @@ function transaction({
   commandErrorCode = null,
   commandStatus = "PENDING",
   commandType = "DIAL_AGENT",
+  commandUpdatedAt = now,
   callStatus = "RINGING",
-  customerLegs = [{ providerCallControlId: "customer-control-1" }],
+  callDirection = "INBOUND",
+  customerLegs = [
+    {
+      id: "customer-leg",
+      kind: "CUSTOMER" as const,
+      providerCallControlId: "customer-control-1",
+      status: "BRIDGED",
+    },
+  ],
   dependencyStatus = null,
   legKind = "AGENT",
   legStatus = "CREATED",
   memberUserId = "user-1",
   sessionState = "ACTIVE",
+  targetLegStatus = legStatus,
+  winningLegId,
 }: {
   accessLocationIds?: string[];
   arguments?: Record<string, unknown>;
@@ -45,12 +56,14 @@ function transaction({
     | "ANSWER_CUSTOMER"
     | "START_RINGBACK"
     | "DIAL_AGENT"
+    | "TRANSFER_AGENT"
     | "STOP_PLAYBACK"
     | "START_HOLD_MUSIC"
     | "STOP_HOLD_MUSIC"
     | "HANGUP_LEG"
     | "PLAY_VOICEMAIL_GREETING"
     | "START_RECORDING";
+  commandUpdatedAt?: Date;
   callStatus?:
     | "RECEIVED"
     | "QUEUED"
@@ -60,14 +73,24 @@ function transaction({
     | "VOICEMAIL"
     | "ABANDONED"
     | "FAILED";
-  customerLegs?: Array<{ providerCallControlId: string }>;
+  callDirection?: "INBOUND" | "OUTBOUND";
+  customerLegs?: Array<{
+    id: string;
+    kind: "CUSTOMER";
+    providerCallControlId: string;
+    status: string;
+  }>;
   dependencyStatus?: "PENDING" | "SENT" | "CONFIRMED" | "FAILED" | null;
   legKind?: "AGENT" | "CUSTOMER";
   legStatus?: "CREATED" | "ANSWERED" | "BRIDGED" | "ENDED";
   memberUserId?: string | null;
   sessionState?: "ACTIVE" | "OFFERED";
+  targetLegStatus?:
+    "ANSWERED" | "BRIDGED" | "CREATED" | "DIALING" | "ENDED" | "FAILED" | "RINGING";
+  winningLegId?: string | null;
 } = {}) {
   let updates = 0;
+  let currentTargetLegStatus = targetLegStatus;
   const operations: string[] = [];
   const session = {
     audioReady: true,
@@ -100,16 +123,48 @@ function transaction({
       update: async () => ({ stateVersion: 2 }),
     },
     callCenterCallLeg: {
-      findFirst: async ({ where }: { where: { id?: string } }) =>
+      findFirst: async ({
+        where,
+      }: {
+        where: {
+          id?: string | Record<string, unknown>;
+          status?: { in: string[] };
+        };
+      }) =>
         where.id
-          ? where.id === "leg-1"
-            ? { id: "leg-1" }
-            : null
+          ? where.id === "source-leg"
+            ? {
+                callId: "call-1",
+                endpoint: { userId: "source-user" },
+                endpointId: "source-endpoint",
+                id: "source-leg",
+                kind: "AGENT",
+                providerCallControlId: "source-control-1",
+                status: "BRIDGED",
+              }
+            : where.id === "leg-1"
+              ? !where.status || where.status.in.includes(currentTargetLegStatus)
+                ? { id: "leg-1" }
+                : null
+              : (customerLegs.find(({ id }) => id === where.id) ?? null)
           : (customerLegs[0] ?? null),
       findMany: async () => customerLegs,
-      updateMany: async () => {
+      updateMany: async ({
+        data,
+        where,
+      }: {
+        data: { status?: typeof currentTargetLegStatus };
+        where: { id?: string; status?: { in: string[] } };
+      }) => {
         operations.push("leg.reject");
-        return { count: 1 };
+        if (
+          where.id === "leg-1" &&
+          (!where.status || where.status.in.includes(currentTargetLegStatus))
+        ) {
+          currentTargetLegStatus = data.status ?? currentTargetLegStatus;
+          return { count: 1 };
+        }
+        return { count: 0 };
       },
     },
     callCenterCommand: {
@@ -118,6 +173,7 @@ function transaction({
         arguments: commandArguments,
         attemptCount: 0,
         call: {
+          direction: callDirection,
           number: {
             practicePhoneNumber: {
               locationId: "location-1",
@@ -130,7 +186,12 @@ function transaction({
             members: memberUserId ? [{ userId: memberUserId }] : [],
           },
           status: callStatus,
-          winningLegId: null,
+          winningLegId:
+            winningLegId === undefined
+              ? commandType === "TRANSFER_AGENT"
+                ? "source-leg"
+                : null
+              : winningLegId,
         },
         callId: "call-1",
         dependsOnCommand: dependencyStatus
@@ -155,9 +216,10 @@ function transaction({
           endpointId: "endpoint-1",
           id: "leg-1",
           kind: legKind,
-          providerCallControlId:
-            commandType === "DIAL_AGENT" ? null : "customer-control-1",
-          status: legStatus,
+          providerCallControlId: ["DIAL_AGENT", "TRANSFER_AGENT"].includes(commandType)
+            ? null
+            : "customer-control-1",
+          status: currentTargetLegStatus,
         },
         practice: {
           callCenterSettings: { telnyxConnectionId: "connection-1" },
@@ -165,7 +227,7 @@ function transaction({
         practiceId: "practice-1",
         status: commandStatus,
         type: commandType,
-        updatedAt: now,
+        updatedAt: commandUpdatedAt,
       }),
       update: async () => {
         updates += 1;
@@ -187,7 +249,12 @@ function transaction({
       }),
     },
   };
-  return { operations, tx, updates: () => updates };
+  return {
+    operations,
+    targetLegStatus: () => currentTargetLegStatus,
+    tx,
+    updates: () => updates,
+  };
 }
 
 describe("Prisma provider command store", () => {
@@ -273,11 +340,154 @@ describe("Prisma provider command store", () => {
     expect(fake.updates()).toBe(1);
   });
 
+  it("claims one cold transfer against the current source leg", async () => {
+    const fake = transaction({
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        providerSourceLegId: "customer-leg",
+        sourceLegId: "source-leg",
+      },
+      callStatus: "CONNECTED",
+      commandType: "TRANSFER_AGENT",
+      sessionState: "OFFERED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      attemptCount: 1,
+      command: {
+        arguments: {
+          agentSessionId: "session-1",
+          endpointId: "endpoint-1",
+          providerSourceLegId: "customer-leg",
+          sourceLegId: "source-leg",
+        },
+        provider: {
+          callControlId: "customer-control-1",
+          sipUri: "sip:agent-1@example.test",
+          timeoutSeconds: 20,
+        },
+        type: "TRANSFER_AGENT",
+      },
+    });
+  });
+
+  it("reclaims an answered cold transfer after an interrupted send", async () => {
+    const fake = transaction({
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        providerSourceLegId: "customer-leg",
+        sourceLegId: "source-leg",
+      },
+      callStatus: "CONNECTED",
+      commandStatus: "SENDING",
+      commandType: "TRANSFER_AGENT",
+      commandUpdatedAt: new Date(now.getTime() - 120_000),
+      sessionState: "OFFERED",
+      targetLegStatus: "ANSWERED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      attemptCount: 1,
+      command: { type: "TRANSFER_AGENT" },
+    });
+    expect(fake.operations).not.toContain("command.reject");
+  });
+
+  it("terminally settles an answered transfer target when retry authorization changed", async () => {
+    const fake = transaction({
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        providerSourceLegId: "customer-leg",
+        sourceLegId: "source-leg",
+      },
+      callStatus: "CONNECTED",
+      commandStatus: "SENDING",
+      commandType: "TRANSFER_AGENT",
+      commandUpdatedAt: new Date(now.getTime() - 120_000),
+      memberUserId: null,
+      sessionState: "OFFERED",
+      targetLegStatus: "ANSWERED",
+    });
+    const store = rejectingStore(fake.tx);
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      errorCode: "COMMAND_AGENT_MEMBERSHIP_INVALID",
+      rejected: true,
+    });
+    expect(fake.targetLegStatus()).toBe("FAILED");
+  });
+
+  it("claims an answered direct outbound leg without a winner", async () => {
+    const fake = transaction({
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        providerSourceLegId: "source-leg",
+        sourceLegId: "source-leg",
+      },
+      callDirection: "OUTBOUND",
+      callStatus: "CONNECTED",
+      commandType: "TRANSFER_AGENT",
+      sessionState: "OFFERED",
+      winningLegId: null,
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      command: { provider: { callControlId: "source-control-1" } },
+    });
+  });
+
   it("links an inbound dial to the first live customer leg", async () => {
     const fake = transaction({
       customerLegs: [
-        { providerCallControlId: "original-customer" },
-        { providerCallControlId: "duplicate-customer" },
+        {
+          id: "customer-1",
+          kind: "CUSTOMER",
+          providerCallControlId: "original-customer",
+          status: "ANSWERED",
+        },
+        {
+          id: "customer-2",
+          kind: "CUSTOMER",
+          providerCallControlId: "duplicate-customer",
+          status: "ANSWERED",
+        },
       ],
       sessionState: "OFFERED",
     });

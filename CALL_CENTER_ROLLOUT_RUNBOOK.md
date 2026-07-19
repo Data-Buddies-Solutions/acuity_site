@@ -58,9 +58,13 @@ inbound number.
    20-second window expires once before voicemail starts and creates one task.
 5. Outbound: dial through each allowed caller ID, bridge, hang up, and confirm
    terminal history.
-6. Direct handoff: for configured agents, issue one handoff, confirm direct SIP
+6. Cold transfer: from a connected call, select one available staff member at
+   the same location; confirm their browser rings and requires Answer, the source
+   remains connected until answer and bridge evidence, and no-answer leaves the
+   source call active.
+7. Direct handoff: for configured agents, issue one handoff, confirm direct SIP
    ingress without a public-number hop, then complete the normal ring/Answer flow.
-7. Recovery: leave a committed provider command pending and confirm the
+8. Recovery: leave a committed provider command pending and confirm the
    authenticated outbox drain sends it once.
 
 ## Health queries
