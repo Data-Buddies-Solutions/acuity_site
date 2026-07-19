@@ -92,6 +92,7 @@ jobs:
           - 5432:5432
     env:
       # Clean history replay must satisfy the guard embedded in the applied July 19 migration.
+      CALL_CENTER_POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal?schema=public&options=-c%20acuity.call_center_rollback_closed%3Dtrue
 
     steps:
@@ -108,3 +109,8 @@ jobs:
 
       - name: Replay migration history
         run: bunx prisma migrate deploy
+
+      - name: Prove Call Center mutation ordering
+        run: >-
+          bun test
+          lib/call-center/infrastructure/__tests__/prisma-call-center-practice-lock.postgres.test.ts

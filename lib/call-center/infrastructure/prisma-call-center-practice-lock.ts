@@ -1,6 +1,8 @@
 import { Prisma } from "@/generated/prisma/client";
 
-type Transaction = Pick<Prisma.TransactionClient, "$queryRaw">;
+type CallCenterPracticeLockTransaction = {
+  $queryRaw<T = unknown>(query: Prisma.Sql): Promise<T>;
+};
 
 /**
  * Serializes the short database transactions that can mutate multiple calls,
@@ -8,7 +10,7 @@ type Transaction = Pick<Prisma.TransactionClient, "$queryRaw">;
  * released.
  */
 export async function lockCallCenterPractice(
-  transaction: Transaction,
+  transaction: CallCenterPracticeLockTransaction,
   practiceId: string,
 ) {
   await transaction.$queryRaw(
