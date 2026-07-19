@@ -120,6 +120,15 @@ The portal reads only canonical tables. The removed legacy APIs, profile
 branches, station selector, legacy workspace, shadow shell, migration report,
 bootstrap, recovery report, and activation preflight have no runtime path.
 
+Migration `20260719180000_remove_call_center_rollback_state` closes the schema
+rollback seam after an explicit release-owner confirmation. It removes unused
+queue ring/wait/wrap-up/overflow settings, Agent Session offered/current Call
+pointers and relations, and `queueDeadlineAt`. `CallCenterCall.deadlineAt`
+remains the one lifecycle deadline, and active `CallCenterCallLeg` rows remain
+the one occupancy source. The migration refuses to run while any retired live
+state exists. `effectOwner` is intentionally preserved for its separate
+provider-session compatibility proof.
+
 ## Configuration and secrets
 
 `CRON_SECRET` authenticates the bounded provider-command outbox drain. Provider

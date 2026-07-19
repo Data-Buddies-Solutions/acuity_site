@@ -14,8 +14,8 @@ The portal uses one canonical call-center runtime:
   policy have no runtime owner;
 - provider commands dispatch inline, while one authenticated bounded outbox
   drain recovers committed commands after an interrupted request;
-- old database columns and enum values remain physically intact for deployment
-  rollback, but the canonical runtime does not read or write them.
+- migration `20260719180000_remove_call_center_rollback_state` removes the
+  rollback-only columns after explicit release-owner confirmation.
 
 ## Read-only production proof
 
@@ -23,21 +23,30 @@ The July 19 audit found:
 
 | Check                                     | Result |
 | ----------------------------------------- | -----: |
-| Agent sessions                            |    195 |
+| Agent sessions                            |    206 |
 | Sessions with `offeredCallId`             |      0 |
 | Sessions with `currentCallId`             |      0 |
-| Sessions or calls in `WRAP_UP`            |      0 |
 | Queues                                    |      4 |
 | Queues outside the fixed 20-second policy |      0 |
 | Queues with overflow                      |      0 |
+| Active calls with `queueDeadlineAt`       |      0 |
+| Terminal calls with `queueDeadlineAt`     |    604 |
 | Active legacy-owned calls                 |      0 |
 
-Historical legacy-owned calls remain terminal and inert.
+The 604 duplicate deadlines belong only to terminal historical calls; the
+migration drops that redundant timestamp without rewriting or deleting those
+calls. The audit also recorded preservation baselines of 12,841 calls, 2,044
+legs, 28,696 events, 9,415 tasks, and 3,132 voicemails.
 
 ## Deployment gate
 
 Before merging, require schema validation, lint, TypeScript, the full functional
-suite, and a production build. Before production verification, configure
+suite, the isolated migration test, and a production build. While the cleanup
+migration is pending, production migration execution requires `confirm=DEPLOY`
+and `confirm_call_center_rollback_closed=ROLLBACK CLOSED`. The migration repeats
+the data gate and aborts before deletion if queue policy, session pointers, or
+an active duplicate deadline reappear. Later unrelated migrations do not require
+the issue-specific confirmation. Before production verification, configure
 `CRON_SECRET`. After deployment, prove inbound offer, Answer, one bridge winner,
 hangup/release, no-agent voicemail, outbound dial, direct handoff, terminal
 history, and outbox recovery.
