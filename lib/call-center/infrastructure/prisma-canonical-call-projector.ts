@@ -116,6 +116,36 @@ export type CanonicalCallProjector = {
 
 type Transaction = Prisma.TransactionClient;
 
+export async function pendingDialAgentCommandIdsForCustomerCallback(
+  tx: Transaction,
+  input: {
+    callDirection: "INBOUND" | "OUTBOUND";
+    callId: string;
+    eventType: string;
+    legKind: "AGENT" | "CUSTOMER";
+    practiceId: string;
+  },
+) {
+  if (
+    input.callDirection !== "INBOUND" ||
+    input.legKind !== "CUSTOMER" ||
+    !["call.answered", "call.playback.started"].includes(input.eventType)
+  ) {
+    return [];
+  }
+  const commands = await tx.callCenterCommand.findMany({
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+    where: {
+      callId: input.callId,
+      practiceId: input.practiceId,
+      status: "PENDING",
+      type: "DIAL_AGENT",
+    },
+  });
+  return commands.map(({ id }) => id);
+}
+
 export function sipEndpointIdentityCandidates(address: string) {
   const value = address.trim().replace(/^<|>$/g, "");
   if (!value || /^\+?[\d\s().-]+$/.test(value)) return [];
@@ -1043,7 +1073,16 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         }),
       );
 
-      const commandIds: string[] = preemptedCommandIds;
+      const commandIds: string[] = [
+        ...preemptedCommandIds,
+        ...(await pendingDialAgentCommandIdsForCustomerCallback(tx, {
+          callDirection: call.direction,
+          callId: call.id,
+          eventType: resolvedFact.eventType,
+          legKind: resolvedFact.legKind,
+          practiceId: call.practiceId,
+        })),
+      ];
 
       const projectionEvent = await tx.callCenterEvent.create({
         data: {

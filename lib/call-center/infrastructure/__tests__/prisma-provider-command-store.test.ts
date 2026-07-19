@@ -295,6 +295,27 @@ describe("Prisma provider command store", () => {
     });
   });
 
+  it("keeps an inbound dial pending until the customer leg is answered", async () => {
+    const fake = transaction({
+      customerLegs: [],
+      sessionState: "OFFERED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toBeNull();
+    expect(fake.operations).not.toContain("command.reject");
+    expect(fake.operations).not.toContain("leg.reject");
+    expect(fake.updates()).toBe(0);
+  });
+
   it("rejects provider effects for a non-canonical call", async () => {
     const legacyCall = transaction({ effectOwner: "LEGACY" });
     const store = rejectingStore(legacyCall.tx);

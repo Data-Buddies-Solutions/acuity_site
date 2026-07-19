@@ -455,9 +455,7 @@ async function loadProviderCommandClaim(
       },
     });
     const linkTo = linkedLeg?.providerCallControlId;
-    if (!linkTo) {
-      return reject("COMMAND_LINK_LEG_UNAVAILABLE");
-    }
+    if (!linkTo) return null;
 
     const claimed = await tx.callCenterCommand.update({
       data: {
