@@ -95,6 +95,47 @@ describe("call center snapshot", () => {
     expect(options).toEqual(CALL_CENTER_READ_TRANSACTION_OPTIONS);
   });
 
+  it("returns only authorized active calls in a two-query budget", async () => {
+    const operations: string[] = [];
+    const database = {
+      $transaction: async (work: (transaction: unknown) => unknown) =>
+        work({
+          callCenterCall: {
+            findMany: async () => {
+              operations.push("active-calls");
+              return [];
+            },
+          },
+          callCenterQueue: {
+            findMany: async () => {
+              operations.push("queue-access");
+              return [{ id: "queue-1", locations: [], name: "Main queue" }];
+            },
+          },
+        }),
+    } as never;
+
+    const state = await readCallCenterSnapshot(
+      {
+        allowedLocationIds: [],
+        hasAllLocationAccess: true,
+        practiceId: "practice-1",
+        userId: "user-1",
+      },
+      "queue-1",
+      database,
+      () => now,
+    );
+
+    expect(operations).toEqual(["queue-access", "active-calls"]);
+    expect(state).toEqual({
+      calls: [],
+      observedAt: "2026-07-11T12:00:00.000Z",
+      queueId: "queue-1",
+      schemaVersion: 4,
+    });
+  });
+
   it("serializes durable calls without Date values", () => {
     const call = serializeCall({
       answeredAt: null,
