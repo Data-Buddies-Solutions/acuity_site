@@ -9,18 +9,15 @@ import {
 } from "@/lib/call-center/application/transfer-agent-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveQueueAccess } from "@/lib/call-center/auth/queue-access";
+import {
+  LIVE_CANONICAL_LEG_STATUSES,
+  UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
+} from "@/lib/call-center/domain/canonical-call-state";
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastructure/prisma-operation-receipts";
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
-const LIVE_AGENT_LEG_STATUSES = [
-  "CREATED",
-  "DIALING",
-  "RINGING",
-  "ANSWERED",
-  "BRIDGED",
-] as const;
 
 async function transferContext(
   transaction: Transaction,
@@ -125,7 +122,9 @@ async function readyTransferTargets(
       },
     },
     where: {
-      callLegs: { none: { kind: "AGENT", status: { in: [...LIVE_AGENT_LEG_STATUSES] } } },
+      callLegs: {
+        none: { kind: "AGENT", status: { in: [...LIVE_CANONICAL_LEG_STATUSES] } },
+      },
       enabled: true,
       id: { not: source.endpointId ?? undefined },
       locationId,
@@ -206,7 +205,7 @@ class PrismaTransferAgentCallTransaction implements TransferAgentCallTransaction
       select: { id: true },
       where: {
         callId: call.id,
-        leg: { status: { in: ["CREATED", "DIALING", "RINGING", "ANSWERED"] } },
+        leg: { status: { in: [...UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES] } },
         status: { in: ["PENDING", "SENDING", "SENT", "CONFIRMED"] },
         type: "TRANSFER_AGENT",
       },

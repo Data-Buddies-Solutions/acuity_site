@@ -92,6 +92,7 @@ the complete migration history, and a production build. Production migration
 execution requires only `confirm=DEPLOY`. Before production verification,
 configure `CRON_SECRET`. After deployment, prove inbound offer, Answer, one
 bridge winner, hangup/release, no-agent voicemail, outbound dial, direct handoff,
-terminal history, and outbox recovery. Compare provider-event status counts
-before and after the webhook migration, and sample late callbacks for terminal
-convergence.
+same-location cold transfer for inbound, outbound, chained, and cross-queue
+calls, no-answer and provider-failure source continuity, terminal history, and
+outbox recovery. Compare provider-event status counts before and after the
+webhook migration, and sample late callbacks for terminal convergence.

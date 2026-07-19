@@ -1,4 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
+import { UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES } from "@/lib/call-center/domain/canonical-call-state";
 
 type Transaction = Prisma.TransactionClient;
 
@@ -51,7 +52,7 @@ async function failOne(
       data: { errorCode, status: "FAILED" },
       where: {
         id: command.leg.id,
-        status: { in: ["CREATED", "DIALING", "RINGING", "ANSWERED"] },
+        status: { in: [...UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES] },
       },
     });
     if (leg.count === 1 || command.type === "TRANSFER_AGENT") {

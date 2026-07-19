@@ -451,6 +451,13 @@ function ConnectedCanonicalActiveWorkspace({
                   const answering =
                     match?.observation.mediaLegId === runtime.answeringMediaLegId;
                   const phone = formatPhone(callPhone(call));
+                  let status = "Preparing";
+                  if (answering) status = "Connecting…";
+                  else if (match) {
+                    status = isCanonicalTransferOffer(call, session)
+                      ? "Transfer ringing"
+                      : "Ringing";
+                  }
 
                   return (
                     <li
@@ -463,13 +470,7 @@ function ConnectedCanonicalActiveWorkspace({
                         </p>
                         <p className="mt-1 text-xs text-[var(--portal-muted)]">
                           {call.callerName ? `${phone} · ` : ""}
-                          {answering
-                            ? "Connecting…"
-                            : match
-                              ? isCanonicalTransferOffer(call, session)
-                                ? "Transfer ringing"
-                                : "Ringing"
-                              : "Preparing"}
+                          {status}
                         </p>
                       </div>
                       <div className="flex gap-2">

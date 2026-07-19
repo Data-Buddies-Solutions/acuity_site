@@ -4,12 +4,13 @@ import type {
   ProviderCommandRejectedClaim,
   ProviderCommandSettledClaim,
 } from "@/lib/call-center/application/dispatch-provider-command";
-import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
-import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
+import { UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES } from "@/lib/call-center/domain/canonical-call-state";
 import {
   decideProviderCommandMarkSent,
   type ProviderCommandClaim,
 } from "@/lib/call-center/domain/provider-command";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
+import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import { reconcileActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-lifecycle-store";
 import { failProviderCommandDependents } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 import { reconcileFailedTransferWithEndedSource } from "@/lib/call-center/infrastructure/prisma-failed-transfer-reconciliation";
@@ -123,7 +124,7 @@ async function settleTerminalProviderCommand(
       data: { errorCode, status: "FAILED" },
       where: {
         id: leg.id,
-        status: { in: ["CREATED", "DIALING", "RINGING"] },
+        status: { in: [...UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES] },
       },
     });
     await transaction.callCenterCall.update({
@@ -432,7 +433,7 @@ async function loadProviderCommandClaim(
       select: { id: true },
       where: {
         id: leg.id,
-        status: { in: ["CREATED", "DIALING", "RINGING"] },
+        status: { in: [...UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES] },
       },
     });
     const occupied = await tx.callCenterCallLeg.findFirst({

@@ -5,7 +5,10 @@ import {
   QueueAccessError,
   type QueueAccessActor,
 } from "@/lib/call-center/auth/queue-access";
-import { normalizeCanonicalCallStatus } from "@/lib/call-center/domain/canonical-call-state";
+import {
+  LIVE_CANONICAL_LEG_STATUSES,
+  normalizeCanonicalCallStatus,
+} from "@/lib/call-center/domain/canonical-call-state";
 import {
   CALL_CENTER_SCHEMA_VERSION,
   type CallCenterSnapshot,
@@ -14,13 +17,6 @@ import {
 import { prisma } from "@/lib/prisma";
 
 const ACTIVE_CALL_STATUSES = ["RECEIVED", "QUEUED", "RINGING", "CONNECTED"] as const;
-const LIVE_AGENT_LEG_STATUSES = [
-  "CREATED",
-  "DIALING",
-  "RINGING",
-  "ANSWERED",
-  "BRIDGED",
-] as const;
 export const CALL_CENTER_READ_TRANSACTION_OPTIONS = {
   isolationLevel: "RepeatableRead" as const,
   maxWait: 2_000,
@@ -126,7 +122,7 @@ export function activeCallWhere(
                   userId: actor.userId,
                 },
                 kind: "AGENT",
-                status: { in: [...LIVE_AGENT_LEG_STATUSES] },
+                status: { in: [...LIVE_CANONICAL_LEG_STATUSES] },
               },
             },
             practiceId: actor.practiceId,

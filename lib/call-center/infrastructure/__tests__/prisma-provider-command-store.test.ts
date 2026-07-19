@@ -29,6 +29,7 @@ function transaction({
   commandErrorCode = null,
   commandStatus = "PENDING",
   commandType = "DIAL_AGENT",
+  commandUpdatedAt = now,
   callStatus = "RINGING",
   callDirection = "INBOUND",
   customerLegs = [
@@ -43,6 +44,7 @@ function transaction({
   legKind = "AGENT",
   memberUserId = "user-1",
   sessionState = "ACTIVE",
+  targetLegStatus = "CREATED",
   winningLegId,
 }: {
   accessLocationIds?: string[];
@@ -58,6 +60,7 @@ function transaction({
     | "HANGUP_LEG"
     | "PLAY_VOICEMAIL_GREETING"
     | "START_RECORDING";
+  commandUpdatedAt?: Date;
   callStatus?:
     | "RECEIVED"
     | "QUEUED"
@@ -78,9 +81,12 @@ function transaction({
   legKind?: "AGENT" | "CUSTOMER";
   memberUserId?: string | null;
   sessionState?: "ACTIVE" | "OFFERED";
+  targetLegStatus?:
+    "ANSWERED" | "BRIDGED" | "CREATED" | "DIALING" | "ENDED" | "FAILED" | "RINGING";
   winningLegId?: string | null;
 } = {}) {
   let updates = 0;
+  let currentTargetLegStatus = targetLegStatus;
   const operations: string[] = [];
   const session = {
     audioReady: true,
@@ -116,7 +122,10 @@ function transaction({
       findFirst: async ({
         where,
       }: {
-        where: { id?: string | Record<string, unknown> };
+        where: {
+          id?: string | Record<string, unknown>;
+          status?: { in: string[] };
+        };
       }) =>
         where.id
           ? where.id === "source-leg"
@@ -130,13 +139,28 @@ function transaction({
                 status: "BRIDGED",
               }
             : where.id === "leg-1"
-              ? { id: "leg-1" }
+              ? !where.status || where.status.in.includes(currentTargetLegStatus)
+                ? { id: "leg-1" }
+                : null
               : (customerLegs.find(({ id }) => id === where.id) ?? null)
           : (customerLegs[0] ?? null),
       findMany: async () => customerLegs,
-      updateMany: async () => {
+      updateMany: async ({
+        data,
+        where,
+      }: {
+        data: { status?: typeof currentTargetLegStatus };
+        where: { id?: string; status?: { in: string[] } };
+      }) => {
         operations.push("leg.reject");
-        return { count: 1 };
+        if (
+          where.id === "leg-1" &&
+          (!where.status || where.status.in.includes(currentTargetLegStatus))
+        ) {
+          currentTargetLegStatus = data.status ?? currentTargetLegStatus;
+          return { count: 1 };
+        }
+        return { count: 0 };
       },
     },
     callCenterCommand: {
@@ -191,7 +215,7 @@ function transaction({
           providerCallControlId: ["DIAL_AGENT", "TRANSFER_AGENT"].includes(commandType)
             ? null
             : "customer-control-1",
-          status: "CREATED",
+          status: currentTargetLegStatus,
         },
         practice: {
           callCenterSettings: { telnyxConnectionId: "connection-1" },
@@ -199,7 +223,7 @@ function transaction({
         practiceId: "practice-1",
         status: commandStatus,
         type: commandType,
-        updatedAt: now,
+        updatedAt: commandUpdatedAt,
       }),
       update: async () => {
         updates += 1;
@@ -221,7 +245,12 @@ function transaction({
       }),
     },
   };
-  return { operations, tx, updates: () => updates };
+  return {
+    operations,
+    targetLegStatus: () => currentTargetLegStatus,
+    tx,
+    updates: () => updates,
+  };
 }
 
 describe("Prisma provider command store", () => {
@@ -346,6 +375,69 @@ describe("Prisma provider command store", () => {
         type: "TRANSFER_AGENT",
       },
     });
+  });
+
+  it("reclaims an answered cold transfer after an interrupted send", async () => {
+    const fake = transaction({
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        providerSourceLegId: "customer-leg",
+        sourceLegId: "source-leg",
+      },
+      callStatus: "CONNECTED",
+      commandStatus: "SENDING",
+      commandType: "TRANSFER_AGENT",
+      commandUpdatedAt: new Date(now.getTime() - 120_000),
+      sessionState: "OFFERED",
+      targetLegStatus: "ANSWERED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      attemptCount: 1,
+      command: { type: "TRANSFER_AGENT" },
+    });
+    expect(fake.operations).not.toContain("command.reject");
+  });
+
+  it("terminally settles an answered transfer target when retry authorization changed", async () => {
+    const fake = transaction({
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        providerSourceLegId: "customer-leg",
+        sourceLegId: "source-leg",
+      },
+      callStatus: "CONNECTED",
+      commandStatus: "SENDING",
+      commandType: "TRANSFER_AGENT",
+      commandUpdatedAt: new Date(now.getTime() - 120_000),
+      memberUserId: null,
+      sessionState: "OFFERED",
+      targetLegStatus: "ANSWERED",
+    });
+    const store = rejectingStore(fake.tx);
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      errorCode: "COMMAND_AGENT_MEMBERSHIP_INVALID",
+      rejected: true,
+    });
+    expect(fake.targetLegStatus()).toBe("FAILED");
   });
 
   it("claims an answered direct outbound leg without a winner", async () => {

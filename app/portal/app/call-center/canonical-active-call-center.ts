@@ -1,3 +1,7 @@
+import {
+  LIVE_CANONICAL_LEG_STATUSES,
+  UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
+} from "@/lib/call-center/domain/canonical-call-state";
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
 import type { MediaObservation } from "./softphone-media-adapter";
@@ -5,20 +9,6 @@ import type { MediaObservation } from "./softphone-media-adapter";
 const OUTBOUND_OPERATION_STORAGE_KEY = "acuity-call-center:outbound-operation";
 
 type OutboundOperationStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
-
-const LIVE_AGENT_LEG_STATUSES = [
-  "CREATED",
-  "DIALING",
-  "RINGING",
-  "ANSWERED",
-  "BRIDGED",
-] as const;
-const TRANSFER_OFFER_LEG_STATUSES = [
-  "CREATED",
-  "DIALING",
-  "RINGING",
-  "ANSWERED",
-] as const;
 
 function outboundSourceLegId(call: CallView) {
   return call.direction === "OUTBOUND"
@@ -76,7 +66,7 @@ export function isCanonicalTransferOffer(
       leg.agentSessionId === session.id &&
       leg.endpointId === session.endpointId &&
       leg.id !== sourceLegId &&
-      TRANSFER_OFFER_LEG_STATUSES.includes(leg.status as never),
+      UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never),
   );
 }
 
@@ -95,7 +85,7 @@ export function hasCanonicalPendingTransfer(call: CallView) {
       (leg) =>
         leg.kind === "AGENT" &&
         leg.id !== sourceLegId &&
-        LIVE_AGENT_LEG_STATUSES.includes(leg.status as never),
+        LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never),
     ),
   );
 }
