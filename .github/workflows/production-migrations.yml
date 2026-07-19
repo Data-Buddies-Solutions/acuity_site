@@ -7,6 +7,11 @@ on:
         description: "Type DEPLOY to run pending Prisma migrations against production."
         required: true
         type: string
+      confirm_call_center_rollback_closed:
+        description: "Type ROLLBACK CLOSED to authorize removal of rollback-only Call Center state."
+        required: false
+        default: ""
+        type: string
       repair_failed_call_center_cleanup:
         description: "One-time recovery: mark the failed canonical cleanup attempt rolled back before retrying it."
         required: false
@@ -29,6 +34,7 @@ jobs:
     environment: Production
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PGOPTIONS: ${{ inputs.confirm_call_center_rollback_closed == 'ROLLBACK CLOSED' && '-c acuity.call_center_rollback_closed=true' || '' }}
 
     steps:
       - name: Checkout

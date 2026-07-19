@@ -248,9 +248,12 @@ Prisma checks in CI:
 - `next build` catches type and runtime integration issues at the Next/Prisma boundary.
 
 Migration deployment is intentionally separate from normal PR/push CI. Run the
-manual `Production Migrations` workflow with `confirm` set to `DEPLOY`; it uses
+manual `Production Migrations` workflow with `confirm` set to `DEPLOY` and
+`confirm_call_center_rollback_closed` set to `ROLLBACK CLOSED` while migration
+`20260719180000_remove_call_center_rollback_state` is pending. The workflow uses
 the `Production` environment and its `DATABASE_URL` secret. Run it from `main`
-after the migration files are merged.
+after the migration files are merged. The rollback confirmation is optional
+after that migration has been applied.
 
 ## CI
 
@@ -269,6 +272,9 @@ The workflow runs:
 6. `bun run typecheck`
 7. `bun test`
 8. `bun run build`
+
+A separate PostgreSQL-backed CI job runs the Call Center rollback-state
+migration against representative live, null, and historical rows.
 
 This is intentionally more than lint/typecheck. Prisma client generation catches
 schema/client drift, tests catch data helpers and UI behavior, changed-file

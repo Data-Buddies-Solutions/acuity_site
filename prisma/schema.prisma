@@ -943,17 +943,11 @@ model CallCenterQueue {
   practiceId        String
   name              String
   enabled           Boolean                   @default(true)
-  ringTimeoutSec    Int                       @default(20)
-  maxWaitSec        Int                       @default(20)
-  wrapUpSec         Int                       @default(0)
   voicemailEnabled  Boolean                   @default(true)
   voicemailGreeting String                    @default("Please leave a message after the beep.")
-  overflowQueueId   String?
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
   practice          Practice                  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  overflowQueue     CallCenterQueue?          @relation("CallCenterQueueOverflow", fields: [overflowQueueId], references: [id], onDelete: SetNull)
-  overflowedBy      CallCenterQueue[]         @relation("CallCenterQueueOverflow")
   locations         CallCenterQueueLocation[]
   inboundNumbers    CallCenterNumber[]
   members           CallCenterQueueMember[]
@@ -962,7 +956,6 @@ model CallCenterQueue {
 
   @@unique([practiceId, name])
   @@index([practiceId, enabled])
-  @@index([overflowQueueId])
   @@map("call_center_queue")
 }
 
@@ -1053,8 +1046,6 @@ model CallCenterAgentSession {
   connectionState  CallCenterAgentConnectionState @default(CONNECTING)
   microphoneReady  Boolean                        @default(false)
   audioReady       Boolean                        @default(false)
-  offeredCallId    String?
-  currentCallId    String?
   readyAt          DateTime?
   lastHeartbeatAt  DateTime                       @default(now())
   leaseExpiresAt   DateTime
@@ -1064,50 +1055,43 @@ model CallCenterAgentSession {
   practice         Practice                       @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   user             User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
   endpoint         CallCenterEndpoint             @relation(fields: [endpointId], references: [id], onDelete: Cascade)
-  offeredCall      CallCenterCall?                @relation("CallCenterOfferedCall", fields: [offeredCallId], references: [id], onDelete: SetNull)
-  currentCall      CallCenterCall?                @relation("CallCenterCurrentCall", fields: [currentCallId], references: [id], onDelete: SetNull)
   callLegs         CallCenterCallLeg[]
 
   @@unique([endpointId, browserSessionId])
   @@index([practiceId, userId, presence])
   @@index([practiceId, presence, connectionState, lastHeartbeatAt, leaseExpiresAt])
   @@index([userId])
-  @@index([offeredCallId])
-  @@index([currentCallId])
   @@map("call_center_agent_session")
 }
 
 model CallCenterCall {
-  id                    String                   @id @default(cuid())
+  id                    String                  @id @default(cuid())
   practiceId            String
   queueId               String?
   numberId              String
   direction             CallCenterCallDirection
-  effectOwner           CallCenterEffectOwner    @default(CANONICAL)
-  status                CallCenterCallStatus     @default(RECEIVED)
+  effectOwner           CallCenterEffectOwner   @default(CANONICAL)
+  status                CallCenterCallStatus    @default(RECEIVED)
   fromPhone             String
   toPhone               String
   callerName            String?
-  providerCallSessionId String?                  @unique
-  winningLegId          String?                  @unique
-  stateVersion          Int                      @default(0)
-  receivedAt            DateTime                 @default(now())
+  providerCallSessionId String?                 @unique
+  winningLegId          String?                 @unique
+  stateVersion          Int                     @default(0)
+  receivedAt            DateTime                @default(now())
   deadlineAt            DateTime?
   queuedAt              DateTime?
-  queueDeadlineAt       DateTime?
   firstRingAt           DateTime?
   answeredAt            DateTime?
   voicemailStartedAt    DateTime?
   endedAt               DateTime?
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  practice              Practice                 @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  queue                 CallCenterQueue?         @relation(fields: [queueId], references: [id], onDelete: SetNull)
-  number                CallCenterNumber         @relation(fields: [numberId], references: [id], onDelete: Restrict)
-  winningLeg            CallCenterCallLeg?       @relation("CallCenterWinningLeg", fields: [winningLegId], references: [id], onDelete: SetNull)
-  legs                  CallCenterCallLeg[]      @relation("CallCenterCallLegs")
-  offeredAgentSessions  CallCenterAgentSession[] @relation("CallCenterOfferedCall")
-  activeAgentSessions   CallCenterAgentSession[] @relation("CallCenterCurrentCall")
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  practice              Practice                @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  queue                 CallCenterQueue?        @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  number                CallCenterNumber        @relation(fields: [numberId], references: [id], onDelete: Restrict)
+  winningLeg            CallCenterCallLeg?      @relation("CallCenterWinningLeg", fields: [winningLegId], references: [id], onDelete: SetNull)
+  legs                  CallCenterCallLeg[]     @relation("CallCenterCallLegs")
   tasks                 CallCenterTask[]
   commands              CallCenterCommand[]
   voicemail             CallCenterVoicemail?
