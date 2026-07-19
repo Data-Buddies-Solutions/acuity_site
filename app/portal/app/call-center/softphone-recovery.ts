@@ -30,10 +30,8 @@ export type ReconciledCallUpdate =
       terminal: boolean;
     };
 
-export type PendingAnswerTransition = {
-  outcome: "FAILED" | "NONE" | "SUCCEEDED";
-  transfer: "ANSWER_REPLACEMENT" | "NONE" | "REJECT";
-};
+export type PendingAnswerAction =
+  "ANSWER_REPLACEMENT" | "FAIL" | "NONE" | "REJECT" | "SUCCEED";
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -210,7 +208,7 @@ export function reconcileCallUpdate({
   };
 }
 
-export function pendingAnswerTransition({
+export function pendingAnswerAction({
   callId,
   canContinue,
   current,
@@ -227,11 +225,11 @@ export function pendingAnswerTransition({
     mediaLegId: string;
   } | null;
   recoveredMediaLegId: string | null;
-}): PendingAnswerTransition {
-  if (!pending) return { outcome: "NONE", transfer: "NONE" };
+}): PendingAnswerAction {
+  if (!pending) return "NONE";
 
   let effectiveMediaLegId = pending.mediaLegId;
-  let transfer: PendingAnswerTransition["transfer"] = "NONE";
+  let transfer = false;
   if (recoveredMediaLegId && pending.mediaLegId === recoveredMediaLegId) {
     const activeElsewhere = current.some(
       (candidate) =>
@@ -239,22 +237,20 @@ export function pendingAnswerTransition({
         ["ACTIVE", "HELD"].includes(candidate.state),
     );
     if (activeElsewhere || !canContinue(recoveredMediaLegId)) {
-      return { outcome: "NONE", transfer: "REJECT" };
+      return "REJECT";
     }
     effectiveMediaLegId = callId;
-    if (!pending.invokedMediaLegIds.has(callId)) {
-      transfer = "ANSWER_REPLACEMENT";
-    }
+    transfer = !pending.invokedMediaLegIds.has(callId);
   }
 
   if (effectiveMediaLegId !== observation.mediaLegId) {
-    return { outcome: "NONE", transfer };
+    return transfer ? "ANSWER_REPLACEMENT" : "NONE";
   }
   if (["ACTIVE", "HELD"].includes(observation.state)) {
-    return { outcome: "SUCCEEDED", transfer };
+    return "SUCCEED";
   }
   if (["ENDED", "FAILED"].includes(observation.state)) {
-    return { outcome: "FAILED", transfer };
+    return "FAIL";
   }
-  return { outcome: "NONE", transfer };
+  return transfer ? "ANSWER_REPLACEMENT" : "NONE";
 }

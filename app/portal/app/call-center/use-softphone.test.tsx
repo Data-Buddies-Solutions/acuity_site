@@ -385,6 +385,73 @@ describe("useSoftphoneMedia canonical credentials", () => {
     expect(staleAnswer).toHaveBeenCalledTimes(1);
   });
 
+  it("never re-answers a replacement that is already active, held, or terminal", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    for (const [state, expectedOutcome, expectedObservations] of [
+      ["active", "resolved", 1],
+      ["held", "resolved", 1],
+      ["hangup", "rejected", 0],
+      ["failed", "rejected", 0],
+    ] as const) {
+      const view = renderHook(() =>
+        useSoftphoneMedia({
+          agentSessionId: "session-1",
+          browserSessionId: `browser-${state}`,
+          enabled: true,
+        }),
+      );
+      await waitFor(() => expect(view.result.current.connection).toBe("READY"));
+      const client = clients.at(-1)!;
+      const staleCall = {
+        answer: mock(async () => {}),
+        direction: "incoming",
+        id: `stale-${state}`,
+        remoteStream: null,
+        state: "ringing",
+        telnyxIDs: {
+          telnyxCallControlId: `control-${state}`,
+          telnyxLegId: `provider-leg-${state}`,
+          telnyxSessionId: `provider-session-${state}`,
+        },
+      };
+      act(() => client.emitCallUpdate(staleCall));
+      await waitFor(() => expect(view.result.current.observations).toHaveLength(1));
+
+      let outcome = "pending";
+      act(() => {
+        void view.result.current.answer(staleCall.id).then(
+          () => {
+            outcome = "resolved";
+          },
+          () => {
+            outcome = "rejected";
+          },
+        );
+      });
+      await waitFor(() => expect(staleCall.answer).toHaveBeenCalledTimes(1));
+      act(() => client.emit("telnyx.socket.close"));
+
+      const replacementAnswer = mock(async () => {});
+      act(() =>
+        client.emitCallUpdate({
+          ...staleCall,
+          answer: replacementAnswer,
+          id: `replacement-${state}`,
+          recoveredCallId: staleCall.id,
+          state,
+        }),
+      );
+
+      await waitFor(() => expect(outcome).toBe(expectedOutcome));
+      expect(view.result.current.observations).toHaveLength(expectedObservations);
+      expect(replacementAnswer).not.toHaveBeenCalled();
+      view.unmount();
+    }
+  });
+
   it("does not transfer a pending Answer after its canonical intent expires", async () => {
     globalThis.fetch = mock(async () =>
       Response.json({ token: "canonical-token" }),
