@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 
 import { resolveNeedsActionGroupAction } from "./actions";
 
-const FOLLOW_UP_PREVIEW_LIMIT = 3;
+const FOLLOW_UP_PREVIEW_LIMIT = 25;
 
 function formatPhone(phone: string | null) {
   const digits = (phone || "").replace(/\D/g, "");
@@ -105,7 +105,7 @@ function formatGroupSummary(group: PortalNeedsActionGroup) {
   return parts.join(" · ");
 }
 
-export function ActivityRail({
+export default function ActivityRail({
   followUpHref,
   needsAction,
   needsActionCount,
@@ -120,68 +120,57 @@ export function ActivityRail({
   onCallback: (number: string) => void;
   queueId?: string;
 }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedAudioId, setExpandedAudioId] = useState<string | null>(null);
 
   const visibleItems = needsAction.slice(0, FOLLOW_UP_PREVIEW_LIMIT);
   const ToggleIcon = isOpen ? ChevronDown : ChevronRight;
 
   return (
-    <section
-      aria-labelledby="needs-action-heading"
-      className="overflow-hidden rounded-2xl border border-[var(--portal-border)] bg-white shadow-sm"
-    >
-      <header className="border-b border-[var(--portal-border)] bg-[var(--portal-panel-soft)] px-4 py-4">
+    <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
+      <header className="border-b border-[var(--portal-border)] px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <button
             aria-expanded={isOpen}
-            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]/30"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
             onClick={() => setIsOpen((current) => !current)}
             type="button"
           >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-[var(--portal-muted)] shadow-sm ring-1 ring-[var(--portal-border)]">
-              <ToggleIcon aria-hidden="true" className="h-4 w-4" />
-            </span>
+            <ToggleIcon
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-[var(--portal-muted)]"
+            />
             <span className="min-w-0">
               <span className="flex items-center gap-2">
-                <span
-                  className="text-sm font-semibold text-[var(--portal-ink)]"
-                  id="needs-action-heading"
-                >
+                <span className="text-sm font-semibold text-[var(--portal-ink)]">
                   Needs action
                 </span>
-                <PortalBadge
-                  className="px-2 py-0.5 tabular-nums"
-                  tone={needsActionCount ? "accent" : "soft"}
-                >
-                  {needsActionCount} open
-                </PortalBadge>
+                {needsActionCount ? (
+                  <PortalBadge className="px-2 py-0.5 tabular-nums">
+                    {needsActionCount}
+                  </PortalBadge>
+                ) : null}
               </span>
               <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
-                Missed calls, voicemail, and follow-up.
+                Missed calls, voicemails, and notes that still need a response.
               </span>
             </span>
           </button>
           {needsActionCount ? (
-            <Button asChild className="shrink-0" size="compact" variant="ghost">
-              <Link href={followUpHref}>
-                View all
-                <ChevronRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
-            </Button>
+            <Link
+              className="shrink-0 text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
+              href={followUpHref}
+            >
+              View all
+            </Link>
           ) : null}
         </div>
       </header>
 
       {!isOpen ? null : needsAction.length === 0 ? (
-        <div className="px-5 py-9 text-center">
-          <CheckCircle2 aria-hidden="true" className="mx-auto h-5 w-5 text-emerald-600" />
-          <p className="mt-2 text-sm font-medium text-[var(--portal-ink)]">
-            You’re all caught up.
-          </p>
-          <p className="mt-1 text-xs text-[var(--portal-muted)]">
-            New follow-up items will appear here.
-          </p>
+        <div className="px-5 py-8 text-center text-sm text-[var(--portal-muted)]">
+          No items need action.
         </div>
       ) : (
         <ul className="divide-y divide-[var(--portal-border)]">
@@ -194,12 +183,13 @@ export function ActivityRail({
                 ? MessageSquareText
                 : PhoneMissed;
             const iconClassName = hasVoicemail
-              ? "bg-amber-50 text-amber-700"
+              ? "text-[var(--portal-warning)]"
               : hasNote
-                ? "bg-[var(--portal-accent-soft)] text-[var(--portal-accent)]"
-                : "bg-red-50 text-red-700";
+                ? "text-[var(--portal-accent)]"
+                : "text-[var(--portal-danger)]";
             const callbackTarget = group.fromPhone || "";
             const duration = formatDuration(group.latestVoicemailDurationSec);
+            const isSelected = selectedId === group.id;
             const isAudioOpen = expandedAudioId === group.id;
             const title = group.callerName || formatPhone(group.fromPhone);
             const phoneLabel = group.callerName ? formatPhone(group.fromPhone) : null;
@@ -208,17 +198,20 @@ export function ActivityRail({
 
             return (
               <li key={group.id}>
-                <article className="group px-4 py-4 transition hover:bg-[var(--portal-panel-soft)]">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <div className="flex min-w-0 flex-1 items-start gap-3">
-                      <span
-                        className={cn(
-                          "flex size-9 shrink-0 items-center justify-center rounded-xl",
-                          iconClassName,
-                        )}
-                      >
-                        <Icon aria-hidden="true" className="h-4 w-4" />
-                      </span>
+                <article
+                  className={cn(
+                    "group px-4 py-3 transition",
+                    isSelected
+                      ? "bg-[var(--portal-accent-soft)]"
+                      : "hover:bg-[var(--portal-panel-soft)]",
+                  )}
+                >
+                  <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+                    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                      <Icon
+                        aria-hidden="true"
+                        className={cn("mt-0.5 h-4 w-4 shrink-0", iconClassName)}
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           {historyHref ? (
@@ -251,35 +244,38 @@ export function ActivityRail({
                         </div>
                       </div>
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+                    <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
                       <Button
-                        aria-label={`Call ${title}`}
+                        aria-label={`Call back ${title}`}
+                        className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
                         disabled={!callbackTarget}
                         onClick={() => {
+                          setSelectedId(group.id);
                           if (callbackTarget) {
                             onCallback(callbackTarget);
                           }
                         }}
-                        size="compact"
+                        size="sm"
+                        title="Call back"
                         type="button"
-                        variant="secondary"
+                        variant="ghost"
                       >
                         <Phone className="h-4 w-4" aria-hidden="true" />
-                        Call
                       </Button>
                       {group.latestVoicemailRecordingId ? (
                         <Button
-                          aria-label={isAudioOpen ? "Hide voicemail" : "Play voicemail"}
+                          aria-label="Play voicemail"
                           aria-pressed={isAudioOpen}
+                          className="h-8 w-8 p-0"
                           onClick={() =>
                             setExpandedAudioId(isAudioOpen ? null : group.id)
                           }
-                          size="compact"
+                          size="sm"
+                          title="Play voicemail"
                           type="button"
                           variant="ghost"
                         >
                           <Play className="h-4 w-4" aria-hidden="true" />
-                          {isAudioOpen ? "Hide" : "Play"}
                         </Button>
                       ) : null}
                       <form action={resolveNeedsActionGroupAction}>
@@ -291,14 +287,15 @@ export function ActivityRail({
                           <input type="hidden" name="queue" value={queueId} />
                         ) : null}
                         <Button
-                          aria-label={`Resolve ${title}`}
+                          aria-label="Mark resolved"
+                          className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
                           disabled={!group.fromPhone}
-                          size="compact"
+                          size="sm"
+                          title="Mark resolved"
                           type="submit"
                           variant="ghost"
                         >
                           <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                          Resolve
                         </Button>
                       </form>
                     </div>

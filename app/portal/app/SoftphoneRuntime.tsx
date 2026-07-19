@@ -64,7 +64,6 @@ type SoftphoneRuntimeValue = {
   clientInstanceId: string | null;
   error: string | null;
   media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
-  offeredMediaLegId: string | null;
   ringtone: ReturnType<typeof useIncomingCallRingtone>;
   session: AgentSessionView | null;
   take(mediaLegId: string): Promise<void>;
@@ -246,7 +245,6 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
         agentSession.error ??
         (media.connection === "FAILED" ? "Phone disconnected — reconnecting" : null),
       media,
-      offeredMediaLegId: calls.ringtoneOfferId,
       ringtone,
       session,
       take,
@@ -258,7 +256,6 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       clientInstanceId,
       identityError,
       media,
-      calls.ringtoneOfferId,
       ringtone,
       session,
       take,
