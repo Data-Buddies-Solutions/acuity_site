@@ -39,7 +39,6 @@ async function loadLifecycleCall(
       answeredAt: true,
       deadlineAt: true,
       direction: true,
-      effectOwner: true,
       id: true,
       legs: {
         select: {
@@ -292,12 +291,9 @@ async function reconcileLockedCall(
   settleAgentLegs: SettleAgentLegs,
 ): Promise<ActiveInboundReconciliationSuccess> {
   const call = await loadLifecycleCall(transaction, input.practiceId, input.callId);
-  // CANONICAL ownership is the durable admission decision. Recovery must not
-  // strand a call after that decision has been persisted.
   if (
     !call ||
     call.direction !== "INBOUND" ||
-    call.effectOwner !== "CANONICAL" ||
     !ACTIVE_STATUSES.includes(call.status as (typeof ACTIVE_STATUSES)[number]) ||
     !call.queue
   ) {

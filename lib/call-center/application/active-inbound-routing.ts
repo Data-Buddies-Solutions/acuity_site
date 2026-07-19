@@ -31,7 +31,6 @@ type ActiveRoutingQueueSnapshot = Omit<RoutingQueueSnapshot, "members"> & {
 export type ActiveRoutingContext = {
   callId: string;
   direction: "INBOUND" | "OUTBOUND";
-  effectOwner: "LEGACY" | "CANONICAL";
   practiceId: string;
   queue: ActiveRoutingQueueSnapshot | null;
   status: ActiveCallStatus;
@@ -67,8 +66,7 @@ export type ActiveRoutingReceipt = ActiveRoutingEventData & {
 
 export type ActiveRoutingSkipped = {
   callId: string;
-  reason:
-    "CALL_NOT_CANONICAL" | "CALL_NOT_ROUTABLE" | "OUTBOUND_CALL" | "QUEUE_NOT_ASSIGNED";
+  reason: "CALL_NOT_ROUTABLE" | "OUTBOUND_CALL" | "QUEUE_NOT_ASSIGNED";
   status: "SKIPPED";
 };
 
@@ -164,13 +162,6 @@ export function routeActiveInboundCall(
     if (!context) throw new ActiveRoutingError("Canonical call not found", 404);
     if (context.direction !== "INBOUND") {
       return { callId: context.callId, reason: "OUTBOUND_CALL", status: "SKIPPED" };
-    }
-    if (context.effectOwner !== "CANONICAL") {
-      return {
-        callId: context.callId,
-        reason: "CALL_NOT_CANONICAL",
-        status: "SKIPPED",
-      };
     }
     if (!routableCallStatuses.has(context.status)) {
       return {

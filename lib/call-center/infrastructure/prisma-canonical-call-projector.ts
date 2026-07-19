@@ -8,7 +8,7 @@ import {
 } from "@/lib/call-center/domain/canonical-call-state";
 import { canonicalVoicemailRecordingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
-import type { CanonicalProjectionRecord } from "@/lib/call-center/infrastructure/canonical-provider-webhook-inbox";
+import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import {
   failProviderCommandDependents,
   settleProviderCommandsForTerminalLeg,
@@ -43,7 +43,6 @@ type CanonicalProjectionResult = {
   callId: string;
   callStatus: string;
   commandIds: string[];
-  effectOwner: "CANONICAL";
   legId: string;
   legStatus: string;
   practiceId: string;
@@ -100,15 +99,9 @@ export function shouldReconcileCanonicalInboundLifecycle(input: {
   );
 }
 
-function assertCanonicalCallEffectOwner(call: { effectOwner: "CANONICAL" | "LEGACY" }) {
-  if (call.effectOwner !== "CANONICAL") {
-    throw new CanonicalProjectionError("CANONICAL_EFFECT_OWNER_MISMATCH");
-  }
-}
-
 export type CanonicalCallProjector = {
   projectAndComplete(
-    event: CanonicalProjectionRecord,
+    event: ProviderWebhookRecord,
     fact: CanonicalTelnyxCallFact,
     projectedAt: Date,
   ): Promise<CanonicalProjectionResult>;
@@ -731,7 +724,6 @@ export async function resolveCanonicalCustomerCall(
     data: {
       callerName: fact.callerName,
       direction: fact.direction,
-      effectOwner: "CANONICAL",
       fromPhone: fact.direction === "INBOUND" ? callerPhone : practicePhone,
       numberId: number.id,
       practiceId: number.practiceId,
@@ -846,19 +838,20 @@ function isCanonicalVoicemailCallback(eventType: string) {
 
 async function completeProjectionCheckpoint(
   tx: Transaction,
-  event: CanonicalProjectionRecord,
+  event: ProviderWebhookRecord,
   projectedAt: Date,
 ) {
   const completed = await tx.providerWebhookEvent.updateMany({
     data: {
-      canonicalProjectedAt: projectedAt,
-      canonicalProjectionErrorCode: null,
-      canonicalProjectionStatus: "PROCESSED",
+      errorCode: null,
+      nextAttemptAt: null,
+      processedAt: projectedAt,
+      processingStatus: "PROCESSED",
     },
     where: {
-      canonicalProjectionAttemptCount: event.canonicalProjectionAttemptCount,
-      canonicalProjectionStatus: "PROCESSING",
+      attemptCount: event.attemptCount,
       id: event.id,
+      processingStatus: "PROCESSING",
     },
   });
   if (completed.count !== 1) {
@@ -872,13 +865,11 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
       let leg = await existingLeg(tx, fact);
       const peerAgent = !leg ? await resolveCanonicalPeerAgentLeg(tx, fact) : null;
       if (peerAgent) {
-        assertCanonicalCallEffectOwner(peerAgent.call);
         await completeProjectionCheckpoint(tx, event, projectedAt);
         return {
           callId: peerAgent.call.id,
           callStatus: peerAgent.call.status,
           commandIds: [],
-          effectOwner: "CANONICAL",
           legId: peerAgent.leg.id,
           legStatus: peerAgent.leg.status,
           practiceId: peerAgent.call.practiceId,
@@ -905,7 +896,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
       const resolved = await resolveProjectionCall(tx, resolvedFact, leg);
       let call = normalizeCanonicalCallState(await lockCall(tx, resolved.call.id));
 
-      assertCanonicalCallEffectOwner(call);
       if (call.practiceId !== resolved.call.practiceId) {
         throw new CanonicalProjectionError("CANONICAL_CALL_OWNER_MISMATCH");
       }
@@ -1247,7 +1237,6 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         callId: call.id,
         callStatus: call.status,
         commandIds: [...new Set(commandIds)],
-        effectOwner: "CANONICAL",
         legId: leg.id,
         legStatus: leg.status,
         practiceId: call.practiceId,

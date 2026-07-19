@@ -32,7 +32,6 @@ function transaction({
   callStatus = "RINGING",
   customerLegs = [{ providerCallControlId: "customer-control-1" }],
   dependencyStatus = null,
-  effectOwner = "CANONICAL",
   legKind = "AGENT",
   memberUserId = "user-1",
   sessionState = "ACTIVE",
@@ -60,7 +59,6 @@ function transaction({
     | "FAILED";
   customerLegs?: Array<{ providerCallControlId: string }>;
   dependencyStatus?: "PENDING" | "SENT" | "CONFIRMED" | "FAILED" | null;
-  effectOwner?: "CANONICAL" | "LEGACY";
   legKind?: "AGENT" | "CUSTOMER";
   memberUserId?: string | null;
   sessionState?: "ACTIVE" | "OFFERED";
@@ -116,7 +114,6 @@ function transaction({
         arguments: commandArguments,
         attemptCount: 0,
         call: {
-          effectOwner,
           number: {
             practicePhoneNumber: {
               locationId: "location-1",
@@ -314,22 +311,6 @@ describe("Prisma provider command store", () => {
     expect(fake.operations).not.toContain("command.reject");
     expect(fake.operations).not.toContain("leg.reject");
     expect(fake.updates()).toBe(0);
-  });
-
-  it("rejects provider effects for a non-canonical call", async () => {
-    const legacyCall = transaction({ effectOwner: "LEGACY" });
-    const store = rejectingStore(legacyCall.tx);
-    await expect(
-      store.claim({
-        commandId: "command-1",
-        now,
-        staleBefore: new Date(now.getTime() - 60_000),
-      }),
-    ).resolves.toMatchObject({
-      errorCode: "COMMAND_CALL_NOT_CANONICAL",
-      rejected: true,
-    });
-    expect(legacyCall.operations).toContain("command.reject");
   });
 
   it("claims initial inbound lifecycle commands with typed sanitized arguments", async () => {
@@ -632,7 +613,6 @@ describe("Prisma provider command store", () => {
       select: { id: true },
       take: 25,
       where: {
-        call: { effectOwner: "CANONICAL" },
         OR: [
           { status: "PENDING" },
           { status: "SENDING", updatedAt: { lte: staleBefore } },

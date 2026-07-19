@@ -69,16 +69,18 @@ not a browser endpoint.
 - `CallCenterCall`: one logical inbound or outbound call and terminal outcome.
 - `CallCenterCallLeg`: one customer or agent provider leg.
 - `CallCenterCommand`: one durable provider effect with one idempotency key.
-- `ProviderWebhookEvent`: one verified, deduplicated provider callback.
+- `ProviderWebhookEvent`: one verified, deduplicated provider callback with one
+  receipt-to-terminal processing lifecycle.
 - `CallCenterEvent`: append-only audit revision.
 - `CallCenterTask`: one missed-call, voicemail, note, callback, or follow-up item.
 - `CallCenterVoicemail`: one recording attached to one call.
 - `CallCenterAgentSession`: one browser lease, connection, and readiness state.
 
-`effectOwner` remains only as an immutable compatibility fence for provider
-sessions admitted before this cleanup. Every newly configured call is
-canonical. It is not an activation switch and is not exposed to configuration
-or the portal.
+The provider-event module owns durable receipt, deduplication, admission,
+projection, categorical failure, and committed-command dispatch. Its HTTP
+adapter owns signature verification only. Out-of-scope callbacks end as one
+auditable `IGNORED` outcome; provider-command delivery remains a separate
+durable lifecycle.
 
 ## Invariants
 
@@ -107,6 +109,8 @@ or the portal.
     provider-command transition acquires the shared transaction-scoped practice
     lock before row locks. Provider I/O occurs only after the database
     transaction releases that lock.
+14. A provider event has one claim lease, attempt count, retry time, categorical
+    error, processed time, and status from receipt through terminal outcome.
 
 ## Schema cleanup
 
@@ -128,8 +132,18 @@ queue ring/wait/wrap-up/overflow settings, Agent Session offered/current Call
 pointers and relations, and `queueDeadlineAt`. `CallCenterCall.deadlineAt`
 remains the one lifecycle deadline, and active `CallCenterCallLeg` rows remain
 the one occupancy source. The migration refuses to run while any retired live
-state exists. `effectOwner` is intentionally preserved for its separate
-provider-session compatibility proof.
+state exists.
+
+Migration `20260719190000_retire_dual_webhook_lifecycle` closes the provider
+session compatibility window. It refuses to run with a nonterminal legacy call,
+an unresolved legacy/admission event, or an active event claim; moves the
+canonical checkpoint into the retained processing fields; then removes
+`effectOwner`, the second status/retry/error/timestamp set, and their indexes.
+Historical calls and events remain intact.
+
+This migration is forward-only. Application rollback is limited to a revision
+that understands the one-lifecycle schema; rollback must not restore the
+retired owner fence or dual inbox.
 
 ## Configuration and secrets
 

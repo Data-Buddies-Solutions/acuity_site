@@ -6,11 +6,8 @@ import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/pro
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
-export type TelnyxEventOwner = "CANONICAL";
-type StoredEffectOwner = TelnyxEventOwner | "LEGACY";
-
-type OwnerDatabase = Pick<PrismaClient, "$transaction">;
-type OwnerTransaction = Pick<
+type AdmissionDatabase = Pick<PrismaClient, "$transaction">;
+type AdmissionTransaction = Pick<
   Prisma.TransactionClient,
   | "$queryRaw"
   | "callCenterCall"
@@ -21,8 +18,7 @@ type OwnerTransaction = Pick<
   | "providerWebhookEvent"
 >;
 
-type PersistedOwner = {
-  effectOwner: StoredEffectOwner;
+type PersistedCall = {
   id: string;
   practiceId: string;
   providerCallSessionId: string | null;
@@ -45,7 +41,7 @@ type RawIdentity = {
 };
 
 type PersistedLeg = {
-  call: PersistedOwner;
+  call: PersistedCall;
   id: string;
   kind: "AGENT" | "CUSTOMER";
   providerCallControlId: string | null;
@@ -53,10 +49,10 @@ type PersistedLeg = {
   providerCallSessionId: string | null;
 };
 
-export class TelnyxEventOwnerError extends Error {
+export class TelnyxEventAdmissionError extends Error {
   constructor(readonly code: string) {
     super(code);
-    this.name = "TelnyxEventOwnerError";
+    this.name = "TelnyxEventAdmissionError";
   }
 }
 
@@ -100,19 +96,19 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
   const data = isRecord(body?.data) ? body.data : null;
   const payload = isRecord(data?.payload) ? data.payload : null;
   if (!payload) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_PAYLOAD_INVALID");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_PAYLOAD_INVALID");
   }
 
   const state = clientState(payload.client_state);
   const canonicalOutboundToken = text(state?.canonicalOutboundToken) || null;
   const canonicalOutboundPracticeId = text(state?.practiceId) || null;
   if (canonicalOutboundToken && !canonicalOutboundPracticeId) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_OUTBOUND_TOKEN_INCOMPLETE");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_OUTBOUND_TOKEN_INCOMPLETE");
   }
   const canonicalCallId = canonicalOutboundToken ? null : text(state?.callId) || null;
   const canonicalLegId = canonicalOutboundToken ? null : text(state?.legId) || null;
   if (Boolean(canonicalCallId) !== Boolean(canonicalLegId)) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_CANONICAL_IDENTITY_INCOMPLETE");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_CANONICAL_IDENTITY_INCOMPLETE");
   }
   let directHandoff: RawIdentity["directHandoff"];
   try {
@@ -122,7 +118,7 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
     }
     directHandoff = identity ? { tokenHash: event.directHandoffTokenHash! } : null;
   } catch {
-    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_IDENTITY_INVALID");
+    throw new TelnyxEventAdmissionError("TELNYX_DIRECT_HANDOFF_IDENTITY_INVALID");
   }
 
   return {
@@ -145,21 +141,25 @@ function rawIdentity(event: ProviderWebhookRecord): RawIdentity {
   };
 }
 
-async function persistDirectHandoffOwner(
-  tx: OwnerTransaction,
+async function admitDirectHandoff(
+  tx: AdmissionTransaction,
   raw: RawIdentity,
   receivedAt: Date,
 ) {
   const identity = raw.directHandoff;
   if (raw.direction !== "INBOUND") {
     if (identity) {
-      throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID");
+      throw new TelnyxEventAdmissionError(
+        "TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID",
+      );
     }
     return null;
   }
   if (!raw.providerCallSessionId) {
     if (!identity) return null;
-    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID");
+    throw new TelnyxEventAdmissionError(
+      "TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID",
+    );
   }
 
   let identifiedHandoff: { id: string; practiceId: string } | null = null;
@@ -169,7 +169,7 @@ async function persistDirectHandoffOwner(
       where: { tokenHash: identity.tokenHash },
     });
     if (!identified) {
-      throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_TOKEN_INVALID");
+      throw new TelnyxEventAdmissionError("TELNYX_DIRECT_HANDOFF_TOKEN_INVALID");
     }
     identifiedHandoff = identified;
   } else {
@@ -194,7 +194,7 @@ async function persistDirectHandoffOwner(
       },
     });
     if (candidates.length > 1) {
-      throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS");
+      throw new TelnyxEventAdmissionError("TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS");
     }
     identifiedHandoff = candidates[0] ?? null;
     if (!identifiedHandoff) return null;
@@ -212,17 +212,17 @@ async function persistDirectHandoffOwner(
     where: { id: identifiedHandoff.id },
   });
   if (!handoff) {
-    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_NOT_FOUND");
+    throw new TelnyxEventAdmissionError("TELNYX_DIRECT_HANDOFF_NOT_FOUND");
   }
   if (
     handoff.status === "INGRESS_SEEN" &&
     handoff.providerCallSessionId === raw.providerCallSessionId &&
     handoff.callId
   ) {
-    return "CANONICAL" as const;
+    return "ADMITTED" as const;
   }
   if (handoff.status !== "ISSUED" || handoff.expiresAt <= receivedAt) {
-    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE");
+    throw new TelnyxEventAdmissionError("TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE");
   }
 
   await tx.$queryRaw(
@@ -242,7 +242,7 @@ async function persistDirectHandoffOwner(
     where: { id: identifiedHandoff.id },
   });
   if (!handoff) {
-    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");
+    throw new TelnyxEventAdmissionError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");
   }
   // ISSUED already authorized the route. The practice lock protects its tenant boundary;
   // later configuration edits must not reroute or strand an in-flight REFER.
@@ -251,13 +251,12 @@ async function persistDirectHandoffOwner(
     handoff.number.practicePhoneNumber.practiceId !== handoff.practiceId ||
     handoff.queue.practiceId !== handoff.practiceId
   ) {
-    throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");
+    throw new TelnyxEventAdmissionError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");
   }
 
   const call = await tx.callCenterCall.create({
     data: {
       direction: "INBOUND",
-      effectOwner: "CANONICAL",
       fromPhone: handoff.callerPhone,
       legs: {
         create: {
@@ -286,16 +285,19 @@ async function persistDirectHandoffOwner(
     },
     where: { id: handoff.id },
   });
-  return "CANONICAL" as const;
+  return "ADMITTED" as const;
 }
 
-async function resolveTrustedOutboundIdentity(tx: OwnerTransaction, raw: RawIdentity) {
+async function resolveTrustedOutboundIdentity(
+  tx: AdmissionTransaction,
+  raw: RawIdentity,
+) {
   if (!raw.canonicalOutboundToken) return raw;
   if (
     !raw.canonicalOutboundPracticeId ||
     (raw.direction !== null && raw.direction !== "OUTBOUND")
   ) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_OUTBOUND_TOKEN_INVALID");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_OUTBOUND_TOKEN_INVALID");
   }
   const mapping = await tx.callCenterEvent.findUnique({
     select: { aggregateId: true, aggregateType: true, data: true },
@@ -310,34 +312,23 @@ async function resolveTrustedOutboundIdentity(tx: OwnerTransaction, raw: RawIden
   const data = isRecord(mapping?.data) ? mapping.data : null;
   const legId = text(data?.legId);
   if (!mapping || mapping.aggregateType !== "CALL" || !mapping.aggregateId || !legId) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_OUTBOUND_TOKEN_NOT_FOUND");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_OUTBOUND_TOKEN_NOT_FOUND");
   }
   return { ...raw, canonicalCallId: mapping.aggregateId, canonicalLegId: legId };
 }
 
-function assertSameOwner(owners: Array<StoredEffectOwner | null | undefined>) {
-  const known = [...new Set(owners.filter(Boolean))] as StoredEffectOwner[];
-  if (known.length > 1) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_OWNER_CONTRADICTION");
-  }
-  if (known[0] === "LEGACY") {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_OUT_OF_SCOPE");
-  }
-  return known[0] ?? null;
-}
-
 async function lockProviderSession(
-  tx: OwnerTransaction,
+  tx: AdmissionTransaction,
   eventId: string,
   providerCallSessionId: string | null,
 ) {
-  const lockKey = telnyxEventOwnerLockKey(eventId, providerCallSessionId);
+  const lockKey = telnyxEventAdmissionLockKey(eventId, providerCallSessionId);
   await tx.$queryRaw(
     Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
   );
 }
 
-export function telnyxEventOwnerLockKey(
+export function telnyxEventAdmissionLockKey(
   eventId: string,
   providerCallSessionId: string | null,
 ) {
@@ -346,12 +337,12 @@ export function telnyxEventOwnerLockKey(
     : `TELNYX_EVENT:${eventId}`;
 }
 
-async function storedSessionOwner(
-  tx: OwnerTransaction,
+async function assertSessionAdmissible(
+  tx: AdmissionTransaction,
   event: ProviderWebhookRecord,
   providerCallSessionId: string | null,
 ) {
-  if (!providerCallSessionId) return event.effectOwner;
+  if (!providerCallSessionId) return;
   const rejected = await tx.providerWebhookEvent.findFirst({
     select: { errorCode: true },
     where: {
@@ -366,24 +357,12 @@ async function storedSessionOwner(
     },
   });
   if (rejected) {
-    throw new TelnyxEventOwnerError(
+    throw new TelnyxEventAdmissionError(
       rejected.errorCode === "TELNYX_EVENT_OUT_OF_SCOPE"
         ? "TELNYX_EVENT_OUT_OF_SCOPE"
         : "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE",
     );
   }
-  const rows = await tx.providerWebhookEvent.findMany({
-    distinct: ["effectOwner"],
-    orderBy: { receivedAt: "asc" },
-    select: { effectOwner: true },
-    take: 2,
-    where: {
-      effectOwner: { not: null },
-      provider: "TELNYX",
-      providerCallSessionId,
-    },
-  });
-  return assertSameOwner([event.effectOwner, ...rows.map((row) => row.effectOwner)]);
 }
 
 function assertLegIdentity(raw: RawIdentity, leg: PersistedLeg) {
@@ -403,14 +382,13 @@ function assertLegIdentity(raw: RawIdentity, leg: PersistedLeg) {
       expectedSessionId &&
       raw.providerCallSessionId !== expectedSessionId);
   if (mismatch) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_IDENTITY_MISMATCH");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_IDENTITY_MISMATCH");
   }
 }
 
-const legOwnerSelect = {
+const legAdmissionSelect = {
   call: {
     select: {
-      effectOwner: true,
       id: true,
       practiceId: true,
       providerCallSessionId: true,
@@ -423,7 +401,7 @@ const legOwnerSelect = {
   providerCallSessionId: true,
 } as const;
 
-async function findAndBindLegIdentity(tx: OwnerTransaction, raw: RawIdentity) {
+async function findAndBindLegIdentity(tx: AdmissionTransaction, raw: RawIdentity) {
   const identities = [
     ...(raw.canonicalLegId ? [{ id: raw.canonicalLegId }] : []),
     ...(raw.providerCallControlId
@@ -434,12 +412,12 @@ async function findAndBindLegIdentity(tx: OwnerTransaction, raw: RawIdentity) {
   if (identities.length === 0) return null;
 
   const matches = await tx.callCenterCallLeg.findMany({
-    select: legOwnerSelect,
+    select: legAdmissionSelect,
     take: 2,
     where: { OR: identities },
   });
   if (matches.length > 1) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_OWNER_AMBIGUOUS");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_IDENTITY_AMBIGUOUS");
   }
   const match = matches[0];
   if (!match) return null;
@@ -449,10 +427,10 @@ async function findAndBindLegIdentity(tx: OwnerTransaction, raw: RawIdentity) {
     Prisma.sql`SELECT "id" FROM "call_center_call_leg" WHERE "id" = ${match.id} FOR UPDATE`,
   );
   const leg = await tx.callCenterCallLeg.findUnique({
-    select: legOwnerSelect,
+    select: legAdmissionSelect,
     where: { id: match.id },
   });
-  if (!leg) throw new TelnyxEventOwnerError("TELNYX_EVENT_LEG_NOT_FOUND");
+  if (!leg) throw new TelnyxEventAdmissionError("TELNYX_EVENT_LEG_NOT_FOUND");
   assertLegIdentity(raw, leg);
 
   try {
@@ -462,24 +440,23 @@ async function findAndBindLegIdentity(tx: OwnerTransaction, raw: RawIdentity) {
         providerCallLegId: leg.providerCallLegId ?? raw.providerCallLegId,
         providerCallSessionId: leg.providerCallSessionId ?? raw.providerCallSessionId,
       },
-      select: legOwnerSelect,
+      select: legAdmissionSelect,
       where: { id: leg.id },
     });
     assertLegIdentity(raw, bound);
-    return bound.call.effectOwner;
+    return bound.call.id;
   } catch (error) {
     if (isRecord(error) && error.code === "P2002") {
-      throw new TelnyxEventOwnerError("TELNYX_EVENT_PROVIDER_IDENTITY_CONFLICT");
+      throw new TelnyxEventAdmissionError("TELNYX_EVENT_PROVIDER_IDENTITY_CONFLICT");
     }
     throw error;
   }
 }
 
-async function findByCustomerSession(tx: OwnerTransaction, raw: RawIdentity) {
+async function findByCustomerSession(tx: AdmissionTransaction, raw: RawIdentity) {
   if (!raw.providerCallSessionId) return null;
   const call = await tx.callCenterCall.findUnique({
     select: {
-      effectOwner: true,
       id: true,
       practiceId: true,
       providerCallSessionId: true,
@@ -488,13 +465,13 @@ async function findByCustomerSession(tx: OwnerTransaction, raw: RawIdentity) {
   });
   if (!call) return null;
   if (raw.canonicalCallId && raw.canonicalCallId !== call.id) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_IDENTITY_MISMATCH");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_IDENTITY_MISMATCH");
   }
   await lockCallCenterPractice(tx, call.practiceId);
-  return call.effectOwner;
+  return call.id;
 }
 
-async function configuredInboundNumber(tx: OwnerTransaction, toPhone: string) {
+async function configuredInboundNumber(tx: AdmissionTransaction, toPhone: string) {
   if (!toPhone) return null;
   const numbers = await tx.callCenterNumber.findMany({
     select: {
@@ -511,13 +488,13 @@ async function configuredInboundNumber(tx: OwnerTransaction, toPhone: string) {
     },
   });
   if (numbers.length > 1) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_NUMBER_OWNER_AMBIGUOUS");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_NUMBER_OWNER_AMBIGUOUS");
   }
   return numbers[0] ?? null;
 }
 
 async function lockQueue(
-  tx: OwnerTransaction,
+  tx: AdmissionTransaction,
   queueId: string,
 ): Promise<{
   enabled: boolean;
@@ -537,11 +514,11 @@ async function lockQueue(
     FOR SHARE
   `);
   const queue = queues[0];
-  if (!queue) throw new TelnyxEventOwnerError("TELNYX_EVENT_QUEUE_NOT_FOUND");
+  if (!queue) throw new TelnyxEventAdmissionError("TELNYX_EVENT_QUEUE_NOT_FOUND");
   return queue;
 }
 
-async function lockNumber(tx: OwnerTransaction, numberId: string) {
+async function lockNumber(tx: AdmissionTransaction, numberId: string) {
   const numbers = await tx.$queryRaw<
     Array<{
       enabled: boolean;
@@ -568,30 +545,30 @@ async function lockNumber(tx: OwnerTransaction, numberId: string) {
     FOR SHARE OF number, phone
   `);
   const number = numbers[0];
-  if (!number) throw new TelnyxEventOwnerError("TELNYX_EVENT_NUMBER_NOT_FOUND");
+  if (!number) throw new TelnyxEventAdmissionError("TELNYX_EVENT_NUMBER_NOT_FOUND");
   return number;
 }
 
-async function persistInboundOwner(tx: OwnerTransaction, raw: RawIdentity) {
+async function admitInboundCall(tx: AdmissionTransaction, raw: RawIdentity) {
   if (raw.direction !== "INBOUND") return null;
   if (!raw.providerCallSessionId) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_CALL_SESSION_MISSING");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_CALL_SESSION_MISSING");
   }
 
   const number = await configuredInboundNumber(tx, raw.toPhone);
   if (!number) return null;
   if (!number.inboundQueueId) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_NUMBER_QUEUE_MISSING");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_NUMBER_QUEUE_MISSING");
   }
   if (!raw.fromPhone) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_CALLER_IDENTITY_MISSING");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_CALLER_IDENTITY_MISSING");
   }
 
   await lockCallCenterPractice(tx, number.practiceId);
   const queue = await lockQueue(tx, number.inboundQueueId);
   const lockedNumber = await lockNumber(tx, number.id);
   if (!queue.enabled) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_QUEUE_DISABLED");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_QUEUE_DISABLED");
   }
   if (
     !lockedNumber.enabled ||
@@ -600,18 +577,16 @@ async function persistInboundOwner(tx: OwnerTransaction, raw: RawIdentity) {
     lockedNumber.practicePhoneNumberId !== number.practicePhoneNumberId ||
     !phoneLookupVariants(raw.toPhone).includes(lockedNumber.phoneNumber)
   ) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_NUMBER_CHANGED");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_NUMBER_CHANGED");
   }
   if (queue.practiceId !== lockedNumber.practiceId) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_QUEUE_PRACTICE_MISMATCH");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_QUEUE_PRACTICE_MISMATCH");
   }
 
-  const effectOwner = "CANONICAL" as const;
   await tx.callCenterCall.create({
     data: {
       callerName: raw.callerName,
       direction: "INBOUND",
-      effectOwner,
       fromPhone: raw.fromPhone,
       legs: {
         create: {
@@ -631,68 +606,63 @@ async function persistInboundOwner(tx: OwnerTransaction, raw: RawIdentity) {
     },
     select: { id: true },
   });
-  return effectOwner;
+  return "ADMITTED" as const;
 }
 
-async function persistEventOwner(
-  tx: OwnerTransaction,
+async function bindProviderSession(
+  tx: AdmissionTransaction,
   event: ProviderWebhookRecord,
   raw: RawIdentity,
-  effectOwner: TelnyxEventOwner,
 ) {
   const assigned = await tx.providerWebhookEvent.updateMany({
     data: {
-      effectOwner,
       providerCallSessionId: raw.providerCallSessionId,
     },
     where: {
       attemptCount: event.attemptCount,
       id: event.id,
-      OR: [{ effectOwner: null }, { effectOwner }],
       processingStatus: "PROCESSING",
     },
   });
   if (assigned.count !== 1) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_OWNER_ASSIGNMENT_LOST");
+    throw new TelnyxEventAdmissionError("TELNYX_EVENT_ADMISSION_CLAIM_LOST");
   }
 }
 
 /**
- * Selects and commits one provider-effect owner before either effect lane runs.
- * The durable inbox payload is the source of identity, and provider-session
- * serialization keeps provider sessions sticky across retries, callback
- * reordering, and configuration changes.
+ * Admits one durable provider event before projection. The durable inbox
+ * payload is the source of identity, and provider-session serialization keeps
+ * callbacks ordered across retries and configuration changes.
  */
-export async function resolveTelnyxEventOwner(
+export async function admitTelnyxEvent(
   event: ProviderWebhookRecord,
-  database: OwnerDatabase = prisma,
-): Promise<TelnyxEventOwner> {
+  database: AdmissionDatabase = prisma,
+): Promise<"ADMITTED"> {
   const unresolvedRaw = rawIdentity(event);
   return database.$transaction(async (tx) => {
-    const ownerTx = tx as OwnerTransaction;
-    await lockProviderSession(ownerTx, event.id, unresolvedRaw.providerCallSessionId);
-    const raw = await resolveTrustedOutboundIdentity(ownerTx, unresolvedRaw);
+    const admissionTx = tx as AdmissionTransaction;
+    await lockProviderSession(admissionTx, event.id, unresolvedRaw.providerCallSessionId);
+    const raw = await resolveTrustedOutboundIdentity(admissionTx, unresolvedRaw);
+    await assertSessionAdmissible(admissionTx, event, raw.providerCallSessionId);
 
-    const storedOwner = await storedSessionOwner(
-      ownerTx,
-      event,
-      raw.providerCallSessionId,
-    );
-    const legOwner = await findAndBindLegIdentity(ownerTx, raw);
-    if (!legOwner && raw.canonicalLegId) {
-      throw new TelnyxEventOwnerError("TELNYX_EVENT_CANONICAL_IDENTITY_NOT_FOUND");
+    const legCallId = await findAndBindLegIdentity(admissionTx, raw);
+    if (!legCallId && raw.canonicalLegId) {
+      throw new TelnyxEventAdmissionError("TELNYX_EVENT_CANONICAL_IDENTITY_NOT_FOUND");
     }
-    const callOwner = await findByCustomerSession(ownerTx, raw);
-    const existingOwner = assertSameOwner([storedOwner, legOwner, callOwner]);
-    const effectOwner =
-      existingOwner ??
-      (await persistDirectHandoffOwner(ownerTx, raw, raw.occurredAt)) ??
-      (await persistInboundOwner(ownerTx, raw));
-    if (!effectOwner) {
-      throw new TelnyxEventOwnerError("TELNYX_EVENT_OUT_OF_SCOPE");
+    const sessionCallId = await findByCustomerSession(admissionTx, raw);
+    if (legCallId && sessionCallId && legCallId !== sessionCallId) {
+      throw new TelnyxEventAdmissionError("TELNYX_EVENT_IDENTITY_MISMATCH");
+    }
+    const admission =
+      legCallId ??
+      sessionCallId ??
+      (await admitDirectHandoff(admissionTx, raw, raw.occurredAt)) ??
+      (await admitInboundCall(admissionTx, raw));
+    if (!admission) {
+      throw new TelnyxEventAdmissionError("TELNYX_EVENT_OUT_OF_SCOPE");
     }
 
-    await persistEventOwner(ownerTx, event, raw, effectOwner);
-    return effectOwner;
+    await bindProviderSession(admissionTx, event, raw);
+    return "ADMITTED" as const;
   });
 }

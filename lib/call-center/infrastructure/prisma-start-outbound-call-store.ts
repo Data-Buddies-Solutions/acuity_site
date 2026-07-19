@@ -366,7 +366,6 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     const call = await this.transaction.callCenterCall.create({
       data: {
         direction: "OUTBOUND",
-        effectOwner: "CANONICAL",
         fromPhone: from,
         id: callId,
         deadlineAt: new Date(now.getTime() + OUTBOUND_INITIATION_TIMEOUT_MS),

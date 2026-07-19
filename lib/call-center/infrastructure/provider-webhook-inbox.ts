@@ -11,7 +11,6 @@ type ProviderWebhookStatus =
 export type ProviderWebhookRecord = {
   attemptCount: number;
   directHandoffTokenHash: string | null;
-  effectOwner: "CANONICAL" | "LEGACY" | null;
   errorCode: string | null;
   eventType: string;
   id: string;
@@ -21,6 +20,7 @@ export type ProviderWebhookRecord = {
   processingStatus: ProviderWebhookStatus;
   providerCallSessionId: string | null;
   providerEventId: string;
+  receivedAt: Date;
   updatedAt: Date;
 };
 
@@ -34,13 +34,11 @@ export type ProviderWebhookInboxStore = {
     now: Date;
     staleBefore: Date;
   }): Promise<ProviderWebhookRecord | null>;
-  complete(input: {
+  completeIgnored(input: {
     attemptCount: number;
-    effectOwner: "CANONICAL" | "LEGACY" | null;
     errorCode?: string;
     eventId: string;
     now: Date;
-    status: "IGNORED" | "PROCESSED";
   }): Promise<boolean>;
   fail(input: {
     attemptCount: number;
@@ -116,7 +114,7 @@ export function createProviderWebhookInbox(
   } = {},
 ) {
   return {
-    complete: store.complete,
+    completeIgnored: store.completeIgnored,
     fail: store.fail,
     receive: store.receive,
     retryAt: (attemptCount: number) => providerWebhookRetryAt(attemptCount, clock()),
@@ -148,7 +146,6 @@ export function createProviderWebhookInbox(
 const selectedFields = {
   attemptCount: true,
   directHandoffTokenHash: true,
-  effectOwner: true,
   errorCode: true,
   eventType: true,
   id: true,
@@ -158,6 +155,7 @@ const selectedFields = {
   processingStatus: true,
   providerCallSessionId: true,
   providerEventId: true,
+  receivedAt: true,
   updatedAt: true,
 } as const;
 
@@ -239,23 +237,16 @@ const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore = {
       where: { id: eventId },
     });
   },
-  async complete({ attemptCount, effectOwner, errorCode, eventId, now, status }) {
+  async completeIgnored({ attemptCount, errorCode, eventId, now }) {
     const completed = await prisma.providerWebhookEvent.updateMany({
       data: {
-        ...(effectOwner === null
-          ? {
-              canonicalProjectedAt: now,
-              canonicalProjectionStatus: "IGNORED" as const,
-            }
-          : {}),
         errorCode: errorCode ?? null,
         nextAttemptAt: null,
         processedAt: now,
-        processingStatus: status,
+        processingStatus: "IGNORED",
       },
       where: {
         attemptCount,
-        effectOwner,
         id: eventId,
         processingStatus: "PROCESSING",
       },
@@ -286,7 +277,6 @@ const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore = {
       data: [
         {
           directHandoffTokenHash: sanitized.tokenHash,
-          effectOwner: null,
           eventType: envelope.eventType,
           occurredAt: envelope.occurredAt,
           payload: jsonInput(sanitized.body),

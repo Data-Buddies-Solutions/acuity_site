@@ -1,6 +1,6 @@
 # Call Center Deployment Runbook
 
-Last reviewed: 2026-07-15
+Last reviewed: 2026-07-19
 
 This is a normal canonical deployment, not an activation rollout. There is no
 preflight approval, shadow stage, queue mode, or global enable switch.
@@ -20,8 +20,8 @@ preflight approval, shadow stage, queue mode, or global enable switch.
 
 ## Deploy
 
-1. Merge the application and the `20260715110000` task-shape migration plus the
-   `20260715120000` canonical cleanup migration to `main`.
+1. Merge the application and migrations through
+   `20260719190000_retire_dual_webhook_lifecycle` to `main`.
 2. Run the production migration workflow with its normal `confirm=DEPLOY`
    authorization.
 3. Deploy `main`. Do not add or toggle a call-center activation environment
@@ -29,9 +29,11 @@ preflight approval, shadow stage, queue mode, or global enable switch.
 4. Leave provider credentials and direct-handoff route values unchanged unless
    the deployment explicitly changes that integration.
 
-The SQL migration is forward-only. If application rollback is required, roll
-back the application only to a revision that understands the canonical schema;
-do not restore retired tables or run destructive reverse SQL.
+The SQL migrations are forward-only. After
+`20260719190000_retire_dual_webhook_lifecycle`, roll back the application only
+to a revision that understands the single provider-event status and the schema
+without `effectOwner`; do not restore the owner fence, dual inbox, retired
+tables, or run destructive reverse SQL.
 
 ## Production verification
 
@@ -59,6 +61,7 @@ inbound number.
 Healthy production has:
 
 - no failed provider events or commands awaiting operator investigation;
+- no provider event with an expired `PROCESSING` claim;
 - no ambiguous command/event correlation;
 - no active call past its queue or ring deadline;
 - no `BUSY` agent without a current connected call;

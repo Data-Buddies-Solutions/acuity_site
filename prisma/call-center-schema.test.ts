@@ -21,10 +21,11 @@ void (0 as unknown as RetiredSessionRelations);
 void (0 as unknown as RetiredCallRelations);
 
 describe("canonical call-center schema", () => {
-  it("exposes one queue policy, call-leg occupancy, and one call deadline", () => {
+  it("exposes one queue policy, occupancy, deadline, and webhook lifecycle", () => {
     const queueFields = Object.values(Prisma.CallCenterQueueScalarFieldEnum);
     const sessionFields = Object.values(Prisma.CallCenterAgentSessionScalarFieldEnum);
     const callFields = Object.values(Prisma.CallCenterCallScalarFieldEnum);
+    const webhookFields = Object.values(Prisma.ProviderWebhookEventScalarFieldEnum);
 
     for (const retired of [
       "ringTimeoutSec",
@@ -39,6 +40,16 @@ describe("canonical call-center schema", () => {
     }
     expect(callFields).not.toContain("queueDeadlineAt");
     expect(callFields).toContain("deadlineAt");
-    expect(callFields).toContain("effectOwner");
+    expect(callFields).not.toContain("effectOwner");
+    for (const retired of [
+      "effectOwner",
+      "canonicalProjectionStatus",
+      "canonicalProjectionAttemptCount",
+      "canonicalProjectionNextAttemptAt",
+      "canonicalProjectionErrorCode",
+      "canonicalProjectedAt",
+    ]) {
+      expect(webhookFields).not.toContain(retired);
+    }
   });
 });

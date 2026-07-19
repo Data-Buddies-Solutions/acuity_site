@@ -61,7 +61,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
     const call = await this.transaction.callCenterCall.findFirst({
       select: {
         direction: true,
-        effectOwner: true,
         id: true,
         practiceId: true,
         queueId: true,
@@ -130,7 +129,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
     return {
       callId: call.id,
       direction: call.direction,
-      effectOwner: call.effectOwner,
       practiceId: call.practiceId,
       queue: {
         enabled: queue.enabled,
@@ -186,7 +184,6 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       },
       where: {
         direction: "INBOUND",
-        effectOwner: "CANONICAL",
         id: context.callId,
         practiceId: context.practiceId,
         queueId: context.queue.id,

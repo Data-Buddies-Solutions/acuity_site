@@ -25,7 +25,6 @@ function fakeDatabase({
     answeredAt: null,
     deadlineAt,
     direction: "INBOUND" as const,
-    effectOwner: "CANONICAL" as const,
     id: "call-1",
     legs: [
       {

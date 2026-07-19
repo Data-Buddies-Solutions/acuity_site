@@ -15,7 +15,6 @@ function event(overrides: Partial<ProviderWebhookRecord> = {}): ProviderWebhookR
   return {
     attemptCount: 0,
     directHandoffTokenHash: null,
-    effectOwner: null,
     errorCode: null,
     eventType: "call.initiated",
     id: "inbox-1",
@@ -25,6 +24,7 @@ function event(overrides: Partial<ProviderWebhookRecord> = {}): ProviderWebhookR
     processingStatus: "RECEIVED",
     providerCallSessionId: null,
     providerEventId: "event-1",
+    receivedAt: now,
     updatedAt: now,
     ...overrides,
   };
@@ -122,7 +122,7 @@ describe("provider webhook claim decisions", () => {
         claimed = true;
         return event({ attemptCount: 1, processingStatus: "PROCESSING" });
       },
-      complete: async () => true,
+      completeIgnored: async () => true,
       fail: async () => true,
       receive: async () => event(),
     };

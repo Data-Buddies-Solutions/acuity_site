@@ -454,7 +454,6 @@ function fact(overrides: Partial<CanonicalTelnyxCallFact> = {}): CanonicalTelnyx
 describe("canonical browser peer legs", () => {
   it("resolves the provider peer to the one planned endpoint leg", async () => {
     const call = {
-      effectOwner: "CANONICAL",
       id: "call-1",
       practiceId: "practice-1",
       status: "CONNECTED",
