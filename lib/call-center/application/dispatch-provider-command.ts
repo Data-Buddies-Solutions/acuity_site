@@ -23,6 +23,11 @@ export interface ProviderCommandDispatchStore {
     errorCode: ProviderSendErrorClassification["code"];
     now: Date;
   }): Promise<{ commandIds: string[] } | null>;
+  markConfirmed(input: {
+    attemptCount: number;
+    commandId: string;
+    now: Date;
+  }): Promise<ProviderCommandMarkSentResult>;
   markSent(input: {
     attemptCount: number;
     commandId: string;
@@ -43,7 +48,7 @@ export type ProviderCommandSettledClaim = {
 };
 
 export interface ProviderCommandSender {
-  send(command: ProviderCommandDispatchData): Promise<void>;
+  send(command: ProviderCommandDispatchData): Promise<void | { alreadySettled: true }>;
 }
 
 export interface ProviderSendErrorClassifier {
@@ -200,7 +205,21 @@ export function createProviderCommandDispatcher({
     }
 
     try {
-      await sender.send(claim.command);
+      const sendResult = await sender.send(claim.command);
+      if (sendResult?.alreadySettled) {
+        const markConfirmed = await store.markConfirmed({
+          attemptCount: claim.attemptCount,
+          commandId: claim.command.commandId,
+          now: clock(),
+        });
+        return markConfirmed === "STALE"
+          ? {
+              commandId: claim.command.commandId,
+              phase: "MARK_SENT",
+              status: "STALE",
+            }
+          : { commandId: claim.command.commandId, status: "SETTLED" };
+      }
     } catch (error) {
       const classified = classifySafely(classifyError, error);
       if (

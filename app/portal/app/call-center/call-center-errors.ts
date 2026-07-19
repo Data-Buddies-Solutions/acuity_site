@@ -6,7 +6,14 @@ import {
 } from "@/lib/call-center/operator-error";
 
 export type CallCenterAction =
-  "answer" | "connect" | "end" | "mute" | "outbound" | "readiness" | "transfer";
+  | "answer"
+  | "connect"
+  | "end"
+  | "hold"
+  | "mute"
+  | "outbound"
+  | "readiness"
+  | "transfer";
 
 export type OperatorErrorCopy = {
   message: string;
@@ -123,6 +130,7 @@ const actionPhrase: Record<CallCenterAction, string> = {
   answer: "answer this call",
   connect: "connect to the call center",
   end: "end this call",
+  hold: "update hold",
   mute: "update mute",
   outbound: "start this call",
   readiness: "get ready for calls",

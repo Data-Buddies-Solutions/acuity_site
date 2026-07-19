@@ -255,6 +255,7 @@ export async function startTelnyxPlayback({
   loop = 1,
   playbackContent,
   signal,
+  targetLegs = "self",
 }: {
   audioType?: "mp3" | "wav";
   callControlId: string;
@@ -263,6 +264,7 @@ export async function startTelnyxPlayback({
   loop?: number | "infinity";
   playbackContent: string;
   signal?: AbortSignal;
+  targetLegs?: "both" | "opposite" | "self";
 }) {
   return telnyxFetch(`/v2/calls/${callControlId}/actions/playback_start`, {
     body: JSON.stringify({
@@ -270,7 +272,7 @@ export async function startTelnyxPlayback({
       cache_audio: true,
       loop,
       playback_content: playbackContent,
-      target_legs: "self",
+      target_legs: targetLegs,
       ...(clientState ? { client_state: clientState } : {}),
       ...(commandId ? { command_id: commandId } : {}),
     }),

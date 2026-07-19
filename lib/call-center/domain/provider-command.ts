@@ -30,6 +30,18 @@ type StopPlaybackDispatchData = ProviderCommandDispatchBase & {
   type: "STOP_PLAYBACK";
 };
 
+type StartHoldMusicDispatchData = ProviderCommandDispatchBase & {
+  arguments: Record<string, never>;
+  provider: ExistingLegProviderTarget;
+  type: "START_HOLD_MUSIC";
+};
+
+type StopHoldMusicDispatchData = ProviderCommandDispatchBase & {
+  arguments: Record<string, never>;
+  provider: ExistingLegProviderTarget;
+  type: "STOP_HOLD_MUSIC";
+};
+
 type HangupLegDispatchData = ProviderCommandDispatchBase & {
   arguments: Record<string, never>;
   provider: ExistingLegProviderTarget;
@@ -86,6 +98,8 @@ export type ProviderCommandDispatchData =
   | DialAgentDispatchData
   | TransferAgentDispatchData
   | StopPlaybackDispatchData
+  | StartHoldMusicDispatchData
+  | StopHoldMusicDispatchData
   | HangupLegDispatchData
   | PlayVoicemailGreetingDispatchData
   | StartRecordingDispatchData;

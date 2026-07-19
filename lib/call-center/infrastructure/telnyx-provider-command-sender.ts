@@ -3,6 +3,7 @@ import type {
   ProviderSendErrorClassifier,
 } from "@/lib/call-center/application/dispatch-provider-command";
 import type { ProviderCommandDispatchData } from "@/lib/call-center/domain/provider-command";
+import { holdMusicWavBase64 } from "@/lib/call-center/infrastructure/hold-music";
 import { ringbackWavBase64For } from "@/lib/call-center/infrastructure/ringback-audio";
 import {
   answerTelnyxCall,
@@ -67,6 +68,7 @@ type TelnyxCommandOperations = {
   answer: typeof answerTelnyxCall;
   dial: typeof dialTelnyxCall;
   hangup: typeof hangupTelnyxCall;
+  holdMusicContent: typeof holdMusicWavBase64;
   playbackStart: typeof startTelnyxPlayback;
   playbackStop: typeof stopTelnyxPlayback;
   recordStart: typeof startTelnyxRecording;
@@ -79,6 +81,7 @@ const telnyxOperations: TelnyxCommandOperations = {
   answer: answerTelnyxCall,
   dial: dialTelnyxCall,
   hangup: hangupTelnyxCall,
+  holdMusicContent: holdMusicWavBase64,
   playbackStart: startTelnyxPlayback,
   playbackStop: stopTelnyxPlayback,
   recordStart: startTelnyxRecording,
@@ -94,8 +97,9 @@ function requireSuccessfulResponse(response: Response, action: string) {
 }
 
 export function createTelnyxProviderCommandSender(
-  operations: TelnyxCommandOperations = telnyxOperations,
+  overrides: Partial<TelnyxCommandOperations> = {},
 ): ProviderCommandSender {
+  const operations = { ...telnyxOperations, ...overrides };
   return {
     async send(command: ProviderCommandDispatchData) {
       switch (command.type) {
@@ -163,6 +167,31 @@ export function createTelnyxProviderCommandSender(
           if (![404, 422].includes(response.status)) {
             requireSuccessfulResponse(response, "playback stop");
           }
+          return;
+        }
+        case "START_HOLD_MUSIC":
+          requireSuccessfulResponse(
+            await operations.playbackStart({
+              audioType: "wav",
+              callControlId: command.provider.callControlId,
+              clientState: canonicalCommandClientState(command),
+              commandId: command.commandId,
+              loop: "infinity",
+              playbackContent: operations.holdMusicContent(),
+              targetLegs: "opposite",
+            }),
+            "hold music",
+          );
+          return;
+        case "STOP_HOLD_MUSIC": {
+          const response = await operations.playbackStop(
+            command.provider.callControlId,
+            command.commandId,
+            undefined,
+            canonicalCommandClientState(command),
+          );
+          if ([404, 422].includes(response.status)) return { alreadySettled: true };
+          requireSuccessfulResponse(response, "hold music stop");
           return;
         }
         case "HANGUP_LEG":

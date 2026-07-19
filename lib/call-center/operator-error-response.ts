@@ -86,6 +86,7 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     retryable: false,
   },
   "Call changed; refresh and try again": { code: "SESSION_STALE", retryable: true },
+  "Call is not connected": { code: "CALL_NOT_CONNECTED", retryable: false },
   "Call is not ready for disposition": { code: "CALL_NOT_READY", retryable: true },
   "Call is not connected to this phone": {
     code: "CALL_NOT_CONNECTED",

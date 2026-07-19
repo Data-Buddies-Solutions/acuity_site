@@ -142,6 +142,11 @@ describe("Telnyx provider command sender", () => {
       practiceId: "practice-1",
       provider: { callControlId: "customer-control-1" },
     };
+    const agentTarget = {
+      ...target,
+      legId: "agent-leg-1",
+      provider: { callControlId: "agent-control-1" },
+    };
 
     await sender.send({ ...target, arguments: {}, type: "ANSWER_CUSTOMER" });
     await sender.send({
@@ -150,6 +155,16 @@ describe("Telnyx provider command sender", () => {
       type: "START_RINGBACK",
     });
     await sender.send({ ...target, arguments: {}, type: "STOP_PLAYBACK" });
+    await sender.send({
+      ...agentTarget,
+      arguments: {},
+      type: "START_HOLD_MUSIC",
+    });
+    await sender.send({
+      ...agentTarget,
+      arguments: {},
+      type: "STOP_HOLD_MUSIC",
+    });
     await sender.send({ ...target, arguments: {}, type: "HANGUP_LEG" });
     await sender.send({
       ...target,
@@ -194,6 +209,19 @@ describe("Telnyx provider command sender", () => {
         "playbackStop",
         ["customer-control-1", "command-1", undefined, expect.any(String)],
       ],
+      [
+        "playbackStart",
+        {
+          audioType: "wav",
+          callControlId: "agent-control-1",
+          clientState: expect.any(String),
+          commandId: "command-1",
+          loop: "infinity",
+          playbackContent: expect.any(String),
+          targetLegs: "opposite",
+        },
+      ],
+      ["playbackStop", ["agent-control-1", "command-1", undefined, expect.any(String)]],
       ["hangup", ["customer-control-1", "command-1", undefined, expect.any(String)]],
       [
         "speak",
@@ -303,6 +331,33 @@ describe("Telnyx provider command sender", () => {
         }),
       ).resolves.toBeUndefined();
     }
+  });
+
+  it("settles hold music when playback is already stopped", async () => {
+    const sender = createTelnyxProviderCommandSender({
+      answer: async () => new Response(null, { status: 204 }),
+      dial: async () => ({}),
+      hangup: async () => new Response(null, { status: 204 }),
+      holdMusicContent: () => "hold-music",
+      playbackStart: async () => new Response(null, { status: 204 }),
+      playbackStop: async () => new Response(null, { status: 404 }),
+      recordStart: async () => new Response(null, { status: 204 }),
+      ringbackContent: () => "ringback",
+      speak: async () => new Response(null, { status: 204 }),
+    });
+
+    await expect(
+      sender.send({
+        arguments: {},
+        callId: "call-1",
+        commandId: "command-1",
+        idempotencyKey: "stop-hold-1",
+        legId: "agent-leg-1",
+        practiceId: "practice-1",
+        provider: { callControlId: "agent-control-1" },
+        type: "STOP_HOLD_MUSIC",
+      }),
+    ).resolves.toEqual({ alreadySettled: true });
   });
 
   it("continues when the provider leg is already hung up", async () => {

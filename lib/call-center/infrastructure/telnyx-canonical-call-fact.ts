@@ -27,6 +27,7 @@ export type CanonicalTelnyxCallFact = {
   providerCallLegId: string | null;
   providerCallSessionId: string | null;
   providerEventId: string;
+  playbackStatus: string | null;
   recordingDurationSec: number;
   recordingId: string | null;
   recordingUrl: string | null;
@@ -315,6 +316,10 @@ export function parseCanonicalTelnyxCallFact(
     providerCallLegId,
     providerCallSessionId,
     providerEventId,
+    playbackStatus:
+      eventType === "call.playback.ended"
+        ? (boundedCode(payload.status)?.toLowerCase() ?? null)
+        : null,
     recordingDurationSec: recordingDurationSec(payload),
     recordingId,
     recordingUrl: resolvedRecordingUrl,

@@ -122,6 +122,16 @@ describe("call readiness", () => {
 });
 
 function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
+  const observation = {
+    connectionId: "connection-1",
+    direction: "INBOUND" as const,
+    mediaLegId: "media-leg-1",
+    providerCallControlId: "control-1",
+    providerCallLegId: "provider-leg-1",
+    providerCallSessionId: "provider-session-1",
+    remoteAudioReady: true,
+    state,
+  };
   const controls = {
     activate: mock(() => {}),
     answer: mock(async () => {}),
@@ -129,24 +139,27 @@ function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
     dial: mock(() => "media-leg-1"),
     error: null,
     hangup: mock(async () => {}),
+    hold: mock(async (_mediaLegId: string, _held: boolean) => true),
     microphoneReady: true,
     mute: mock(() => {}),
-    observations: [
-      {
-        connectionId: "connection-1",
-        direction: "INBOUND" as const,
-        mediaLegId: "media-leg-1",
-        providerCallControlId: "control-1",
-        providerCallLegId: "provider-leg-1",
-        providerCallSessionId: "provider-session-1",
-        remoteAudioReady: true,
-        state,
-      },
-    ],
+    observations: [observation],
     soundReady: true,
   };
 
   return controls as typeof controls & ReturnType<typeof useSoftphoneMedia>;
+}
+
+function withMediaState(
+  media: ReturnType<typeof mediaControls>,
+  state: "ACTIVE" | "HELD",
+) {
+  return {
+    ...media,
+    observations: media.observations.map((observation) => ({
+      ...observation,
+      state,
+    })),
+  };
 }
 
 describe("CanonicalActiveCall", () => {
@@ -178,6 +191,284 @@ describe("CanonicalActiveCall", () => {
     });
     expect(fetchEnd).not.toHaveBeenCalled();
     expect(media.hangup).toHaveBeenCalledWith("media-leg-1");
+  });
+
+  it("holds media with caller music and stops music before resuming", async () => {
+    const media = mediaControls();
+    const requests: Array<{
+      action: string;
+      idempotencyKey: string | null;
+      url: string;
+    }> = [];
+    globalThis.fetch = mock(async (input, init) => {
+      requests.push({
+        action: JSON.parse(String(init?.body)).action,
+        idempotencyKey: new Headers(init?.headers).get("Idempotency-Key"),
+        url: String(input),
+      });
+      return Response.json({ status: "CONFIRMED" }, { status: 202 });
+    }) as unknown as typeof fetch;
+
+    const view = render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hold" }));
+    });
+    expect(media.hold).toHaveBeenCalledWith("media-leg-1", true);
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={withMediaState(media, "HELD")}
+        sessionId="session-1"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    });
+    expect(media.hold).toHaveBeenCalledWith("media-leg-1", false);
+    expect(requests.map(({ action }) => action)).toEqual(["START", "STOP"]);
+    expect(requests[0]?.url).toBe(
+      "/api/portal/call-center/calls/call-inbound/hold-music",
+    );
+    expect(
+      requests.every(({ idempotencyKey }) =>
+        idempotencyKey?.startsWith("hold-music:call-inbound:"),
+      ),
+    ).toBe(true);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  });
+
+  it("keeps resume available for a held outbound call", () => {
+    const call = connectedCall("OUTBOUND");
+    call.legs[0]!.status = "ANSWERED";
+    call.winningLegId = null;
+
+    render(
+      <CanonicalActiveCall
+        call={call}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={mediaControls("HELD")}
+        sessionId="session-1"
+      />,
+    );
+
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Resume" }).disabled,
+    ).toBe(false);
+  });
+
+  it("surfaces a failed hold-music restart when resume cannot unhold", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? Response.json({ status: "DISPATCHED" }, { status: 202 })
+        : Response.json(
+            {
+              error: {
+                code: "PROVIDER_UNAVAILABLE",
+                referenceId: "RESTART1",
+                retryable: true,
+              },
+            },
+            { status: 503 },
+          );
+    }) as unknown as typeof fetch;
+    const media = mediaControls("HELD");
+    media.hold.mockRejectedValue(new Error("unhold failed"));
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    });
+
+    expect(requestCount).toBe(2);
+    expect(screen.getByRole("alert").textContent).toContain("RESTART1");
+  });
+
+  it("keeps end available while a hold update is pending", async () => {
+    let finishRequest: ((response: Response) => void) | null = null;
+    globalThis.fetch = mock(
+      async () =>
+        new Promise<Response>((resolve) => {
+          finishRequest = resolve;
+        }),
+    ) as unknown as typeof fetch;
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={mediaControls()}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hold" }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "End" }).disabled).toBe(
+      false,
+    );
+
+    await act(async () => {
+      finishRequest?.(Response.json({ status: "CONFIRMED" }, { status: 202 }));
+      await Promise.resolve();
+    });
+  });
+
+  it("shows resume when hold-music rollback cannot unhold the provider call", async () => {
+    let requestCount = 0;
+    globalThis.fetch = mock(async () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? Response.json(
+            {
+              error: {
+                code: "PROVIDER_UNAVAILABLE",
+                referenceId: "ABC123",
+                retryable: true,
+              },
+            },
+            { status: 503 },
+          )
+        : Response.json({ status: "CONFIRMED" }, { status: 202 });
+    }) as unknown as typeof fetch;
+    const media = mediaControls();
+    media.hold.mockImplementation(async (_mediaLegId, held) => {
+      if (!held) throw new Error("unhold failed");
+      return true;
+    });
+
+    const view = render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hold" }));
+    });
+
+    expect(media.hold).toHaveBeenNthCalledWith(1, "media-leg-1", true);
+    expect(media.hold).toHaveBeenNthCalledWith(2, "media-leg-1", false);
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={withMediaState(media, "HELD")}
+        sessionId="session-1"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
+
+  it("keeps the call held when failed hold music cannot be stopped", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        {
+          error: {
+            code: "PROVIDER_UNAVAILABLE",
+            referenceId: "ABC123",
+            retryable: true,
+          },
+        },
+        { status: 503 },
+      ),
+    ) as unknown as typeof fetch;
+    const media = mediaControls();
+
+    const view = render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hold" }));
+    });
+
+    expect(media.hold).toHaveBeenCalledTimes(1);
+    expect(media.hold).toHaveBeenCalledWith("media-leg-1", true);
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={withMediaState(media, "HELD")}
+        sessionId="session-1"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
+
+  it("unholds directly when stale state prevents hold music from starting", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)).action);
+      return Response.json(
+        {
+          error: {
+            code: "SESSION_STALE",
+            referenceId: "ABC123",
+            retryable: true,
+          },
+        },
+        { status: 409 },
+      );
+    }) as unknown as typeof fetch;
+    const media = mediaControls();
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hold" }));
+    });
+
+    expect(requests).toEqual(["START"]);
+    expect(media.hold).toHaveBeenNthCalledWith(1, "media-leg-1", true);
+    expect(media.hold).toHaveBeenNthCalledWith(2, "media-leg-1", false);
+    expect(screen.getByRole("button", { name: "Hold" })).toBeTruthy();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   });
 
   it("rejects a ringing offer directly through the persistent softphone", async () => {

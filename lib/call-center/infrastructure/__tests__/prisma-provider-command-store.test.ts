@@ -42,9 +42,10 @@ function transaction({
   ],
   dependencyStatus = null,
   legKind = "AGENT",
+  legStatus = "CREATED",
   memberUserId = "user-1",
   sessionState = "ACTIVE",
-  targetLegStatus = "CREATED",
+  targetLegStatus = legStatus,
   winningLegId,
 }: {
   accessLocationIds?: string[];
@@ -57,6 +58,8 @@ function transaction({
     | "DIAL_AGENT"
     | "TRANSFER_AGENT"
     | "STOP_PLAYBACK"
+    | "START_HOLD_MUSIC"
+    | "STOP_HOLD_MUSIC"
     | "HANGUP_LEG"
     | "PLAY_VOICEMAIL_GREETING"
     | "START_RECORDING";
@@ -79,6 +82,7 @@ function transaction({
   }>;
   dependencyStatus?: "PENDING" | "SENT" | "CONFIRMED" | "FAILED" | null;
   legKind?: "AGENT" | "CUSTOMER";
+  legStatus?: "CREATED" | "ANSWERED" | "BRIDGED" | "ENDED";
   memberUserId?: string | null;
   sessionState?: "ACTIVE" | "OFFERED";
   targetLegStatus?:
@@ -556,6 +560,35 @@ describe("Prisma provider command store", () => {
       ).resolves.toMatchObject({
         command: {
           arguments: expectedArgs,
+          provider: { callControlId: "customer-control-1" },
+          type: commandType,
+        },
+      });
+    }
+  });
+
+  it("claims hold music commands only against an active agent leg", async () => {
+    for (const commandType of ["START_HOLD_MUSIC", "STOP_HOLD_MUSIC"] as const) {
+      const fake = transaction({
+        arguments: {},
+        callStatus: "CONNECTED",
+        commandType,
+        legKind: "AGENT",
+        legStatus: "BRIDGED",
+      });
+      const store = new PrismaProviderCommandStore((operation) =>
+        operation(fake.tx as never),
+      );
+
+      await expect(
+        store.claim({
+          commandId: "command-1",
+          now,
+          staleBefore: new Date(now.getTime() - 60_000),
+        }),
+      ).resolves.toMatchObject({
+        command: {
+          arguments: {},
           provider: { callControlId: "customer-control-1" },
           type: commandType,
         },

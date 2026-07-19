@@ -158,6 +158,21 @@ describe("canonical Telnyx call facts", () => {
     }
   });
 
+  it("retains the bounded playback ending status", () => {
+    expect(
+      parseCanonicalTelnyxCallFact(
+        envelope("call.playback.ended", {
+          call_control_id: "control-customer",
+          call_leg_id: "provider-leg-customer",
+          command_id: "command-1",
+          direction: "incoming",
+          status: "FILE_NOT_FOUND",
+        }),
+        receivedAt,
+      ),
+    ).toMatchObject({ playbackStatus: "file_not_found" });
+  });
+
   it("accepts a call-level voicemail fact with only the customer session identity", () => {
     expect(
       parseCanonicalTelnyxCallFact(
