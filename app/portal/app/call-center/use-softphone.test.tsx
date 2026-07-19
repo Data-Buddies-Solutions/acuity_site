@@ -678,6 +678,11 @@ describe("useSoftphoneMedia canonical credentials", () => {
       reason: "SDK_CALL_TERMINAL",
       recoveryGeneration: 0,
     });
+
+    const activeCall = { ...call, id: "media-leg-2", state: "active" };
+    act(() => clients[0]?.emitCallUpdate(activeCall));
+    act(() => clients[0]?.emitCallUpdate({ ...activeCall, state: "hangup" }));
+    expect(onRecoveryNeeded).toHaveBeenCalledTimes(1);
   });
 
   it("reports an empty token failure without exposing a JSON parser error", async () => {

@@ -25,7 +25,7 @@ export type ReconciledCallUpdate =
       accepted: true;
       nextObservations: readonly MediaObservation[];
       observation: MediaObservation;
-      predecessor: MediaObservation | null;
+      priorObservation: MediaObservation | null;
       recoveredMediaLegId: string | null;
       terminal: boolean;
     };
@@ -174,7 +174,7 @@ export function reconcileCallUpdate({
     remoteAudioReady: Boolean(call.remoteStream),
     state: call.state,
   });
-  const predecessor =
+  const priorObservation =
     predecessors[0] ??
     current.find(
       (candidate) =>
@@ -182,12 +182,12 @@ export function reconcileCallUpdate({
         candidate.recoveredMediaLegId === recoveredMediaLegId,
     ) ??
     null;
-  const correlatedObservation = predecessor
+  const correlatedObservation = priorObservation
     ? {
         ...observation,
         correlationProviderIds: uniqueProviderIdentities([
           ...observation.correlationProviderIds,
-          ...predecessor.correlationProviderIds,
+          ...priorObservation.correlationProviderIds,
         ]),
       }
     : observation;
@@ -204,7 +204,7 @@ export function reconcileCallUpdate({
       ? withoutPredecessor
       : upsertMediaObservation(withoutPredecessor, correlatedObservation),
     observation: correlatedObservation,
-    predecessor,
+    priorObservation,
     recoveredMediaLegId,
     terminal,
   };

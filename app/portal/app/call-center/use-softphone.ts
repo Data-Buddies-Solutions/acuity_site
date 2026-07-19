@@ -663,7 +663,7 @@ function useSoftphoneMediaEngine({
           const {
             nextObservations,
             observation: correlatedObservation,
-            predecessor,
+            priorObservation,
             recoveredMediaLegId,
             terminal,
           } = reconciled;
@@ -708,16 +708,21 @@ function useSoftphoneMediaEngine({
             });
             pendingAnswer.reject(localCallCenterError("CALL_NOT_CONNECTED", false));
           }
-          if (terminal) {
+          const recoverableTerminal =
+            terminal &&
+            correlatedObservation.direction === "INBOUND" &&
+            priorObservation &&
+            ["CONNECTING", "RINGING"].includes(priorObservation.state);
+          if (recoverableTerminal) {
             requestRecovery(
               correlatedObservation,
               "SDK_CALL_TERMINAL",
-              predecessor?.mediaLegId ?? correlatedObservation.mediaLegId,
+              priorObservation.mediaLegId,
             );
           }
           commitObservations(nextObservations);
           observationRef.current?.(correlatedObservation);
-          if (recoveredMediaLegId && predecessor) {
+          if (recoveredMediaLegId && priorObservation && !terminal) {
             emitLifecycle({
               category: "REATTACH_SUCCEEDED",
               connectionGeneration: correlatedObservation.recoveryGeneration,
