@@ -213,20 +213,21 @@ function database({
 }: TestDatabaseOptions = {}) {
   const assigned: TelnyxEventOwner[] = [];
   const created: Array<Record<string, unknown>> = [];
+  const createdLegs: Array<Record<string, unknown>> = [];
   const operations: string[] = [];
   const queries: string[] = [];
   const configuredNumber = number;
-  const reloadedNumber =
-    lockedNumber === undefined
-      ? configuredNumber
-        ? {
-            ...configuredNumber,
-            enabled: true,
-            inboundEnabled: true,
-            phoneNumber: "+17864657479",
-          }
-        : null
-      : lockedNumber;
+  let reloadedNumber = lockedNumber;
+  if (reloadedNumber === undefined) {
+    reloadedNumber = configuredNumber
+      ? {
+          ...configuredNumber,
+          enabled: true,
+          inboundEnabled: true,
+          phoneNumber: "+17864657479",
+        }
+      : null;
+  }
   const handoffs = handoffCandidates ?? (handoff ? [handoff] : []);
   const queryText = (query: unknown) =>
     Array.isArray((query as { strings?: string[] })?.strings)
@@ -269,6 +270,7 @@ function database({
       create: async ({ data }: { data: Record<string, unknown> }) => {
         operations.push("call-and-customer-leg.create");
         created.push(data);
+        createdLegs.push((data.legs as { create: Record<string, unknown> }).create);
         return { id: "created-call" };
       },
       findUnique: async ({ where }: { where: { providerCallSessionId: string } }) =>
@@ -377,6 +379,7 @@ function database({
   return {
     assigned,
     created,
+    createdLegs,
     legs,
     operations,
     queries,
@@ -384,12 +387,14 @@ function database({
       $transaction: async (operation: (tx: typeof transaction) => Promise<unknown>) => {
         const assignedCount = assigned.length;
         const createdCount = created.length;
+        const createdLegCount = createdLegs.length;
         const owners = [...eventOwners];
         try {
           return await operation(transaction);
         } catch (error) {
           assigned.splice(assignedCount);
           created.splice(createdCount);
+          createdLegs.splice(createdLegCount);
           eventOwners.splice(0, eventOwners.length, ...owners);
           throw error;
         }
@@ -717,6 +722,7 @@ describe("Telnyx event effect owner", () => {
       code: "TELNYX_EVENT_NUMBER_CHANGED",
     });
     expect(db.created).toEqual([]);
+    expect(db.createdLegs).toEqual([]);
     expect(db.assigned).toEqual([]);
   });
 
