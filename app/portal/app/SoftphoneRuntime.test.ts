@@ -4,6 +4,7 @@ import type { MediaObservation } from "./call-center/softphone-media-adapter";
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 import {
   createSoftphoneRuntimeCallActions,
+  isCanonicalOfferAnswerable,
   phoneOwnerMessageError,
   selectSoftphoneRuntimeBinding,
   selectSoftphoneRuntimeCalls,
@@ -83,6 +84,21 @@ describe("Softphone Runtime", () => {
       ),
     ).toEqual([null, null, null]);
     expect(selectSoftphoneRuntimeCalls([], "leg-1").answeringMediaLegId).toBeNull();
+  });
+
+  it("allows Answer only while the exact canonical Call can still be won", () => {
+    const ringing = { id: "call-1", status: "RINGING" as const, winningLegId: null };
+
+    expect(isCanonicalOfferAnswerable("call-1", [ringing])).toBe(true);
+    expect(
+      isCanonicalOfferAnswerable("call-1", [
+        ringing,
+        { id: "call-2", status: "CONNECTED", winningLegId: "leg-2" },
+      ]),
+    ).toBe(false);
+    expect(
+      isCanonicalOfferAnswerable("call-1", [{ ...ringing, winningLegId: "leg-1" }]),
+    ).toBe(false);
   });
 
   it("routes logical Call actions to the current recovered SDK object", async () => {

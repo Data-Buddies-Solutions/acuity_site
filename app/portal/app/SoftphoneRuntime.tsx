@@ -105,6 +105,19 @@ export function selectSoftphoneRuntimeBinding(
     : null;
 }
 
+export function isCanonicalOfferAnswerable(
+  callId: string,
+  calls: readonly Pick<CallView, "id" | "status" | "winningLegId">[],
+) {
+  const call = calls.find((candidate) => candidate.id === callId);
+  return Boolean(
+    call &&
+    call.status === "RINGING" &&
+    !call.winningLegId &&
+    !calls.some((candidate) => candidate.status === "CONNECTED"),
+  );
+}
+
 type RuntimeMediaActions = {
   activate(mediaLegId: string): void;
   answer(mediaLegId: string): Promise<void>;
@@ -348,23 +361,25 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     },
     [clientInstanceId],
   );
-  const canContinueAnswer = useCallback((mediaLegId: string) => {
-    const currentSession = sessionRef.current;
-    const observation = mediaObservationsRef.current.get(mediaLegId);
-    if (!currentSession || !observation) return false;
-    const matches = canonicalCallsRef.current.flatMap((call) => {
-      const binding = selectSoftphoneRuntimeBinding(call.id, [call], currentSession, [
-        observation,
-      ]);
-      return binding ? [{ binding, call }] : [];
-    });
-    return (
-      matches.length === 1 &&
-      matches[0]?.call.status === "RINGING" &&
-      !matches[0].call.winningLegId &&
-      !canonicalCallsRef.current.some((call) => call.status === "CONNECTED")
-    );
-  }, []);
+  const canAnswerCanonicalOffer = useCallback(
+    (callId: string) => isCanonicalOfferAnswerable(callId, canonicalCallsRef.current),
+    [],
+  );
+  const canContinueAnswer = useCallback(
+    (mediaLegId: string) => {
+      const currentSession = sessionRef.current;
+      const observation = mediaObservationsRef.current.get(mediaLegId);
+      if (!currentSession || !observation) return false;
+      const matches = canonicalCallsRef.current.flatMap((call) => {
+        const binding = selectSoftphoneRuntimeBinding(call.id, [call], currentSession, [
+          observation,
+        ]);
+        return binding ? [{ binding, call }] : [];
+      });
+      return matches.length === 1 && canAnswerCanonicalOffer(matches[0]?.call.id ?? "");
+    },
+    [canAnswerCanonicalOffer],
+  );
   const { setRemoteAudioElement, ...media } = useSoftphoneMedia({
     agentSessionId: session?.id ?? null,
     autoPrepare: Boolean(session),
@@ -467,6 +482,9 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const answer = useCallback(
     async (callId: string) => {
       if (answeringRef.current || calls.active) return;
+      if (!canAnswerCanonicalOffer(callId)) {
+        throw new Error("The call is no longer available to answer");
+      }
       answeringRef.current = callId;
       setAnsweringCallId(callId);
       try {
@@ -477,7 +495,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [callActions, calls.active],
+    [callActions, calls.active, canAnswerCanonicalOffer],
   );
   const callAvailability = useCallback(
     (callId: string) => bindingFor(callId)?.observation.availability ?? "PREPARING",
