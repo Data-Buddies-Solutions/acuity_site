@@ -37,12 +37,22 @@ const call: CallView = {
 };
 
 const observation = {
+  availability: "READY" as const,
+  correlationProviderIds: [
+    {
+      providerCallControlId: "control-1",
+      providerCallLegId: "provider-leg-1",
+      providerCallSessionId: "provider-session-1",
+    },
+  ],
   connectionId: "connection-1",
   direction: "INBOUND" as const,
   mediaLegId: "media-1",
   providerCallControlId: "control-1",
   providerCallLegId: "provider-leg-1",
   providerCallSessionId: "provider-session-1",
+  recoveredMediaLegId: null,
+  recoveryGeneration: 0,
   remoteAudioReady: false,
   state: "RINGING" as const,
 };
@@ -80,6 +90,23 @@ describe("canonical active call center correlation", () => {
         { ...observation, mediaLegId: "media-2" },
       ]),
     ).toBeNull();
+  });
+
+  it("keeps exact canonical correlation when recovered provider IDs change", () => {
+    const recovered = {
+      ...observation,
+      correlationProviderIds: observation.correlationProviderIds,
+      mediaLegId: "media-2",
+      providerCallControlId: "control-2",
+      providerCallLegId: "provider-leg-2",
+      providerCallSessionId: "provider-session-2",
+      recoveredMediaLegId: "media-1",
+      recoveryGeneration: 1,
+    };
+
+    expect(
+      selectCanonicalBrowserMediaLeg(call, "session-1", "endpoint-1", [recovered]),
+    ).toEqual({ leg: call.legs[0], observation: recovered });
   });
 
   it("reuses one outbound operation key until that operation completes", () => {

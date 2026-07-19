@@ -11,7 +11,8 @@ import {
   type ReactNode,
 } from "react";
 
-import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
+import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
+import type { BrowserLifecycleEvent } from "@/lib/call-center/application/record-browser-lifecycle";
 
 import {
   claimCallCenterClientInstance,
@@ -22,11 +23,18 @@ import {
   type CanonicalAgentConnectionState,
   useCanonicalAgentSession,
 } from "./call-center/use-canonical-agent-session";
+import { selectCanonicalBrowserMediaLeg } from "./call-center/canonical-active-call-center";
 import { useIncomingCallRingtone } from "./call-center/use-incoming-call-ringtone";
-import { useSoftphoneMedia } from "./call-center/use-softphone";
+import {
+  useSoftphoneMedia,
+  type DialMediaLeg,
+  type SoftphoneLifecycleEvent,
+} from "./call-center/use-softphone";
 
 const PHONE_OWNER_CHANNEL = "acuity-call-center-phone-owner";
 const PHONE_ACTIVE_ELSEWHERE = "Phone active in another tab";
+const TELNYX_WEBRTC_SDK_VERSION = "2.27.3";
+const TELEMETRY_BATCH_SIZE = 20;
 
 export function phoneOwnerMessageError(
   data: unknown,
@@ -82,14 +90,68 @@ export function selectSoftphoneRuntimeCalls(
   };
 }
 
+type RuntimeCallBinding = ReturnType<typeof selectCanonicalBrowserMediaLeg>;
+
+export function selectSoftphoneRuntimeBinding(
+  callId: string,
+  calls: readonly CallView[],
+  session: Pick<AgentSessionView, "endpointId" | "id"> | null,
+  observations: readonly MediaObservation[],
+) {
+  if (!session) return null;
+  const call = calls.find((candidate) => candidate.id === callId);
+  return call
+    ? selectCanonicalBrowserMediaLeg(call, session.id, session.endpointId, observations)
+    : null;
+}
+
+type RuntimeMediaActions = {
+  activate(mediaLegId: string): void;
+  answer(mediaLegId: string): Promise<void>;
+  hangup(mediaLegId: string): void;
+  mute(mediaLegId: string, muted: boolean): void;
+};
+
+function readyMediaLeg(binding: RuntimeCallBinding) {
+  if (!binding || binding.observation.availability !== "READY") {
+    throw new Error("The call is reconnecting");
+  }
+  return binding.observation.mediaLegId;
+}
+
+export function createSoftphoneRuntimeCallActions(
+  resolve: (callId: string) => RuntimeCallBinding,
+  media: RuntimeMediaActions,
+) {
+  return {
+    activate(callId: string) {
+      media.activate(readyMediaLeg(resolve(callId)));
+    },
+    answer(callId: string) {
+      return media.answer(readyMediaLeg(resolve(callId)));
+    },
+    hangup(callId: string) {
+      media.hangup(readyMediaLeg(resolve(callId)));
+    },
+    mute(callId: string, muted: boolean) {
+      media.mute(readyMediaLeg(resolve(callId)), muted);
+    },
+  };
+}
+
 type SoftphoneRuntimeValue = {
+  activate(callId: string): void;
+  answer(callId: string): Promise<void>;
+  answeringCallId: string | null;
+  callAvailability(callId: string): MediaObservation["availability"] | "PREPARING";
   clientInstanceId: string | null;
+  dial(callId: string, input: DialMediaLeg): void;
   error: string | null;
-  media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
+  hangup(callId: string): void;
+  mute(callId: string, muted: boolean): void;
   ringtone: ReturnType<typeof useIncomingCallRingtone>;
   session: AgentSessionView | null;
-  answer(mediaLegId: string): Promise<void>;
-  answeringMediaLegId: string | null;
+  synchronizeCalls(calls: readonly CallView[]): void;
   takeover(): Promise<void>;
 };
 
@@ -97,15 +159,21 @@ const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
 
 export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
+  const [, setCanonicalCalls] = useState<readonly CallView[]>([]);
   const [identityError, setIdentityError] = useState<string | null>(null);
-  const [answeringMediaLegId, setAnsweringMediaLegId] = useState<string | null>(null);
+  const [answeringCallId, setAnsweringCallId] = useState<string | null>(null);
   const [mediaReadiness, setMediaReadiness] = useState({
     audioReady: false,
     connectionState: "CLOSED" as CanonicalAgentConnectionState,
     microphoneReady: false,
   });
   const answeringRef = useRef<string | null>(null);
+  const canonicalCallsRef = useRef<readonly CallView[]>([]);
+  const mediaObservationsRef = useRef(new Map<string, MediaObservation>());
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
+  const sessionRef = useRef<AgentSessionView | null>(null);
+  const telemetryQueueRef = useRef<BrowserLifecycleEvent[]>([]);
+  const telemetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clientInstanceId = client?.clientInstanceId ?? null;
 
   useEffect(() => {
@@ -142,14 +210,195 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
           : "OFFLINE",
   });
   const session = agentSession.session;
+  sessionRef.current = session;
   const startSession = agentSession.start;
   const stopSession = agentSession.stop;
+  const onObservation = useCallback((observation: MediaObservation) => {
+    mediaObservationsRef.current.set(observation.mediaLegId, observation);
+  }, []);
+  const flushTelemetry = useCallback(() => {
+    if (telemetryTimerRef.current) {
+      clearTimeout(telemetryTimerRef.current);
+      telemetryTimerRef.current = null;
+    }
+    const events = telemetryQueueRef.current.splice(0, TELEMETRY_BATCH_SIZE);
+    if (!events.length) return;
+    void fetch("/api/portal/call-center/browser-events", {
+      body: JSON.stringify({ events }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }).catch(() => {});
+    if (telemetryQueueRef.current.length) {
+      telemetryTimerRef.current = setTimeout(flushTelemetry, 0);
+    }
+  }, []);
+  const queueLifecycleEvent = useCallback(
+    (event: SoftphoneLifecycleEvent) => {
+      const currentSession = sessionRef.current;
+      if (!currentSession || !clientInstanceId) return;
+      const observation = event.sdkCallId
+        ? mediaObservationsRef.current.get(event.sdkCallId)
+        : null;
+      const matches = observation
+        ? canonicalCallsRef.current.flatMap((call) => {
+            const binding = selectSoftphoneRuntimeBinding(
+              call.id,
+              [call],
+              currentSession,
+              [observation],
+            );
+            return binding ? [{ binding, call }] : [];
+          })
+        : [];
+      const match = matches.length === 1 ? matches[0] : null;
+      telemetryQueueRef.current.push({
+        agentSessionId: currentSession.id,
+        ...(event.answerOperationId
+          ? { answerOperationId: event.answerOperationId }
+          : {}),
+        ...(event.answerOutcome ? { answerOutcome: event.answerOutcome } : {}),
+        browserClientInstanceId: clientInstanceId,
+        callId: match?.call.id ?? null,
+        callLegId: match?.binding.leg.id ?? null,
+        category: event.category,
+        connectionGeneration: event.connectionGeneration,
+        connectionId: event.connectionId,
+        connectionState: event.connectionState,
+        datacenter: event.datacenter,
+        deploymentRevision:
+          process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ??
+          process.env.NEXT_PUBLIC_GIT_COMMIT_SHA ??
+          null,
+        ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+        ...(typeof event.errorFatal === "boolean"
+          ? { errorFatal: event.errorFatal }
+          : {}),
+        ...(event.errorName ? { errorName: event.errorName } : {}),
+        eventId: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        providerCallControlId: event.providerCallControlId,
+        providerCallLegId: event.providerCallLegId,
+        providerCallSessionId: event.providerCallSessionId,
+        recoveredCallId: event.recoveredCallId,
+        region: event.region,
+        sdkCallId: event.sdkCallId,
+        sdkCallState: event.sdkCallState,
+        sdkVersion: TELNYX_WEBRTC_SDK_VERSION,
+      });
+      if (telemetryQueueRef.current.length >= TELEMETRY_BATCH_SIZE) {
+        flushTelemetry();
+      } else if (!telemetryTimerRef.current) {
+        telemetryTimerRef.current = setTimeout(flushTelemetry, 250);
+      }
+    },
+    [clientInstanceId, flushTelemetry],
+  );
+  useEffect(
+    () => () => {
+      flushTelemetry();
+    },
+    [flushTelemetry],
+  );
+  const requestReplacement = useCallback(
+    (request: {
+      mediaLegId: string;
+      reason: "CALL_DOES_NOT_EXIST" | "SESSION_NOT_REATTACHED";
+      recoveryGeneration: number;
+    }) => {
+      const currentSession = sessionRef.current;
+      const observation = mediaObservationsRef.current.get(request.mediaLegId);
+      if (!currentSession || !observation || !clientInstanceId) return;
+      const matches = canonicalCallsRef.current.flatMap((call) => {
+        const binding = selectSoftphoneRuntimeBinding(call.id, [call], currentSession, [
+          observation,
+        ]);
+        return binding ? [{ binding, call }] : [];
+      });
+      if (matches.length !== 1) return;
+      const [{ binding, call }] = matches;
+      const recoveryKey =
+        `browser-recovery:${call.id}:${binding.leg.id}:` + request.recoveryGeneration;
+      const send = async () => {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            const response = await fetch(
+              `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/recover-offer`,
+              {
+                body: JSON.stringify({
+                  agentSessionId: currentSession.id,
+                  callLegId: binding.leg.id,
+                  clientInstanceId,
+                  reason: request.reason,
+                  recoveryGeneration: request.recoveryGeneration,
+                }),
+                headers: {
+                  "Content-Type": "application/json",
+                  "Idempotency-Key": recoveryKey,
+                },
+                method: "POST",
+              },
+            );
+            if (response.ok || response.status < 500) return;
+          } catch {
+            // Retry once through the same durable idempotency boundary.
+          }
+        }
+      };
+      void send();
+    },
+    [clientInstanceId],
+  );
+  const canContinueAnswer = useCallback((mediaLegId: string) => {
+    const currentSession = sessionRef.current;
+    const observation = mediaObservationsRef.current.get(mediaLegId);
+    if (!currentSession || !observation) return false;
+    const matches = canonicalCallsRef.current.flatMap((call) => {
+      const binding = selectSoftphoneRuntimeBinding(call.id, [call], currentSession, [
+        observation,
+      ]);
+      return binding ? [{ binding, call }] : [];
+    });
+    return (
+      matches.length === 1 &&
+      matches[0]?.call.status === "RINGING" &&
+      !matches[0].call.winningLegId &&
+      !canonicalCallsRef.current.some((call) => call.status === "CONNECTED")
+    );
+  }, []);
   const { setRemoteAudioElement, ...media } = useSoftphoneMedia({
     agentSessionId: session?.id ?? null,
     autoPrepare: Boolean(session),
     browserSessionId: clientInstanceId ?? "",
+    canContinueAnswer,
     enabled: Boolean(session),
+    onLifecycle: queueLifecycleEvent,
+    onObservation,
+    onRecoveryNeeded: requestReplacement,
   });
+  useEffect(() => {
+    mediaObservationsRef.current.clear();
+    for (const observation of media.observations) {
+      mediaObservationsRef.current.set(observation.mediaLegId, observation);
+    }
+  }, [media.observations]);
+  const bindingFor = useCallback(
+    (callId: string) =>
+      selectSoftphoneRuntimeBinding(
+        callId,
+        canonicalCallsRef.current,
+        sessionRef.current,
+        media.observations,
+      ),
+    [media.observations],
+  );
+  const callActions = useMemo(
+    () => createSoftphoneRuntimeCallActions(bindingFor, media),
+    [bindingFor, media],
+  );
+  const synchronizeCalls = useCallback((calls: readonly CallView[]) => {
+    canonicalCallsRef.current = calls;
+    setCanonicalCalls(calls);
+  }, []);
 
   useEffect(() => {
     const next = {
@@ -192,7 +441,11 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     };
   }, [clientInstanceId, stopSession]);
 
-  const calls = selectSoftphoneRuntimeCalls(media.observations, answeringMediaLegId);
+  const answeringBinding = answeringCallId ? bindingFor(answeringCallId) : null;
+  const calls = selectSoftphoneRuntimeCalls(
+    media.observations,
+    answeringBinding?.observation.mediaLegId ?? null,
+  );
   const ringtone = useIncomingCallRingtone(calls.ringtoneOfferId);
 
   useEffect(() => {
@@ -203,28 +456,38 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   }, [media, media.observations]);
 
   useEffect(() => {
-    if (answeringMediaLegId && !calls.answeringMediaLegId) {
+    if (answeringCallId && !answeringBinding) {
       answeringRef.current = null;
       // Provider observations are an external subscription snapshot.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAnsweringMediaLegId(null);
+      setAnsweringCallId(null);
     }
-  }, [answeringMediaLegId, calls.answeringMediaLegId]);
+  }, [answeringBinding, answeringCallId]);
 
   const answer = useCallback(
-    async (mediaLegId: string) => {
+    async (callId: string) => {
       if (answeringRef.current || calls.active) return;
-      answeringRef.current = mediaLegId;
-      setAnsweringMediaLegId(mediaLegId);
+      answeringRef.current = callId;
+      setAnsweringCallId(callId);
       try {
-        await media.answer(mediaLegId);
+        await callActions.answer(callId);
       } catch (error) {
         answeringRef.current = null;
-        setAnsweringMediaLegId(null);
+        setAnsweringCallId(null);
         throw error;
       }
     },
-    [calls.active, media],
+    [callActions, calls.active],
+  );
+  const callAvailability = useCallback(
+    (callId: string) => bindingFor(callId)?.observation.availability ?? "PREPARING",
+    [bindingFor],
+  );
+  const dial = useCallback(
+    (_callId: string, input: DialMediaLeg) => {
+      media.dial(input);
+    },
+    [media],
   );
   const takeover = useCallback(async () => {
     if (!clientInstanceId) return;
@@ -243,28 +506,36 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
 
   const value = useMemo<SoftphoneRuntimeValue>(
     () => ({
+      activate: callActions.activate,
       answer,
-      answeringMediaLegId: calls.answeringMediaLegId,
+      answeringCallId,
+      callAvailability,
       clientInstanceId,
+      dial,
       error:
         identityError ??
         agentSession.error ??
         (media.connection === "FAILED" ? "Phone disconnected — reconnecting" : null),
-      media,
+      hangup: callActions.hangup,
+      mute: callActions.mute,
       ringtone,
       session,
+      synchronizeCalls,
       takeover,
     }),
     [
       agentSession.error,
       answer,
+      answeringCallId,
+      callActions,
+      callAvailability,
       clientInstanceId,
+      dial,
       identityError,
-      media,
       ringtone,
       session,
+      synchronizeCalls,
       takeover,
-      calls.answeringMediaLegId,
     ],
   );
 

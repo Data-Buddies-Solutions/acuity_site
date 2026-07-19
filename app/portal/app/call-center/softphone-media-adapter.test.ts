@@ -19,12 +19,22 @@ describe("softphone media adapter", () => {
         state: "active",
       }),
     ).toEqual({
+      availability: "READY",
       connectionId: "browser-connection",
+      correlationProviderIds: [
+        {
+          providerCallControlId: "call-control-id",
+          providerCallLegId: "call-leg-id",
+          providerCallSessionId: "call-session-id",
+        },
+      ],
       direction: "INBOUND",
       mediaLegId: "sdk-call-id",
       providerCallControlId: "call-control-id",
       providerCallLegId: "call-leg-id",
       providerCallSessionId: "call-session-id",
+      recoveredMediaLegId: null,
+      recoveryGeneration: 0,
       remoteAudioReady: true,
       state: "ACTIVE",
     });

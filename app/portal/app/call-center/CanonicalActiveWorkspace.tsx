@@ -42,12 +42,10 @@ import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
   selectCanonicalAgentActiveCall,
-  selectCanonicalBrowserMediaLeg,
 } from "./canonical-active-call-center";
 import ActivityRail from "./ActivityRail";
 import type { CanonicalAgentConnectionState } from "./use-canonical-agent-session";
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
-import { useSoftphoneMedia } from "./use-softphone";
 import { useSoftphoneRuntime } from "../SoftphoneRuntime";
 
 type CanonicalActiveWorkspaceProps = {
@@ -223,7 +221,6 @@ function ConnectedCanonicalActiveWorkspace({
     return () => window.clearTimeout(timeout);
   }, []);
 
-  const agentProfileId = realtime.state?.agentProfile?.id ?? "";
   const eligibleOutboundNumbers = outboundNumbers;
   const selectedNumberId = eligibleOutboundNumbers.some(({ id }) => id === numberChoice)
     ? numberChoice
@@ -232,12 +229,14 @@ function ConnectedCanonicalActiveWorkspace({
     ({ id }) => id === selectedNumberId,
   );
   const state = realtime.state;
+  const synchronizeCalls = runtime.synchronizeCalls;
+  useEffect(() => {
+    synchronizeCalls(state?.calls ?? []);
+  }, [state?.calls, synchronizeCalls]);
   const taskSignal = state
     ? canonicalTaskSignal(state.openTaskCount, state.tasks)
     : undefined;
   const session = runtime.session;
-  const media = runtime.media;
-  const { dial: dialMediaLeg, observations: mediaObservations } = media;
 
   useEffect(() => {
     if (taskSignal === undefined) return;
@@ -272,25 +271,19 @@ function ConnectedCanonicalActiveWorkspace({
   const answerCall = useCallback(
     async (call: CallView) => {
       if (!session) return;
-      const match = selectCanonicalBrowserMediaLeg(
-        call,
-        session.id,
-        session.endpointId,
-        mediaObservations,
-      );
-      if (!match) {
+      if (runtime.callAvailability(call.id) !== "READY") {
         setActionError("This call is still connecting. Try again in a moment.");
         return;
       }
 
       setActionError(null);
       try {
-        await runtime.answer(match.observation.mediaLegId);
+        await runtime.answer(call.id);
       } catch (error) {
         setActionError(errorMessage(error, "answer"));
       }
     },
-    [mediaObservations, runtime, session],
+    [runtime, session],
   );
 
   const startOutbound = useCallback(async () => {
@@ -348,7 +341,7 @@ function ConnectedCanonicalActiveWorkspace({
         throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
       setCallCenterCurrentCallGuard(body.callId);
-      dialMediaLeg({
+      runtime.dial(body.callId, {
         callerNumber: body.from,
         clientState: body.clientState,
         destinationNumber: body.to,
@@ -361,7 +354,7 @@ function ConnectedCanonicalActiveWorkspace({
       outboundStartingRef.current = false;
       setStartingOutbound(false);
     }
-  }, [clientInstanceId, destination, dialMediaLeg, queueId, selectedNumberId, session]);
+  }, [clientInstanceId, destination, queueId, runtime, selectedNumberId, session]);
 
   if (realtime.error && !state) {
     return (
@@ -467,16 +460,10 @@ function ConnectedCanonicalActiveWorkspace({
             {incomingCalls.length ? (
               <ul className="space-y-3">
                 {incomingCalls.map((call) => {
-                  const match = session
-                    ? selectCanonicalBrowserMediaLeg(
-                        call,
-                        session.id,
-                        session.endpointId,
-                        mediaObservations,
-                      )
-                    : null;
-                  const answering =
-                    match?.observation.mediaLegId === runtime.answeringMediaLegId;
+                  const availability = runtime.callAvailability(call.id);
+                  const answering = call.id === runtime.answeringCallId;
+                  const recovering =
+                    availability === "RECOVERING" || availability === "FAILED";
                   const phone = formatPhone(callPhone(call));
 
                   return (
@@ -490,15 +477,21 @@ function ConnectedCanonicalActiveWorkspace({
                         </p>
                         <p className="mt-1 text-xs text-[var(--portal-muted)]">
                           {call.callerName ? `${phone} · ` : ""}
-                          {answering ? "Connecting…" : match ? "Ringing" : "Preparing"}
+                          {answering
+                            ? "Connecting…"
+                            : recovering
+                              ? "Reconnecting…"
+                              : availability === "READY"
+                                ? "Ringing"
+                                : "Preparing"}
                         </p>
                       </div>
                       <Button
                         className="w-fit"
                         disabled={
                           !session ||
-                          !match ||
-                          Boolean(runtime.answeringMediaLegId) ||
+                          availability !== "READY" ||
+                          Boolean(runtime.answeringCallId) ||
                           Boolean(activeCall)
                         }
                         onClick={() => void answerCall(call)}
@@ -583,10 +576,8 @@ function ConnectedCanonicalActiveWorkspace({
               {activeCall ? (
                 <CanonicalActiveCall
                   call={activeCall}
-                  endpointId={agentProfileId}
+                  controls={runtime}
                   key={activeCall.id}
-                  media={media}
-                  sessionId={session?.id ?? null}
                 />
               ) : (
                 <>
@@ -648,29 +639,26 @@ function ConnectedCanonicalActiveWorkspace({
 
 export function CanonicalActiveCall({
   call,
-  endpointId,
-  media,
-  sessionId,
+  controls,
 }: {
   call: CallView;
-  endpointId: string;
-  media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
-  sessionId: string | null;
+  controls: {
+    callAvailability(callId: string): "FAILED" | "PREPARING" | "READY" | "RECOVERING";
+    hangup(callId: string): void;
+    mute(callId: string, muted: boolean): void;
+  };
 }) {
   const [callDuration, setCallDuration] = useState(0);
   const [controlError, setControlError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const [isMuted, setMuted] = useState(false);
-  const match = sessionId
-    ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
-    : null;
-  const canEnd = Boolean(match);
+  const callAvailability = controls.callAvailability(call.id);
+  const canEnd = callAvailability === "READY";
   const phone = formatPhone(callPhone(call));
   const connected = call.status === "CONNECTED";
-  const mediaLegId = match?.observation.mediaLegId ?? null;
   const controlsEnabled = Boolean(
-    mediaLegId &&
-    (match?.leg.status === "BRIDGED" || match?.observation.state === "ACTIVE"),
+    callAvailability === "READY" &&
+    call.legs.some((leg) => leg.id === call.winningLegId && leg.status === "BRIDGED"),
   );
 
   useEffect(() => {
@@ -695,10 +683,8 @@ export function CanonicalActiveCall({
   };
 
   const toggleMute = () => {
-    if (!mediaLegId) return;
-
     try {
-      media.mute(mediaLegId, !isMuted);
+      controls.mute(call.id, !isMuted);
       setMuted((current) => !current);
       setControlError(null);
     } catch (error) {
@@ -707,11 +693,11 @@ export function CanonicalActiveCall({
   };
 
   const endCall = async () => {
-    if (!mediaLegId || ending) return;
+    if (!canEnd || ending) return;
 
     setEnding(true);
     try {
-      media.hangup(mediaLegId);
+      controls.hangup(call.id);
       setControlError(null);
     } catch (error) {
       showControlError(error, "end");
@@ -742,6 +728,12 @@ export function CanonicalActiveCall({
             {formatCallDuration(callDuration)}
           </p>
         </div>
+
+        {callAvailability === "RECOVERING" || callAvailability === "FAILED" ? (
+          <p className="mt-3 text-sm font-medium text-amber-700" role="status">
+            Reconnecting…
+          </p>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Button

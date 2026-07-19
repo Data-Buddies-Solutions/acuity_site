@@ -1,19 +1,29 @@
 import { describe, expect, it } from "bun:test";
 
 import type { MediaObservation } from "./call-center/softphone-media-adapter";
-import { phoneOwnerMessageError, selectSoftphoneRuntimeCalls } from "./SoftphoneRuntime";
+import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
+import {
+  createSoftphoneRuntimeCallActions,
+  phoneOwnerMessageError,
+  selectSoftphoneRuntimeBinding,
+  selectSoftphoneRuntimeCalls,
+} from "./SoftphoneRuntime";
 
 function observation(
   mediaLegId: string,
   state: MediaObservation["state"],
 ): MediaObservation {
   return {
+    availability: "READY",
     connectionId: "connection-1",
+    correlationProviderIds: [],
     direction: "INBOUND",
     mediaLegId,
     providerCallControlId: null,
     providerCallLegId: null,
     providerCallSessionId: null,
+    recoveredMediaLegId: null,
+    recoveryGeneration: 0,
     remoteAudioReady: false,
     state,
   };
@@ -73,5 +83,74 @@ describe("Softphone Runtime", () => {
       ),
     ).toEqual([null, null, null]);
     expect(selectSoftphoneRuntimeCalls([], "leg-1").answeringMediaLegId).toBeNull();
+  });
+
+  it("routes logical Call actions to the current recovered SDK object", async () => {
+    const call: CallView = {
+      answeredAt: null,
+      callerName: null,
+      direction: "INBOUND",
+      endedAt: null,
+      fromPhone: "+15555550100",
+      id: "call-1",
+      legs: [
+        {
+          agentSessionId: "session-1",
+          endpointId: "endpoint-1",
+          id: "leg-1",
+          kind: "AGENT",
+          providerCallControlId: "control-1",
+          providerCallLegId: "provider-leg-1",
+          providerCallSessionId: "provider-session-1",
+          status: "RINGING",
+        },
+      ],
+      queueId: "queue-1",
+      receivedAt: "2026-07-19T12:00:00.000Z",
+      stateVersion: 1,
+      status: "RINGING",
+      toPhone: "+15555550199",
+      winningLegId: null,
+    };
+    const session = {
+      endpointId: "endpoint-1",
+      id: "session-1",
+    } satisfies Pick<AgentSessionView, "endpointId" | "id">;
+    const recovered = {
+      ...observation("media-leg-2", "RINGING"),
+      correlationProviderIds: [
+        {
+          providerCallControlId: "control-1",
+          providerCallLegId: "provider-leg-1",
+          providerCallSessionId: "provider-session-1",
+        },
+      ],
+      recoveredMediaLegId: "media-leg-1",
+      recoveryGeneration: 1,
+    };
+    const invoked: string[] = [];
+    const actions = createSoftphoneRuntimeCallActions(
+      (callId) => selectSoftphoneRuntimeBinding(callId, [call], session, [recovered]),
+      {
+        activate: (mediaLegId) => invoked.push(`activate:${mediaLegId}`),
+        answer: async (mediaLegId) => {
+          invoked.push(`answer:${mediaLegId}`);
+        },
+        hangup: (mediaLegId) => invoked.push(`hangup:${mediaLegId}`),
+        mute: (mediaLegId, muted) => invoked.push(`mute:${mediaLegId}:${muted}`),
+      },
+    );
+
+    await actions.answer(call.id);
+    actions.activate(call.id);
+    actions.mute(call.id, true);
+    actions.hangup(call.id);
+
+    expect(invoked).toEqual([
+      "answer:media-leg-2",
+      "activate:media-leg-2",
+      "mute:media-leg-2:true",
+      "hangup:media-leg-2",
+    ]);
   });
 });

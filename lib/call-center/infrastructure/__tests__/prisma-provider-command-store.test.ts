@@ -29,6 +29,7 @@ function transaction({
   commandErrorCode = null,
   commandStatus = "PENDING",
   commandType = "DIAL_AGENT",
+  callDeadlineAt = new Date(now.getTime() + 20_000),
   callStatus = "RINGING",
   customerLegs = [{ providerCallControlId: "customer-control-1" }],
   dependencyStatus = null,
@@ -48,6 +49,7 @@ function transaction({
     | "HANGUP_LEG"
     | "PLAY_VOICEMAIL_GREETING"
     | "START_RECORDING";
+  callDeadlineAt?: Date | null;
   callStatus?:
     | "RECEIVED"
     | "QUEUED"
@@ -114,6 +116,7 @@ function transaction({
         arguments: commandArguments,
         attemptCount: 0,
         call: {
+          deadlineAt: callDeadlineAt,
           number: {
             practicePhoneNumber: {
               locationId: "location-1",
@@ -267,6 +270,28 @@ describe("Prisma provider command store", () => {
       },
     });
     expect(fake.updates()).toBe(1);
+  });
+
+  it("limits a replacement dial to the original remaining ring deadline", async () => {
+    const fake = transaction({
+      callDeadlineAt: new Date(now.getTime() + 4_200),
+      sessionState: "OFFERED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      command: {
+        provider: { timeoutSeconds: 5 },
+      },
+    });
   });
 
   it("links an inbound dial to the first live customer leg", async () => {

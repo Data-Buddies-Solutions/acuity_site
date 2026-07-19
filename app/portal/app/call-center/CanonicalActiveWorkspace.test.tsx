@@ -8,7 +8,6 @@ import {
   canonicalSessionConnectionState,
   CanonicalActiveCall,
 } from "./CanonicalActiveWorkspace";
-import type { useSoftphoneMedia } from "./use-softphone";
 
 const originalFetch = globalThis.fetch;
 
@@ -112,53 +111,28 @@ describe("call readiness", () => {
   });
 });
 
-function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
+function callControls(availability: "PREPARING" | "READY" | "RECOVERING" = "READY") {
   const controls = {
-    activate: mock(() => {}),
-    answer: mock(async () => {}),
-    connection: "READY" as const,
-    dial: mock(() => "media-leg-1"),
-    error: null,
-    hangup: mock(async () => {}),
-    microphoneReady: true,
+    callAvailability: mock(() => availability),
+    hangup: mock(() => {}),
     mute: mock(() => {}),
-    observations: [
-      {
-        connectionId: "connection-1",
-        direction: "INBOUND" as const,
-        mediaLegId: "media-leg-1",
-        providerCallControlId: "control-1",
-        providerCallLegId: "provider-leg-1",
-        providerCallSessionId: "provider-session-1",
-        remoteAudioReady: true,
-        state,
-      },
-    ],
-    soundReady: true,
   };
 
-  return controls as typeof controls & ReturnType<typeof useSoftphoneMedia>;
+  return controls;
 }
 
 describe("CanonicalActiveCall", () => {
   it("restores connected inbound controls and routes them through canonical media", async () => {
-    const media = mediaControls();
+    const controls = callControls();
 
-    render(
-      <CanonicalActiveCall
-        call={connectedCall("INBOUND")}
-        endpointId="endpoint-1"
-        media={media}
-        sessionId="session-1"
-      />,
-    );
+    render(<CanonicalActiveCall call={connectedCall("INBOUND")} controls={controls} />);
 
     expect(screen.getByText("(954) 609-7250")).toBeTruthy();
     expect(screen.getByText("Patient call")).toBeTruthy();
     expect(screen.getByText("00:00")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Mute" }));
-    expect(media.mute).toHaveBeenCalledWith("media-leg-1", true);
+    expect(controls.mute).toHaveBeenCalledWith("call-inbound", true);
     expect(screen.getByRole("button", { name: "Unmute" })).toBeTruthy();
 
     const fetchEnd = mock(async () => new Response("{}", { status: 202 }));
@@ -167,7 +141,7 @@ describe("CanonicalActiveCall", () => {
       fireEvent.click(screen.getByRole("button", { name: "End" }));
     });
     expect(fetchEnd).not.toHaveBeenCalled();
-    expect(media.hangup).toHaveBeenCalledWith("media-leg-1");
+    expect(controls.hangup).toHaveBeenCalledWith("call-inbound");
   });
 
   it("rejects a ringing offer directly through the persistent softphone", async () => {
@@ -176,40 +150,46 @@ describe("CanonicalActiveCall", () => {
     offered.status = "RINGING";
     offered.winningLegId = null;
     offered.legs[0]!.status = "RINGING";
-    const media = mediaControls("RINGING");
+    const controls = callControls();
     const fetchEnd = mock(async () => new Response("{}", { status: 202 }));
     globalThis.fetch = fetchEnd as never;
 
-    render(
-      <CanonicalActiveCall
-        call={offered}
-        endpointId="endpoint-1"
-        media={media}
-        sessionId="session-1"
-      />,
-    );
+    render(<CanonicalActiveCall call={offered} controls={controls} />);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "End" }));
     });
 
     expect(fetchEnd).not.toHaveBeenCalled();
-    expect(media.hangup).toHaveBeenCalledWith("media-leg-1");
+    expect(controls.hangup).toHaveBeenCalledWith("call-inbound");
   });
 
   it("shows the outbound patient number and connected controls", () => {
     render(
-      <CanonicalActiveCall
-        call={connectedCall("OUTBOUND")}
-        endpointId="endpoint-1"
-        media={mediaControls()}
-        sessionId="session-1"
-      />,
+      <CanonicalActiveCall call={connectedCall("OUTBOUND")} controls={callControls()} />,
     );
 
     expect(screen.getByText("(954) 287-2010")).toBeTruthy();
     expect(screen.getByText("Outbound")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mute" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
+  });
+
+  it("keeps the active call visible while its logical binding recovers", () => {
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        controls={callControls("RECOVERING")}
+      />,
+    );
+
+    expect(screen.getByText("(954) 609-7250")).toBeTruthy();
+    expect(screen.getByText("Reconnecting…")).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Mute" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "End" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });

@@ -77,6 +77,14 @@ function sipUri(username: string) {
   return username.includes("@") ? `sip:${username}` : `sip:${username}@sip.telnyx.com`;
 }
 
+function remainingDialSeconds(deadlineAt: Date | null, now: Date) {
+  if (!deadlineAt) return 20;
+  return Math.min(
+    20,
+    Math.max(0, Math.ceil((deadlineAt.getTime() - now.getTime()) / 1_000)),
+  );
+}
+
 function isClaimable(
   command: {
     status: "PENDING" | "SENDING" | "SENT" | "CONFIRMED" | "FAILED";
@@ -343,6 +351,10 @@ async function loadProviderCommandClaim(
       agentSessionId: string;
       endpointId: string;
     };
+    const timeoutSeconds = remainingDialSeconds(command.call.deadlineAt, input.now);
+    if (timeoutSeconds < 1) {
+      return reject("COMMAND_CALL_DEADLINE_EXPIRED");
+    }
     if (
       leg.kind !== "AGENT" ||
       leg.endpointId !== args.endpointId ||
@@ -477,7 +489,7 @@ async function loadProviderCommandClaim(
           from,
           linkTo,
           sipUri: sipUri(endpoint.sipUsername.trim()),
-          timeoutSeconds: 20,
+          timeoutSeconds,
         },
         type: "DIAL_AGENT",
       },

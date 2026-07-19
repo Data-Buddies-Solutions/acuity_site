@@ -84,23 +84,26 @@ export function completeCanonicalOutboundOperation(
 }
 
 function sameProviderLeg(leg: CallView["legs"][number], observation: MediaObservation) {
-  const controlMatch =
-    leg.providerCallControlId &&
-    observation.providerCallControlId === leg.providerCallControlId;
-  const legMatch =
-    leg.providerCallLegId && observation.providerCallLegId === leg.providerCallLegId;
-  return Boolean(controlMatch || legMatch);
+  return observation.correlationProviderIds.some((identity) =>
+    Boolean(
+      (leg.providerCallControlId &&
+        identity.providerCallControlId === leg.providerCallControlId) ||
+      (leg.providerCallLegId && identity.providerCallLegId === leg.providerCallLegId),
+    ),
+  );
 }
 
 function sameProviderSession(
   leg: CallView["legs"][number],
   observation: MediaObservation,
 ) {
-  return Boolean(
-    leg.providerCallSessionId &&
+  return (
+    Boolean(leg.providerCallSessionId) &&
     observation.direction === "INBOUND" &&
     ["ACTIVE", "CONNECTING", "HELD", "RINGING"].includes(observation.state) &&
-    observation.providerCallSessionId === leg.providerCallSessionId,
+    observation.correlationProviderIds.some(
+      (identity) => identity.providerCallSessionId === leg.providerCallSessionId,
+    )
   );
 }
 

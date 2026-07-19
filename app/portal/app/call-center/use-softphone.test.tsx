@@ -46,6 +46,7 @@ class FakeTelnyxClient {
 mock.module("@telnyx/webrtc", () => ({ TelnyxRTC: FakeTelnyxClient }));
 
 const { useSoftphoneMedia } = await import("./use-softphone");
+type SoftphoneLifecycleEvent = import("./use-softphone").SoftphoneLifecycleEvent;
 const originalFetch = globalThis.fetch;
 const mediaPrototype = Object.getPrototypeOf(document.createElement("audio")) as {
   play: () => Promise<void>;
@@ -192,6 +193,421 @@ describe("useSoftphoneMedia canonical credentials", () => {
       });
     });
     expect(result.current.connection).toBe("READY");
+  });
+
+  it("keeps a recovering offer visible and answers only its exact replacement", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    const onLifecycle = mock((_event: SoftphoneLifecycleEvent) => {});
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+        onLifecycle,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    const staleAnswer = mock(async () => {});
+    const staleCall = {
+      answer: staleAnswer,
+      direction: "incoming",
+      id: "media-leg-1",
+      remoteStream: null,
+      state: "ringing",
+      telnyxIDs: {
+        telnyxCallControlId: "control-1",
+        telnyxLegId: "provider-leg-1",
+        telnyxSessionId: "provider-session-1",
+      },
+    };
+    act(() => clients[0]?.emitCallUpdate(staleCall));
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+
+    act(() => clients[0]?.emit("telnyx.socket.close"));
+    expect(result.current.observations[0]).toMatchObject({
+      availability: "RECOVERING",
+      mediaLegId: "media-leg-1",
+    });
+    act(() => clients[0]?.emit("telnyx.ready"));
+    expect(result.current.connection).toBe("READY");
+    expect(result.current.observations[0]?.availability).toBe("RECOVERING");
+    await expect(result.current.answer("media-leg-1")).rejects.toThrow();
+    expect(staleAnswer).not.toHaveBeenCalled();
+
+    const replacementAnswer = mock(async () => {});
+    const replacementCall = {
+      ...staleCall,
+      answer: replacementAnswer,
+      id: "media-leg-2",
+      recoveredCallId: "media-leg-1",
+    };
+    act(() => clients[0]?.emitCallUpdate(replacementCall));
+    await waitFor(() =>
+      expect(result.current.observations).toEqual([
+        expect.objectContaining({
+          availability: "READY",
+          mediaLegId: "media-leg-2",
+          recoveredMediaLegId: "media-leg-1",
+        }),
+      ]),
+    );
+
+    let answerPromise!: Promise<void>;
+    act(() => {
+      answerPromise = result.current.answer("media-leg-2");
+    });
+    await waitFor(() => expect(replacementAnswer).toHaveBeenCalledTimes(1));
+    act(() => clients[0]?.emitCallUpdate({ ...replacementCall, state: "active" }));
+    await expect(answerPromise).resolves.toBeUndefined();
+    expect(staleAnswer).not.toHaveBeenCalled();
+    expect(onLifecycle.mock.calls.map(([event]) => event.category)).toContain(
+      "SIGNALING_INTERRUPTED",
+    );
+    expect(onLifecycle.mock.calls.map(([event]) => event.category)).toContain(
+      "REATTACH_SUCCEEDED",
+    );
+  });
+
+  it("correlates one recovering replacement through exact provider identity", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    const providerIds = {
+      telnyxCallControlId: "control-1",
+      telnyxLegId: "provider-leg-1",
+      telnyxSessionId: "provider-session-1",
+    };
+    act(() =>
+      clients[0]?.emitCallUpdate({
+        answer: mock(async () => {}),
+        direction: "incoming",
+        id: "media-leg-1",
+        remoteStream: null,
+        state: "ringing",
+        telnyxIDs: providerIds,
+      }),
+    );
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+    act(() => clients[0]?.emit("telnyx.socket.close"));
+
+    const replacementAnswer = mock(async () => {});
+    const replacementCall = {
+      answer: replacementAnswer,
+      direction: "incoming",
+      id: "media-leg-2",
+      remoteStream: null,
+      state: "ringing",
+      telnyxIDs: providerIds,
+    };
+    act(() => clients[0]?.emitCallUpdate(replacementCall));
+
+    await waitFor(() =>
+      expect(result.current.observations).toEqual([
+        expect.objectContaining({
+          availability: "READY",
+          mediaLegId: "media-leg-2",
+          recoveredMediaLegId: "media-leg-1",
+        }),
+      ]),
+    );
+    let answerPromise!: Promise<void>;
+    act(() => {
+      answerPromise = result.current.answer("media-leg-2");
+    });
+    act(() => clients[0]?.emitCallUpdate({ ...replacementCall, state: "active" }));
+    await expect(answerPromise).resolves.toBeUndefined();
+    expect(replacementAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves one pending Answer intent to a recovered SDK call", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    const staleAnswer = mock(async () => {});
+    const staleCall = {
+      answer: staleAnswer,
+      direction: "incoming",
+      id: "media-leg-1",
+      remoteStream: null,
+      state: "ringing",
+      telnyxIDs: {
+        telnyxCallControlId: "control-1",
+        telnyxLegId: "provider-leg-1",
+        telnyxSessionId: "provider-session-1",
+      },
+    };
+    act(() => clients[0]?.emitCallUpdate(staleCall));
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+
+    let answerPromise!: Promise<void>;
+    act(() => {
+      answerPromise = result.current.answer("media-leg-1");
+    });
+    await waitFor(() => expect(staleAnswer).toHaveBeenCalledTimes(1));
+
+    act(() => clients[0]?.emit("telnyx.socket.close"));
+    const replacementAnswer = mock(async () => {});
+    const replacementCall = {
+      ...staleCall,
+      answer: replacementAnswer,
+      id: "media-leg-2",
+      recoveredCallId: "media-leg-1",
+    };
+    act(() => clients[0]?.emitCallUpdate(replacementCall));
+    await waitFor(() => expect(replacementAnswer).toHaveBeenCalledTimes(1));
+
+    act(() => clients[0]?.emitCallUpdate({ ...replacementCall, state: "active" }));
+    await expect(answerPromise).resolves.toBeUndefined();
+    expect(staleAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not transfer a pending Answer after its canonical intent expires", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+    const canContinueAnswer = mock(() => false);
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        canContinueAnswer,
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    const staleCall = {
+      answer: mock(async () => {}),
+      direction: "incoming",
+      id: "media-leg-1",
+      remoteStream: null,
+      state: "ringing",
+      telnyxIDs: {
+        telnyxCallControlId: "control-1",
+        telnyxLegId: "provider-leg-1",
+        telnyxSessionId: "provider-session-1",
+      },
+    };
+    act(() => clients[0]?.emitCallUpdate(staleCall));
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+
+    let answerPromise!: Promise<void>;
+    act(() => {
+      answerPromise = result.current.answer("media-leg-1");
+    });
+    await waitFor(() => expect(staleCall.answer).toHaveBeenCalledTimes(1));
+    act(() => clients[0]?.emit("telnyx.socket.close"));
+
+    const replacementAnswer = mock(async () => {});
+    act(() =>
+      clients[0]?.emitCallUpdate({
+        ...staleCall,
+        answer: replacementAnswer,
+        id: "media-leg-2",
+        recoveredCallId: "media-leg-1",
+      }),
+    );
+
+    await expect(answerPromise).rejects.toThrow();
+    expect(canContinueAnswer).toHaveBeenCalledWith("media-leg-1");
+    expect(replacementAnswer).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when recoveredCallId cannot identify one predecessor", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+    const onLifecycle = mock((_event: SoftphoneLifecycleEvent) => {});
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+        onLifecycle,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    act(() =>
+      clients[0]?.emitCallUpdate({
+        answer: mock(async () => {}),
+        direction: "incoming",
+        id: "media-leg-1",
+        remoteStream: null,
+        state: "ringing",
+        telnyxIDs: {
+          telnyxCallControlId: "control-1",
+          telnyxLegId: "provider-leg-1",
+          telnyxSessionId: "provider-session-1",
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+    act(() => clients[0]?.emit("telnyx.socket.close"));
+    act(() =>
+      clients[0]?.emitCallUpdate({
+        answer: mock(async () => {}),
+        direction: "incoming",
+        id: "media-leg-2",
+        recoveredCallId: "unknown-media-leg",
+        remoteStream: null,
+        state: "ringing",
+        telnyxIDs: {
+          telnyxCallControlId: "control-2",
+          telnyxLegId: "provider-leg-2",
+          telnyxSessionId: "provider-session-2",
+        },
+      }),
+    );
+
+    expect(result.current.observations).toEqual([
+      expect.objectContaining({
+        availability: "RECOVERING",
+        mediaLegId: "media-leg-1",
+      }),
+    ]);
+    expect(onLifecycle.mock.calls.map(([event]) => event.category)).toContain(
+      "REATTACH_CORRELATION_FAILED",
+    );
+    await expect(result.current.answer("media-leg-2")).rejects.toThrow();
+  });
+
+  it("deduplicates repeated SESSION_NOT_REATTACHED recovery requests", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+    const onRecoveryNeeded = mock(() => {});
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+        onRecoveryNeeded,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+    act(() =>
+      clients[0]?.emitCallUpdate({
+        answer: mock(async () => {}),
+        direction: "incoming",
+        id: "media-leg-1",
+        remoteStream: null,
+        state: "ringing",
+        telnyxIDs: {
+          telnyxCallControlId: "control-1",
+          telnyxLegId: "provider-leg-1",
+          telnyxSessionId: "provider-session-1",
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+    act(() => clients[0]?.emit("telnyx.socket.close"));
+
+    const error = {
+      callId: "media-leg-1",
+      error: { code: 48501, fatal: true, name: "SESSION_NOT_REATTACHED" },
+    };
+    act(() => {
+      clients[0]?.emit("telnyx.error", error);
+      clients[0]?.emit("telnyx.error", error);
+    });
+
+    expect(result.current.observations[0]?.availability).toBe("FAILED");
+    expect(onRecoveryNeeded).toHaveBeenCalledTimes(1);
+    expect(onRecoveryNeeded).toHaveBeenCalledWith({
+      mediaLegId: "media-leg-1",
+      reason: "SESSION_NOT_REATTACHED",
+      recoveryGeneration: 1,
+    });
+  });
+
+  it("invalidates CALL DOES NOT EXIST before requesting one replacement", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+    const onRecoveryNeeded = mock(() => {});
+    const onLifecycle = mock((_event: SoftphoneLifecycleEvent) => {});
+
+    const { result } = renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+        onLifecycle,
+        onRecoveryNeeded,
+      }),
+    );
+    await waitFor(() => expect(result.current.connection).toBe("READY"));
+
+    const answer = mock(async () => {
+      throw { code: -32002, message: "CALL DOES NOT EXIST" };
+    });
+    act(() =>
+      clients[0]?.emitCallUpdate({
+        answer,
+        direction: "incoming",
+        id: "media-leg-1",
+        remoteStream: null,
+        state: "ringing",
+        telnyxIDs: {
+          telnyxCallControlId: "control-1",
+          telnyxLegId: "provider-leg-1",
+          telnyxSessionId: "provider-session-1",
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+
+    await act(async () => {
+      await expect(result.current.answer("media-leg-1")).rejects.toMatchObject({
+        operatorError: { code: "CALL_NOT_CONNECTED", retryable: false },
+      });
+    });
+    await waitFor(() =>
+      expect(result.current.observations[0]).toMatchObject({
+        availability: "FAILED",
+        mediaLegId: "media-leg-1",
+      }),
+    );
+    expect(onRecoveryNeeded).toHaveBeenCalledTimes(1);
+    expect(onRecoveryNeeded).toHaveBeenCalledWith({
+      mediaLegId: "media-leg-1",
+      reason: "CALL_DOES_NOT_EXIST",
+      recoveryGeneration: 0,
+    });
+
+    await expect(result.current.answer("media-leg-1")).rejects.toThrow();
+    expect(answer).toHaveBeenCalledTimes(1);
+    expect(onRecoveryNeeded).toHaveBeenCalledTimes(1);
+    const lifecycleEvents = onLifecycle.mock.calls.map(([event]) => event);
+    expect(lifecycleEvents.map(({ category }) => category)).toContain("ANSWER_FAILED");
+    expect(lifecycleEvents.map(({ category }) => category)).toContain("REATTACH_FAILED");
+    expect(JSON.stringify(lifecycleEvents)).not.toContain("phoneNumber");
+    expect(JSON.stringify(lifecycleEvents)).not.toContain("rawProviderPayload");
   });
 
   it("reports an empty token failure without exposing a JSON parser error", async () => {
