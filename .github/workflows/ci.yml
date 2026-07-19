@@ -71,3 +71,42 @@ jobs:
           PRETTIER_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           PRETTIER_HEAD_SHA: ${{ github.sha }}
         run: ${{ matrix.command }}
+
+  call-center-postgres:
+    name: Call Center PostgreSQL concurrency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: acuity_portal
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d acuity_portal"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CALL_CENTER_POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acuity_portal?schema=public
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prove Call Center mutation ordering
+        run: >-
+          bun test
+          lib/call-center/infrastructure/__tests__/prisma-call-center-practice-lock.postgres.test.ts

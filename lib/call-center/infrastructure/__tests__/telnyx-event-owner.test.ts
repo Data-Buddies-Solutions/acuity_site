@@ -86,6 +86,7 @@ function event({
 type PersistedCall = {
   effectOwner: StoredEffectOwner;
   id: string;
+  practiceId: string;
   providerCallSessionId: string | null;
 };
 
@@ -151,11 +152,21 @@ function strippedHandoff(overrides: Partial<TestHandoff> = {}): TestHandoff {
 }
 
 type TestDatabaseOptions = {
+  assignmentCount?: number;
   calls?: PersistedCall[];
   eventOwners?: StoredEffectOwner[];
   handoff?: TestHandoff | null;
   handoffCandidates?: TestHandoff[];
   legs?: PersistedLeg[];
+  lockedNumber?: {
+    enabled: boolean;
+    id: string;
+    inboundEnabled: boolean;
+    inboundQueueId: string | null;
+    phoneNumber: string;
+    practiceId: string;
+    practicePhoneNumberId: string;
+  } | null;
   number?: {
     id: string;
     inboundQueueId: string | null;
@@ -178,11 +189,13 @@ type TestDatabaseOptions = {
 };
 
 function database({
+  assignmentCount = 1,
   calls = [],
   eventOwners = [],
   handoff = null,
   handoffCandidates,
   legs = [],
+  lockedNumber,
   number = {
     id: "number-1",
     inboundQueueId: "queue-1",
@@ -200,8 +213,20 @@ function database({
 }: TestDatabaseOptions = {}) {
   const assigned: TelnyxEventOwner[] = [];
   const created: Array<Record<string, unknown>> = [];
+  const operations: string[] = [];
   const queries: string[] = [];
   const configuredNumber = number;
+  const reloadedNumber =
+    lockedNumber === undefined
+      ? configuredNumber
+        ? {
+            ...configuredNumber,
+            enabled: true,
+            inboundEnabled: true,
+            phoneNumber: "+17864657479",
+          }
+        : null
+      : lockedNumber;
   const handoffs = handoffCandidates ?? (handoff ? [handoff] : []);
   const queryText = (query: unknown) =>
     Array.isArray((query as { strings?: string[] })?.strings)
@@ -210,7 +235,25 @@ function database({
   const transaction = {
     $queryRaw: async (query: unknown) => {
       const sql = queryText(query);
+      const values = (query as { values?: unknown[] })?.values ?? [];
       queries.push(sql);
+      if (values.some((value) => String(value).startsWith("TELNYX_SESSION:"))) {
+        operations.push("provider-session.lock");
+      } else if (values.some((value) => String(value).startsWith("CALL_CENTER:"))) {
+        operations.push("practice.lock");
+      } else if (sql.includes('FROM "practice"')) {
+        operations.push("practice.row-lock");
+      } else if (sql.includes('FROM "call_center_call_leg"')) {
+        operations.push("call-leg.row-lock");
+      } else if (sql.includes('FROM "call_center_handoff"')) {
+        operations.push("handoff.row-lock");
+      } else if (sql.includes('FROM "practice_phone_number"')) {
+        operations.push("practice-number.row-lock");
+      } else if (sql.includes('FROM "call_center_queue"')) {
+        operations.push("queue.row-lock");
+      } else if (sql.includes('FROM "call_center_number"')) {
+        operations.push("number.row-lock");
+      }
       if (sql.includes("call_center_call_leg")) return [{ id: legs[0]?.id }];
       if (sql.includes("call_center_handoff")) return handoff ? [{ id: handoff.id }] : [];
       if (sql.includes('FROM "practice"')) {
@@ -218,21 +261,13 @@ function database({
       }
       if (sql.includes('FROM "call_center_queue"')) return queue ? [queue] : [];
       if (sql.includes('FROM "call_center_number"')) {
-        return configuredNumber
-          ? [
-              {
-                ...configuredNumber,
-                enabled: true,
-                inboundEnabled: true,
-                phoneNumber: "+17864657479",
-              },
-            ]
-          : [];
+        return reloadedNumber ? [reloadedNumber] : [];
       }
       return [];
     },
     callCenterCall: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
+        operations.push("call-and-customer-leg.create");
         created.push(data);
         return { id: "created-call" };
       },
@@ -298,7 +333,7 @@ function database({
               status.in.includes(candidate.status),
           )
           .slice(0, 2)
-          .map(({ id }) => ({ id }));
+          .map(({ id, practiceId }) => ({ id, practiceId }));
       },
       findUnique: async ({ where }: { where: { id?: string; tokenHash?: string } }) =>
         handoffs.find(
@@ -331,6 +366,8 @@ function database({
             : null,
       findMany: async () => eventOwners.map((effectOwner) => ({ effectOwner })),
       updateMany: async ({ data }: { data: { effectOwner: TelnyxEventOwner } }) => {
+        if (assignmentCount !== 1) return { count: assignmentCount };
+        operations.push("event-owner.assign");
         assigned.push(data.effectOwner);
         if (!eventOwners.includes(data.effectOwner)) eventOwners.push(data.effectOwner);
         return { count: 1 };
@@ -341,10 +378,22 @@ function database({
     assigned,
     created,
     legs,
+    operations,
     queries,
     prisma: {
-      $transaction: async (operation: (tx: typeof transaction) => Promise<unknown>) =>
-        operation(transaction),
+      $transaction: async (operation: (tx: typeof transaction) => Promise<unknown>) => {
+        const assignedCount = assigned.length;
+        const createdCount = created.length;
+        const owners = [...eventOwners];
+        try {
+          return await operation(transaction);
+        } catch (error) {
+          assigned.splice(assignedCount);
+          created.splice(createdCount);
+          eventOwners.splice(0, eventOwners.length, ...owners);
+          throw error;
+        }
+      },
     } as unknown as Pick<PrismaClient, "$transaction">,
   };
 }
@@ -360,6 +409,7 @@ function outboundDatabase() {
   const call = {
     effectOwner: "CANONICAL" as const,
     id: "outbound-call",
+    practiceId: "practice-1",
     providerCallSessionId: null,
   };
   const leg: PersistedLeg = {
@@ -413,6 +463,26 @@ describe("Telnyx event effect owner", () => {
     expect(db.created).toHaveLength(1);
   });
 
+  it("orders configured inbound admission under the shared practice lock", async () => {
+    const db = database();
+
+    await expect(resolveTelnyxEventOwner(event(), db.prisma)).resolves.toBe("CANONICAL");
+
+    expect(db.operations).toEqual([
+      "provider-session.lock",
+      "practice.lock",
+      "queue.row-lock",
+      "number.row-lock",
+      "call-and-customer-leg.create",
+      "event-owner.assign",
+    ]);
+    expect(db.created[0]).toMatchObject({
+      numberId: "number-1",
+      practiceId: "practice-1",
+      queueId: "queue-1",
+    });
+  });
+
   it("admits one signed direct handoff using its issued route snapshot", async () => {
     const secret = "handoff-secret";
     const token = directHandoffToken("handoff-1", secret);
@@ -443,17 +513,16 @@ describe("Telnyx event effect owner", () => {
     };
     const db = database({ handoff, number: null });
 
-    await expect(
-      resolveTelnyxEventOwner(
-        event({
-          to: directHandoffSipUri(
-            "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
-            token,
-          ),
-        }),
-        db.prisma,
-      ),
-    ).resolves.toBe("CANONICAL");
+    const owner = await resolveTelnyxEventOwner(
+      event({
+        to: directHandoffSipUri(
+          "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+          token,
+        ),
+      }),
+      db.prisma,
+    );
+    expect(owner).toBe("CANONICAL");
 
     expect(db.created[0]).toMatchObject({
       effectOwner: "CANONICAL",
@@ -488,6 +557,35 @@ describe("Telnyx event effect owner", () => {
     });
     expect(db.created).toHaveLength(1);
     expect(replayDb.created).toHaveLength(0);
+  });
+
+  it("orders direct handoff admission under the shared practice lock", async () => {
+    const token = directHandoffToken("handoff-1", "handoff-secret");
+    const handoff = strippedHandoff({ tokenHash: directHandoffTokenHash(token) });
+    const db = database({ handoff, number: null });
+
+    await expect(
+      resolveTelnyxEventOwner(
+        event({
+          to: directHandoffSipUri(
+            "sip:acuity-handoff@abitacallcenter.sip.telnyx.com",
+            token,
+          ),
+        }),
+        db.prisma,
+      ),
+    ).resolves.toBe("CANONICAL");
+
+    expect(db.operations).toEqual([
+      "provider-session.lock",
+      "practice.lock",
+      "handoff.row-lock",
+      "practice-number.row-lock",
+      "number.row-lock",
+      "queue.row-lock",
+      "call-and-customer-leg.create",
+      "event-owner.assign",
+    ]);
   });
 
   it("correlates the production Telnyx REFER shape without SIP markers", async () => {
@@ -591,10 +689,52 @@ describe("Telnyx event effect owner", () => {
     expect(db.assigned).toEqual([]);
   });
 
+  it("keeps reordered callbacks sticky to their admitted provider session", async () => {
+    const db = database({ eventOwners: ["CANONICAL"], number: null });
+
+    await expect(
+      resolveTelnyxEventOwner(event({ eventType: "call.answered" }), db.prisma),
+    ).resolves.toBe("CANONICAL");
+
+    expect(db.created).toEqual([]);
+    expect(db.assigned).toEqual(["CANONICAL"]);
+  });
+
+  it("aborts admission when the configured number changes after practice locking", async () => {
+    const db = database({
+      lockedNumber: {
+        enabled: true,
+        id: "number-1",
+        inboundEnabled: true,
+        inboundQueueId: "queue-2",
+        phoneNumber: "+17864657479",
+        practiceId: "practice-1",
+        practicePhoneNumberId: "phone-1",
+      },
+    });
+
+    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
+      code: "TELNYX_EVENT_NUMBER_CHANGED",
+    });
+    expect(db.created).toEqual([]);
+    expect(db.assigned).toEqual([]);
+  });
+
+  it("rolls back the Call, customer leg, and event owner when admission fails", async () => {
+    const db = database({ assignmentCount: 0 });
+
+    await expect(resolveTelnyxEventOwner(event(), db.prisma)).rejects.toMatchObject({
+      code: "TELNYX_EVENT_OWNER_ASSIGNMENT_LOST",
+    });
+    expect(db.created).toEqual([]);
+    expect(db.assigned).toEqual([]);
+  });
+
   it("uses immutable call ownership for session-only voicemail", async () => {
     const call = {
       effectOwner: "CANONICAL" as const,
       id: "call-1",
+      practiceId: "practice-1",
       providerCallSessionId: "provider-session-1",
     };
     const db = database({ calls: [call], number: null });
@@ -614,6 +754,7 @@ describe("Telnyx event effect owner", () => {
     const call = {
       effectOwner: "CANONICAL" as const,
       id: "call-1",
+      practiceId: "practice-1",
       providerCallSessionId: "customer-session",
     };
     const leg: PersistedLeg = {
@@ -631,6 +772,12 @@ describe("Telnyx event effect owner", () => {
       eventType: "call.initiated",
     });
     await expect(resolveTelnyxEventOwner(first, db.prisma)).resolves.toBe("CANONICAL");
+    expect(db.operations).toEqual([
+      "provider-session.lock",
+      "practice.lock",
+      "call-leg.row-lock",
+      "event-owner.assign",
+    ]);
     expect(db.legs[0]).toMatchObject({
       providerCallControlId: "control-1",
       providerCallLegId: "provider-leg-1",
@@ -740,6 +887,7 @@ describe("Telnyx event effect owner", () => {
     const call = {
       effectOwner: "LEGACY" as const,
       id: "legacy-call",
+      practiceId: "practice-1",
       providerCallSessionId: "provider-session-1",
     };
     const db = database({

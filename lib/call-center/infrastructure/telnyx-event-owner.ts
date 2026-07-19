@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import { directHandoffCorrelationLockKey } from "@/lib/call-center/infrastructure/direct-handoff-correlation";
 import { hasDirectHandoffIdentity } from "@/lib/call-center/infrastructure/direct-handoff-uri";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
@@ -23,6 +24,7 @@ type OwnerTransaction = Pick<
 type PersistedOwner = {
   effectOwner: StoredEffectOwner;
   id: string;
+  practiceId: string;
   providerCallSessionId: string | null;
 };
 
@@ -160,19 +162,16 @@ async function persistDirectHandoffOwner(
     throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_PROVIDER_IDENTITY_INVALID");
   }
 
-  let handoffId: string | null = null;
+  let identifiedHandoff: { id: string; practiceId: string } | null = null;
   if (identity) {
-    await tx.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "tokenHash" = ${identity.tokenHash} FOR UPDATE`,
-    );
     const identified = await tx.callCenterHandoff.findUnique({
-      select: { id: true },
+      select: { id: true, practiceId: true },
       where: { tokenHash: identity.tokenHash },
     });
     if (!identified) {
       throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_TOKEN_INVALID");
     }
-    handoffId = identified.id;
+    identifiedHandoff = identified;
   } else {
     if (!raw.fromPhone || !raw.toPhone) return null;
     await tx.$queryRaw(
@@ -180,7 +179,7 @@ async function persistDirectHandoffOwner(
     );
     const candidates = await tx.callCenterHandoff.findMany({
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: { id: true },
+      select: { id: true, practiceId: true },
       take: 2,
       where: {
         callerPhone: raw.fromPhone,
@@ -197,19 +196,20 @@ async function persistDirectHandoffOwner(
     if (candidates.length > 1) {
       throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_CORRELATION_AMBIGUOUS");
     }
-    handoffId = candidates[0]?.id ?? null;
-    if (!handoffId) return null;
-    await tx.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "id" = ${handoffId} FOR UPDATE`,
-    );
+    identifiedHandoff = candidates[0] ?? null;
+    if (!identifiedHandoff) return null;
   }
 
+  await lockCallCenterPractice(tx, identifiedHandoff.practiceId);
+  await tx.$queryRaw(
+    Prisma.sql`SELECT "id" FROM "call_center_handoff" WHERE "id" = ${identifiedHandoff.id} FOR UPDATE`,
+  );
   let handoff = await tx.callCenterHandoff.findUnique({
     include: {
       number: { include: { practicePhoneNumber: true } },
       queue: true,
     },
-    where: { id: handoffId },
+    where: { id: identifiedHandoff.id },
   });
   if (!handoff) {
     throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_NOT_FOUND");
@@ -226,9 +226,6 @@ async function persistDirectHandoffOwner(
   }
 
   await tx.$queryRaw(
-    Prisma.sql`SELECT "id" FROM "practice" WHERE "id" = ${handoff.practiceId} FOR SHARE`,
-  );
-  await tx.$queryRaw(
     Prisma.sql`SELECT "id" FROM "practice_phone_number" WHERE "id" = ${handoff.number.practicePhoneNumberId} FOR SHARE`,
   );
   await tx.$queryRaw(
@@ -242,12 +239,12 @@ async function persistDirectHandoffOwner(
       number: { include: { practicePhoneNumber: true } },
       queue: true,
     },
-    where: { id: handoffId },
+    where: { id: identifiedHandoff.id },
   });
   if (!handoff) {
     throw new TelnyxEventOwnerError("TELNYX_DIRECT_HANDOFF_ROUTE_CHANGED");
   }
-  // ISSUED already authorized the route. Locks protect its tenant boundary;
+  // ISSUED already authorized the route. The practice lock protects its tenant boundary;
   // later configuration edits must not reroute or strand an in-flight REFER.
   if (
     handoff.number.practiceId !== handoff.practiceId ||
@@ -411,7 +408,14 @@ function assertLegIdentity(raw: RawIdentity, leg: PersistedLeg) {
 }
 
 const legOwnerSelect = {
-  call: { select: { effectOwner: true, id: true, providerCallSessionId: true } },
+  call: {
+    select: {
+      effectOwner: true,
+      id: true,
+      practiceId: true,
+      providerCallSessionId: true,
+    },
+  },
   id: true,
   kind: true,
   providerCallControlId: true,
@@ -440,6 +444,7 @@ async function findAndBindLegIdentity(tx: OwnerTransaction, raw: RawIdentity) {
   const match = matches[0];
   if (!match) return null;
 
+  await lockCallCenterPractice(tx, match.call.practiceId);
   await tx.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call_leg" WHERE "id" = ${match.id} FOR UPDATE`,
   );
@@ -473,13 +478,19 @@ async function findAndBindLegIdentity(tx: OwnerTransaction, raw: RawIdentity) {
 async function findByCustomerSession(tx: OwnerTransaction, raw: RawIdentity) {
   if (!raw.providerCallSessionId) return null;
   const call = await tx.callCenterCall.findUnique({
-    select: { effectOwner: true, id: true, providerCallSessionId: true },
+    select: {
+      effectOwner: true,
+      id: true,
+      practiceId: true,
+      providerCallSessionId: true,
+    },
     where: { providerCallSessionId: raw.providerCallSessionId },
   });
   if (!call) return null;
   if (raw.canonicalCallId && raw.canonicalCallId !== call.id) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_IDENTITY_MISMATCH");
   }
+  await lockCallCenterPractice(tx, call.practiceId);
   return call.effectOwner;
 }
 
@@ -503,15 +514,6 @@ async function configuredInboundNumber(tx: OwnerTransaction, toPhone: string) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_NUMBER_OWNER_AMBIGUOUS");
   }
   return numbers[0] ?? null;
-}
-
-async function lockPractice(tx: OwnerTransaction, practiceId: string) {
-  const practices = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT "id" FROM "practice" WHERE "id" = ${practiceId} FOR SHARE
-  `);
-  if (!practices[0]) {
-    throw new TelnyxEventOwnerError("TELNYX_EVENT_PRACTICE_NOT_FOUND");
-  }
 }
 
 async function lockQueue(
@@ -585,7 +587,7 @@ async function persistInboundOwner(tx: OwnerTransaction, raw: RawIdentity) {
     throw new TelnyxEventOwnerError("TELNYX_EVENT_CALLER_IDENTITY_MISSING");
   }
 
-  await lockPractice(tx, number.practiceId);
+  await lockCallCenterPractice(tx, number.practiceId);
   const queue = await lockQueue(tx, number.inboundQueueId);
   const lockedNumber = await lockNumber(tx, number.id);
   if (!queue.enabled) {
