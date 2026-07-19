@@ -19,6 +19,7 @@ import type {
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveQueueAccess } from "@/lib/call-center/auth/queue-access";
 import { isAgentSessionReady } from "@/lib/call-center/domain/agent-session-readiness";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastructure/prisma-operation-receipts";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import { normalizePhone } from "@/lib/phone";
@@ -237,6 +238,7 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     input: StartOutboundCallInput,
     now: Date,
   ) {
+    await lockCallCenterPractice(this.transaction, actor.practiceId);
     const receipt = await this.findReceipt(
       actor.practiceId,
       CALL_OUTBOUND_REQUESTED_EVENT,
@@ -335,6 +337,7 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     input: StartOutboundCallInput,
     now: Date,
   ) {
+    await lockCallCenterPractice(this.transaction, actor.practiceId);
     const { from, number, session, to } = await this.loadOutboundContext(
       actor,
       input,

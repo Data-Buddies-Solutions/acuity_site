@@ -8,6 +8,53 @@ import {
 } from "../prisma-start-outbound-call-store";
 
 describe("canonical outbound scope", () => {
+  it("locks the practice before reading or mutating outbound state", async () => {
+    const operations: string[] = [];
+    const transaction = {
+      $queryRaw: async (query: { values?: unknown[] }) => {
+        if (query.values?.includes("CALL_CENTER:practice-1")) {
+          operations.push("practice.lock");
+        }
+        return [];
+      },
+      callCenterEvent: {
+        findUnique: async () => {
+          operations.push("receipt.read");
+          return {
+            actorUserId: "user-1",
+            aggregateId: "call-1",
+            aggregateType: "CALL",
+            data: {},
+            occurredAt: new Date("2026-07-19T12:00:00.000Z"),
+            revision: BigInt(1),
+          };
+        },
+      },
+    };
+    const store = new PrismaStartOutboundCallStore((operation) =>
+      operation(transaction as never),
+    );
+
+    await store.prepareOutboundCleanup(
+      {
+        allowedLocationIds: ["location-1"],
+        hasAllLocationAccess: false,
+        practiceId: "practice-1",
+        userId: "user-1",
+      },
+      {
+        clientInstanceId: "browser-1",
+        destination: "+15555550123",
+        idempotencyKey: "operation-1",
+        numberId: "number-1",
+        queueId: "queue-1",
+      },
+      new Date("2026-07-19T12:00:00.000Z"),
+    );
+
+    expect(operations).toEqual(["practice.lock", "receipt.read"]);
+  });
+
   it("returns stable correlation-only client state", () => {
     const input = {
       practiceId: "practice-1",

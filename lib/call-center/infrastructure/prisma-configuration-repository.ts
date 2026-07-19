@@ -10,6 +10,7 @@ import {
   type CallCenterConfigurationValidationContext,
   type ValidatedCallCenterConfiguration,
 } from "@/lib/call-center/application/configuration";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { prisma } from "@/lib/prisma";
 
 export type ConfigurationPrismaTransaction = Pick<
@@ -55,6 +56,7 @@ async function loadConfigurationValidationContext(
   practiceId: string,
   references: CallCenterConfigurationReferences,
 ): Promise<CallCenterConfigurationValidationContext> {
+  await lockCallCenterPractice(transaction, practiceId);
   const lockedPractice = await transaction.$queryRaw<Array<{ id: string }>>`
     SELECT "id"
     FROM "practice"

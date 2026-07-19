@@ -13,6 +13,7 @@ import {
   hasCanonicalAgentBridgeEvidence,
   processedWinningAgentLegId,
   projectedCallDeadline,
+  resolveCanonicalCustomerCall,
   resolveCanonicalPeerAgentLeg,
   selectCanonicalProviderCommand,
   settleProviderCommandCallback,
@@ -83,6 +84,58 @@ describe("canonical routing triggers", () => {
         legKind: "CUSTOMER",
       }),
     ).toBe(true);
+  });
+});
+
+describe("canonical customer call resolution", () => {
+  it("locks the practice and rechecks identity before creating a call", async () => {
+    const operations: string[] = [];
+    const tx = {
+      $queryRaw: async () => {
+        operations.push("practice.lock");
+        return [];
+      },
+      callCenterCall: {
+        create: async ({ data }: { data: Record<string, unknown> }) => {
+          operations.push("call.create");
+          return { ...data, id: "call-1" };
+        },
+        findUnique: async () => {
+          operations.push("call.lookup");
+          return null;
+        },
+      },
+      callCenterNumber: {
+        findMany: async () => {
+          operations.push("number.lookup");
+          return [
+            {
+              id: "number-1",
+              inboundQueue: { enabled: true, practiceId: "practice-1" },
+              inboundQueueId: "queue-1",
+              practiceId: "practice-1",
+            },
+          ];
+        },
+      },
+    };
+
+    await resolveCanonicalCustomerCall(tx as never, {
+      ...fact({ eventType: "call.initiated", legKind: "CUSTOMER" }),
+      callObservation: "RINGING",
+      direction: "INBOUND",
+      legKind: "CUSTOMER",
+      legObservation: "RINGING",
+      providerCallSessionId: "session-1",
+    });
+
+    expect(operations).toEqual([
+      "call.lookup",
+      "number.lookup",
+      "practice.lock",
+      "call.lookup",
+      "call.create",
+    ]);
   });
 });
 

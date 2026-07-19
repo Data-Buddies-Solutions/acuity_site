@@ -4,6 +4,7 @@ import type {
   ProviderCommandRejectedClaim,
   ProviderCommandSettledClaim,
 } from "@/lib/call-center/application/dispatch-provider-command";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import {
   decideProviderCommandMarkSent,
   type ProviderCommandClaim,
@@ -189,10 +190,11 @@ async function loadProviderCommandClaim(
   ProviderCommandClaim | ProviderCommandRejectedClaim | ProviderCommandSettledClaim | null
 > {
   const target = await tx.callCenterCommand.findUnique({
-    select: { callId: true },
+    select: { callId: true, practiceId: true },
     where: { id: commandId },
   });
   if (!target) return null;
+  await lockCallCenterPractice(tx, target.practiceId);
   await tx.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${target.callId} FOR UPDATE`,
   );
@@ -577,6 +579,7 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
         where: { id: input.commandId },
       });
       if (!target) return null;
+      await lockCallCenterPractice(transaction, target.practiceId);
       await transaction.$queryRaw(
         Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${target.callId} FOR UPDATE`,
       );

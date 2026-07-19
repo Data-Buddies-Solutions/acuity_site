@@ -164,8 +164,15 @@ describe("Prisma call-center configuration persistence", () => {
   it("locks the practice before loading tenant and global ownership", async () => {
     const calls: string[] = [];
     const transaction = {
-      $queryRaw: async () => {
-        calls.push("lock");
+      $queryRaw: async (query: { values?: unknown[] }) => {
+        if (
+          Array.isArray(query.values) &&
+          query.values.includes("CALL_CENTER:practice-1")
+        ) {
+          calls.push("practice.lock");
+          return [];
+        }
+        calls.push("row.lock");
         return [{ id: "practice-1" }];
       },
       practice: {
@@ -229,7 +236,7 @@ describe("Prisma call-center configuration persistence", () => {
       }),
     );
 
-    expect(calls[0]).toBe("lock");
+    expect(calls.slice(0, 2)).toEqual(["practice.lock", "row.lock"]);
     expect(context).toMatchObject({
       practiceExists: true,
       configurationVersion: expect.stringMatching(/^[a-f0-9]{64}$/),
