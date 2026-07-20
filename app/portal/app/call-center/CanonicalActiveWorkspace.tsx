@@ -45,6 +45,7 @@ import {
   selectCanonicalTransferOffers,
 } from "./canonical-active-call-center";
 import { CallConnectionStatus } from "./CallConnectionStatus";
+import FollowUpPreview from "./FollowUpPreview";
 import type { MediaConnectionState } from "./softphone-media-adapter";
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
 import { useSoftphoneMedia } from "./use-softphone";
@@ -55,6 +56,7 @@ type CanonicalActiveWorkspaceProps = {
   followUpHref: string;
   historyHref: string;
   initialDialNumber?: string | null;
+  office?: string | null;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string | null;
 };
@@ -101,6 +103,7 @@ export function CanonicalActiveWorkspace({
   followUpHref,
   historyHref,
   initialDialNumber,
+  office,
   outboundNumbers,
   queueId,
 }: CanonicalActiveWorkspaceProps) {
@@ -138,6 +141,7 @@ export function CanonicalActiveWorkspace({
       followUpHref={followUpHref}
       historyHref={historyHref}
       initialDialNumber={initialDialNumber}
+      office={office}
       outboundNumbers={outboundNumbers}
       queueId={queueId}
     />
@@ -150,6 +154,7 @@ function ConnectedCanonicalActiveWorkspace({
   followUpHref,
   historyHref,
   initialDialNumber,
+  office,
   outboundNumbers,
   queueId,
 }: {
@@ -158,6 +163,7 @@ function ConnectedCanonicalActiveWorkspace({
   followUpHref: string;
   historyHref: string;
   initialDialNumber?: string | null;
+  office?: string | null;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string;
 }) {
@@ -521,19 +527,21 @@ function ConnectedCanonicalActiveWorkspace({
             )}
           </section>
 
-          <nav aria-label="Call Center workspaces" className="grid gap-3 sm:grid-cols-2">
+          <FollowUpPreview
+            followUpHref={followUpHref}
+            locationId={office}
+            onCallback={(number) => {
+              setDestination(number);
+              document
+                .getElementById("softphone")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            queueId={queueId}
+          />
+
+          <nav aria-label="Call Center workspaces">
             <Link
-              className="rounded-xl border border-[var(--portal-border)] bg-white p-4 text-sm font-semibold text-[var(--portal-accent)] shadow-sm hover:bg-[var(--portal-panel-soft)]"
-              href={followUpHref}
-              prefetch={false}
-            >
-              Follow-up
-              <span className="mt-1 block text-xs font-normal text-[var(--portal-muted)]">
-                Review calls that need later action.
-              </span>
-            </Link>
-            <Link
-              className="rounded-xl border border-[var(--portal-border)] bg-white p-4 text-sm font-semibold text-[var(--portal-accent)] shadow-sm hover:bg-[var(--portal-panel-soft)]"
+              className="block rounded-xl border border-[var(--portal-border)] bg-white p-4 text-sm font-semibold text-[var(--portal-accent)] shadow-sm hover:bg-[var(--portal-panel-soft)]"
               href={historyHref}
               prefetch={false}
             >
