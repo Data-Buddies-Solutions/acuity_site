@@ -15,6 +15,7 @@ import {
 } from "@/lib/call-center/domain/canonical-call-state";
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastructure/prisma-operation-receipts";
+import { sameLocationTransferMembershipWhere } from "@/lib/call-center/infrastructure/prisma-transfer-agent-authorization";
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
@@ -131,6 +132,12 @@ async function readyTransferTargets(
       practiceId: actor.practiceId,
       sipUsername: { not: null },
       user: {
+        callCenterQueueMemberships: {
+          some: sameLocationTransferMembershipWhere({
+            locationId,
+            practiceId: actor.practiceId,
+          }),
+        },
         memberships: {
           some: {
             OR: [{ locationScope: "ALL" }, { locations: { some: { locationId } } }],
@@ -140,12 +147,6 @@ async function readyTransferTargets(
       },
       userId: {
         not: actor.userId,
-        in: (
-          await transaction.callCenterQueueMember.findMany({
-            select: { userId: true },
-            where: { enabled: true, queueId: call.queueId!, role: "AGENT" },
-          })
-        ).map(({ userId }) => userId),
       },
     },
   });

@@ -196,12 +196,14 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
         },
         attemptCount: 1,
         callId,
+        createdAt: occurredAt,
         id: transferCommandId,
         idempotencyKey: `transfer-${current.key}`,
         legId: targetLegId,
         practiceId: current.practiceId,
         status: "SENT",
         type: "TRANSFER_AGENT",
+        updatedAt: occurredAt,
       },
     });
 
@@ -517,6 +519,87 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
     }
   });
 
+  it("keeps the source connected when the transfer target answers without bridge evidence", async () => {
+    const current = await fixture();
+    const requestedAt = new Date("2026-07-20T10:31:12.816Z");
+    const targetInitiatedAt = new Date("2026-07-20T10:31:13.795Z");
+    const targetAnsweredAt = new Date("2026-07-20T10:31:24.035Z");
+
+    try {
+      const {
+        callId,
+        sourceLegId,
+        targetControlId,
+        targetLegId,
+        targetProviderLegId,
+        targetState,
+        transferCommandId,
+        transferEvent,
+      } = await transferFixture(current, requestedAt);
+
+      await expect(
+        callCenter.applyProviderEvent(
+          transferEvent(
+            "call.initiated",
+            `provider-${current.key}-target-initiated`,
+            {
+              call_control_id: targetControlId,
+              call_leg_id: targetProviderLegId,
+              client_state: targetState,
+            },
+            targetInitiatedAt,
+          ),
+        ),
+      ).resolves.toMatchObject({ outcome: "PROCESSED" });
+      await expect(
+        callCenter.applyProviderEvent(
+          transferEvent(
+            "call.answered",
+            `provider-${current.key}-target-answered`,
+            {
+              call_control_id: targetControlId,
+              call_leg_id: targetProviderLegId,
+              client_state: targetState,
+            },
+            targetAnsweredAt,
+          ),
+        ),
+      ).resolves.toMatchObject({ outcome: "PROCESSED" });
+
+      const pending = await adminPrisma.callCenterCall.findUniqueOrThrow({
+        include: { commands: true, legs: true },
+        where: { id: callId },
+      });
+      expect(pending).toMatchObject({
+        endedAt: null,
+        status: "CONNECTED",
+        winningLegId: sourceLegId,
+      });
+      expect(pending.legs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            answeredAt: targetAnsweredAt,
+            bridgedAt: null,
+            endedAt: null,
+            id: targetLegId,
+            status: "ANSWERED",
+          }),
+        ]),
+      );
+      expect(pending.commands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            errorCode: null,
+            id: transferCommandId,
+            status: "SENT",
+          }),
+        ]),
+      );
+    } finally {
+      await current.cleanup();
+    }
+  });
+
   it("completes a transfer when the tagged target answers after an untagged peer bridge", async () => {
     const current = await fixture();
     const requestedAt = new Date("2026-07-20T10:31:12.816Z");
@@ -628,7 +711,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
           }),
           expect.objectContaining({
             answeredAt: targetAnsweredAt,
-            bridgedAt: targetAnsweredAt,
+            bridgedAt: peerBridgedAt,
             endedAt: null,
             id: targetLegId,
             status: "BRIDGED",

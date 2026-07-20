@@ -118,3 +118,4 @@ jobs:
           lib/call-center/__tests__/call-center-provider-event.postgres.test.ts
           lib/call-center/infrastructure/__tests__/prisma-canonical-call-projector.postgres.test.ts
           lib/call-center/infrastructure/__tests__/prisma-call-center-practice-lock.postgres.test.ts
+          lib/call-center/infrastructure/__tests__/prisma-transfer-agent-call-store.postgres.test.ts
