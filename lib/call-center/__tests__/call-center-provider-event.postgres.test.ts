@@ -507,17 +507,18 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
         where: { id: callId },
       });
       expect(settled).toMatchObject({
-        endedAt: null,
-        status: "CONNECTED",
+        endedAt: occurredAt,
+        status: "COMPLETED",
       });
       expect(settled.legs).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ id: sourceLegId, status: "ENDED" }),
           expect.objectContaining({ id: targetLegId, status: "ENDED" }),
           expect.objectContaining({
-            endedAt: null,
+            endedAt: occurredAt,
+            errorCode: "CALL_TERMINAL",
             id: customerLegId,
-            status: "BRIDGED",
+            status: "ENDED",
           }),
         ]),
       );
@@ -527,6 +528,10 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
             errorCode: "COMMAND_LEG_TERMINAL",
             id: transferCommandId,
             status: "FAILED",
+          }),
+          expect.objectContaining({
+            legId: customerLegId,
+            type: "HANGUP_LEG",
           }),
         ]),
       );
