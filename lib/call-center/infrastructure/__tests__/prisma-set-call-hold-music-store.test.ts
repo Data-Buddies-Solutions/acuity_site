@@ -83,7 +83,6 @@ describe("Prisma hold music store", () => {
         {
           action: "STOP",
           callId: "call-1",
-          expectedStateVersion: 4,
           idempotencyKey: "resume-1",
         },
         new Date("2026-07-19T12:00:00.000Z"),
@@ -145,7 +144,6 @@ describe("Prisma hold music store", () => {
       {
         action: "STOP",
         callId: "call-1",
-        expectedStateVersion: 4,
         idempotencyKey: "resume-confirmed",
       },
       new Date("2026-07-19T12:00:00.000Z"),

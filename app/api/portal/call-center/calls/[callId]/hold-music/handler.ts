@@ -14,7 +14,6 @@ import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-respo
 const bodySchema = z
   .object({
     action: z.enum(["START", "STOP"]),
-    expectedStateVersion: z.number().int().nonnegative(),
   })
   .strict();
 type Context = { params: Promise<{ callId: string }> };
@@ -43,7 +42,6 @@ export function createHoldMusicHandler({
       const receipt = await set(await getActor(), {
         action: body.action,
         callId,
-        expectedStateVersion: body.expectedStateVersion,
         idempotencyKey: key,
       });
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 202 });

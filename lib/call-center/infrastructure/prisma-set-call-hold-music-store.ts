@@ -71,7 +71,6 @@ export class PrismaSetCallHoldMusicTransaction implements SetCallHoldMusicTransa
         },
         practiceId: true,
         queueId: true,
-        stateVersion: true,
         status: true,
         winningLegId: true,
       },
@@ -89,9 +88,6 @@ export class PrismaSetCallHoldMusicTransaction implements SetCallHoldMusicTransa
       (!locationId || !actor.allowedLocationIds.includes(locationId))
     ) {
       throw new SetCallHoldMusicError("Canonical call not found", 404);
-    }
-    if (call.stateVersion !== input.expectedStateVersion) {
-      throw new SetCallHoldMusicError("Call changed; refresh and try again", 409);
     }
     if (call.status !== "CONNECTED") {
       throw new SetCallHoldMusicError("Call is not connected", 409);
