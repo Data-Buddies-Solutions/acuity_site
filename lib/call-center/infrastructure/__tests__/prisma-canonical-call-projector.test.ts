@@ -14,6 +14,7 @@ import {
   isCanonicalTransferCompleted,
   pendingDialAgentCommandIdsForCustomerCallback,
   processedWinningAgentLegId,
+  projectedTransferTargetBridgedAt,
   projectedTransferTargetLegStatus,
   projectedCallDeadline,
   resolveCanonicalCustomerCall,
@@ -300,7 +301,7 @@ describe("canonical bridge winner", () => {
     ).toBe("other-source");
   });
 
-  it("completes a transfer only after both target answer and bridge evidence", () => {
+  it("completes a transfer only after target answer establishes bridge evidence", () => {
     const transfer = {
       commandId: "transfer-1",
       sourceLegId: "source",
@@ -338,6 +339,38 @@ describe("canonical bridge winner", () => {
     expect(() => shouldCompleteCanonicalTransfer(true, "other", transfer)).toThrow(
       "CANONICAL_TRANSFER_SOURCE_CHANGED",
     );
+  });
+
+  it("infers transfer bridge evidence from the tagged target answer", () => {
+    const bridgedAt = projectedTransferTargetBridgedAt({
+      currentStatus: "RINGING",
+      eventType: "call.answered",
+      hasExplicitAnswer: true,
+      internalTransferTarget: true,
+      nextBridgedAt: null,
+      occurredAt: later,
+    });
+    expect(bridgedAt).toBe(later);
+    expect(
+      projectedTransferTargetLegStatus({
+        currentStatus: "RINGING",
+        eventType: "call.answered",
+        hasBridgeEvidence: Boolean(bridgedAt),
+        hasExplicitAnswer: true,
+        internalTransferTarget: true,
+        nextStatus: "ANSWERED",
+      }),
+    ).toBe("BRIDGED");
+    expect(
+      projectedTransferTargetBridgedAt({
+        currentStatus: "RINGING",
+        eventType: "call.bridged",
+        hasExplicitAnswer: false,
+        internalTransferTarget: true,
+        nextBridgedAt: later,
+        occurredAt: later,
+      }),
+    ).toBe(later);
   });
 
   it("never completes a transfer to a terminal target with delayed callbacks", () => {

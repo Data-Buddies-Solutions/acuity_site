@@ -920,6 +920,28 @@ export function projectedTransferTargetLegStatus(input: {
   return input.eventType === "call.bridged" ? input.currentStatus : input.nextStatus;
 }
 
+export function projectedTransferTargetBridgedAt(input: {
+  currentStatus: CanonicalLegStatus;
+  eventType: string;
+  hasExplicitAnswer: boolean;
+  internalTransferTarget: boolean;
+  nextBridgedAt: Date | null;
+  occurredAt: Date;
+}) {
+  if (
+    !input.internalTransferTarget ||
+    input.currentStatus === "ENDED" ||
+    input.currentStatus === "FAILED"
+  ) {
+    return input.nextBridgedAt;
+  }
+  // Telnyx reports the transfer bridge on its separate WebRTC peer, while the
+  // tagged target leg's answer confirms that bridge reached the chosen agent.
+  return input.hasExplicitAnswer && input.eventType === "call.answered"
+    ? (input.nextBridgedAt ?? input.occurredAt)
+    : input.nextBridgedAt;
+}
+
 async function hasCanonicalTransferTargetAnswer(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
@@ -1193,12 +1215,21 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         resolvedFact.legObservation,
         resolvedFact.occurredAt,
       );
+      const transferTargetBridgedAt = projectedTransferTargetBridgedAt({
+        currentStatus: leg.status,
+        eventType: resolvedFact.eventType,
+        hasExplicitAnswer: transferTargetAnswered,
+        internalTransferTarget: Boolean(resolvedFact.internalTransferTarget),
+        nextBridgedAt: nextLeg.bridgedAt,
+        occurredAt: resolvedFact.occurredAt,
+      });
       nextLeg = {
         ...nextLeg,
+        bridgedAt: transferTargetBridgedAt,
         status: projectedTransferTargetLegStatus({
           currentStatus: leg.status,
           eventType: resolvedFact.eventType,
-          hasBridgeEvidence: Boolean(nextLeg.bridgedAt),
+          hasBridgeEvidence: Boolean(transferTargetBridgedAt),
           hasExplicitAnswer: transferTargetAnswered,
           internalTransferTarget: Boolean(resolvedFact.internalTransferTarget),
           nextStatus: nextLeg.status,
