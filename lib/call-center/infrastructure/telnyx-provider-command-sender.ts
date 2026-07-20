@@ -75,7 +75,10 @@ type TelnyxCommandOperations = {
   ringbackContent: typeof ringbackWavBase64For;
   speak: typeof speakOnTelnyxCall;
   transfer: typeof transferTelnyxCall;
+  waitForHoldReplayWindow: () => Promise<void>;
 };
+
+const HOLD_REPLAY_GUARD_MS = 1_000;
 
 const telnyxOperations: TelnyxCommandOperations = {
   answer: answerTelnyxCall,
@@ -88,6 +91,8 @@ const telnyxOperations: TelnyxCommandOperations = {
   ringbackContent: ringbackWavBase64For,
   speak: speakOnTelnyxCall,
   transfer: transferTelnyxCall,
+  waitForHoldReplayWindow: () =>
+    new Promise((resolve) => setTimeout(resolve, HOLD_REPLAY_GUARD_MS)),
 };
 
 function requireSuccessfulResponse(response: Response, action: string) {
@@ -184,14 +189,35 @@ export function createTelnyxProviderCommandSender(
           );
           return;
         case "STOP_HOLD_MUSIC": {
+          const clientState = canonicalCommandClientState(command);
           const response = await operations.playbackStop(
             command.provider.callControlId,
             command.commandId,
             undefined,
-            canonicalCommandClientState(command),
+            clientState,
           );
-          if ([404, 422].includes(response.status)) return { alreadySettled: true };
-          requireSuccessfulResponse(response, "hold music stop");
+          const firstStopAlreadySettled = [404, 422].includes(response.status);
+          if (!firstStopAlreadySettled) {
+            requireSuccessfulResponse(response, "hold music stop");
+          }
+
+          // Telnyx briefly ends and restarts an infinite playback at the WAV loop
+          // boundary. A stop accepted inside that gap can miss the scheduled replay,
+          // so clear the queue once more after the observed replay window.
+          await operations.waitForHoldReplayWindow();
+          const guardedResponse = await operations.playbackStop(
+            command.provider.callControlId,
+            undefined,
+            undefined,
+            clientState,
+          );
+          const guardedStopAlreadySettled = [404, 422].includes(guardedResponse.status);
+          if (!guardedStopAlreadySettled) {
+            requireSuccessfulResponse(guardedResponse, "hold music stop");
+          }
+          if (guardedStopAlreadySettled) {
+            return { alreadySettled: true };
+          }
           return;
         }
         case "HANGUP_LEG":

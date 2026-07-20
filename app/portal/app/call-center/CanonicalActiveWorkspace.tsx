@@ -692,6 +692,12 @@ export function CanonicalActiveCall({
   const [controlError, setControlError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const [holdPending, setHoldPending] = useState(false);
+  const [localHoldState, setLocalHoldState] = useState<{
+    callId: string;
+    connectionId: string;
+    held: boolean;
+    mediaLegId: string;
+  } | null>(null);
   const [isMuted, setMuted] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTargets, setTransferTargets] = useState<
@@ -701,6 +707,7 @@ export function CanonicalActiveCall({
   const [loadingTargets, setLoadingTargets] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [transferTargetLegId, setTransferTargetLegId] = useState<string | null>(null);
+  const holdOperationRef = useRef<string | null>(null);
   const transferOperationRef = useRef<{ key: string; targetEndpointId: string } | null>(
     null,
   );
@@ -712,12 +719,44 @@ export function CanonicalActiveCall({
   const phone = formatPhone(callPhone(call));
   const connected = call.status === "CONNECTED";
   const mediaLegId = match?.observation.mediaLegId ?? null;
+  const mediaConnectionId = match?.observation.connectionId ?? null;
   const controlsEnabled = Boolean(
     mediaLegId &&
     (match?.leg.status === "BRIDGED" ||
       ["ACTIVE", "HELD"].includes(match?.observation.state ?? "")),
   );
-  const isHeld = match?.observation.state === "HELD";
+  const observedHeld = match?.observation.state === "HELD";
+  // Keep the user's confirmed intent stable across transient updates from this
+  // media leg, but never carry it onto a recovered WebRTC connection.
+  const localHoldStateMatches = Boolean(
+    media.connection === "READY" &&
+    localHoldState &&
+    localHoldState.callId === call.id &&
+    localHoldState.connectionId === mediaConnectionId &&
+    localHoldState.mediaLegId === mediaLegId,
+  );
+  const isHeld =
+    localHoldStateMatches && localHoldState ? localHoldState.held : observedHeld;
+
+  const rememberHoldState = (held: boolean, operationId: string) => {
+    if (holdOperationRef.current !== operationId || !mediaConnectionId || !mediaLegId) {
+      return;
+    }
+    setLocalHoldState({
+      callId: call.id,
+      connectionId: mediaConnectionId,
+      held,
+      mediaLegId,
+    });
+  };
+
+  useEffect(() => {
+    if (media.connection !== "READY") {
+      holdOperationRef.current = null;
+      setHoldPending(false);
+      setLocalHoldState(null);
+    }
+  }, [media.connection]);
 
   useEffect(() => {
     if (!connected) return;
@@ -772,35 +811,57 @@ export function CanonicalActiveCall({
 
   const toggleHold = async () => {
     if (!mediaLegId || holdPending) return;
+    const operationId = crypto.randomUUID();
+    holdOperationRef.current = operationId;
     const nextHeld = !isHeld;
     setHoldPending(true);
     setControlError(null);
 
     try {
       if (nextHeld) {
-        await media.hold(mediaLegId, true);
+        rememberHoldState(true, operationId);
+        try {
+          await media.hold(mediaLegId, true);
+        } catch (error) {
+          rememberHoldState(false, operationId);
+          throw error;
+        }
         try {
           await requestHoldMusic("START");
         } catch (error) {
           if (holdMusicMayHaveStarted(error)) {
             await requestHoldMusic("STOP");
           }
-          await media.hold(mediaLegId, false);
+          try {
+            await media.hold(mediaLegId, false);
+            rememberHoldState(false, operationId);
+          } catch (rollbackError) {
+            rememberHoldState(true, operationId);
+            throw rollbackError;
+          }
           throw error;
         }
       } else {
         await requestHoldMusic("STOP");
         try {
           await media.hold(mediaLegId, false);
+          rememberHoldState(false, operationId);
         } catch (error) {
-          await requestHoldMusic("START");
+          try {
+            await requestHoldMusic("START");
+          } finally {
+            rememberHoldState(true, operationId);
+          }
           throw error;
         }
       }
     } catch (error) {
       showControlError(error, "hold");
     } finally {
-      setHoldPending(false);
+      if (holdOperationRef.current === operationId) {
+        holdOperationRef.current = null;
+        setHoldPending(false);
+      }
     }
   };
 
@@ -954,7 +1015,7 @@ export function CanonicalActiveCall({
             ) : (
               <Pause className="h-4 w-4" aria-hidden="true" />
             )}
-            {holdPending ? "Updating" : isHeld ? "Resume" : "Hold"}
+            {isHeld ? "Resume" : "Hold"}
           </Button>
           <Button
             disabled={!controlsEnabled || ending || holdPending || transferInProgress}

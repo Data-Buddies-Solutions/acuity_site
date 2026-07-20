@@ -133,6 +133,7 @@ describe("Telnyx provider command sender", () => {
         calls.push(["transfer", args]);
         return response();
       },
+      waitForHoldReplayWindow: async () => {},
     });
     const target = {
       callId: "call-1",
@@ -222,6 +223,7 @@ describe("Telnyx provider command sender", () => {
         },
       ],
       ["playbackStop", ["agent-control-1", "command-1", undefined, expect.any(String)]],
+      ["playbackStop", ["agent-control-1", undefined, undefined, expect.any(String)]],
       ["hangup", ["customer-control-1", "command-1", undefined, expect.any(String)]],
       [
         "speak",
@@ -344,6 +346,7 @@ describe("Telnyx provider command sender", () => {
       recordStart: async () => new Response(null, { status: 204 }),
       ringbackContent: () => "ringback",
       speak: async () => new Response(null, { status: 204 }),
+      waitForHoldReplayWindow: async () => {},
     });
 
     await expect(
@@ -352,6 +355,58 @@ describe("Telnyx provider command sender", () => {
         callId: "call-1",
         commandId: "command-1",
         idempotencyKey: "stop-hold-1",
+        legId: "agent-leg-1",
+        practiceId: "practice-1",
+        provider: { callControlId: "agent-control-1" },
+        type: "STOP_HOLD_MUSIC",
+      }),
+    ).resolves.toEqual({ alreadySettled: true });
+  });
+
+  it("clears a hold replay that starts just after the first stop", async () => {
+    const stops: Array<[string, string | undefined]> = [];
+    const sender = createTelnyxProviderCommandSender({
+      playbackStop: async (callControlId, commandId) => {
+        stops.push([callControlId, commandId]);
+        return new Response(null, { status: stops.length === 1 ? 404 : 204 });
+      },
+      waitForHoldReplayWindow: async () => {},
+    });
+
+    await expect(
+      sender.send({
+        arguments: {},
+        callId: "call-1",
+        commandId: "command-1",
+        idempotencyKey: "stop-hold-race-1",
+        legId: "agent-leg-1",
+        practiceId: "practice-1",
+        provider: { callControlId: "agent-control-1" },
+        type: "STOP_HOLD_MUSIC",
+      }),
+    ).resolves.toBeUndefined();
+    expect(stops).toEqual([
+      ["agent-control-1", "command-1"],
+      ["agent-control-1", undefined],
+    ]);
+  });
+
+  it("settles when the guard confirms playback is gone", async () => {
+    let stopCount = 0;
+    const sender = createTelnyxProviderCommandSender({
+      playbackStop: async () => {
+        stopCount += 1;
+        return new Response(null, { status: stopCount === 1 ? 204 : 404 });
+      },
+      waitForHoldReplayWindow: async () => {},
+    });
+
+    await expect(
+      sender.send({
+        arguments: {},
+        callId: "call-1",
+        commandId: "command-1",
+        idempotencyKey: "stop-hold-guard-1",
         legId: "agent-leg-1",
         practiceId: "practice-1",
         provider: { callControlId: "agent-control-1" },
