@@ -179,6 +179,16 @@ describe("CanonicalActiveCall", () => {
     expect(screen.getByText("(954) 609-7250")).toBeTruthy();
     expect(screen.getByText("Patient call")).toBeTruthy();
     expect(screen.getByText("00:00")).toBeTruthy();
+    for (const name of ["Mute", "Hold", "Transfer", "End"]) {
+      expect(screen.getByRole("button", { name }).className).toContain("min-w-0");
+      expect(screen.getByRole("button", { name }).className).toContain("w-full");
+      expect(screen.getByRole("button", { name }).className).toContain(
+        "@min-[30rem]/active-call:px-2",
+      );
+    }
+    expect(
+      screen.getByRole("button", { name: "Mute" }).parentElement?.className,
+    ).toContain("@min-[30rem]/active-call:grid-cols-4");
 
     fireEvent.click(screen.getByRole("button", { name: "Mute" }));
     expect(media.mute).toHaveBeenCalledWith("media-leg-1", true);

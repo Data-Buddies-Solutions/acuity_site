@@ -907,7 +907,7 @@ export function CanonicalActiveCall({
 
   if (connected) {
     return (
-      <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
+      <div className="@container/active-call rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
         {controlError ? (
           <p className="mb-3 text-sm text-[var(--portal-danger)]" role="alert">
             {controlError}
@@ -929,9 +929,10 @@ export function CanonicalActiveCall({
           </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 @min-[30rem]/active-call:grid-cols-4">
           <Button
             aria-pressed={isMuted}
+            className="min-w-0 w-full @min-[30rem]/active-call:px-2"
             disabled={!controlsEnabled || ending || holdPending}
             onClick={toggleMute}
             variant={isMuted ? "default" : "secondary"}
@@ -945,6 +946,7 @@ export function CanonicalActiveCall({
           </Button>
           <Button
             aria-pressed={isHeld}
+            className="min-w-0 w-full @min-[30rem]/active-call:px-2"
             disabled={!controlsEnabled || ending || holdPending || transferInProgress}
             onClick={() => void toggleHold()}
             variant={isHeld ? "default" : "secondary"}
@@ -957,6 +959,7 @@ export function CanonicalActiveCall({
             {holdPending ? "Updating" : isHeld ? "Resume" : "Hold"}
           </Button>
           <Button
+            className="min-w-0 w-full @min-[30rem]/active-call:px-2"
             disabled={!controlsEnabled || ending || holdPending || transferInProgress}
             onClick={() => void openTransfer()}
             variant="secondary"
@@ -965,6 +968,7 @@ export function CanonicalActiveCall({
             Transfer
           </Button>
           <Button
+            className="min-w-0 w-full @min-[30rem]/active-call:px-2"
             disabled={!controlsEnabled || ending || transferInProgress}
             onClick={() => void endCall()}
             variant="secondary"
