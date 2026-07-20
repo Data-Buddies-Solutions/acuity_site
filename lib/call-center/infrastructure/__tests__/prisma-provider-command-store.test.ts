@@ -56,6 +56,7 @@ function transaction({
   commandType?:
     | "ANSWER_CUSTOMER"
     | "START_RINGBACK"
+    | "DIAL_CUSTOMER"
     | "DIAL_AGENT"
     | "TRANSFER_AGENT"
     | "STOP_PLAYBACK"
@@ -188,6 +189,7 @@ function transaction({
             members: memberUserId ? [{ userId: memberUserId }] : [],
           },
           status: callStatus,
+          toPhone: "+17865550102",
           winningLegId:
             winningLegId === undefined
               ? commandType === "TRANSFER_AGENT"
@@ -218,7 +220,11 @@ function transaction({
           endpointId: "endpoint-1",
           id: "leg-1",
           kind: legKind,
-          providerCallControlId: ["DIAL_AGENT", "TRANSFER_AGENT"].includes(commandType)
+          providerCallControlId: [
+            "DIAL_CUSTOMER",
+            "DIAL_AGENT",
+            "TRANSFER_AGENT",
+          ].includes(commandType)
             ? null
             : "customer-control-1",
           status: currentTargetLegStatus,
@@ -344,6 +350,36 @@ describe("Prisma provider command store", () => {
       },
     });
     expect(fake.updates()).toBe(1);
+  });
+
+  it("claims the initial outbound customer dial", async () => {
+    const fake = transaction({
+      arguments: {},
+      callDirection: "OUTBOUND",
+      callStatus: "RECEIVED",
+      commandType: "DIAL_CUSTOMER",
+      legKind: "CUSTOMER",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      command: {
+        provider: {
+          connectionId: "connection-1",
+          from: "+17865550101",
+          to: expect.any(String),
+        },
+        type: "DIAL_CUSTOMER",
+      },
+    });
   });
 
   it("claims one cold transfer against the current source leg", async () => {
@@ -480,19 +516,27 @@ describe("Prisma provider command store", () => {
     expect(fake.targetLegStatus()).toBe("FAILED");
   });
 
-  it("claims an answered direct outbound leg without a winner", async () => {
+  it("transfers an outbound call through its customer leg", async () => {
     const fake = transaction({
       arguments: {
         agentSessionId: "session-1",
         endpointId: "endpoint-1",
-        providerSourceLegId: "source-leg",
+        providerSourceLegId: "customer-leg",
         sourceLegId: "source-leg",
       },
       callDirection: "OUTBOUND",
       callStatus: "CONNECTED",
       commandType: "TRANSFER_AGENT",
+      customerLegs: [
+        {
+          id: "customer-leg",
+          kind: "CUSTOMER",
+          providerCallControlId: "customer-control-1",
+          status: "BRIDGED",
+        },
+      ],
       sessionState: "OFFERED",
-      winningLegId: null,
+      winningLegId: "source-leg",
     });
     const store = new PrismaProviderCommandStore((operation) =>
       operation(fake.tx as never),
@@ -507,10 +551,8 @@ describe("Prisma provider command store", () => {
     ).resolves.toMatchObject({
       command: {
         provider: {
-          callControlId: "source-control-1",
-          connectionId: "connection-1",
-          from: "+17865550101",
-          strategy: "DIAL_BRIDGE",
+          callControlId: "customer-control-1",
+          strategy: "TRANSFER",
         },
       },
     });
@@ -910,7 +952,11 @@ describe("Prisma provider command store", () => {
   it("reconciles every terminal provider failure without session pointers", async () => {
     const operations: string[] = [];
     const reconciledTypes: string[] = [];
-    let targetType: "DIAL_AGENT" | "START_RINGBACK" | "ANSWER_CUSTOMER" = "DIAL_AGENT";
+    let targetType:
+      | "DIAL_CUSTOMER"
+      | "DIAL_AGENT"
+      | "START_RINGBACK"
+      | "ANSWER_CUSTOMER" = "DIAL_AGENT";
     const tx = {
       $queryRaw: async () => {
         operations.push("lock");
@@ -956,7 +1002,10 @@ describe("Prisma provider command store", () => {
           "leg" in select
             ? {
                 callId: "call-1",
-                leg: { id: "leg-1", kind: "AGENT" },
+                leg: {
+                  id: "leg-1",
+                  kind: targetType === "DIAL_CUSTOMER" ? "CUSTOMER" : "AGENT",
+                },
                 practiceId: "practice-1",
                 type: targetType,
               }
@@ -1022,6 +1071,18 @@ describe("Prisma provider command store", () => {
         now,
       }),
     ).resolves.toEqual({ commandIds: ["voicemail-command"] });
+
+    targetType = "DIAL_CUSTOMER";
+    await expect(
+      store.fail({
+        attemptCount: 5,
+        commandId: "customer-command",
+        errorCode: "PROVIDER_VALIDATION_FAILED",
+        now,
+      }),
+    ).resolves.toEqual({ commandIds: [] });
+    expect(operations).toContain("event:CALL_OUTBOUND_DIAL_FAILED");
+
     expect(reconciledTypes).toEqual(["DIAL_AGENT", "START_RINGBACK", "ANSWER_CUSTOMER"]);
   });
 });

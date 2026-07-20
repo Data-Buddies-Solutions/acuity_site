@@ -163,6 +163,52 @@ function withMediaState(
 }
 
 describe("CanonicalActiveCall", () => {
+  it("answers the initiating agent leg when the outbound customer connects", async () => {
+    const call = connectedCall("OUTBOUND");
+    call.answeredAt = null;
+    call.status = "RINGING";
+    call.winningLegId = null;
+    call.legs[0]!.status = "RINGING";
+    const media = mediaControls("RINGING");
+
+    render(
+      <CanonicalActiveCall
+        call={call}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(media.answer).toHaveBeenCalledWith("media-leg-1");
+    });
+  });
+
+  it("surfaces one outbound auto-answer failure without retrying in a render loop", async () => {
+    const call = connectedCall("OUTBOUND");
+    call.answeredAt = null;
+    call.status = "RINGING";
+    call.winningLegId = null;
+    call.legs[0]!.status = "RINGING";
+    const media = mediaControls("RINGING");
+    media.answer.mockRejectedValueOnce(new Error("answer rejected"));
+
+    render(
+      <CanonicalActiveCall
+        call={call}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await screen.findByText(/couldn't answer this call/i);
+    expect(media.answer).toHaveBeenCalledTimes(1);
+  });
+
   it("restores connected inbound controls and routes them through canonical media", async () => {
     const media = mediaControls();
 

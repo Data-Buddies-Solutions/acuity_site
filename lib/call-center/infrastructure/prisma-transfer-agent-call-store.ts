@@ -79,12 +79,9 @@ async function transferContext(
   ) {
     throw new TransferAgentCallError("Call is not connected to this phone", 409);
   }
-  const providerSources =
-    call.direction === "INBOUND"
-      ? call.legs.filter(
-          (leg) => leg.kind === "CUSTOMER" && Boolean(leg.providerCallControlId),
-        )
-      : [source];
+  const providerSources = call.legs.filter(
+    (leg) => leg.kind === "CUSTOMER" && Boolean(leg.providerCallControlId),
+  );
   if (providerSources.length !== 1) {
     throw new TransferAgentCallError("Call is not connected to this phone", 409);
   }

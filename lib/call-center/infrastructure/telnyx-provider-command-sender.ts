@@ -133,6 +133,16 @@ export function createTelnyxProviderCommandSender(
             "ringback",
           );
           return;
+        case "DIAL_CUSTOMER":
+          await operations.dial({
+            clientState: canonicalCommandClientState(command),
+            commandId: command.commandId,
+            connectionId: command.provider.connectionId,
+            from: command.provider.from,
+            timeoutSecs: command.provider.timeoutSeconds,
+            to: command.provider.to,
+          });
+          return;
         case "DIAL_AGENT":
           await operations.dial({
             bridgeIntent: true,
@@ -149,24 +159,6 @@ export function createTelnyxProviderCommandSender(
           return;
         case "TRANSFER_AGENT": {
           const clientStates = transferCommandClientStates(command);
-          if (command.provider.strategy === "DIAL_BRIDGE") {
-            // A direct WebRTC outbound call is controlled through its PSTN leg.
-            // Re-bridge that patient leg to the target instead of transferring
-            // it, which would replace the patient with a station-to-station call.
-            await operations.dial({
-              bridgeIntent: true,
-              bridgeOnAnswer: true,
-              clientState: clientStates.target,
-              commandId: command.commandId,
-              connectionId: command.provider.connectionId,
-              from: command.provider.from,
-              linkTo: command.provider.callControlId,
-              preventDoubleBridge: false,
-              timeoutSecs: command.provider.timeoutSeconds,
-              to: command.provider.sipUri,
-            });
-            return;
-          }
           requireSuccessfulResponse(
             await operations.transfer({
               callControlId: command.provider.callControlId,

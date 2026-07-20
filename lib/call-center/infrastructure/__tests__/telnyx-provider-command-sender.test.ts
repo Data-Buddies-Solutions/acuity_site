@@ -96,6 +96,51 @@ describe("Telnyx provider command sender", () => {
     });
   });
 
+  it("originates the outbound customer as its own provider leg", async () => {
+    const dials: Record<string, unknown>[] = [];
+    const sender = createTelnyxProviderCommandSender({
+      dial: async (input) => {
+        dials.push(input as unknown as Record<string, unknown>);
+        return {};
+      },
+    });
+
+    await sender.send({
+      arguments: {},
+      callId: "call-1",
+      commandId: "dial-customer-1",
+      idempotencyKey: "outbound:customer",
+      legId: "customer-leg-1",
+      practiceId: "practice-1",
+      provider: {
+        connectionId: "connection-1",
+        from: "+17865550101",
+        timeoutSeconds: 60,
+        to: "+17865550102",
+      },
+      type: "DIAL_CUSTOMER",
+    });
+
+    expect(dials).toEqual([
+      {
+        clientState: expect.any(String),
+        commandId: "dial-customer-1",
+        connectionId: "connection-1",
+        from: "+17865550101",
+        timeoutSecs: 60,
+        to: "+17865550102",
+      },
+    ]);
+    expect(
+      JSON.parse(Buffer.from(String(dials[0]?.clientState), "base64").toString("utf8")),
+    ).toEqual({
+      callId: "call-1",
+      canonicalCommand: true,
+      commandId: "dial-customer-1",
+      legId: "customer-leg-1",
+    });
+  });
+
   it("maps every initial lifecycle command to one idempotent Telnyx action", async () => {
     const calls: Array<[string, unknown]> = [];
     const response = () => new Response(null, { status: 204 });
@@ -278,67 +323,6 @@ describe("Telnyx provider command sender", () => {
     expect(
       JSON.parse(Buffer.from(transfer.targetLegClientState, "base64").toString("utf8")),
     ).toMatchObject({ internalTransferTarget: true, legId: "leg-2" });
-  });
-
-  it("bridges an outbound patient leg to the transfer target", async () => {
-    const calls: Array<[string, unknown]> = [];
-    const sender = createTelnyxProviderCommandSender({
-      dial: async (args) => {
-        calls.push(["dial", args]);
-        return {};
-      },
-      transfer: async (args) => {
-        calls.push(["transfer", args]);
-        return new Response(null, { status: 204 });
-      },
-    });
-
-    await sender.send({
-      arguments: {
-        agentSessionId: "session-2",
-        endpointId: "endpoint-2",
-        providerSourceLegId: "patient-leg-1",
-        sourceLegId: "source-agent-leg-1",
-      },
-      callId: "call-1",
-      commandId: "transfer-command-1",
-      idempotencyKey: "transfer-1",
-      legId: "target-agent-leg-1",
-      practiceId: "practice-1",
-      provider: {
-        callControlId: "patient-control-1",
-        connectionId: "connection-1",
-        from: "+17865550101",
-        sipUri: "sip:agent-2@example.test",
-        strategy: "DIAL_BRIDGE",
-        timeoutSeconds: 20,
-      },
-      type: "TRANSFER_AGENT",
-    });
-
-    expect(calls).toEqual([
-      [
-        "dial",
-        expect.objectContaining({
-          bridgeIntent: true,
-          bridgeOnAnswer: true,
-          commandId: "transfer-command-1",
-          connectionId: "connection-1",
-          from: "+17865550101",
-          linkTo: "patient-control-1",
-          preventDoubleBridge: false,
-          timeoutSecs: 20,
-          to: "sip:agent-2@example.test",
-        }),
-      ],
-    ]);
-    const dial = calls[0]?.[1] as { clientState: string };
-    expect(
-      JSON.parse(Buffer.from(dial.clientState, "base64").toString("utf8")),
-    ).toMatchObject({
-      internalTransferTarget: true,
-      legId: "target-agent-leg-1",
-    });
   });
 
   it("turns unsuccessful helper responses into classified errors", async () => {

@@ -19,14 +19,12 @@ export type StartOutboundCallInput = {
 export type StartOutboundCallReceipt = OperationReceipt & {
   agentSessionId: string;
   callId: string;
-  clientState: string;
+  commandId: string;
+  customerLegId: string;
   endpointId: string;
-  from: string;
   legId: string;
   operationType: "OUTBOUND";
   stateVersion: number;
-  status: "CONFIRMED";
-  to: string;
 };
 
 export type StartOutboundCallResponse = StartOutboundCallReceipt;
@@ -49,6 +47,7 @@ export class StartOutboundCallError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly retryable = true,
   ) {
     super(message);
     this.name = "StartOutboundCallError";
@@ -64,7 +63,7 @@ function targetFingerprint(input: StartOutboundCallInput) {
   });
 }
 
-/** Persists the complete outbound intent before the browser starts media. */
+/** Persists the complete outbound intent before provider I/O starts. */
 export function startOutboundCall(
   store: StartOutboundCallStore,
   actor: QueueAccessActor,

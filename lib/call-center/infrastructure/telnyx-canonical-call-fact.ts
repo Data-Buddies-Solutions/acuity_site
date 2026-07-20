@@ -156,7 +156,7 @@ export function resolveCanonicalTelnyxCallObservations(
       return {
         callObservation:
           legKind === "CUSTOMER" && callDirection === "OUTBOUND"
-            ? "CONNECTED"
+            ? "RINGING"
             : legKind === "AGENT"
               ? "RINGING"
               : null,

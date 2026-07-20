@@ -16,7 +16,7 @@ describe("server Call Center module", () => {
       {
         create: async () => {
           calls.push("create");
-          return { callId: "outbound-1" };
+          return { callId: "outbound-1", commandId: "dial-customer-1" };
         },
         dispatch: async (commandId) => {
           calls.push(`dispatch:${commandId}`);
@@ -42,8 +42,16 @@ describe("server Call Center module", () => {
       },
     );
 
-    expect(calls).toEqual(["prepare", "dispatch:hangup-1", "create"]);
-    expect(result).toEqual({ callId: "outbound-1" });
+    expect(calls).toEqual([
+      "prepare",
+      "dispatch:hangup-1",
+      "create",
+      "dispatch:dial-customer-1",
+    ]);
+    expect(result).toEqual({
+      callId: "outbound-1",
+      commandId: "dial-customer-1",
+    });
   });
 
   it("does not create outbound intent while offer cleanup is unresolved", async () => {
@@ -53,6 +61,7 @@ describe("server Call Center module", () => {
         {
           create: async () => {
             created = true;
+            return { commandId: "dial-customer-1" };
           },
           dispatch: async (commandId) => ({
             commandId,
@@ -77,6 +86,57 @@ describe("server Call Center module", () => {
       ),
     ).rejects.toMatchObject({ status: 503 });
     expect(created).toBe(false);
+  });
+
+  it("distinguishes a definitive customer dial rejection from an ambiguous result", async () => {
+    const dependencies = {
+      create: async () => ({ commandId: "dial-customer-1" }),
+      prepare: async () => [],
+    };
+    const actor = {
+      allowedLocationIds: [],
+      hasAllLocationAccess: true,
+      practiceId: "practice-1",
+      userId: "user-1",
+    };
+    const input = {
+      clientInstanceId: "browser-1",
+      destination: "+15555550123",
+      idempotencyKey: "operation-1",
+      numberId: "number-1",
+      queueId: "queue-1",
+    };
+
+    await expect(
+      startCanonicalOutbound(
+        {
+          ...dependencies,
+          dispatch: async (commandId: string) => ({
+            commandId,
+            errorCode: "PROVIDER_VALIDATION_FAILED",
+            followUpCommandIds: [],
+            status: "FAILED" as const,
+          }),
+        },
+        actor,
+        input,
+      ),
+    ).rejects.toMatchObject({ retryable: false, status: 502 });
+
+    await expect(
+      startCanonicalOutbound(
+        {
+          ...dependencies,
+          dispatch: async (commandId: string) => ({
+            commandId,
+            errorCode: "SENDING_OUTCOME_AMBIGUOUS" as const,
+            status: "DEFERRED" as const,
+          }),
+        },
+        actor,
+        input,
+      ),
+    ).rejects.toMatchObject({ retryable: true, status: 503 });
   });
 
   it("applies a durable provider event before returning to the webhook", async () => {
