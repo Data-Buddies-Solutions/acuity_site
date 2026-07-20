@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 
 import {
+  dialTelnyxCall,
   readTelnyxLoginTokenResponse,
   startTelnyxRecording,
   TelnyxError,
@@ -34,6 +35,34 @@ describe("Telnyx login tokens", () => {
     expect(error).toMatchObject({
       message: "Telnyx returned an empty login token",
       status: 502,
+    });
+  });
+});
+
+describe("Telnyx linked dialing", () => {
+  it("allows a linked transfer target to replace the existing agent bridge", async () => {
+    process.env.TELNYX_API_KEY = "test-key";
+    let request: RequestInit | undefined;
+    globalThis.fetch = mock(async (_url, init) => {
+      request = init;
+      return Response.json({ data: { result: "ok" } });
+    }) as unknown as typeof fetch;
+
+    await dialTelnyxCall({
+      bridgeOnAnswer: true,
+      connectionId: "connection-1",
+      from: "+17865550101",
+      linkTo: "patient-control-1",
+      preventDoubleBridge: false,
+      to: "sip:target@example.test",
+    });
+
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      bridge_intent: true,
+      bridge_on_answer: true,
+      link_to: "patient-control-1",
+      prevent_double_bridge: false,
+      to: "sip:target@example.test",
     });
   });
 });
