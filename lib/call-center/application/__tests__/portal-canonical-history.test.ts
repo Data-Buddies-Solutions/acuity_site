@@ -1,9 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT,
   canonicalCallAccessWhere,
   readCanonicalCallCenterHistory,
   readCanonicalNeedsAction,
+  readCanonicalNeedsActionPreview,
 } from "../portal-canonical-history";
 
 const context = {
@@ -118,5 +120,59 @@ describe("canonical portal history", () => {
       ],
       total: 1,
     });
+  });
+
+  it("loads at most 15 records for the independent needs-action preview", async () => {
+    let query: Record<string, unknown> | null = null;
+    const previewTasks = Array.from(
+      { length: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT + 5 },
+      (_, index) => ({
+        call: {
+          ...call,
+          fromPhone: `+15555550${index.toString().padStart(3, "0")}`,
+        },
+        createdAt: new Date(call.endedAt.getTime() - index * 1_000),
+        id: `task-${index}`,
+        kind: "MISSED_CALL",
+        note: null,
+      }),
+    );
+    const database = {
+      callCenterQueue: {
+        findFirst: async () => ({
+          id: "queue-1",
+          locations: [{ locationId: "location-1" }],
+          name: "Main queue",
+        }),
+      },
+      callCenterTask: {
+        findMany: async (input: Record<string, unknown>) => {
+          query = input;
+          return previewTasks;
+        },
+      },
+    };
+
+    const result = await readCanonicalNeedsActionPreview(
+      {
+        allowedLocationIds: ["location-1"],
+        hasAllLocationAccess: false,
+        practiceId: "practice-1",
+        userId: "user-1",
+      },
+      { locationIds: ["location-1"], queueId: "queue-1" },
+      database as never,
+    );
+
+    expect(query).toMatchObject({
+      take: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT,
+      where: {
+        call: { practiceId: "practice-1", queueId: "queue-1" },
+        practiceId: "practice-1",
+        status: "OPEN",
+      },
+    });
+    expect(result).toHaveLength(CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT);
+    expect(result[0]).toMatchObject({ id: "task-0", kind: "missed" });
   });
 });

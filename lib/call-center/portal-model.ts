@@ -20,6 +20,10 @@ export type PortalCallActivityItem = {
   recordingId: string | null;
 };
 
+export type PortalNeedsActionPreviewItem = PortalCallActivityItem & {
+  id: string;
+};
+
 export type PortalNeedsActionGroup = {
   callbackNeededCount: number;
   callerName: string | null;
