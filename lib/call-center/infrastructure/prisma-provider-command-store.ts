@@ -14,6 +14,7 @@ import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma
 import { reconcileActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-lifecycle-store";
 import { failProviderCommandDependents } from "@/lib/call-center/infrastructure/prisma-provider-command-failures";
 import { reconcileFailedTransferWithEndedSource } from "@/lib/call-center/infrastructure/prisma-failed-transfer-reconciliation";
+import { sameLocationTransferMembershipWhere } from "@/lib/call-center/infrastructure/prisma-transfer-agent-authorization";
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
@@ -478,10 +479,20 @@ async function loadProviderCommandClaim(
     ) {
       return reject("COMMAND_AGENT_SESSION_NOT_READY");
     }
-    if (!command.call.queue.members.some(({ userId }) => userId === session.userId)) {
+    const numberLocationId = command.call.number.practicePhoneNumber.locationId;
+    const transferMembership = numberLocationId
+      ? await tx.callCenterQueueMember.findFirst({
+          select: { id: true },
+          where: sameLocationTransferMembershipWhere({
+            locationId: numberLocationId,
+            practiceId: command.practiceId,
+            userId: session.userId,
+          }),
+        })
+      : null;
+    if (!transferMembership) {
       return reject("COMMAND_AGENT_MEMBERSHIP_INVALID");
     }
-    const numberLocationId = command.call.number.practicePhoneNumber.locationId;
     const queueLocationIds = new Set(
       command.call.queue.locations.map(({ locationId }) => locationId),
     );

@@ -128,6 +128,7 @@ describe("useCanonicalCallCenter", () => {
   });
 
   it("keeps the last state after a failed read and retries on the next interval", async () => {
+    let finishRetry: ((response: Response) => void) | null = null;
     let requestCount = 0;
     const requestHeaders: Record<string, string>[] = [];
     globalThis.fetch = mock(async (_input, init) => {
@@ -135,7 +136,9 @@ describe("useCanonicalCallCenter", () => {
       requestHeaders.push(init?.headers as Record<string, string>);
       if (requestCount === 1) return Response.json(snapshot(1));
       if (requestCount === 2) return temporaryFailure();
-      return Response.json(snapshot(3));
+      return new Promise<Response>((resolve) => {
+        finishRetry = resolve;
+      });
     }) as unknown as typeof fetch;
 
     const { result } = renderHook(() =>
@@ -153,6 +156,8 @@ describe("useCanonicalCallCenter", () => {
     expect(result.current.state?.calls[0]?.stateVersion).toBe(1);
     expect(result.current.loading).toBe(false);
 
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3));
+    await act(async () => finishRetry?.(Response.json(snapshot(3))));
     await waitFor(() => expect(result.current.state?.calls[0]?.stateVersion).toBe(3));
     expect(result.current.error).toBeNull();
     expect(

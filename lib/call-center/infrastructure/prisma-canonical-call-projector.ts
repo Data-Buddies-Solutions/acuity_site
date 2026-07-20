@@ -870,6 +870,7 @@ function canonicalCallObservation(
 
 type CanonicalTransferContext = {
   commandId: string;
+  createdAt: Date;
   sourceLegId: string;
   status: "SENDING" | "SENT" | "CONFIRMED" | "FAILED";
   targetLegId: string;
@@ -921,12 +922,11 @@ function projectedTransferTargetLegStatus(input: {
 }
 
 function projectedTransferTargetBridgedAt(input: {
+  bridgeEvidenceAt: Date | null;
   currentStatus: CanonicalLegStatus;
-  eventType: string;
   hasExplicitAnswer: boolean;
   internalTransferTarget: boolean;
   nextBridgedAt: Date | null;
-  occurredAt: Date;
 }) {
   if (
     !input.internalTransferTarget ||
@@ -935,11 +935,32 @@ function projectedTransferTargetBridgedAt(input: {
   ) {
     return input.nextBridgedAt;
   }
-  // Telnyx reports the transfer bridge on its separate WebRTC peer, while the
-  // tagged target leg's answer confirms that bridge reached the chosen agent.
-  return input.hasExplicitAnswer && input.eventType === "call.answered"
-    ? (input.nextBridgedAt ?? input.occurredAt)
+  return input.hasExplicitAnswer
+    ? (input.nextBridgedAt ?? input.bridgeEvidenceAt)
     : input.nextBridgedAt;
+}
+
+async function canonicalTransferBridgeEvidenceAt(
+  tx: Transaction,
+  fact: ResolvedCanonicalTelnyxCallFact,
+  transfer: CanonicalTransferContext | null,
+) {
+  if (!transfer || !fact.internalTransferTarget || !fact.providerCallSessionId) {
+    return null;
+  }
+  const bridge = await tx.providerWebhookEvent.findFirst({
+    orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+    select: { occurredAt: true },
+    where: {
+      errorCode: "TELNYX_EVENT_OUT_OF_SCOPE",
+      eventType: "call.bridged",
+      occurredAt: { gte: transfer.createdAt, lte: fact.occurredAt },
+      processingStatus: "IGNORED",
+      provider: "TELNYX",
+      providerCallSessionId: fact.providerCallSessionId,
+    },
+  });
+  return bridge?.occurredAt ?? null;
 }
 
 async function hasCanonicalTransferTargetAnswer(
@@ -1008,6 +1029,7 @@ async function resolveCanonicalTransferContext(
   const select = {
     arguments: true,
     callId: true,
+    createdAt: true,
     id: true,
     legId: true,
     practiceId: true,
@@ -1073,6 +1095,7 @@ async function resolveCanonicalTransferContext(
   }
   return {
     commandId: command.id,
+    createdAt: command.createdAt,
     sourceLegId: args.sourceLegId,
     status: command.status,
     targetLegId: command.legId,
@@ -1213,6 +1236,11 @@ function createProjectAndComplete(
         call,
         transfer,
       );
+      const transferBridgeEvidenceAt = await canonicalTransferBridgeEvidenceAt(
+        tx,
+        resolvedFact,
+        transfer,
+      );
 
       let nextLeg = advanceCanonicalLeg(
         leg,
@@ -1220,12 +1248,11 @@ function createProjectAndComplete(
         resolvedFact.occurredAt,
       );
       const transferTargetBridgedAt = projectedTransferTargetBridgedAt({
+        bridgeEvidenceAt: transferBridgeEvidenceAt,
         currentStatus: leg.status,
-        eventType: resolvedFact.eventType,
         hasExplicitAnswer: transferTargetAnswered,
         internalTransferTarget: Boolean(resolvedFact.internalTransferTarget),
         nextBridgedAt: nextLeg.bridgedAt,
-        occurredAt: resolvedFact.occurredAt,
       });
       nextLeg = {
         ...nextLeg,

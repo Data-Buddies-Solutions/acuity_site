@@ -46,6 +46,7 @@ function transaction({
   memberUserId = "user-1",
   sessionState = "ACTIVE",
   targetLegStatus = legStatus,
+  transferEligibleUserId = memberUserId,
   winningLegId,
 }: {
   accessLocationIds?: string[];
@@ -87,6 +88,7 @@ function transaction({
   sessionState?: "ACTIVE" | "OFFERED";
   targetLegStatus?:
     "ANSWERED" | "BRIDGED" | "CREATED" | "DIALING" | "ENDED" | "FAILED" | "RINGING";
+  transferEligibleUserId?: string | null;
   winningLegId?: string | null;
 } = {}) {
   let updates = 0;
@@ -242,6 +244,10 @@ function transaction({
       create: async () => ({ revision: BigInt(2) }),
       findMany: async () => [{ actorUserId: "user-1", revision: BigInt(1) }],
     },
+    callCenterQueueMember: {
+      findFirst: async ({ where }: { where: { userId?: string } }) =>
+        where.userId === transferEligibleUserId ? { id: "membership-1" } : null,
+    },
     practiceMembership: {
       findUnique: async () => ({
         locationScope: "SELECTED",
@@ -379,6 +385,35 @@ describe("Prisma provider command store", () => {
         },
         type: "TRANSFER_AGENT",
       },
+    });
+  });
+
+  it("claims a cold transfer for an agent in another same-location queue", async () => {
+    const fake = transaction({
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        providerSourceLegId: "customer-leg",
+        sourceLegId: "source-leg",
+      },
+      callStatus: "CONNECTED",
+      commandType: "TRANSFER_AGENT",
+      memberUserId: null,
+      sessionState: "OFFERED",
+      transferEligibleUserId: "user-1",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      command: { type: "TRANSFER_AGENT" },
     });
   });
 
