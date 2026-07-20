@@ -374,6 +374,7 @@ describe("Prisma provider command store", () => {
         provider: {
           callControlId: "customer-control-1",
           sipUri: "sip:agent-1@example.test",
+          strategy: "TRANSFER",
           timeoutSeconds: 20,
         },
         type: "TRANSFER_AGENT",
@@ -469,7 +470,14 @@ describe("Prisma provider command store", () => {
         staleBefore: new Date(now.getTime() - 60_000),
       }),
     ).resolves.toMatchObject({
-      command: { provider: { callControlId: "source-control-1" } },
+      command: {
+        provider: {
+          callControlId: "source-control-1",
+          connectionId: "connection-1",
+          from: "+17865550101",
+          strategy: "DIAL_BRIDGE",
+        },
+      },
     });
   });
 

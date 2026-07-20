@@ -511,6 +511,27 @@ async function loadProviderCommandClaim(
     ) {
       return reject("COMMAND_AGENT_LOCATION_ACCESS_INVALID");
     }
+    const transferProvider =
+      command.call.direction === "OUTBOUND"
+        ? command.practice.callCenterSettings?.telnyxConnectionId?.trim()
+          ? {
+              callControlId: providerSource.providerCallControlId,
+              connectionId: command.practice.callCenterSettings.telnyxConnectionId.trim(),
+              from: command.call.number.practicePhoneNumber.phoneNumber.trim(),
+              sipUri: sipUri(endpoint.sipUsername.trim()),
+              strategy: "DIAL_BRIDGE" as const,
+              timeoutSeconds: 20,
+            }
+          : null
+        : {
+            callControlId: providerSource.providerCallControlId,
+            sipUri: sipUri(endpoint.sipUsername.trim()),
+            strategy: "TRANSFER" as const,
+            timeoutSeconds: 20,
+          };
+    if (!transferProvider) {
+      return reject("COMMAND_PROVIDER_CONFIGURATION_INVALID");
+    }
 
     const claimed = await tx.callCenterCommand.update({
       data: {
@@ -530,11 +551,7 @@ async function loadProviderCommandClaim(
         idempotencyKey: command.idempotencyKey,
         legId: leg.id,
         practiceId: command.practiceId,
-        provider: {
-          callControlId: providerSource.providerCallControlId,
-          sipUri: sipUri(endpoint.sipUsername.trim()),
-          timeoutSeconds: 20,
-        },
+        provider: transferProvider,
         type: "TRANSFER_AGENT",
       },
     };

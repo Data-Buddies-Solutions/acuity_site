@@ -84,11 +84,21 @@ type TransferAgentDispatchData = ProviderCommandDispatchBase & {
     sourceLegId: string;
   };
   /** Resolved at claim time; provider credentials never enter durable arguments. */
-  provider: {
-    callControlId: string;
-    sipUri: string;
-    timeoutSeconds: number;
-  };
+  provider:
+    | {
+        callControlId: string;
+        sipUri: string;
+        strategy: "TRANSFER";
+        timeoutSeconds: number;
+      }
+    | {
+        callControlId: string;
+        connectionId: string;
+        from: string;
+        sipUri: string;
+        strategy: "DIAL_BRIDGE";
+        timeoutSeconds: number;
+      };
   type: "TRANSFER_AGENT";
 };
 
