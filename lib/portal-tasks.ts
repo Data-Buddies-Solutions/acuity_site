@@ -16,7 +16,14 @@ import { prisma } from "@/lib/prisma";
 export type PortalTaskStatusFilter =
   "all" | "open" | "in_progress" | "done" | "closed_no_action";
 export type PortalTaskCategoryFilter =
-  "all" | "billing" | "appointments" | "documentation" | "other";
+  | "all"
+  | "billing"
+  | "appointments"
+  | "documentation"
+  | "optical"
+  | "medication"
+  | "referrals"
+  | "other";
 export type PortalTaskPriorityFilter = "all" | "high_priority" | "normal" | "non_urgent";
 
 export type PortalTask = {
@@ -52,7 +59,10 @@ const categoryFromDb = {
   [AgentTaskCategory.APPOINTMENTS]: "appointments",
   [AgentTaskCategory.BILLING]: "billing",
   [AgentTaskCategory.DOCUMENTATION]: "documentation",
+  [AgentTaskCategory.MEDICATION]: "medication",
+  [AgentTaskCategory.OPTICAL]: "optical",
   [AgentTaskCategory.OTHER]: "other",
+  [AgentTaskCategory.REFERRALS]: "referrals",
 } as const;
 
 const priorityFromDb = {
@@ -72,7 +82,10 @@ const categoryToDb = {
   appointments: AgentTaskCategory.APPOINTMENTS,
   billing: AgentTaskCategory.BILLING,
   documentation: AgentTaskCategory.DOCUMENTATION,
+  medication: AgentTaskCategory.MEDICATION,
+  optical: AgentTaskCategory.OPTICAL,
   other: AgentTaskCategory.OTHER,
+  referrals: AgentTaskCategory.REFERRALS,
 } as const;
 
 const priorityToDb = {
@@ -92,8 +105,21 @@ export const portalTaskCategories = [
   "billing",
   "appointments",
   "documentation",
+  "optical",
+  "medication",
+  "referrals",
   "other",
 ] as const satisfies ReadonlyArray<Exclude<PortalTaskCategoryFilter, "all">>;
+
+export const portalTaskCategoryLabels = {
+  appointments: "Appointments",
+  billing: "Billing",
+  documentation: "Documentation",
+  medication: "Medication",
+  optical: "Optical",
+  other: "Other",
+  referrals: "Referrals",
+} as const satisfies Record<Exclude<PortalTaskCategoryFilter, "all">, string>;
 
 export function parsePortalTaskStatus(
   value: string | string[] | undefined,
@@ -114,6 +140,9 @@ export function parsePortalTaskCategory(
     value === "billing" ||
     value === "appointments" ||
     value === "documentation" ||
+    value === "optical" ||
+    value === "medication" ||
+    value === "referrals" ||
     value === "other"
     ? value
     : "all";
@@ -143,7 +172,10 @@ function emptyBuckets(): PortalTasksResult["tasksByCategory"] {
     appointments: [],
     billing: [],
     documentation: [],
+    medication: [],
+    optical: [],
     other: [],
+    referrals: [],
   };
 }
 
