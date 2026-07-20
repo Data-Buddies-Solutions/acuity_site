@@ -50,7 +50,7 @@ type CanonicalProjectionResult = {
   practiceId: string;
 };
 
-export function directHandoffLifecycleProjection(callStatus: string, projectedAt: Date) {
+function directHandoffLifecycleProjection(callStatus: string, projectedAt: Date) {
   if (callStatus === "CONNECTED" || callStatus === "COMPLETED") {
     return {
       data: {
@@ -75,7 +75,7 @@ export function directHandoffLifecycleProjection(callStatus: string, projectedAt
   return null;
 }
 
-export function shouldPlanCanonicalInboundRouting(input: {
+function shouldPlanCanonicalInboundRouting(input: {
   direction: "INBOUND" | "OUTBOUND" | null;
   eventType: string;
   legKind: "AGENT" | "CUSTOMER";
@@ -87,7 +87,7 @@ export function shouldPlanCanonicalInboundRouting(input: {
   );
 }
 
-export function shouldReconcileCanonicalInboundLifecycle(input: {
+function shouldReconcileCanonicalInboundLifecycle(input: {
   callDirection: "INBOUND" | "OUTBOUND";
   deferTransferSourceHangup?: boolean;
   eventType: string;
@@ -107,7 +107,7 @@ export function shouldReconcileCanonicalInboundLifecycle(input: {
   );
 }
 
-export function shouldConfirmDialAgentCommand(input: {
+function shouldConfirmDialAgentCommand(input: {
   eventType: string;
   legKind: "AGENT" | "CUSTOMER";
   mediaCommandCallback: boolean;
@@ -130,7 +130,7 @@ export type CanonicalCallProjector = {
 
 type Transaction = Prisma.TransactionClient;
 
-export async function pendingDialAgentCommandIdsForCustomerCallback(
+async function pendingDialAgentCommandIdsForCustomerCallback(
   tx: Transaction,
   input: {
     callDirection: "INBOUND" | "OUTBOUND";
@@ -160,7 +160,7 @@ export async function pendingDialAgentCommandIdsForCustomerCallback(
   return commands.map(({ id }) => id);
 }
 
-export function sipEndpointIdentityCandidates(address: string) {
+function sipEndpointIdentityCandidates(address: string) {
   const value = address.trim().replace(/^<|>$/g, "");
   if (!value || /^\+?[\d\s().-]+$/.test(value)) return [];
   if (!/^sips?:/i.test(value) && !value.includes("@")) return [value];
@@ -197,7 +197,7 @@ type ProviderCommandLink = {
     | "START_RECORDING";
 };
 
-export function selectCanonicalProviderCommand(
+function selectCanonicalProviderCommand(
   candidates: ProviderCommandLink[],
   target: {
     callId: string;
@@ -222,7 +222,7 @@ export function selectCanonicalProviderCommand(
   return command;
 }
 
-export function assertCanonicalProviderLegIdentity(
+function assertCanonicalProviderLegIdentity(
   existing: {
     providerCallControlId: string | null;
     providerCallLegId: string | null;
@@ -293,7 +293,7 @@ async function existingLeg(tx: Transaction, fact: CanonicalTelnyxCallFact) {
   return match;
 }
 
-export async function resolveCanonicalPeerAgentLeg(
+async function resolveCanonicalPeerAgentLeg(
   tx: Transaction,
   fact: CanonicalTelnyxCallFact,
 ) {
@@ -371,7 +371,7 @@ async function resolveAgentContext(
   throw new CanonicalProjectionError("CANONICAL_AGENT_LINK_NOT_FOUND");
 }
 
-export async function confirmProviderCommand(
+async function confirmProviderCommand(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
   input: { callId: string; legId: string; practiceId: string },
@@ -441,7 +441,7 @@ export async function confirmProviderCommand(
   return command;
 }
 
-export async function confirmExactProviderCommand(
+async function confirmExactProviderCommand(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
   input: {
@@ -488,7 +488,7 @@ export async function confirmExactProviderCommand(
   return command;
 }
 
-export async function settleProviderCommandCallback(
+async function settleProviderCommandCallback(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
   input: { callId: string; legId: string; practiceId: string },
@@ -625,7 +625,7 @@ export async function settleProviderCommandCallback(
   return command;
 }
 
-export async function createStartRecordingAfterGreeting(
+async function createStartRecordingAfterGreeting(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
   input: { callId: string; legId: string; practiceId: string },
@@ -664,7 +664,7 @@ export async function createStartRecordingAfterGreeting(
   return { ...command, created: !existing };
 }
 
-export function terminalSettlementIncludesCustomerLegs(status: string) {
+function terminalSettlementIncludesCustomerLegs(status: string) {
   return status !== "VOICEMAIL";
 }
 
@@ -677,11 +677,11 @@ function customerPhones(
     : { callerPhone: fact.toPhone, practicePhone: fact.fromPhone };
 }
 
-export function earliestObservedAt(current: Date, observed: Date) {
+function earliestObservedAt(current: Date, observed: Date) {
   return observed.getTime() < current.getTime() ? observed : current;
 }
 
-export function processedWinningAgentLegId(
+function processedWinningAgentLegId(
   currentWinnerId: string | null,
   processedLeg: { id: string; kind: "AGENT" | "CUSTOMER"; status: string },
   transferSourceLegId: string | null = null,
@@ -700,7 +700,7 @@ export function processedWinningAgentLegId(
     : null;
 }
 
-export function enrichCanonicalCallIdentity(
+function enrichCanonicalCallIdentity(
   call: {
     callerName: string | null;
     direction: "INBOUND" | "OUTBOUND";
@@ -727,7 +727,7 @@ export function enrichCanonicalCallIdentity(
   };
 }
 
-export async function resolveCanonicalCustomerCall(
+async function resolveCanonicalCustomerCall(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
 ) {
@@ -829,7 +829,7 @@ async function lockCall(tx: Transaction, callId: string) {
   return tx.callCenterCall.findUniqueOrThrow({ where: { id: callId } });
 }
 
-export function canonicalCallObservation(
+function canonicalCallObservation(
   fact: ResolvedCanonicalTelnyxCallFact,
   call: {
     direction: "INBOUND" | "OUTBOUND";
@@ -877,7 +877,7 @@ type CanonicalTransferContext = {
 
 const CALL_TRANSFER_TARGET_ANSWERED_EVENT = "CALL_TRANSFER_TARGET_ANSWERED";
 
-export function isCanonicalTransferCompleted(input: {
+function isCanonicalTransferCompleted(input: {
   hasExplicitAnswer: boolean;
   targetLeg: { bridgedAt: Date | null; id: string; status: CanonicalLegStatus };
   transfer: CanonicalTransferContext;
@@ -890,7 +890,7 @@ export function isCanonicalTransferCompleted(input: {
   );
 }
 
-export function shouldCompleteCanonicalTransfer(
+function shouldCompleteCanonicalTransfer(
   ready: boolean,
   currentWinningLegId: string | null,
   transfer: CanonicalTransferContext,
@@ -904,7 +904,7 @@ export function shouldCompleteCanonicalTransfer(
   return true;
 }
 
-export function projectedTransferTargetLegStatus(input: {
+function projectedTransferTargetLegStatus(input: {
   currentStatus: CanonicalLegStatus;
   eventType: string;
   hasBridgeEvidence: boolean;
@@ -920,7 +920,7 @@ export function projectedTransferTargetLegStatus(input: {
   return input.eventType === "call.bridged" ? input.currentStatus : input.nextStatus;
 }
 
-export function projectedTransferTargetBridgedAt(input: {
+function projectedTransferTargetBridgedAt(input: {
   currentStatus: CanonicalLegStatus;
   eventType: string;
   hasExplicitAnswer: boolean;
@@ -993,7 +993,7 @@ function transferArguments(value: Prisma.JsonValue) {
     : null;
 }
 
-export async function resolveCanonicalTransferContext(
+async function resolveCanonicalTransferContext(
   tx: Transaction,
   fact: ResolvedCanonicalTelnyxCallFact,
   input: { callId: string; endpointId: string | null; legId: string; practiceId: string },
@@ -1079,7 +1079,7 @@ export async function resolveCanonicalTransferContext(
   };
 }
 
-export function projectedCallDeadline(
+function projectedCallDeadline(
   call: { deadlineAt: Date | null; direction: "INBOUND" | "OUTBOUND" },
   fact: Pick<ResolvedCanonicalTelnyxCallFact, "eventType" | "occurredAt">,
 ) {
@@ -1101,7 +1101,7 @@ export function projectedCallDeadline(
   return call.deadlineAt;
 }
 
-export function hasCanonicalAgentBridgeEvidence(
+function hasCanonicalAgentBridgeEvidence(
   winningLegId: string | null,
   bridgedLegs: ReadonlyArray<{
     id: string;
@@ -1141,9 +1141,13 @@ async function completeProjectionCheckpoint(
   }
 }
 
-export const prismaCanonicalCallProjector: CanonicalCallProjector = {
-  async projectAndComplete(event, fact, projectedAt) {
-    return prisma.$transaction(async (tx) => {
+type CanonicalProjectorPrismaClient = Pick<typeof prisma, "$transaction">;
+
+function createProjectAndComplete(
+  client: CanonicalProjectorPrismaClient,
+): CanonicalCallProjector["projectAndComplete"] {
+  return async (event, fact, projectedAt) =>
+    client.$transaction(async (tx) => {
       let leg = await existingLeg(tx, fact);
       const peerAgent = !leg ? await resolveCanonicalPeerAgentLeg(tx, fact) : null;
       if (peerAgent) {
@@ -1504,8 +1508,12 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         })),
       ];
 
-      const projectionEvent = await tx.callCenterEvent.create({
-        data: {
+      const projectionType = resolvedFact.eventType
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, "_");
+      const projectionIdempotencyKey = `telnyx:${event.providerEventId}`;
+      const projectionEvent = await tx.callCenterEvent.upsert({
+        create: {
           aggregateId: call.id,
           aggregateType: "CALL",
           data: {
@@ -1514,10 +1522,18 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
             legStatus: leg.status,
             providerEventId: event.providerEventId,
           },
-          idempotencyKey: `telnyx:${event.providerEventId}`,
+          idempotencyKey: projectionIdempotencyKey,
           occurredAt: resolvedFact.occurredAt,
           practiceId: call.practiceId,
-          type: resolvedFact.eventType.toUpperCase().replace(/[^A-Z0-9]+/g, "_"),
+          type: projectionType,
+        },
+        update: {},
+        where: {
+          practiceId_type_idempotencyKey: {
+            idempotencyKey: projectionIdempotencyKey,
+            practiceId: call.practiceId,
+            type: projectionType,
+          },
         },
       });
       if (resolvedFact.eventType === "call.speak.ended") {
@@ -1678,5 +1694,12 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
         practiceId: call.practiceId,
       };
     });
-  },
-};
+}
+
+export function createPrismaCanonicalCallProjector(
+  client: CanonicalProjectorPrismaClient,
+): CanonicalCallProjector {
+  return { projectAndComplete: createProjectAndComplete(client) };
+}
+
+export const prismaCanonicalCallProjector = createPrismaCanonicalCallProjector(prisma);
