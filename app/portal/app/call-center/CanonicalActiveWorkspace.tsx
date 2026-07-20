@@ -761,6 +761,8 @@ export function CanonicalActiveCall({
   useEffect(() => {
     if (media.connection !== "READY") {
       holdOperationRef.current = null;
+      // Provider disconnects invalidate every optimistic hold transition.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHoldPending(false);
       setLocalHoldState(null);
     }
@@ -805,7 +807,6 @@ export function CanonicalActiveCall({
       {
         body: JSON.stringify({
           action,
-          expectedStateVersion: call.stateVersion,
         }),
         headers: {
           "Content-Type": "application/json",
@@ -815,6 +816,22 @@ export function CanonicalActiveCall({
       },
     );
     await callCenterResponse(response);
+  };
+
+  const resumeFromHold = async (operationId: string) => {
+    if (!mediaLegId) return;
+    await requestHoldMusic("STOP");
+    try {
+      await media.hold(mediaLegId, false);
+      rememberHoldState(false, operationId);
+    } catch (error) {
+      try {
+        await requestHoldMusic("START");
+      } finally {
+        rememberHoldState(true, operationId);
+      }
+      throw error;
+    }
   };
 
   const toggleHold = async () => {
@@ -850,18 +867,7 @@ export function CanonicalActiveCall({
           throw error;
         }
       } else {
-        await requestHoldMusic("STOP");
-        try {
-          await media.hold(mediaLegId, false);
-          rememberHoldState(false, operationId);
-        } catch (error) {
-          try {
-            await requestHoldMusic("START");
-          } finally {
-            rememberHoldState(true, operationId);
-          }
-          throw error;
-        }
+        await resumeFromHold(operationId);
       }
     } catch (error) {
       showControlError(error, "hold");
@@ -930,6 +936,19 @@ export function CanonicalActiveCall({
         : `canonical-transfer:${clientInstanceId}:${crypto.randomUUID()}`;
     transferOperationRef.current = { key, targetEndpointId };
     try {
+      if (isHeld) {
+        const operationId = crypto.randomUUID();
+        holdOperationRef.current = operationId;
+        setHoldPending(true);
+        try {
+          await resumeFromHold(operationId);
+        } finally {
+          if (holdOperationRef.current === operationId) {
+            holdOperationRef.current = null;
+            setHoldPending(false);
+          }
+        }
+      }
       const response = await fetch(
         `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/transfer`,
         {

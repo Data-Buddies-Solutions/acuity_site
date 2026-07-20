@@ -13,7 +13,6 @@ export type HoldMusicAction = "START" | "STOP";
 export type SetCallHoldMusicInput = {
   action: HoldMusicAction;
   callId: string;
-  expectedStateVersion: number;
   idempotencyKey: string;
 };
 
@@ -81,7 +80,6 @@ export async function setCallHoldMusic(
         targetFingerprint: JSON.stringify({
           action: input.action,
           callId: input.callId,
-          expectedStateVersion: input.expectedStateVersion,
         }),
         type: CALL_HOLD_MUSIC_REQUESTED_EVENT,
       },
@@ -97,17 +95,20 @@ export async function setCallHoldMusic(
   if (!dispatched(result)) {
     throw new SetCallHoldMusicError("Hold music command could not be completed", 503);
   }
-  // SETTLED means another dispatcher already finished its send attempt; the
-  // durable row may still be SENT rather than provider-confirmed.
-  if ((await store.waitForCommandSettlement(commandId)) !== "CONFIRMED") {
+  if (
+    input.action === "START" &&
+    (await store.waitForCommandSettlement(commandId)) !== "CONFIRMED"
+  ) {
     throw new SetCallHoldMusicError("Hold music command could not be confirmed", 503);
   }
+  const status: SetCallHoldMusicReceipt["status"] =
+    input.action === "START" ? "CONFIRMED" : "DISPATCHED";
   return {
     ...receipt,
     action: input.action,
     callId: input.callId,
     commandId,
     operationType: "HOLD_MUSIC",
-    status: "CONFIRMED",
+    status,
   };
 }

@@ -31,7 +31,7 @@ describe("canonical hold music route", () => {
     });
     const response = await POST(
       new Request("https://example.test", {
-        body: JSON.stringify({ action: "START", expectedStateVersion: 4 }),
+        body: JSON.stringify({ action: "START" }),
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": " hold-1 ",
@@ -46,7 +46,6 @@ describe("canonical hold music route", () => {
       input: {
         action: "START",
         callId: "call-1",
-        expectedStateVersion: 4,
         idempotencyKey: "hold-1",
       },
     });
@@ -63,7 +62,6 @@ describe("canonical hold music route", () => {
       new Request("https://example.test", {
         body: JSON.stringify({
           action: "START",
-          expectedStateVersion: 4,
           practiceId: "other",
         }),
         headers: { "Content-Type": "application/json", "Idempotency-Key": "key" },
