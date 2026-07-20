@@ -207,6 +207,7 @@ function database({
   const createdLegs: Array<Record<string, unknown>> = [];
   const operations: string[] = [];
   const queries: string[] = [];
+  let sessionRejectionChecks = 0;
   const configuredNumber = number;
   let reloadedNumber = lockedNumber;
   if (reloadedNumber === undefined) {
@@ -360,12 +361,26 @@ function database({
       findMany: async () => (configuredNumber ? [configuredNumber] : []),
     },
     providerWebhookEvent: {
-      findFirst: async ({ where }: { where: { providerCallSessionId: string } }) =>
-        outOfScopeSessions.includes(where.providerCallSessionId)
+      findFirst: async ({
+        where,
+      }: {
+        where: {
+          errorCode?: string | { startsWith: string };
+          providerCallSessionId: string;
+        };
+      }) => {
+        sessionRejectionChecks += 1;
+        if (
+          typeof where.errorCode === "object" &&
+          rejectedSessions.includes(where.providerCallSessionId)
+        ) {
+          return { errorCode: "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID" };
+        }
+        return where.errorCode === "TELNYX_EVENT_OUT_OF_SCOPE" &&
+          outOfScopeSessions.includes(where.providerCallSessionId)
           ? { errorCode: "TELNYX_EVENT_OUT_OF_SCOPE" }
-          : rejectedSessions.includes(where.providerCallSessionId)
-            ? { errorCode: "TELNYX_DIRECT_HANDOFF_TOKEN_INVALID" }
-            : null,
+          : null;
+      },
       updateMany: async ({
         data,
       }: {
@@ -385,6 +400,7 @@ function database({
     legs,
     operations,
     queries,
+    sessionRejectionChecks: () => sessionRejectionChecks,
     prisma: {
       $transaction: async (operation: (tx: typeof transaction) => Promise<unknown>) => {
         const assignedCount = assigned.length;
@@ -690,6 +706,137 @@ describe("Telnyx event admission", () => {
       admitTelnyxEvent(event({ eventId: "event-2" }), afterConfiguration.prisma),
     ).rejects.toMatchObject({ code: "TELNYX_EVENT_OUT_OF_SCOPE" });
     expect(db.created).toHaveLength(0);
+    expect(db.assigned).toEqual([]);
+  });
+
+  it("does not let an out-of-scope transfer peer poison identity-bound hangups", async () => {
+    const call = {
+      id: "call-1",
+      practiceId: "practice-1",
+      providerCallSessionId: null,
+    };
+
+    for (const transferLeg of [
+      {
+        clientState: { internalTransferSource: true },
+        id: "source-leg",
+        providerCallControlId: "source-control",
+        providerCallLegId: "source-provider-leg",
+      },
+      {
+        clientState: {
+          endpointId: "target-endpoint",
+          internalAgentLeg: true,
+          internalTransferTarget: true,
+        },
+        id: "target-leg",
+        providerCallControlId: "target-control",
+        providerCallLegId: "target-provider-leg",
+      },
+    ]) {
+      const leg: PersistedLeg = {
+        call,
+        id: transferLeg.id,
+        kind: "AGENT",
+        providerCallControlId: transferLeg.providerCallControlId,
+        providerCallLegId: transferLeg.providerCallLegId,
+        providerCallSessionId: "transfer-session",
+      };
+      const db = database({
+        legs: [leg],
+        number: null,
+        outOfScopeSessions: ["transfer-session"],
+      });
+
+      await expect(
+        admitTelnyxEvent(
+          event({
+            callControlId: transferLeg.providerCallControlId,
+            callLegId: transferLeg.providerCallLegId,
+            callSessionId: "transfer-session",
+            clientState: {
+              callId: call.id,
+              canonicalCommand: true,
+              commandId: "transfer-command",
+              legId: transferLeg.id,
+              ...transferLeg.clientState,
+            },
+            direction: "outgoing",
+            eventId: `${transferLeg.id}-hangup`,
+            eventType: "call.hangup",
+          }),
+          db.prisma,
+        ),
+      ).resolves.toBe("ADMITTED");
+      expect(db.assigned).toEqual(["transfer-session"]);
+      expect(db.sessionRejectionChecks()).toBe(2);
+    }
+  });
+
+  it("rejects a conflicting identity before binding a rejected direct handoff session", async () => {
+    const call = {
+      id: "call-1",
+      practiceId: "practice-1",
+      providerCallSessionId: null,
+    };
+    const db = database({
+      legs: [
+        {
+          call,
+          id: "agent-leg",
+          kind: "AGENT",
+          providerCallControlId: "different-control",
+          providerCallLegId: "provider-leg-1",
+          providerCallSessionId: "provider-session-1",
+        },
+      ],
+      number: null,
+      rejectedSessions: ["provider-session-1"],
+    });
+
+    await expect(
+      admitTelnyxEvent(
+        event({
+          clientState: { callId: call.id, legId: "agent-leg" },
+          eventId: "identity-bound-hangup",
+          eventType: "call.hangup",
+        }),
+        db.prisma,
+      ),
+    ).rejects.toMatchObject({ code: "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE" });
+    expect(db.sessionRejectionChecks()).toBe(1);
+    expect(db.assigned).toEqual([]);
+    expect(db.operations).toEqual(["provider-session.lock"]);
+  });
+
+  it("keeps provider-only callbacks subject to a prior session rejection", async () => {
+    const call = {
+      id: "call-1",
+      practiceId: "practice-1",
+      providerCallSessionId: null,
+    };
+    const db = database({
+      legs: [
+        {
+          call,
+          id: "agent-leg",
+          kind: "AGENT",
+          providerCallControlId: "control-1",
+          providerCallLegId: "provider-leg-1",
+          providerCallSessionId: "provider-session-1",
+        },
+      ],
+      number: null,
+      outOfScopeSessions: ["provider-session-1"],
+    });
+
+    await expect(
+      admitTelnyxEvent(
+        event({ eventId: "provider-only-hangup", eventType: "call.hangup" }),
+        db.prisma,
+      ),
+    ).rejects.toMatchObject({ code: "TELNYX_EVENT_OUT_OF_SCOPE" });
+    expect(db.sessionRejectionChecks()).toBe(2);
     expect(db.assigned).toEqual([]);
   });
 

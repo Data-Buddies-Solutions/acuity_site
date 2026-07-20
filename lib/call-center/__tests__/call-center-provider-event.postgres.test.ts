@@ -21,17 +21,18 @@ function phoneNumbers(key: string) {
 function envelope({
   eventType,
   key,
+  occurredAt = new Date("2026-07-19T12:00:00.000Z"),
   payload = {},
   providerEventId,
   providerSessionId,
 }: {
   eventType: string;
   key: string;
+  occurredAt?: Date;
   payload?: Record<string, unknown>;
   providerEventId: string;
   providerSessionId: string;
 }): TelnyxVoiceWebhookEnvelope {
-  const occurredAt = new Date("2026-07-19T12:00:00.000Z");
   const { callerPhone, practicePhone } = phoneNumbers(key);
   const body = {
     data: {
@@ -108,7 +109,10 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
         await adminPrisma.practice.deleteMany({ where: { id: practiceId } });
       },
       key,
+      locationId,
+      numberId,
       practiceId,
+      queueId,
     };
   }
 
@@ -282,6 +286,195 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
         attemptCount: 1,
         processingStatus: "FAILED",
       });
+    } finally {
+      await current.cleanup();
+    }
+  });
+
+  it("completes a failed transfer after an out-of-scope peer event", async () => {
+    const current = await fixture();
+    const providerSessionId = `session-${current.key}`;
+    const callId = `call-${current.key}`;
+    const sourceLegId = `source-${current.key}`;
+    const targetLegId = `target-${current.key}`;
+    const targetEndpointId = `endpoint-${current.key}`;
+    const transferCommandId = `transfer-${current.key}`;
+    const sourceControlId = `source-control-${current.key}`;
+    const sourceProviderLegId = `source-provider-leg-${current.key}`;
+    const targetControlId = `target-control-${current.key}`;
+    const targetProviderLegId = `target-provider-leg-${current.key}`;
+    const occurredAt = new Date("2026-07-19T21:52:08.772Z");
+    const { callerPhone, practicePhone } = phoneNumbers(current.key);
+    const encode = (value: Record<string, unknown>) =>
+      Buffer.from(JSON.stringify(value)).toString("base64");
+
+    try {
+      await adminPrisma.callCenterEndpoint.create({
+        data: {
+          id: targetEndpointId,
+          label: "Transfer target",
+          locationId: current.locationId,
+          practiceId: current.practiceId,
+          providerCredentialId: `credential-${current.key}`,
+          sipUsername: `transfer-${current.key}`,
+        },
+      });
+      await adminPrisma.callCenterCall.create({
+        data: {
+          answeredAt: occurredAt,
+          direction: "OUTBOUND",
+          fromPhone: practicePhone,
+          id: callId,
+          numberId: current.numberId,
+          practiceId: current.practiceId,
+          queueId: current.queueId,
+          receivedAt: occurredAt,
+          status: "CONNECTED",
+          toPhone: callerPhone,
+        },
+      });
+      await adminPrisma.callCenterCallLeg.createMany({
+        data: [
+          {
+            answeredAt: occurredAt,
+            bridgedAt: occurredAt,
+            callId,
+            id: sourceLegId,
+            kind: "AGENT",
+            providerCallControlId: sourceControlId,
+            providerCallLegId: sourceProviderLegId,
+            providerCallSessionId: providerSessionId,
+            startedAt: occurredAt,
+            status: "BRIDGED",
+          },
+          {
+            callId,
+            endpointId: targetEndpointId,
+            id: targetLegId,
+            kind: "AGENT",
+            startedAt: occurredAt,
+            status: "CREATED",
+          },
+        ],
+      });
+      await adminPrisma.callCenterCall.update({
+        data: { winningLegId: sourceLegId },
+        where: { id: callId },
+      });
+      await adminPrisma.callCenterCommand.create({
+        data: {
+          arguments: {
+            agentSessionId: `agent-session-${current.key}`,
+            endpointId: targetEndpointId,
+            providerSourceLegId: sourceLegId,
+            sourceLegId,
+          },
+          attemptCount: 1,
+          callId,
+          id: transferCommandId,
+          idempotencyKey: `transfer-${current.key}`,
+          legId: targetLegId,
+          practiceId: current.practiceId,
+          status: "SENT",
+          type: "TRANSFER_AGENT",
+        },
+      });
+
+      const targetState = encode({
+        callId,
+        canonicalCommand: true,
+        commandId: transferCommandId,
+        endpointId: targetEndpointId,
+        internalAgentLeg: true,
+        internalTransferTarget: true,
+        legId: targetLegId,
+      });
+      const sourceState = encode({
+        callId,
+        canonicalCommand: true,
+        commandId: transferCommandId,
+        internalAgentLeg: true,
+        internalTransferSource: true,
+        legId: sourceLegId,
+      });
+      const transferEvent = (
+        eventType: string,
+        providerEventId: string,
+        payload: Record<string, unknown>,
+      ) =>
+        envelope({
+          eventType,
+          key: current.key,
+          occurredAt,
+          payload: { direction: "outgoing", ...payload },
+          providerEventId,
+          providerSessionId,
+        });
+
+      await expect(
+        callCenter.applyProviderEvent(
+          transferEvent("call.initiated", `provider-${current.key}-target-initiated`, {
+            call_control_id: targetControlId,
+            call_leg_id: targetProviderLegId,
+            client_state: targetState,
+          }),
+        ),
+      ).resolves.toMatchObject({ outcome: "PROCESSED" });
+      await expect(
+        callCenter.applyProviderEvent(
+          transferEvent("call.initiated", `provider-${current.key}-peer-initiated`, {
+            call_control_id: `peer-control-${current.key}`,
+            call_leg_id: `peer-leg-${current.key}`,
+          }),
+        ),
+      ).resolves.toMatchObject({ outcome: "IGNORED" });
+      await expect(
+        callCenter.applyProviderEvent(
+          transferEvent("call.hangup", `provider-${current.key}-target-hangup`, {
+            call_control_id: targetControlId,
+            call_leg_id: targetProviderLegId,
+            client_state: targetState,
+            hangup_cause: "normal_clearing",
+          }),
+        ),
+      ).resolves.toMatchObject({ outcome: "PROCESSED" });
+      await expect(
+        callCenter.applyProviderEvent(
+          transferEvent("call.hangup", `provider-${current.key}-source-hangup`, {
+            call_control_id: sourceControlId,
+            call_leg_id: sourceProviderLegId,
+            client_state: sourceState,
+            hangup_cause: "normal_clearing",
+          }),
+        ),
+      ).resolves.toMatchObject({ outcome: "PROCESSED" });
+
+      const settled = await adminPrisma.callCenterCall.findUniqueOrThrow({
+        include: { commands: true, legs: true },
+        where: { id: callId },
+      });
+      expect(settled).toMatchObject({
+        endedAt: occurredAt,
+        status: "COMPLETED",
+      });
+      expect(settled.legs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: sourceLegId, status: "ENDED" }),
+          expect.objectContaining({ id: targetLegId, status: "ENDED" }),
+        ]),
+      );
+      expect(settled.commands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            errorCode: "COMMAND_LEG_TERMINAL",
+            id: transferCommandId,
+            status: "FAILED",
+          }),
+        ]),
+      );
+      expect(
+        settled.legs.some(({ status }) => ["ANSWERED", "BRIDGED"].includes(status)),
+      ).toBe(false);
     } finally {
       await current.cleanup();
     }

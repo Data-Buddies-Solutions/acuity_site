@@ -337,32 +337,34 @@ export function telnyxEventAdmissionLockKey(
     : `TELNYX_EVENT:${eventId}`;
 }
 
-async function assertSessionAdmissible(
+async function sessionRejection(
   tx: AdmissionTransaction,
   event: ProviderWebhookRecord,
   providerCallSessionId: string | null,
 ) {
-  if (!providerCallSessionId) return;
-  const rejected = await tx.providerWebhookEvent.findFirst({
+  if (!providerCallSessionId) return null;
+  const directHandoff = await tx.providerWebhookEvent.findFirst({
     select: { errorCode: true },
     where: {
+      errorCode: { startsWith: "TELNYX_DIRECT_HANDOFF_" },
       id: { not: event.id },
       processingStatus: "IGNORED",
       provider: "TELNYX",
       providerCallSessionId,
-      OR: [
-        { errorCode: { startsWith: "TELNYX_DIRECT_HANDOFF_" } },
-        { errorCode: "TELNYX_EVENT_OUT_OF_SCOPE" },
-      ],
     },
   });
-  if (rejected) {
-    throw new TelnyxEventAdmissionError(
-      rejected.errorCode === "TELNYX_EVENT_OUT_OF_SCOPE"
-        ? "TELNYX_EVENT_OUT_OF_SCOPE"
-        : "TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE",
-    );
-  }
+  if (directHandoff) return "DIRECT_HANDOFF" as const;
+  const outOfScope = await tx.providerWebhookEvent.findFirst({
+    select: { errorCode: true },
+    where: {
+      errorCode: "TELNYX_EVENT_OUT_OF_SCOPE",
+      id: { not: event.id },
+      processingStatus: "IGNORED",
+      provider: "TELNYX",
+      providerCallSessionId,
+    },
+  });
+  return outOfScope ? ("OUT_OF_SCOPE" as const) : null;
 }
 
 function assertLegIdentity(raw: RawIdentity, leg: PersistedLeg) {
@@ -643,11 +645,42 @@ export async function admitTelnyxEvent(
     const admissionTx = tx as AdmissionTransaction;
     await lockProviderSession(admissionTx, event.id, unresolvedRaw.providerCallSessionId);
     const raw = await resolveTrustedOutboundIdentity(admissionTx, unresolvedRaw);
-    await assertSessionAdmissible(admissionTx, event, raw.providerCallSessionId);
+    const rejectedSession = await sessionRejection(
+      admissionTx,
+      event,
+      raw.providerCallSessionId,
+    );
+    if (rejectedSession === "DIRECT_HANDOFF") {
+      throw new TelnyxEventAdmissionError("TELNYX_DIRECT_HANDOFF_NOT_TRANSFERABLE");
+    }
 
-    const legCallId = await findAndBindLegIdentity(admissionTx, raw);
+    let legCallId: string | null;
+    try {
+      legCallId = await findAndBindLegIdentity(admissionTx, raw);
+    } catch (error) {
+      if (
+        rejectedSession === "OUT_OF_SCOPE" &&
+        error instanceof TelnyxEventAdmissionError
+      ) {
+        throw new TelnyxEventAdmissionError("TELNYX_EVENT_OUT_OF_SCOPE");
+      }
+      throw error;
+    }
     if (!legCallId && raw.canonicalLegId) {
+      if (rejectedSession === "OUT_OF_SCOPE") {
+        throw new TelnyxEventAdmissionError("TELNYX_EVENT_OUT_OF_SCOPE");
+      }
       throw new TelnyxEventAdmissionError("TELNYX_EVENT_CANONICAL_IDENTITY_NOT_FOUND");
+    }
+    // A signed callback that binds to an already-authorized canonical leg has
+    // stronger identity than a session-wide rejection. Telnyx transfers can
+    // emit an untagged peer event in the same provider session; that peer may
+    // remain out of scope without poisoning later source/target callbacks.
+    const hasCanonicalLegIdentity = Boolean(
+      legCallId && raw.canonicalCallId && raw.canonicalLegId,
+    );
+    if (rejectedSession === "OUT_OF_SCOPE" && !hasCanonicalLegIdentity) {
+      throw new TelnyxEventAdmissionError("TELNYX_EVENT_OUT_OF_SCOPE");
     }
     const sessionCallId = await findByCustomerSession(admissionTx, raw);
     if (legCallId && sessionCallId && legCallId !== sessionCallId) {
