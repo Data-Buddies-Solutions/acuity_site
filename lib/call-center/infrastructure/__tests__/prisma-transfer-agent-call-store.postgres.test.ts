@@ -35,6 +35,7 @@ describePostgres("same-location transfer target discovery on PostgreSQL", () => 
     const sourceEndpointId = id("source-endpoint");
     const targetEndpointId = id("target-endpoint");
     const callId = id("call");
+    const customerLegId = id("customer-leg");
     const sourceLegId = id("source-leg");
 
     await prisma.user.createMany({
@@ -153,19 +154,31 @@ describePostgres("same-location transfer target discovery on PostgreSQL", () => 
     const sourceSession = await prisma.callCenterAgentSession.findFirstOrThrow({
       where: { endpointId: sourceEndpointId },
     });
-    await prisma.callCenterCallLeg.create({
-      data: {
-        agentSessionId: sourceSession.id,
-        answeredAt: now,
-        bridgedAt: now,
-        callId,
-        endpointId: sourceEndpointId,
-        id: sourceLegId,
-        kind: "AGENT",
-        providerCallControlId: id("source-control"),
-        startedAt: now,
-        status: "BRIDGED",
-      },
+    await prisma.callCenterCallLeg.createMany({
+      data: [
+        {
+          answeredAt: now,
+          bridgedAt: now,
+          callId,
+          id: customerLegId,
+          kind: "CUSTOMER",
+          providerCallControlId: id("customer-control"),
+          startedAt: now,
+          status: "BRIDGED",
+        },
+        {
+          agentSessionId: sourceSession.id,
+          answeredAt: now,
+          bridgedAt: now,
+          callId,
+          endpointId: sourceEndpointId,
+          id: sourceLegId,
+          kind: "AGENT",
+          providerCallControlId: id("source-control"),
+          startedAt: now,
+          status: "BRIDGED",
+        },
+      ],
     });
     await prisma.callCenterCall.update({
       data: { winningLegId: sourceLegId },
