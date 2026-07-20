@@ -325,12 +325,7 @@ function ConnectedCanonicalActiveWorkspace({
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
-      failCanonicalOutboundOperation(
-        window.sessionStorage,
-        target,
-        operationKey,
-        error,
-      );
+      failCanonicalOutboundOperation(window.sessionStorage, target, operationKey, error);
       setActionError(errorMessage(error, "outbound"));
     } finally {
       outboundStartingRef.current = false;
@@ -742,11 +737,7 @@ export function CanonicalActiveCall({
     localHoldStateMatches && localHoldState ? localHoldState.held : observedHeld;
 
   useEffect(() => {
-    if (
-      call.direction !== "OUTBOUND" ||
-      connected ||
-      !mediaLegId
-    ) {
+    if (call.direction !== "OUTBOUND" || connected || !mediaLegId) {
       return;
     }
     if (match?.observation.state !== "RINGING") {

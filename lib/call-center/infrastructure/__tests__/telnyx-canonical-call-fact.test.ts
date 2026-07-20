@@ -23,11 +23,7 @@ function envelope(eventType: string, payload: Record<string, unknown>) {
 describe("canonical Telnyx call facts", () => {
   it("keeps a provider-originated outbound call ringing until an agent bridges", () => {
     expect(
-      resolveCanonicalTelnyxCallObservations(
-        "call.answered",
-        "CUSTOMER",
-        "OUTBOUND",
-      ),
+      resolveCanonicalTelnyxCallObservations("call.answered", "CUSTOMER", "OUTBOUND"),
     ).toEqual({
       callObservation: "RINGING",
       legObservation: "ANSWERED",

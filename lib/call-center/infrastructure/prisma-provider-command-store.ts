@@ -25,6 +25,7 @@ type ReconcileActiveInbound = typeof reconcileActiveInboundCallInTransaction;
 type ProviderCommandBacklogDelegate = Pick<typeof prisma.callCenterCommand, "findMany">;
 
 type TerminalProviderCommand = {
+  call: { direction: "INBOUND" | "OUTBOUND" };
   callId: string;
   id: string;
   leg: { id: string; kind: "AGENT" | "CUSTOMER" } | null;
@@ -202,6 +203,20 @@ async function settleTerminalProviderCommand(
     );
     return transfer.commandIds;
   }
+  if (command.type === "DIAL_AGENT" && command.call.direction === "OUTBOUND") {
+    const commandIds = await settleCanonicalCallLegs(transaction, {
+      callId: command.callId,
+      includeCustomerLegs: true,
+      now,
+      reason: "OUTBOUND_AGENT_DIAL_FAILED",
+      terminalLegStatus: "FAILED",
+    });
+    await transaction.callCenterCall.update({
+      data: { endedAt: now, status: "FAILED" },
+      where: { id: command.callId },
+    });
+    return commandIds;
+  }
   if (command.type === "DIAL_CUSTOMER") return [];
   const lifecycle = await reconcileActiveInbound(
     transaction,
@@ -219,6 +234,7 @@ async function rejectProviderCommandClaim(
   transaction: Transaction,
   command: {
     attemptCount: number;
+    call: { direction: "INBOUND" | "OUTBOUND" };
     callId: string;
     id: string;
     leg: {
@@ -841,6 +857,7 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
     return this.runTransaction(async (transaction) => {
       const target = await transaction.callCenterCommand.findUnique({
         select: {
+          call: { select: { direction: true } },
           callId: true,
           leg: { select: { id: true, kind: true } },
           practiceId: true,

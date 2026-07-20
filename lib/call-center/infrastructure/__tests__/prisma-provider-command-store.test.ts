@@ -953,10 +953,8 @@ describe("Prisma provider command store", () => {
     const operations: string[] = [];
     const reconciledTypes: string[] = [];
     let targetType:
-      | "DIAL_CUSTOMER"
-      | "DIAL_AGENT"
-      | "START_RINGBACK"
-      | "ANSWER_CUSTOMER" = "DIAL_AGENT";
+      "DIAL_CUSTOMER" | "DIAL_AGENT" | "START_RINGBACK" | "ANSWER_CUSTOMER" =
+      "DIAL_AGENT";
     const tx = {
       $queryRaw: async () => {
         operations.push("lock");
@@ -1001,6 +999,9 @@ describe("Prisma provider command store", () => {
         findUnique: async ({ select }: { select: Record<string, unknown> }) =>
           "leg" in select
             ? {
+                call: {
+                  direction: targetType === "DIAL_CUSTOMER" ? "OUTBOUND" : "INBOUND",
+                },
                 callId: "call-1",
                 leg: {
                   id: "leg-1",
@@ -1084,5 +1085,91 @@ describe("Prisma provider command store", () => {
     expect(operations).toContain("event:CALL_OUTBOUND_DIAL_FAILED");
 
     expect(reconciledTypes).toEqual(["DIAL_AGENT", "START_RINGBACK", "ANSWER_CUSTOMER"]);
+  });
+
+  it("hangs up an answered outbound customer when the agent dial fails", async () => {
+    const callUpdates: Array<Record<string, unknown>> = [];
+    const legUpdates: Array<Record<string, unknown>> = [];
+    const createdCommands: Array<Record<string, unknown>> = [];
+    const tx = {
+      $queryRaw: async () => [],
+      callCenterCall: {
+        findUnique: async () => ({ practiceId: "practice-1" }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          callUpdates.push(data);
+          return {};
+        },
+      },
+      callCenterCallLeg: {
+        findMany: async () => [
+          {
+            id: "customer-leg",
+            providerCallControlId: "customer-control",
+            status: "ANSWERED",
+          },
+          {
+            id: "agent-leg",
+            providerCallControlId: null,
+            status: "FAILED",
+          },
+        ],
+        updateMany: async ({ data }: { data: Record<string, unknown> }) => {
+          legUpdates.push(data);
+          return { count: 1 };
+        },
+      },
+      callCenterCommand: {
+        findFirst: async () => null,
+        findMany: async () => [],
+        findUnique: async () => ({
+          call: { direction: "OUTBOUND" },
+          callId: "call-1",
+          leg: { id: "agent-leg", kind: "AGENT" },
+          practiceId: "practice-1",
+          type: "DIAL_AGENT",
+        }),
+        updateMany: async () => ({ count: 1 }),
+        upsert: async ({ create }: { create: Record<string, unknown> }) => {
+          createdCommands.push(create);
+          return { id: "hangup-customer" };
+        },
+      },
+      callCenterEvent: {
+        create: async () => ({ revision: BigInt(2) }),
+      },
+    };
+    const store = new PrismaProviderCommandStore(
+      (operation) => operation(tx as never),
+      noFollowUpReconciliation,
+    );
+
+    await expect(
+      store.fail({
+        attemptCount: 1,
+        commandId: "dial-agent",
+        errorCode: "PROVIDER_VALIDATION_FAILED",
+        now,
+      }),
+    ).resolves.toEqual({ commandIds: ["hangup-customer"] });
+
+    expect(createdCommands).toContainEqual(
+      expect.objectContaining({
+        callId: "call-1",
+        legId: "customer-leg",
+        type: "HANGUP_LEG",
+      }),
+    );
+    expect(legUpdates).toContainEqual(
+      expect.objectContaining({
+        endedAt: now,
+        status: "FAILED",
+      }),
+    );
+    expect(callUpdates).toContainEqual(
+      expect.objectContaining({
+        endedAt: now,
+        status: "FAILED",
+      }),
+    );
   });
 });

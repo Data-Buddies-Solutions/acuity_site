@@ -144,8 +144,7 @@ async function pendingDialAgentCommandIdsForCustomerCallback(
     input.legKind !== "CUSTOMER" ||
     !(
       input.eventType === "call.answered" ||
-      (input.callDirection === "INBOUND" &&
-        input.eventType === "call.playback.started")
+      (input.callDirection === "INBOUND" && input.eventType === "call.playback.started")
     )
   ) {
     return [];
@@ -502,6 +501,7 @@ async function settleProviderCommandCallback(
       case "call.initiated":
         return {
           expectedTypes: ["DIAL_CUSTOMER"] as const,
+          ignoreOtherTypes: true,
           outcome: "CONFIRMED" as const,
         };
       case "call.answered":
