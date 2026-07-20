@@ -2,16 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ApiError, parseJsonBody } from "@/lib/api/handler";
-import { dispatchProviderCommandGraph } from "@/lib/call-center/application/dispatch-provider-command";
-import { dispatchProviderCommand } from "@/lib/call-center/application/provider-command-runtime";
-import {
-  listTransferTargets,
-  transferAgentCall,
-  TransferAgentCallError,
-  type TransferAgentCallInput,
-} from "@/lib/call-center/application/transfer-agent-call";
+import { type TransferAgentCallInput } from "@/lib/call-center/application/transfer-agent-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
-import { prismaTransferAgentCallStore } from "@/lib/call-center/infrastructure/prisma-transfer-agent-call-store";
+import { callCenter } from "@/lib/call-center/call-center";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z
@@ -24,10 +17,9 @@ const bodySchema = z
 type Context = { params: Promise<{ callId: string }> };
 
 type Dependencies = {
-  dispatch?: typeof dispatchProviderCommand;
   getActor: () => Promise<QueueAccessActor>;
-  list?: typeof listTransferTargets;
-  save?: typeof transferAgentCall;
+  list?: typeof callCenter.listTransferTargets;
+  transfer?: typeof callCenter.transferAgent;
 };
 
 function callIdFrom(context: Context) {
@@ -40,7 +32,7 @@ function callIdFrom(context: Context) {
 
 export function createTransferTargetsHandler({
   getActor,
-  list = listTransferTargets,
+  list = callCenter.listTransferTargets,
 }: Dependencies) {
   return withCallCenterApiHandler(
     async (request: Request, context: Context) => {
@@ -50,7 +42,7 @@ export function createTransferTargetsHandler({
       if (!clientInstanceId || clientInstanceId.length > 200) {
         throw new ApiError("Valid phone session required", 400);
       }
-      const targets = await list(prismaTransferAgentCallStore, await getActor(), {
+      const targets = await list(await getActor(), {
         callId: await callIdFrom(context),
         clientInstanceId,
       });
@@ -65,9 +57,8 @@ export function createTransferTargetsHandler({
 }
 
 export function createTransferAgentHandler({
-  dispatch = dispatchProviderCommand,
   getActor,
-  save = transferAgentCall,
+  transfer = callCenter.transferAgent,
 }: Dependencies) {
   return withCallCenterApiHandler(
     async (request: Request, context: Context) => {
@@ -81,15 +72,7 @@ export function createTransferAgentHandler({
         callId: await callIdFrom(context),
         idempotencyKey: key,
       };
-      const receipt = await save(prismaTransferAgentCallStore, await getActor(), input);
-      const result = await dispatch(receipt.commandId);
-      if (result.status === "FAILED" || result.status === "REJECTED") {
-        await dispatchProviderCommandGraph({
-          commandIds: result.followUpCommandIds,
-          dispatch,
-        });
-        throw new TransferAgentCallError("Transfer could not be started", 409);
-      }
+      const receipt = await transfer(await getActor(), input);
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 202 });
     },
     {

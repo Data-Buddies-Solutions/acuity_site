@@ -14,7 +14,7 @@ describe("POST /api/portal/call-center/outbound", () => {
     let received: unknown;
     const handler = createStartOutboundCallHandler({
       getActor: async () => actor,
-      start: async (_store, currentActor, input) => {
+      start: async (currentActor, input) => {
         received = { actor: currentActor, input };
         return {
           agentSessionId: "session-1",

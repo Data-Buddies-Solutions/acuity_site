@@ -36,12 +36,11 @@ describe("direct handoff handler", () => {
   it("returns one direct SIP reservation and preserves replay status", async () => {
     let captured: unknown;
     const handler = createDirectHandoffHandler({
-      clock: () => now,
       config,
-      reserve: async (input, options) => {
-        captured = { input, options };
+      reserve: async (input) => {
+        captured = input;
         return {
-          expiresAt: options.expiresAt,
+          expiresAt: new Date(now.getTime() + 30_000),
           handoffId: "handoff-1",
           replayed: false,
           sipHeaders: {
@@ -65,15 +64,11 @@ describe("direct handoff handler", () => {
       sipUri: "sip:acuity-ingress~ah1~opaque-token@sip.telnyx.com",
       type: "DIRECT",
     });
-    expect(captured).toMatchObject({
-      input: {
-        callerPhone: "+17865550100",
-        idempotencyKey: "handoff-key-1",
-        practiceId: "practice-1",
-        routePhoneNumber: "+19542872010",
-        sourceCallId: "source-call-1",
-      },
-      options: { baseSipUri: "sip:acuity-ingress@sip.telnyx.com" },
+    expect(captured).toEqual({
+      callerPhone: "+17865550100",
+      idempotencyKey: "handoff-key-1",
+      routePhoneNumber: "+19542872010",
+      sourceCallId: "source-call-1",
     });
   });
 });

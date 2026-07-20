@@ -6,11 +6,10 @@ import { z } from "zod";
 import { ApiError, parseJsonBody } from "@/lib/api/handler";
 import { callCenter } from "@/lib/call-center/call-center";
 import {
-  DIRECT_HANDOFF_TTL_MS,
   resolveDirectHandoffConfig,
+  type AcceptDirectHandoffInput,
   type DirectHandoffConfig,
-} from "@/lib/call-center/infrastructure/direct-handoff-config";
-import type { ReserveDirectHandoffInput } from "@/lib/call-center/infrastructure/prisma-direct-handoff-store";
+} from "@/lib/call-center/direct-handoff";
 import { normalizePhone } from "@/lib/phone";
 
 const bodySchema = z.strictObject({
@@ -36,12 +35,8 @@ const bodySchema = z.strictObject({
 type Reservation = Awaited<ReturnType<typeof callCenter.acceptHandoff>>;
 
 type Dependencies = {
-  clock?: () => Date;
   config?: () => DirectHandoffConfig;
-  reserve?: (
-    input: ReserveDirectHandoffInput,
-    options: { baseSipUri: string; expiresAt: Date; now: Date; secret: string },
-  ) => Promise<Reservation>;
+  reserve?: (input: AcceptDirectHandoffInput) => Promise<Reservation>;
 };
 
 function authorized(header: string | null, secret: string) {
@@ -51,7 +46,6 @@ function authorized(header: string | null, secret: string) {
 }
 
 export function createDirectHandoffHandler({
-  clock = () => new Date(),
   config = resolveDirectHandoffConfig,
   reserve = callCenter.acceptHandoff,
 }: Dependencies = {}) {
@@ -67,16 +61,7 @@ export function createDirectHandoffHandler({
     }
 
     const body = await parseJsonBody(request, bodySchema);
-    const now = clock();
-    const reservation = await reserve(
-      { ...body, idempotencyKey, practiceId: resolved.practiceId },
-      {
-        baseSipUri: resolved.sipUri,
-        expiresAt: new Date(now.getTime() + DIRECT_HANDOFF_TTL_MS),
-        now,
-        secret: resolved.secret,
-      },
-    );
+    const reservation = await reserve({ ...body, idempotencyKey });
 
     return NextResponse.json(
       {

@@ -18,6 +18,7 @@ export type PortalCallActivityItem = {
   kind: PortalCallActivityKind;
   locationName: string | null;
   recordingId: string | null;
+  taskId: string;
 };
 
 export type PortalNeedsActionGroup = {
@@ -34,6 +35,7 @@ export type PortalNeedsActionGroup = {
   locationNames: string[];
   missedCount: number;
   noteCount: number;
+  taskIds: string[];
   voicemailCount: number;
 };
 
@@ -92,8 +94,10 @@ export type PortalCallerTimeline = {
   branding: ReturnType<typeof getPracticeBranding>;
   callerName: string | null;
   items: PortalCallerTimelineItem[];
+  latestCall: { id: string; stateVersion: number } | null;
   latestItem: PortalCallerTimelineItem | null;
   latestNeedsActionItem: PortalCallerTimelineItem | null;
+  openTaskIds: string[];
   page: number;
   pageSize: number;
   phone: string;
@@ -140,11 +144,13 @@ export function buildPortalNeedsActionGroups(events: PortalCallActivityItem[]) {
         locationNames: [],
         missedCount: 0,
         noteCount: 0,
+        taskIds: [],
         voicemailCount: 0,
       } satisfies NeedsActionAccumulator);
     current.eventCount += 1;
     current.missedCount += event.kind === "missed" ? 1 : 0;
     current.noteCount += event.kind === "note" ? 1 : 0;
+    current.taskIds.push(event.taskId);
     current.voicemailCount += event.kind === "voicemail" ? 1 : 0;
     current.callbackNeededCount += event.disposition === "CALLBACK_NEEDED" ? 1 : 0;
     current.followUpRequiredCount += event.disposition === "FOLLOW_UP_REQUIRED" ? 1 : 0;

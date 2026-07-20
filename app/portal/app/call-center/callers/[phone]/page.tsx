@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -184,14 +186,27 @@ export default async function PortalCallCenterCallerPage({
                     <Phone className="h-4 w-4" aria-hidden="true" />
                   </Link>
                 </Button>
-                <ResolveActionForm iconOnly office={office} phone={timeline.phone} />
+                <ResolveActionForm
+                  iconOnly
+                  idempotencyKey={`resolve:${timeline.phone}:${latestNeedsActionItem.occurredAt.getTime()}:${timeline.openTaskIds.length}`}
+                  office={office}
+                  phone={timeline.phone}
+                  taskIds={timeline.openTaskIds}
+                />
               </div>
             </div>
           </CardContent>
         </Card>
       ) : null}
 
-      <OutcomePanel office={office} phone={timeline.phone} />
+      {timeline.latestCall ? (
+        <OutcomePanel
+          call={timeline.latestCall}
+          office={office}
+          phone={timeline.phone}
+          taskIds={timeline.openTaskIds}
+        />
+      ) : null}
 
       <section className="overflow-hidden rounded-xl border border-[var(--portal-border)] bg-white shadow-sm">
         <header
@@ -491,17 +506,25 @@ function TimelineRowContent({
 
 function ResolveActionForm({
   iconOnly = false,
+  idempotencyKey,
   office,
   phone,
+  taskIds,
 }: {
   iconOnly?: boolean;
+  idempotencyKey: string;
   office?: string;
   phone: string;
+  taskIds: string[];
 }) {
   return (
     <form action={resolveNeedsActionGroupAction}>
+      <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
       {office ? <input type="hidden" name="office" value={office} /> : null}
       <input type="hidden" name="phone" value={phone} />
+      {taskIds.map((taskId) => (
+        <input key={taskId} type="hidden" name="taskId" value={taskId} />
+      ))}
       <Button
         aria-label={iconOnly ? "Mark resolved" : undefined}
         className={
@@ -521,7 +544,17 @@ function ResolveActionForm({
   );
 }
 
-function OutcomePanel({ office, phone }: { office?: string; phone: string }) {
+function OutcomePanel({
+  call,
+  office,
+  phone,
+  taskIds,
+}: {
+  call: { id: string; stateVersion: number };
+  office?: string;
+  phone: string;
+  taskIds: string[];
+}) {
   return (
     <Card className="border-[var(--portal-border)] bg-white p-4 shadow-sm">
       <CardContent className="p-0">
@@ -529,8 +562,14 @@ function OutcomePanel({ office, phone }: { office?: string; phone: string }) {
           action={saveCallCenterNoteFormAction}
           className="grid w-full gap-2 sm:grid-cols-[minmax(180px,220px)_1fr_auto]"
         >
+          <input type="hidden" name="callId" value={call.id} />
+          <input type="hidden" name="expectedStateVersion" value={call.stateVersion} />
+          <input type="hidden" name="idempotencyKey" value={`note:${randomUUID()}`} />
           {office ? <input type="hidden" name="office" value={office} /> : null}
           <input type="hidden" name="phone" value={phone} />
+          {taskIds.map((taskId) => (
+            <input key={taskId} type="hidden" name="taskId" value={taskId} />
+          ))}
           <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--portal-muted)]">
             Status
             <select

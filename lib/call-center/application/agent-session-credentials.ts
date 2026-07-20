@@ -10,7 +10,7 @@ export type AgentSessionCredentialInput = {
   sessionId: string;
 };
 
-type AgentSessionCredential = {
+export type AgentSessionCredential = {
   agentLabel: string;
   providerCredentialId: string;
 };

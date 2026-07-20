@@ -275,6 +275,7 @@ function taskActivity(task: {
     kind: voicemail ? "voicemail" : missed ? "missed" : "note",
     locationName: task.call.number.practicePhoneNumber.location?.name ?? null,
     recordingId: voicemail ? (task.call?.voicemail?.recordingId ?? null) : null,
+    taskId: task.id,
   };
 }
 
@@ -471,8 +472,10 @@ export async function readCanonicalCallerTimeline(
     branding: getPracticeBranding(context.practice),
     callerName: null,
     items: [],
+    latestCall: null,
     latestItem: null,
     latestNeedsActionItem: null,
+    openTaskIds: [],
     page: 1,
     pageSize,
     phone: normalizedPhone,
@@ -546,30 +549,41 @@ export async function readCanonicalCallerTimeline(
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const page = Math.min(Math.max(1, Math.round(options.page ?? 1)), totalPages);
   const sourceTake = page * pageSize;
-  const [calls, tasks, callerNameSource, currentOpenTask] = await Promise.all([
-    database.callCenterCall.findMany({
-      orderBy: [{ endedAt: "desc" }, { answeredAt: "desc" }, { receivedAt: "desc" }],
-      select: callerCallSelect,
-      take: sourceTake,
-      where: callWhere,
-    }),
-    database.callCenterTask.findMany({
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      select: callerTaskSelect,
-      take: sourceTake,
-      where: taskWhere,
-    }),
-    database.callCenterCall.findFirst({
-      orderBy: [{ receivedAt: "desc" }],
-      select: { callerName: true },
-      where: { ...access, ...phoneWhere, callerName: { not: null } },
-    }),
-    database.callCenterTask.findFirst({
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      select: callerTaskSelect,
-      where: openTaskWhere,
-    }),
-  ]);
+  const [calls, tasks, callerNameSource, currentOpenTask, latestCall, openTasks] =
+    await Promise.all([
+      database.callCenterCall.findMany({
+        orderBy: [{ endedAt: "desc" }, { answeredAt: "desc" }, { receivedAt: "desc" }],
+        select: callerCallSelect,
+        take: sourceTake,
+        where: callWhere,
+      }),
+      database.callCenterTask.findMany({
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        select: callerTaskSelect,
+        take: sourceTake,
+        where: taskWhere,
+      }),
+      database.callCenterCall.findFirst({
+        orderBy: [{ receivedAt: "desc" }],
+        select: { callerName: true },
+        where: { ...access, ...phoneWhere, callerName: { not: null } },
+      }),
+      database.callCenterTask.findFirst({
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        select: callerTaskSelect,
+        where: openTaskWhere,
+      }),
+      database.callCenterCall.findFirst({
+        orderBy: [{ receivedAt: "desc" }],
+        select: { id: true, stateVersion: true },
+        where: { ...access, ...phoneWhere },
+      }),
+      database.callCenterTask.findMany({
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        select: { id: true },
+        where: openTaskWhere,
+      }),
+    ]);
   const items = [...calls.map(callerCallItem), ...tasks.map(callerTaskItem)].sort(
     (left, right) => right.occurredAt.getTime() - left.occurredAt.getTime(),
   );
@@ -584,8 +598,10 @@ export async function readCanonicalCallerTimeline(
       tasks.find(({ call }) => call?.callerName)?.call?.callerName ??
       null,
     items: items.slice(pageStart, pageStart + pageSize),
+    latestCall,
     latestItem: items[0] ?? null,
     latestNeedsActionItem: currentOpenItem ?? items.find(isOpenCallerTask) ?? null,
+    openTaskIds: openTasks.map(({ id }) => id),
     page,
     pageSize,
     phone: normalizedPhone,

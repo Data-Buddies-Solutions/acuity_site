@@ -2,11 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ApiError, parseJsonBody } from "@/lib/api/handler";
-import {
-  authorizeAgentSessionCredential,
-  type AgentSessionCredentialActor,
-} from "@/lib/call-center/application/agent-session-credentials";
-import { prismaAgentSessionCredentialStore } from "@/lib/call-center/infrastructure/prisma-agent-session-credential-store";
+import { type AgentSessionCredentialActor } from "@/lib/call-center/application/agent-session-credentials";
+import { callCenter } from "@/lib/call-center/call-center";
 import { createTelnyxLoginToken } from "@/lib/telnyx";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
@@ -20,14 +17,14 @@ const paramsSchema = z.object({ sessionId: z.string().trim().min(1).max(200) });
 type RouteContext = { params: Promise<{ sessionId: string }> };
 
 type Dependencies = {
-  authorize?: typeof authorizeAgentSessionCredential;
+  authorize?: typeof callCenter.authorizeAgentCredential;
   clock?: () => Date;
   createToken?: typeof createTelnyxLoginToken;
   getActor: () => Promise<AgentSessionCredentialActor>;
 };
 
 export function createCanonicalAgentSessionTokenHandler({
-  authorize = authorizeAgentSessionCredential,
+  authorize = callCenter.authorizeAgentCredential,
   clock = () => new Date(),
   createToken = createTelnyxLoginToken,
   getActor,
@@ -39,12 +36,8 @@ export function createCanonicalAgentSessionTokenHandler({
       if (!parameters.success) throw new ApiError("Valid agent session required", 400);
       const body = await parseJsonBody(request, bodySchema);
       const credential = await authorize(
-        prismaAgentSessionCredentialStore,
         actor,
-        {
-          ...body,
-          sessionId: parameters.data.sessionId,
-        },
+        { ...body, sessionId: parameters.data.sessionId },
         clock(),
       );
       const token = await createToken(credential.providerCredentialId);

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
-import { readCallCenterSnapshot } from "@/lib/call-center/application/realtime-queries";
 import { callCenter } from "@/lib/call-center/call-center";
 import { CallCenterOperatorError } from "@/lib/call-center/operator-error-response";
 import { CALL_CENTER_SCHEMA_VERSION } from "@/lib/call-center/realtime-contract";
@@ -12,7 +11,7 @@ const logger = createLogger("portal-call-center-operator-state");
 type Dependencies = {
   getActor: () => Promise<QueueAccessActor>;
   now?: () => number;
-  readSnapshot?: typeof readCallCenterSnapshot;
+  readSnapshot?: typeof callCenter.readOperatorState;
   reportRead?: (context: LogContext) => void;
   revision?: string;
 };

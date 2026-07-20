@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { TransferAgentCallError } from "@/lib/call-center/application/transfer-agent-call";
+
 import { createTransferAgentHandler, createTransferTargetsHandler } from "./handler";
 
 const actor = {
@@ -15,7 +17,7 @@ describe("canonical cold transfer route", () => {
     let received: unknown;
     const GET = createTransferTargetsHandler({
       getActor: async () => actor,
-      list: async (_store, currentActor, input) => {
+      list: async (currentActor, input) => {
         received = { actor: currentActor, input };
         return [{ endpointId: "endpoint-2", label: "Front desk" }];
       },
@@ -38,14 +40,9 @@ describe("canonical cold transfer route", () => {
 
   it("persists and dispatches one idempotent transfer command", async () => {
     let saved: unknown;
-    const dispatched: string[] = [];
     const POST = createTransferAgentHandler({
-      dispatch: async (commandId) => {
-        dispatched.push(commandId);
-        return { commandId, markSent: "MARKED", status: "DISPATCHED" };
-      },
       getActor: async () => actor,
-      save: async (_store, currentActor, input) => {
+      transfer: async (currentActor, input) => {
         saved = { actor: currentActor, input };
         return {
           callId: input.callId,
@@ -88,37 +85,14 @@ describe("canonical cold transfer route", () => {
         targetEndpointId: "endpoint-2",
       },
     });
-    expect(dispatched).toEqual(["command-1"]);
   });
 
-  it("dispatches transfer-failure cleanup before returning the error", async () => {
-    const dispatched: string[] = [];
+  it("translates a transfer failure from the lifecycle owner", async () => {
     const POST = createTransferAgentHandler({
-      dispatch: async (commandId) => {
-        dispatched.push(commandId);
-        return commandId === "command-1"
-          ? {
-              commandId,
-              errorCode: "PROVIDER_VALIDATION_FAILED",
-              followUpCommandIds: ["cleanup-1"],
-              status: "FAILED",
-            }
-          : { commandId, markSent: "MARKED", status: "DISPATCHED" };
-      },
       getActor: async () => actor,
-      save: async (_store, _actor, input) => ({
-        callId: input.callId,
-        commandId: "command-1",
-        occurredAt: "2026-07-19T12:00:00.000Z",
-        operationType: "TRANSFER",
-        replayed: false,
-        revision: "21",
-        sourceLegId: "leg-1",
-        stateVersion: 4,
-        status: "PENDING",
-        targetEndpointId: input.targetEndpointId,
-        targetLegId: "leg-2",
-      }),
+      transfer: async () => {
+        throw new TransferAgentCallError("Transfer could not be started", 409);
+      },
     });
 
     const response = await POST(
@@ -138,6 +112,5 @@ describe("canonical cold transfer route", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(dispatched).toEqual(["command-1", "cleanup-1"]);
   });
 });

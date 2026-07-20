@@ -3,10 +3,8 @@ import { describe, expect, it } from "bun:test";
 import {
   AgentSessionError,
   type AgentSessionRecord,
-  type acquireAgentSession,
-  type releaseAgentSession,
-  type updateAgentSessionReadiness,
 } from "@/lib/call-center/application/agent-sessions";
+import type { AgentUpdate } from "@/lib/call-center/call-center";
 
 import { createAgentSessionHandlers } from "./handler";
 
@@ -80,14 +78,14 @@ describe("canonical agent-session route", () => {
 
   it("returns the committed lease without provider credentials", async () => {
     let acquired = false;
-    const acquire: typeof acquireAgentSession = async () => {
+    const updateAgent = async () => {
       acquired = true;
       return acquisition();
     };
     const { POST } = createAgentSessionHandlers({
-      acquire,
       clock: () => now,
       getContext: context,
+      updateAgent,
     });
     const response = await POST(
       request("POST", {
@@ -110,13 +108,13 @@ describe("canonical agent-session route", () => {
 
   it("passes an explicit phone takeover to the session owner", async () => {
     let takeover = false;
-    const acquire: typeof acquireAgentSession = async (_store, _actor, input) => {
-      takeover = input.takeover === true;
+    const updateAgent = async (update: AgentUpdate) => {
+      takeover = update.kind === "ACQUIRE" && update.input.takeover === true;
       return acquisition();
     };
     const { POST } = createAgentSessionHandlers({
-      acquire,
       getContext: context,
+      updateAgent,
     });
 
     const response = await POST(
@@ -132,11 +130,11 @@ describe("canonical agent-session route", () => {
 
   it("accepts only the canonical clientInstanceId wire field", async () => {
     let calls = 0;
-    const acquire: typeof acquireAgentSession = async () => {
+    const updateAgent = async () => {
       calls += 1;
       return acquisition();
     };
-    const { POST } = createAgentSessionHandlers({ acquire, getContext: context });
+    const { POST } = createAgentSessionHandlers({ getContext: context, updateAgent });
     const response = await POST(
       request("POST", {
         browserSessionId: "legacy-browser-field",
@@ -149,13 +147,13 @@ describe("canonical agent-session route", () => {
 
   it("requires every readiness signal on PATCH", async () => {
     let calls = 0;
-    const updateReadiness: typeof updateAgentSessionReadiness = async () => {
+    const updateAgent = async () => {
       calls += 1;
       return { session };
     };
     const { PATCH } = createAgentSessionHandlers({
       getContext: context,
-      updateReadiness,
+      updateAgent,
     });
     const response = await PATCH(
       request("PATCH", {
@@ -173,21 +171,20 @@ describe("canonical agent-session route", () => {
   });
 
   it("updates explicit readiness without returning another token", async () => {
-    const updateReadiness: typeof updateAgentSessionReadiness = async (
-      _store,
-      _actor,
-      input,
-    ) => ({
-      session: {
-        ...session,
-        ...input,
-        readyAt: now,
-        stateVersion: input.expectedStateVersion + 1,
-      },
-    });
+    const updateAgent = async (update: AgentUpdate) => {
+      if (update.kind !== "HEARTBEAT") throw new Error("unexpected agent operation");
+      return {
+        session: {
+          ...session,
+          ...update.input,
+          readyAt: now,
+          stateVersion: update.input.expectedStateVersion + 1,
+        },
+      };
+    };
     const { PATCH } = createAgentSessionHandlers({
       getContext: context,
-      updateReadiness,
+      updateAgent,
     });
     const response = await PATCH(
       request("PATCH", {
@@ -213,13 +210,20 @@ describe("canonical agent-session route", () => {
 
   it("releases the authenticated browser lease", async () => {
     let releasedIdentity: unknown;
-    const release: typeof releaseAgentSession = async (_store, _actor, input) => {
-      releasedIdentity = input;
+    const updateAgent = async (update: AgentUpdate) => {
+      releasedIdentity = update.input;
       return {
-        session: { ...session, connectionState: "CLOSED", presence: "OFFLINE" },
+        session: {
+          ...session,
+          connectionState: "CLOSED" as const,
+          presence: "OFFLINE" as const,
+        },
       };
     };
-    const { DELETE } = createAgentSessionHandlers({ getContext: context, release });
+    const { DELETE } = createAgentSessionHandlers({
+      getContext: context,
+      updateAgent,
+    });
     const response = await DELETE(
       request("DELETE", {
         clientInstanceId: "browser-1",
