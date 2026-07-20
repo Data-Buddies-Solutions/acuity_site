@@ -118,12 +118,12 @@ describe("set call hold music", () => {
     ).rejects.toBeInstanceOf(SetCallHoldMusicError);
   });
 
-  it("returns after stop dispatch without waiting for playback settlement", async () => {
+  it("waits for stop confirmation before reconnecting the call", async () => {
     const stopStore = store();
     let waitedForSettlement = false;
     stopStore.waitForCommandSettlement = async () => {
       waitedForSettlement = true;
-      return "TIMEOUT";
+      return "CONFIRMED";
     };
 
     await expect(
@@ -143,7 +143,30 @@ describe("set call hold music", () => {
         },
         now,
       ),
-    ).resolves.toMatchObject({ status: "DISPATCHED" });
-    expect(waitedForSettlement).toBe(false);
+    ).resolves.toMatchObject({ status: "CONFIRMED" });
+    expect(waitedForSettlement).toBe(true);
+  });
+
+  it("keeps the call held when stop cannot be confirmed", async () => {
+    const stopStore = store();
+    stopStore.waitForCommandSettlement = async () => "TIMEOUT";
+
+    await expect(
+      setCallHoldMusic(
+        stopStore,
+        async (commandId) => ({
+          commandId,
+          status: "SETTLED",
+        }),
+        actor,
+        {
+          action: "STOP",
+          callId: "call-1",
+          expectedStateVersion: 3,
+          idempotencyKey: "resume-timeout-1",
+        },
+        now,
+      ),
+    ).rejects.toBeInstanceOf(SetCallHoldMusicError);
   });
 });

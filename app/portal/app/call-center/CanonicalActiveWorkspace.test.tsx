@@ -209,7 +209,7 @@ describe("CanonicalActiveCall", () => {
       return Response.json({ status: "CONFIRMED" }, { status: 202 });
     }) as unknown as typeof fetch;
 
-    const view = render(
+    render(
       <CanonicalActiveCall
         call={connectedCall("INBOUND")}
         clientInstanceId="browser-1"
@@ -223,21 +223,13 @@ describe("CanonicalActiveCall", () => {
       fireEvent.click(screen.getByRole("button", { name: "Hold" }));
     });
     expect(media.hold).toHaveBeenCalledWith("media-leg-1", true);
-    view.rerender(
-      <CanonicalActiveCall
-        call={connectedCall("INBOUND")}
-        clientInstanceId="browser-1"
-        endpointId="endpoint-1"
-        media={withMediaState(media, "HELD")}
-        sessionId="session-1"
-      />,
-    );
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Resume" }));
     });
     expect(media.hold).toHaveBeenCalledWith("media-leg-1", false);
+    expect(screen.getByRole("button", { name: "Hold" })).toBeTruthy();
     expect(requests.map(({ action }) => action)).toEqual(["START", "STOP"]);
     expect(requests[0]?.url).toBe(
       "/api/portal/call-center/calls/call-inbound/hold-music",
@@ -268,6 +260,105 @@ describe("CanonicalActiveCall", () => {
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Resume" }).disabled,
     ).toBe(false);
+  });
+
+  it("returns to provider state after the media connection is recovered", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ status: "CONFIRMED" }, { status: 202 }),
+    ) as unknown as typeof fetch;
+    const media = mediaControls();
+    const view = render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hold" }));
+    });
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={{
+          ...media,
+          connection: "CONNECTING",
+          observations: media.observations.map((observation) => ({
+            ...observation,
+            state: "ACTIVE",
+          })),
+        }}
+        sessionId="session-1"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Hold" })).toBeTruthy();
+
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={withMediaState(media, "ACTIVE")}
+        sessionId="session-1"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Hold" })).toBeTruthy();
+  });
+
+  it("ignores a stale resume completion after media recovery", async () => {
+    let finishStop: ((response: Response) => void) | null = null;
+    globalThis.fetch = mock(
+      async () =>
+        new Promise<Response>((resolve) => {
+          finishStop = resolve;
+        }),
+    ) as unknown as typeof fetch;
+    const media = mediaControls("HELD");
+    const view = render(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await act(async () => Promise.resolve());
+
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={{ ...media, connection: "CONNECTING" }}
+        sessionId="session-1"
+      />,
+    );
+    view.rerender(
+      <CanonicalActiveCall
+        call={connectedCall("INBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await act(async () => {
+      finishStop?.(Response.json({ status: "CONFIRMED" }, { status: 202 }));
+      await Promise.resolve();
+    });
+    expect(media.hold).toHaveBeenCalledWith("media-leg-1", false);
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 
   it("surfaces a failed hold-music restart when resume cannot unhold", async () => {
@@ -329,6 +420,10 @@ describe("CanonicalActiveCall", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Hold" }));
     await act(async () => Promise.resolve());
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Resume" }).disabled,
+    ).toBe(true);
+    expect(screen.queryByRole("button", { name: "Updating" })).toBeNull();
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "End" }).disabled).toBe(
       false,
     );
@@ -337,6 +432,9 @@ describe("CanonicalActiveCall", () => {
       finishRequest?.(Response.json({ status: "CONFIRMED" }, { status: 202 }));
       await Promise.resolve();
     });
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Resume" }).disabled,
+    ).toBe(false);
   });
 
   it("shows resume when hold-music rollback cannot unhold the provider call", async () => {
