@@ -1452,16 +1452,20 @@ export const prismaCanonicalCallProjector: CanonicalCallProjector = {
           legId: leg.id,
           practiceId: call.practiceId,
         });
+        const sourceLeg = await tx.callCenterCallLeg.findFirst({
+          select: { endedAt: true },
+          where: { callId: call.id, id: transfer.sourceLegId },
+        });
         await tx.callCenterCallLeg.updateMany({
           data: {
-            endedAt: resolvedFact.occurredAt,
+            endedAt: sourceLeg?.endedAt ?? resolvedFact.occurredAt,
             errorCode: "TRANSFERRED",
             status: "ENDED",
           },
           where: {
             callId: call.id,
             id: transfer.sourceLegId,
-            status: { in: ["ANSWERED", "BRIDGED"] },
+            status: { in: ["ANSWERED", "BRIDGED", "ENDED"] },
           },
         });
         await tx.callCenterEvent.upsert({

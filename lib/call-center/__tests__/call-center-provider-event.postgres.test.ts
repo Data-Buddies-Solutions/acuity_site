@@ -523,12 +523,16 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
     const targetInitiatedAt = new Date("2026-07-20T10:31:13.795Z");
     const peerInitiatedAt = new Date("2026-07-20T10:31:14.237Z");
     const peerBridgedAt = new Date("2026-07-20T10:31:23.917Z");
+    const sourceHungUpAt = new Date("2026-07-20T10:31:23.978Z");
     const targetAnsweredAt = new Date("2026-07-20T10:31:24.035Z");
 
     try {
       const {
         callId,
+        sourceControlId,
         sourceLegId,
+        sourceProviderLegId,
+        sourceState,
         targetControlId,
         targetLegId,
         targetProviderLegId,
@@ -578,6 +582,21 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
       await expect(
         callCenter.applyProviderEvent(
           transferEvent(
+            "call.hangup",
+            `provider-${current.key}-source-hangup`,
+            {
+              call_control_id: sourceControlId,
+              call_leg_id: sourceProviderLegId,
+              client_state: sourceState,
+              hangup_cause: "normal_clearing",
+            },
+            sourceHungUpAt,
+          ),
+        ),
+      ).resolves.toMatchObject({ outcome: "PROCESSED" });
+      await expect(
+        callCenter.applyProviderEvent(
+          transferEvent(
             "call.answered",
             `provider-${current.key}-target-answered`,
             {
@@ -602,7 +621,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
       expect(transferred.legs).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            endedAt: targetAnsweredAt,
+            endedAt: sourceHungUpAt,
             errorCode: "TRANSFERRED",
             id: sourceLegId,
             status: "ENDED",
