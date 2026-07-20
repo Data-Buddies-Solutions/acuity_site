@@ -315,6 +315,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
           label: "Transfer target",
           locationId: current.locationId,
           practiceId: current.practiceId,
+          providerCredentialId: `credential-${current.key}`,
           sipUsername: `transfer-${current.key}`,
         },
       });
