@@ -299,6 +299,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
         }),
       ).toMatchObject({
         deadlineAt: new Date("2026-07-20T10:01:00.000Z"),
+        providerCallSessionId: fixture.id("session"),
         status: "RINGING",
         legs: [
           {

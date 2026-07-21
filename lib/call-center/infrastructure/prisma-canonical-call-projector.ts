@@ -141,9 +141,11 @@ async function pendingDialAgentCommandIdsForCustomerCallback(
   },
 ) {
   if (
-    input.callDirection !== "INBOUND" ||
     input.legKind !== "CUSTOMER" ||
-    !["call.answered", "call.playback.started"].includes(input.eventType)
+    !(
+      input.eventType === "call.answered" ||
+      (input.callDirection === "INBOUND" && input.eventType === "call.playback.started")
+    )
   ) {
     return [];
   }
@@ -186,6 +188,7 @@ type ProviderCommandLink = {
   type:
     | "ANSWER_CUSTOMER"
     | "START_RINGBACK"
+    | "DIAL_CUSTOMER"
     | "DIAL_AGENT"
     | "TRANSFER_AGENT"
     | "STOP_PLAYBACK"
@@ -495,9 +498,15 @@ async function settleProviderCommandCallback(
 ) {
   const callback = (() => {
     switch (fact.eventType) {
+      case "call.initiated":
+        return {
+          expectedTypes: ["DIAL_CUSTOMER"] as const,
+          ignoreOtherTypes: true,
+          outcome: "CONFIRMED" as const,
+        };
       case "call.answered":
         return {
-          expectedTypes: ["ANSWER_CUSTOMER"] as const,
+          expectedTypes: ["ANSWER_CUSTOMER", "DIAL_CUSTOMER"] as const,
           outcome: "CONFIRMED" as const,
         };
       case "call.playback.started":
@@ -1444,10 +1453,13 @@ function createProjectAndComplete(
         (leg.status === "ENDED" || leg.status === "FAILED") &&
         !transferCompleted,
       );
+      const providerCallSessionId =
+        call.providerCallSessionId ?? resolvedFact.providerCallSessionId;
       const callProjectionChanged =
         nextCall !== call ||
         transferFailed ||
         winningLegId !== call.winningLegId ||
+        providerCallSessionId !== call.providerCallSessionId ||
         identity.callerName !== call.callerName ||
         identity.fromPhone !== call.fromPhone ||
         identity.toPhone !== call.toPhone ||
@@ -1464,6 +1476,7 @@ function createProjectAndComplete(
             fromPhone: identity.fromPhone,
             queuedAt: nextCall.queuedAt,
             receivedAt: identity.receivedAt,
+            providerCallSessionId,
             stateVersion:
               callProjectionChanged && nextCall.stateVersion === call.stateVersion
                 ? call.stateVersion + 1

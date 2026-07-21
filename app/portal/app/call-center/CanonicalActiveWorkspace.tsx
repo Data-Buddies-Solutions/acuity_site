@@ -39,6 +39,7 @@ import { setCallCenterCurrentCallGuard } from "./call-center-current-call-guard"
 import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
+  failCanonicalOutboundOperation,
   hasCanonicalPendingTransfer,
   isCanonicalTransferOffer,
   selectCanonicalAgentActiveCall,
@@ -198,7 +199,7 @@ function ConnectedCanonicalActiveWorkspace({
   const state = realtime.state;
   const session = runtime.session;
   const media = runtime.media;
-  const { dial: dialMediaLeg, observations: mediaObservations } = media;
+  const { observations: mediaObservations } = media;
 
   const incomingCalls = useMemo(() => {
     if (!state) return [];
@@ -315,35 +316,23 @@ function ConnectedCanonicalActiveWorkspace({
         });
         return callCenterResponse<{
           callId?: unknown;
-          clientState?: unknown;
-          from?: unknown;
-          to?: unknown;
         }>(response);
       };
       const body = await requestOutbound();
-      if (
-        typeof body?.callId !== "string" ||
-        typeof body?.clientState !== "string" ||
-        typeof body.from !== "string" ||
-        typeof body.to !== "string"
-      ) {
+      if (typeof body?.callId !== "string") {
         throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
       setCallCenterCurrentCallGuard(body.callId);
-      dialMediaLeg({
-        callerNumber: body.from,
-        clientState: body.clientState,
-        destinationNumber: body.to,
-      });
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
+      failCanonicalOutboundOperation(window.sessionStorage, target, operationKey, error);
       setActionError(errorMessage(error, "outbound"));
     } finally {
       outboundStartingRef.current = false;
       setStartingOutbound(false);
     }
-  }, [clientInstanceId, destination, dialMediaLeg, queueId, selectedNumberId, session]);
+  }, [clientInstanceId, destination, queueId, selectedNumberId, session]);
 
   if (realtime.error && !state) {
     return (
@@ -721,6 +710,7 @@ export function CanonicalActiveCall({
   const transferOperationRef = useRef<{ key: string; targetEndpointId: string } | null>(
     null,
   );
+  const outboundAnsweringRef = useRef<string | null>(null);
   const transferInProgress = transferring || hasCanonicalPendingTransfer(call);
   const match = sessionId
     ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
@@ -747,6 +737,21 @@ export function CanonicalActiveCall({
   );
   const isHeld =
     localHoldStateMatches && localHoldState ? localHoldState.held : observedHeld;
+
+  useEffect(() => {
+    if (call.direction !== "OUTBOUND" || connected || !mediaLegId) {
+      return;
+    }
+    if (match?.observation.state !== "RINGING") {
+      outboundAnsweringRef.current = null;
+      return;
+    }
+    if (outboundAnsweringRef.current === mediaLegId) return;
+    outboundAnsweringRef.current = mediaLegId;
+    void media.answer(mediaLegId).catch((error) => {
+      setControlError(errorMessage(error, "answer"));
+    });
+  }, [call.direction, connected, match?.observation.state, media, mediaLegId]);
 
   const rememberHoldState = (held: boolean, operationId: string) => {
     if (holdOperationRef.current !== operationId || !mediaConnectionId || !mediaLegId) {
@@ -1176,6 +1181,11 @@ export function CanonicalActiveCall({
 
   return (
     <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
+      {controlError ? (
+        <p className="mb-3 text-sm text-[var(--portal-danger)]" role="alert">
+          {controlError}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">

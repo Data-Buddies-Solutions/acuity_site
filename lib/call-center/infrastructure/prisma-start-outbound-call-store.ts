@@ -48,20 +48,6 @@ export function blocksOutboundStart(input: {
   );
 }
 
-export function canonicalOutboundClientState(input: {
-  practiceId: string;
-  token: string;
-}) {
-  return Buffer.from(
-    JSON.stringify({
-      canonicalOutboundToken: input.token,
-      practiceId: input.practiceId,
-      version: 1,
-    }),
-    "utf8",
-  ).toString("base64");
-}
-
 export function isOutboundScopeAllowed(input: {
   actorAllowedLocationIds: string[];
   actorHasAllLocationAccess: boolean;
@@ -362,7 +348,9 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
 
     const callId = randomUUID();
     const legId = randomUUID();
-    const clientStateToken = randomUUID();
+    const customerLegId = randomUUID();
+    const customerCommandId = randomUUID();
+    const agentCommandId = randomUUID();
     const call = await this.transaction.callCenterCall.create({
       data: {
         direction: "OUTBOUND",
@@ -390,6 +378,41 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
         status: "CREATED",
       },
     });
+    await this.transaction.callCenterCallLeg.create({
+      data: {
+        callId: call.id,
+        id: customerLegId,
+        kind: "CUSTOMER",
+        startedAt: now,
+        status: "CREATED",
+      },
+    });
+    await this.transaction.callCenterCommand.create({
+      data: {
+        arguments: {},
+        callId: call.id,
+        id: customerCommandId,
+        idempotencyKey: `outbound:${input.idempotencyKey}:customer`,
+        legId: customerLegId,
+        practiceId: actor.practiceId,
+        type: "DIAL_CUSTOMER",
+      },
+    });
+    await this.transaction.callCenterCommand.create({
+      data: {
+        arguments: {
+          agentSessionId: session.id,
+          endpointId: session.endpointId,
+        },
+        callId: call.id,
+        dependsOnCommandId: customerCommandId,
+        id: agentCommandId,
+        idempotencyKey: `outbound:${input.idempotencyKey}:agent`,
+        legId,
+        practiceId: actor.practiceId,
+        type: "DIAL_AGENT",
+      },
+    });
     await this.transaction.callCenterEvent.create({
       data: {
         actorUserId: actor.userId,
@@ -400,9 +423,10 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
           direction: "OUTBOUND",
           endpointId: session.endpointId,
           legId,
+          customerLegId,
           status: "RECEIVED",
         },
-        idempotencyKey: `outbound-client-state:${clientStateToken}`,
+        idempotencyKey: `outbound:${input.idempotencyKey}:created`,
         occurredAt: now,
         practiceId: actor.practiceId,
         type: "CALL_OUTBOUND_CREATED",
@@ -413,17 +437,12 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       data: {
         agentSessionId: session.id,
         callId: call.id,
-        clientState: canonicalOutboundClientState({
-          practiceId: actor.practiceId,
-          token: clientStateToken,
-        }),
+        commandId: customerCommandId,
+        customerLegId,
         endpointId: session.endpointId,
-        from,
         legId,
         operationType: "OUTBOUND",
         stateVersion: call.stateVersion,
-        status: "CONFIRMED",
-        to,
       },
     };
   }

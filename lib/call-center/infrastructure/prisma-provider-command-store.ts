@@ -25,6 +25,7 @@ type ReconcileActiveInbound = typeof reconcileActiveInboundCallInTransaction;
 type ProviderCommandBacklogDelegate = Pick<typeof prisma.callCenterCommand, "findMany">;
 
 type TerminalProviderCommand = {
+  call: { direction: "INBOUND" | "OUTBOUND" };
   callId: string;
   id: string;
   leg: { id: string; kind: "AGENT" | "CUSTOMER" } | null;
@@ -108,6 +109,18 @@ function isClaimable(
   return command.status === "SENDING" && command.updatedAt <= staleBefore;
 }
 
+function claimProviderCommand(tx: Transaction, commandId: string) {
+  return tx.callCenterCommand.update({
+    data: {
+      attemptCount: { increment: 1 },
+      errorCode: null,
+      status: "SENDING",
+    },
+    select: { attemptCount: true },
+    where: { id: commandId },
+  });
+}
+
 async function settleTerminalProviderCommand(
   transaction: Transaction,
   command: TerminalProviderCommand,
@@ -147,6 +160,34 @@ async function settleTerminalProviderCommand(
       },
     });
   }
+  if (command.type === "DIAL_CUSTOMER" && command.leg?.kind === "CUSTOMER") {
+    await transaction.callCenterCallLeg.updateMany({
+      data: { endedAt: now, errorCode, status: "FAILED" },
+      where: {
+        id: command.leg.id,
+        status: { in: [...UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES] },
+      },
+    });
+    await transaction.callCenterCall.update({
+      data: {
+        endedAt: now,
+        stateVersion: { increment: 1 },
+        status: "FAILED",
+      },
+      where: { id: command.callId },
+    });
+    await transaction.callCenterEvent.create({
+      data: {
+        aggregateId: command.callId,
+        aggregateType: "CALL",
+        data: { commandId: command.id, errorCode, legId: command.leg.id },
+        idempotencyKey: `${command.id}:terminal-failure`,
+        occurredAt: now,
+        practiceId: command.practiceId,
+        type: "CALL_OUTBOUND_DIAL_FAILED",
+      },
+    });
+  }
   await failProviderCommandDependents(transaction, {
     commandId: command.id,
     now,
@@ -162,6 +203,21 @@ async function settleTerminalProviderCommand(
     );
     return transfer.commandIds;
   }
+  if (command.type === "DIAL_AGENT" && command.call.direction === "OUTBOUND") {
+    const commandIds = await settleCanonicalCallLegs(transaction, {
+      callId: command.callId,
+      includeCustomerLegs: true,
+      now,
+      reason: "OUTBOUND_AGENT_DIAL_FAILED",
+      terminalLegStatus: "FAILED",
+    });
+    await transaction.callCenterCall.update({
+      data: { endedAt: now, status: "FAILED" },
+      where: { id: command.callId },
+    });
+    return commandIds;
+  }
+  if (command.type === "DIAL_CUSTOMER") return [];
   const lifecycle = await reconcileActiveInbound(
     transaction,
     {
@@ -178,6 +234,7 @@ async function rejectProviderCommandClaim(
   transaction: Transaction,
   command: {
     attemptCount: number;
+    call: { direction: "INBOUND" | "OUTBOUND" };
     callId: string;
     id: string;
     leg: {
@@ -289,6 +346,7 @@ async function loadProviderCommandClaim(
   if (!isClaimable(command, input.staleBefore)) return null;
   const reject = (errorCode: string): Promise<ProviderCommandRejectedClaim | null> =>
     rejectProviderCommandClaim(tx, command, errorCode, input.now, reconcileActiveInbound);
+  const isDialCustomer = command.type === "DIAL_CUSTOMER";
   const isDialAgent = command.type === "DIAL_AGENT";
   const isTransferAgent = command.type === "TRANSFER_AGENT";
 
@@ -319,7 +377,7 @@ async function loadProviderCommandClaim(
   ) {
     return reject("COMMAND_PROVIDER_LEG_INVALID");
   }
-  if (!isDialAgent && !isTransferAgent && !leg.providerCallControlId) {
+  if (!isDialCustomer && !isDialAgent && !isTransferAgent && !leg.providerCallControlId) {
     return reject("COMMAND_PROVIDER_LEG_INVALID");
   }
 
@@ -344,6 +402,7 @@ async function loadProviderCommandClaim(
   }
 
   const customerLegCommand = [
+    "DIAL_CUSTOMER",
     "ANSWER_CUSTOMER",
     "START_RINGBACK",
     "STOP_PLAYBACK",
@@ -394,6 +453,42 @@ async function loadProviderCommandClaim(
   }
   if (!dispatchArguments) {
     return reject("COMMAND_ARGUMENTS_INVALID");
+  }
+
+  if (command.type === "DIAL_CUSTOMER") {
+    const settings = command.practice.callCenterSettings;
+    const connectionId = settings?.telnyxConnectionId?.trim();
+    const from = command.call.number.practicePhoneNumber.phoneNumber.trim();
+    const to = command.call.toPhone.trim();
+    if (
+      command.call.direction !== "OUTBOUND" ||
+      leg.kind !== "CUSTOMER" ||
+      !["CREATED", "DIALING", "RINGING"].includes(leg.status)
+    ) {
+      return reject("COMMAND_CUSTOMER_LEG_INVALID");
+    }
+    if (!connectionId || !from || !to) {
+      return reject("COMMAND_PROVIDER_CONFIGURATION_INVALID");
+    }
+    const claimed = await claimProviderCommand(tx, command.id);
+    return {
+      attemptCount: claimed.attemptCount,
+      command: {
+        arguments: {},
+        callId: command.callId,
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        legId: leg.id,
+        practiceId: command.practiceId,
+        provider: {
+          connectionId,
+          from,
+          timeoutSeconds: 60,
+          to,
+        },
+        type: "DIAL_CUSTOMER",
+      },
+    };
   }
 
   if (command.type === "TRANSFER_AGENT") {
@@ -460,8 +555,7 @@ async function loadProviderCommandClaim(
     if (
       !source?.providerCallControlId ||
       !providerSource?.providerCallControlId ||
-      (command.call.direction === "INBOUND" && providerSource.kind !== "CUSTOMER") ||
-      (command.call.direction === "OUTBOUND" && providerSource.id !== source.id) ||
+      providerSource.kind !== "CUSTOMER" ||
       (command.call.winningLegId !== source.id &&
         !(command.call.direction === "OUTBOUND" && !command.call.winningLegId)) ||
       source.endpointId === args.endpointId ||
@@ -522,37 +616,14 @@ async function loadProviderCommandClaim(
     ) {
       return reject("COMMAND_AGENT_LOCATION_ACCESS_INVALID");
     }
-    const transferProvider =
-      command.call.direction === "OUTBOUND"
-        ? command.practice.callCenterSettings?.telnyxConnectionId?.trim()
-          ? {
-              callControlId: providerSource.providerCallControlId,
-              connectionId: command.practice.callCenterSettings.telnyxConnectionId.trim(),
-              from: command.call.number.practicePhoneNumber.phoneNumber.trim(),
-              sipUri: sipUri(endpoint.sipUsername.trim()),
-              strategy: "DIAL_BRIDGE" as const,
-              timeoutSeconds: 20,
-            }
-          : null
-        : {
-            callControlId: providerSource.providerCallControlId,
-            sipUri: sipUri(endpoint.sipUsername.trim()),
-            strategy: "TRANSFER" as const,
-            timeoutSeconds: 20,
-          };
-    if (!transferProvider) {
-      return reject("COMMAND_PROVIDER_CONFIGURATION_INVALID");
-    }
+    const transferProvider = {
+      callControlId: providerSource.providerCallControlId,
+      sipUri: sipUri(endpoint.sipUsername.trim()),
+      strategy: "TRANSFER" as const,
+      timeoutSeconds: 20,
+    };
 
-    const claimed = await tx.callCenterCommand.update({
-      data: {
-        attemptCount: { increment: 1 },
-        errorCode: null,
-        status: "SENDING",
-      },
-      select: { attemptCount: true },
-      where: { id: command.id },
-    });
+    const claimed = await claimProviderCommand(tx, command.id);
     return {
       attemptCount: claimed.attemptCount,
       command: {
@@ -684,15 +755,7 @@ async function loadProviderCommandClaim(
     const linkTo = linkedLeg?.providerCallControlId;
     if (!linkTo) return null;
 
-    const claimed = await tx.callCenterCommand.update({
-      data: {
-        attemptCount: { increment: 1 },
-        errorCode: null,
-        status: "SENDING",
-      },
-      select: { attemptCount: true },
-      where: { id: command.id },
-    });
+    const claimed = await claimProviderCommand(tx, command.id);
     return {
       attemptCount: claimed.attemptCount,
       command: {
@@ -714,15 +777,7 @@ async function loadProviderCommandClaim(
     };
   }
 
-  const claimed = await tx.callCenterCommand.update({
-    data: {
-      attemptCount: { increment: 1 },
-      errorCode: null,
-      status: "SENDING",
-    },
-    select: { attemptCount: true },
-    where: { id: command.id },
-  });
+  const claimed = await claimProviderCommand(tx, command.id);
   const base = {
     callId: command.callId,
     commandId: command.id,
@@ -802,6 +857,7 @@ export class PrismaProviderCommandStore implements ProviderCommandDispatchStore 
     return this.runTransaction(async (transaction) => {
       const target = await transaction.callCenterCommand.findUnique({
         select: {
+          call: { select: { direction: true } },
           callId: true,
           leg: { select: { id: true, kind: true } },
           practiceId: true,

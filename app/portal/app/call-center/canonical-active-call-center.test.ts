@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { CallView } from "@/lib/call-center/realtime-contract";
 
 import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
+  failCanonicalOutboundOperation,
   hasCanonicalPendingTransfer,
   isCanonicalTransferOffer,
   selectCanonicalAgentActiveCall,
@@ -186,6 +188,39 @@ describe("canonical active call center correlation", () => {
     const first = canonicalOutboundIdempotencyKey(storage, target, () => "one");
     expect(canonicalOutboundIdempotencyKey(storage, target, () => "two")).toBe(first);
     completeCanonicalOutboundOperation(storage, target, first);
+    expect(canonicalOutboundIdempotencyKey(storage, target, () => "three")).not.toBe(
+      first,
+    );
+  });
+
+  it("retires an outbound key only after an explicit terminal rejection", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+    const target = {
+      clientInstanceId: "browser-1",
+      destination: "+17865550100",
+      numberId: "number-1",
+      queueId: "queue-1",
+    };
+    const first = canonicalOutboundIdempotencyKey(storage, target, () => "one");
+
+    failCanonicalOutboundOperation(storage, target, first, new TypeError("lost"));
+    expect(canonicalOutboundIdempotencyKey(storage, target, () => "two")).toBe(first);
+
+    failCanonicalOutboundOperation(
+      storage,
+      target,
+      first,
+      new CallCenterRequestError({
+        code: "OUTBOUND_CALL_FAILED",
+        referenceId: "ABC123",
+        retryable: false,
+      }),
+    );
     expect(canonicalOutboundIdempotencyKey(storage, target, () => "three")).not.toBe(
       first,
     );

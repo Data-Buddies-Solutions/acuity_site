@@ -456,7 +456,7 @@ async function findAndBindLegIdentity(tx: AdmissionTransaction, raw: RawIdentity
 }
 
 async function findByCustomerSession(tx: AdmissionTransaction, raw: RawIdentity) {
-  if (!raw.providerCallSessionId) return null;
+  if (raw.direction === "OUTBOUND" || !raw.providerCallSessionId) return null;
   const call = await tx.callCenterCall.findUnique({
     select: {
       id: true,

@@ -122,10 +122,13 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
   ) {
     const providerSessionId = `session-${current.key}`;
     const callId = `call-${current.key}`;
+    const customerLegId = `customer-${current.key}`;
     const sourceLegId = `source-${current.key}`;
     const targetLegId = `target-${current.key}`;
     const targetEndpointId = `endpoint-${current.key}`;
     const transferCommandId = `transfer-${current.key}`;
+    const customerControlId = `customer-control-${current.key}`;
+    const customerProviderLegId = `customer-provider-leg-${current.key}`;
     const sourceControlId = `source-control-${current.key}`;
     const sourceProviderLegId = `source-provider-leg-${current.key}`;
     const targetControlId = `target-control-${current.key}`;
@@ -164,6 +167,18 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
           answeredAt: occurredAt,
           bridgedAt: occurredAt,
           callId,
+          id: customerLegId,
+          kind: "CUSTOMER",
+          providerCallControlId: customerControlId,
+          providerCallLegId: customerProviderLegId,
+          providerCallSessionId: providerSessionId,
+          startedAt: occurredAt,
+          status: "BRIDGED",
+        },
+        {
+          answeredAt: occurredAt,
+          bridgedAt: occurredAt,
+          callId,
           id: sourceLegId,
           kind: "AGENT",
           providerCallControlId: sourceControlId,
@@ -191,7 +206,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
         arguments: {
           agentSessionId: `agent-session-${current.key}`,
           endpointId: targetEndpointId,
-          providerSourceLegId: sourceLegId,
+          providerSourceLegId: customerLegId,
           sourceLegId,
         },
         attemptCount: 1,
@@ -218,10 +233,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
     });
     const sourceState = encode({
       callId,
-      canonicalCommand: true,
-      commandId: transferCommandId,
       internalAgentLeg: true,
-      internalTransferSource: true,
       legId: sourceLegId,
     });
     const transferEvent = (
@@ -241,6 +253,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
 
     return {
       callId,
+      customerLegId,
       providerSessionId,
       sourceControlId,
       sourceLegId,
@@ -438,6 +451,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
     try {
       const {
         callId,
+        customerLegId,
         sourceControlId,
         sourceLegId,
         sourceProviderLegId,
@@ -500,6 +514,12 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
         expect.arrayContaining([
           expect.objectContaining({ id: sourceLegId, status: "ENDED" }),
           expect.objectContaining({ id: targetLegId, status: "ENDED" }),
+          expect.objectContaining({
+            endedAt: occurredAt,
+            errorCode: "CALL_TERMINAL",
+            id: customerLegId,
+            status: "ENDED",
+          }),
         ]),
       );
       expect(settled.commands).toEqual(
@@ -509,11 +529,12 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
             id: transferCommandId,
             status: "FAILED",
           }),
+          expect.objectContaining({
+            legId: customerLegId,
+            type: "HANGUP_LEG",
+          }),
         ]),
       );
-      expect(
-        settled.legs.some(({ status }) => ["ANSWERED", "BRIDGED"].includes(status)),
-      ).toBe(false);
     } finally {
       await current.cleanup();
     }
@@ -528,6 +549,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
     try {
       const {
         callId,
+        customerLegId,
         sourceLegId,
         targetControlId,
         targetLegId,
@@ -584,6 +606,11 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
             id: targetLegId,
             status: "ANSWERED",
           }),
+          expect.objectContaining({
+            endedAt: null,
+            id: customerLegId,
+            status: "BRIDGED",
+          }),
         ]),
       );
       expect(pending.commands).toEqual(
@@ -612,6 +639,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
     try {
       const {
         callId,
+        customerLegId,
         sourceControlId,
         sourceLegId,
         sourceProviderLegId,
@@ -714,6 +742,11 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
             bridgedAt: peerBridgedAt,
             endedAt: null,
             id: targetLegId,
+            status: "BRIDGED",
+          }),
+          expect.objectContaining({
+            endedAt: null,
+            id: customerLegId,
             status: "BRIDGED",
           }),
         ]),

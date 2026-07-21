@@ -110,6 +110,10 @@ const knownMessages: Record<string, Omit<Failure, "status">> = {
     code: "ACCESS_DENIED",
     retryable: false,
   },
+  "Outbound call was rejected by phone service": {
+    code: "OUTBOUND_CALL_FAILED",
+    retryable: false,
+  },
   "Phone active in another tab": {
     code: "CALL_CENTER_SESSION_IN_USE",
     retryable: false,
