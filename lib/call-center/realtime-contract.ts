@@ -67,7 +67,7 @@ export type CallCenterSnapshot = {
 export function selectLiveCallOwnership(call: CallView): {
   endpointLabel: string | null;
   state: "ANSWERED" | "ANSWERING" | "RINGING";
-} {
+} | null {
   if (call.status === "CONNECTED") {
     const connectedAgentLegs = call.legs.filter(
       (leg) =>
@@ -77,10 +77,8 @@ export function selectLiveCallOwnership(call: CallView): {
     );
     const winner = call.winningLegId
       ? connectedAgentLegs.find((leg) => leg.id === call.winningLegId)
-      : call.direction === "OUTBOUND" && connectedAgentLegs.length === 1
-        ? connectedAgentLegs[0]
-        : null;
-    return { endpointLabel: winner?.endpointLabel ?? null, state: "ANSWERED" };
+      : null;
+    return winner ? { endpointLabel: winner.endpointLabel, state: "ANSWERED" } : null;
   }
 
   const answeringLegs = call.legs.filter(
@@ -95,12 +93,8 @@ export function selectLiveCallOwnership(call: CallView): {
 export function selectLiveQueueCalls(state: CallCenterSnapshot) {
   return state.calls.filter((call) => {
     if (call.direction === "INBOUND") {
-      return (
-        call.status === "RECEIVED" ||
-        call.status === "QUEUED" ||
-        call.status === "RINGING" ||
-        call.status === "CONNECTED"
-      );
+      if (["RECEIVED", "QUEUED", "RINGING"].includes(call.status)) return true;
+      return call.status === "CONNECTED" && selectLiveCallOwnership(call) !== null;
     }
 
     const ownership = selectLiveCallOwnership(call);
@@ -108,8 +102,8 @@ export function selectLiveQueueCalls(state: CallCenterSnapshot) {
       state.selectedQueueCallIds.includes(call.id) &&
       call.queueId === state.queueId &&
       call.status === "CONNECTED" &&
-      ownership.state === "ANSWERED" &&
-      Boolean(ownership.endpointLabel)
+      ownership?.state === "ANSWERED" &&
+      Boolean(ownership?.endpointLabel)
     );
   });
 }

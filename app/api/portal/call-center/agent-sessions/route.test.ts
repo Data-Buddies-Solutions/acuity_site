@@ -177,6 +177,7 @@ describe("canonical agent-session route", () => {
         session: {
           ...session,
           ...update.input,
+          presence: "AVAILABLE" as const,
           readyAt: now,
           stateVersion: update.input.expectedStateVersion + 1,
         },
@@ -189,11 +190,11 @@ describe("canonical agent-session route", () => {
     const response = await PATCH(
       request("PATCH", {
         audioReady: true,
+        availabilityIntent: "AVAILABLE",
         clientInstanceId: "browser-1",
         connectionState: "READY",
         expectedStateVersion: 0,
         microphoneReady: true,
-        presence: "AVAILABLE",
       }),
       routeContext,
     );

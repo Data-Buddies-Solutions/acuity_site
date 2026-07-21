@@ -6,7 +6,6 @@ import { callCenter, type AgentUpdate } from "@/lib/call-center/call-center";
 import {
   AGENT_SESSION_CONNECTION_STATES,
   AGENT_SESSION_LEASE_MS,
-  AGENT_SESSION_PRESENCES,
   type AgentSessionActor,
   type AgentSessionEndpoint,
   type AgentSessionRecord,
@@ -21,12 +20,10 @@ const identitySchema = z.object({
 });
 const readinessSchema = identitySchema.extend({
   audioReady: z.boolean(),
-  availabilityChange: z.boolean().optional(),
   availabilityIntent: z.enum(AGENT_AVAILABILITY_INTENTS).optional(),
   connectionState: z.enum(AGENT_SESSION_CONNECTION_STATES),
   expectedStateVersion: z.number().int().nonnegative(),
   microphoneReady: z.boolean(),
-  presence: z.enum(AGENT_SESSION_PRESENCES),
 });
 const releaseSchema = identitySchema.extend({
   expectedStateVersion: z.number().int().nonnegative(),
