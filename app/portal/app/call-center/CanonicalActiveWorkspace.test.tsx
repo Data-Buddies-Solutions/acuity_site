@@ -3,9 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
-import { SoftphoneContext, type SoftphoneRuntimeValue } from "../SoftphoneRuntime";
 import {
-  AvailabilityControl,
   CanonicalActiveWorkspace,
   CanonicalActiveCall,
   CanonicalOfferAnswerButton,
@@ -16,6 +14,14 @@ import { canonicalStartupConnectionState } from "./use-canonical-agent-session";
 import type { useSoftphoneMedia } from "./use-softphone";
 
 const originalFetch = globalThis.fetch;
+type SoftphoneRuntimeValue = ReturnType<
+  (typeof import("../SoftphoneRuntime"))["useSoftphoneRuntime"]
+>;
+let currentRuntime: SoftphoneRuntimeValue;
+
+mock.module("../SoftphoneRuntime", () => ({
+  useSoftphoneRuntime: () => currentRuntime,
+}));
 
 afterEach(() => {
   cleanup();
@@ -106,6 +112,7 @@ function renderWorkspace(
     phoneNumber: string;
   }> = [],
 ) {
+  currentRuntime = runtime;
   globalThis.fetch = mock(async (input) =>
     String(input).includes("/snapshot?")
       ? Response.json({
@@ -118,15 +125,13 @@ function renderWorkspace(
   ) as unknown as typeof fetch;
 
   return render(
-    <SoftphoneContext.Provider value={runtime}>
-      <CanonicalActiveWorkspace
-        agentProfileLabel="Call Center 1"
-        followUpHref="/follow-up"
-        historyHref="/history"
-        outboundNumbers={outboundNumbers}
-        queueId="queue-1"
-      />
-    </SoftphoneContext.Provider>,
+    <CanonicalActiveWorkspace
+      agentProfileLabel="Call Center 1"
+      followUpHref="/follow-up"
+      historyHref="/history"
+      outboundNumbers={outboundNumbers}
+      queueId="queue-1"
+    />,
   );
 }
 
@@ -190,16 +195,15 @@ describe("call readiness", () => {
     const busy = workspaceRuntime({
       session: readySession({ presence: "BUSY" }),
     });
+    currentRuntime = busy;
     view.rerender(
-      <SoftphoneContext.Provider value={busy}>
-        <CanonicalActiveWorkspace
-          agentProfileLabel="Call Center 1"
-          followUpHref="/follow-up"
-          historyHref="/history"
-          outboundNumbers={[]}
-          queueId="queue-1"
-        />
-      </SoftphoneContext.Provider>,
+      <CanonicalActiveWorkspace
+        agentProfileLabel="Call Center 1"
+        followUpHref="/follow-up"
+        historyHref="/history"
+        outboundNumbers={[]}
+        queueId="queue-1"
+      />,
     );
     expect(screen.getByText("On a call")).toBeTruthy();
     expect(
@@ -210,99 +214,31 @@ describe("call readiness", () => {
     ).toBe(true);
   });
 
-  it("renders labeled Available and Unavailable choices as one canonical action", async () => {
-    const change = mock(async (_presence: "AVAILABLE" | "PAUSED") => {});
-    render(
-      <AvailabilityControl
-        error={null}
-        occupied={false}
-        onChange={change}
-        onRetry={() => {}}
-        pending={false}
-        presence="PAUSED"
-        recoveryMessage={null}
-      />,
+  it("exposes pending and retry states through the workspace", async () => {
+    const retry = mock(async () => {});
+    const view = renderWorkspace(
+      workspaceRuntime({ availabilityPending: true, retryAvailability: retry }),
     );
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    expect(screen.getByText("Updating availability…")).toBeTruthy();
 
-    const control = screen.getByRole("group", { name: "Availability" });
-    expect(control).toBeTruthy();
-    expect(screen.getByText("Availability")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Unavailable" }).getAttribute("aria-pressed"),
-    ).toBe("true");
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Available" }));
+    currentRuntime = workspaceRuntime({
+      availabilityError: "The call center is temporarily unavailable.",
+      availabilityRetryable: true,
+      retryAvailability: retry,
     });
-    expect(change).toHaveBeenCalledTimes(1);
-    expect(change).toHaveBeenCalledWith("AVAILABLE");
-  });
-
-  it("disables availability during occupancy and exposes pending and retry states", () => {
-    const retry = mock(() => {});
-    const view = render(
-      <AvailabilityControl
-        error={null}
-        occupied
-        onChange={async () => {}}
-        onRetry={retry}
-        pending={false}
-        presence="BUSY"
-        recoveryMessage={null}
-      />,
-    );
-
-    expect(screen.getByRole("status").textContent).toBe("On a call");
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Available" }).disabled,
-    ).toBe(true);
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Unavailable" }).disabled,
-    ).toBe(true);
-
     view.rerender(
-      <AvailabilityControl
-        error="The call center is temporarily unavailable."
-        occupied
-        onChange={async () => {}}
-        onRetry={retry}
-        pending={false}
-        presence="BUSY"
-        recoveryMessage={null}
-      />,
-    );
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Retry" }).disabled,
-    ).toBe(true);
-
-    view.rerender(
-      <AvailabilityControl
-        error={null}
-        occupied={false}
-        onChange={async () => {}}
-        onRetry={retry}
-        pending
-        presence="PAUSED"
-        recoveryMessage={null}
-      />,
-    );
-    expect(screen.getByRole("status").textContent).toBe("Updating availability…");
-
-    view.rerender(
-      <AvailabilityControl
-        error="The call center is temporarily unavailable."
-        occupied={false}
-        onChange={async () => {}}
-        onRetry={retry}
-        pending={false}
-        presence="AVAILABLE"
-        recoveryMessage="Allow microphone access, then select Available again."
+      <CanonicalActiveWorkspace
+        agentProfileLabel="Call Center 1"
+        followUpHref="/follow-up"
+        historyHref="/history"
+        outboundNumbers={[]}
+        queueId="queue-1"
       />,
     );
     expect(screen.getByRole("alert").textContent).toContain(
       "The call center is temporarily unavailable.",
     );
-    expect(screen.getByRole("status").textContent).toContain("Allow microphone access");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalledTimes(1);
   });

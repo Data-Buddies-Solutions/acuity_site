@@ -122,7 +122,6 @@ describe("useCanonicalAgentSession", () => {
       connectionState: "READY",
       expectedStateVersion: 0,
       microphoneReady: true,
-      presence: "AVAILABLE",
     });
   });
 
@@ -170,10 +169,8 @@ describe("useCanonicalAgentSession", () => {
       updatesBeforeChoice + 1,
     );
     expect(requests.at(-1)?.body).toMatchObject({
-      availabilityChange: true,
       availabilityIntent: "PAUSED",
       expectedStateVersion: 1,
-      presence: "PAUSED",
     });
   });
 
@@ -256,7 +253,7 @@ describe("useCanonicalAgentSession", () => {
         session:
           patchCount === 1
             ? agentSession(1)
-            : { ...agentSession(6), presence: body.presence },
+            : { ...agentSession(6), presence: body.availabilityIntent },
       });
     }) as unknown as typeof fetch;
 
@@ -284,7 +281,6 @@ describe("useCanonicalAgentSession", () => {
     expect(requests.at(-1)?.body).toMatchObject({
       availabilityIntent: "PAUSED",
       expectedStateVersion: 5,
-      presence: "PAUSED",
     });
     await act(() => result.current.retryAvailability());
     expect(result.current.session).toMatchObject({
@@ -325,7 +321,6 @@ describe("useCanonicalAgentSession", () => {
     expect(requests[0]).toMatchObject({
       availabilityIntent: "AVAILABLE",
       expectedStateVersion: 4,
-      presence: "AVAILABLE",
     });
   });
 
@@ -353,8 +348,8 @@ describe("useCanonicalAgentSession", () => {
       expect(requests.some(({ method }) => method === "PATCH")).toBe(true),
     );
     expect(requests.at(-1)?.body).toMatchObject({
+      availabilityIntent: "PAUSED",
       connectionState: "CONNECTING",
-      presence: "PAUSED",
     });
   });
 
@@ -435,12 +430,10 @@ describe("useCanonicalAgentSession", () => {
       method: "PATCH",
       body: {
         audioReady: false,
-        availabilityIntent: "AVAILABLE",
         clientInstanceId: "browser-1",
         connectionState: "READY",
         expectedStateVersion: 1,
         microphoneReady: true,
-        presence: "AVAILABLE",
       },
     });
   });
@@ -634,7 +627,7 @@ describe("useCanonicalAgentSession", () => {
     expect(result.current.session?.presence).toBe("AVAILABLE");
     expect(requests.at(-1)).toMatchObject({
       method: "PATCH",
-      body: { expectedStateVersion: 4, presence: "AVAILABLE" },
+      body: { availabilityIntent: "AVAILABLE", expectedStateVersion: 4 },
     });
   });
 
@@ -688,7 +681,7 @@ describe("useCanonicalAgentSession", () => {
     expect(result.current.session?.presence).toBe("AVAILABLE");
     expect(requests.at(-1)).toMatchObject({
       method: "PATCH",
-      body: { presence: "AVAILABLE" },
+      body: { availabilityIntent: "AVAILABLE" },
     });
   });
 
@@ -1224,9 +1217,9 @@ describe("useCanonicalAgentSession", () => {
     ]);
     expect(requests[2]?.body).toEqual({ clientInstanceId: "browser-1" });
     expect(requests[3]?.body).toMatchObject({
+      availabilityIntent: "AVAILABLE",
       clientInstanceId: "browser-1",
       expectedStateVersion: 2,
-      presence: "AVAILABLE",
     });
     expect(result.current.session?.stateVersion).toBe(3);
   });

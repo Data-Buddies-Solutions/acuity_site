@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import type { MediaObservation } from "./call-center/softphone-media-adapter";
 import {
-  canonicalAvailabilityIntent,
   phoneOwnerMessageError,
   releaseProvisionalSuppressedRingtoneOffers,
   scheduleOutboundOperationExpiry,
@@ -31,10 +30,6 @@ function observation(
 }
 
 describe("Softphone Runtime", () => {
-  it("adopts a newer canonical pause for the same session", () => {
-    expect(canonicalAvailabilityIntent({ presence: "PAUSED" })).toBe("PAUSED");
-  });
-
   it("expires an outbound operation when no media observation arrives", async () => {
     let expired = false;
     scheduleOutboundOperationExpiry(() => {
