@@ -6,7 +6,7 @@ import { selectLiveCallOwnership } from "@/lib/call-center/realtime-contract";
 import {
   CALL_CENTER_READ_TRANSACTION_OPTIONS,
   activeCallWhere,
-  queueCallWhere,
+  queueCallScope,
   readCallCenterSnapshot,
   serializeCall,
 } from "../realtime-queries";
@@ -18,7 +18,6 @@ function outboundSnapshotCall(id: string, locationId: string) {
     answerReservation: null,
     answeredAt: now,
     callerName: "Hidden Patient",
-    commands: [],
     direction: "OUTBOUND" as const,
     endedAt: null,
     fromPhone: "+19546097250",
@@ -53,7 +52,8 @@ function outboundSnapshotCall(id: string, locationId: string) {
     stateVersion: 3,
     status: "CONNECTED" as const,
     toPhone: "+19542872010",
-    winningLegId: null,
+    winningLeg: { commands: [] },
+    winningLegId: `${id}-leg`,
   };
 }
 
@@ -94,7 +94,7 @@ describe("call center snapshot", () => {
 
   it("scopes queue calls through the configured number location", () => {
     expect(
-      queueCallWhere(
+      queueCallScope(
         {
           allowedLocationIds: ["location-1"],
           hasAllLocationAccess: false,
@@ -103,7 +103,7 @@ describe("call center snapshot", () => {
         },
         "queue-1",
         ["location-1", "location-2"],
-      ),
+      ).where,
     ).toEqual({
       number: {
         practiceId: "practice-1",
@@ -119,7 +119,7 @@ describe("call center snapshot", () => {
 
   it("scopes a practice-wide queue to the actor's selected locations", () => {
     expect(
-      queueCallWhere(
+      queueCallScope(
         {
           allowedLocationIds: ["location-1"],
           hasAllLocationAccess: false,
@@ -128,7 +128,7 @@ describe("call center snapshot", () => {
         },
         "queue-1",
         [],
-      ),
+      ).where,
     ).toMatchObject({
       number: {
         practiceId: "practice-1",
@@ -212,20 +212,6 @@ describe("call center snapshot", () => {
     expect(operations).toEqual(["queue-access", "active-calls"]);
     expect(activeCallQuery).toMatchObject({
       select: {
-        commands: {
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          select: { status: true, type: true },
-          take: 1,
-          where: {
-            OR: [
-              { status: "CONFIRMED", type: "START_HOLD_MUSIC" },
-              {
-                status: { in: ["SENT", "CONFIRMED"] },
-                type: "STOP_HOLD_MUSIC",
-              },
-            ],
-          },
-        },
         legs: {
           select: {
             commands: {
@@ -248,6 +234,24 @@ describe("call center snapshot", () => {
             },
           },
         },
+        winningLeg: {
+          select: {
+            commands: {
+              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+              select: { status: true, type: true },
+              take: 1,
+              where: {
+                OR: [
+                  { status: "CONFIRMED", type: "START_HOLD_MUSIC" },
+                  {
+                    status: { in: ["SENT", "CONFIRMED"] },
+                    type: "STOP_HOLD_MUSIC",
+                  },
+                ],
+              },
+            },
+          },
+        },
       },
       take: 100,
     });
@@ -263,7 +267,9 @@ describe("call center snapshot", () => {
   it("separates the authorized outbound queue row from a personal call at another location", async () => {
     const authorized = {
       ...outboundSnapshotCall("call-outbound-authorized", "location-1"),
-      commands: [{ status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const }],
+      winningLeg: {
+        commands: [{ status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const }],
+      },
     };
     const personal = outboundSnapshotCall("call-outbound-personal", "location-2");
     const database = {
@@ -314,7 +320,7 @@ describe("call center snapshot", () => {
         queueId: "queue-1",
         status: "CONNECTED",
         toPhone: "+19542872010",
-        winningLegId: null,
+        winningLegId: "call-outbound-authorized-leg",
       }),
     );
     expect(state.selectedQueueCallIds).toEqual(["call-outbound-authorized"]);
@@ -343,7 +349,7 @@ describe("call center snapshot", () => {
             findMany: async () =>
               histories.map((commands, index) => ({
                 ...outboundSnapshotCall(`call-${index}`, "location-1"),
-                commands,
+                winningLeg: { commands },
               })),
           },
           callCenterQueue: {
@@ -559,6 +565,25 @@ describe("call center snapshot", () => {
     ]);
   });
 
+  it("does not carry a former owner's hold state onto the new winning leg", () => {
+    const transferred = outboundSnapshotCall("call-transferred", "location-1");
+    transferred.legs.push({
+      ...transferred.legs[0]!,
+      agentSessionId: "session-2",
+      endpoint: { label: "Front Desk 2", practiceId: "practice-1" },
+      endpointId: "endpoint-2",
+      id: "target-leg",
+    });
+    transferred.winningLegId = "target-leg";
+    transferred.winningLeg = { commands: [] };
+    const callWithFormerHold = {
+      ...transferred,
+      commands: [{ status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const }],
+    };
+
+    expect(serializeCall(callWithFormerHold, now).onHold).toBe(false);
+  });
+
   it("serializes durable calls without Date values", () => {
     const call = serializeCall(
       {
@@ -570,7 +595,6 @@ describe("call center snapshot", () => {
         },
         answeredAt: null,
         callerName: null,
-        commands: [],
         direction: "INBOUND",
         endedAt: null,
         fromPhone: "+17865550100",
@@ -599,6 +623,7 @@ describe("call center snapshot", () => {
         stateVersion: 12,
         status: "RINGING",
         toPhone: "+17865550101",
+        winningLeg: null,
         winningLegId: null,
       },
       now,
@@ -620,7 +645,6 @@ describe("call center snapshot", () => {
         answerReservation: null,
         answeredAt: now,
         callerName: "Hidden Patient",
-        commands: [],
         direction: "INBOUND",
         endedAt: null,
         fromPhone: "+17865550100",
@@ -667,6 +691,7 @@ describe("call center snapshot", () => {
         stateVersion: 12,
         status: "CONNECTED",
         toPhone: "+17865550101",
+        winningLeg: { commands: [] },
         winningLegId: "leg-1",
       },
       now,
@@ -694,7 +719,6 @@ describe("call center snapshot", () => {
         answerReservation: null,
         answeredAt: null,
         callerName: null,
-        commands: [],
         direction: "INBOUND",
         endedAt: null,
         fromPhone: "+17865550100",
@@ -738,6 +762,7 @@ describe("call center snapshot", () => {
         stateVersion: 12,
         status: "RINGING",
         toPhone: "+17865550101",
+        winningLeg: null,
         winningLegId: null,
       },
       now,
@@ -765,7 +790,6 @@ describe("call center snapshot", () => {
         },
         answeredAt: null,
         callerName: null,
-        commands: [],
         direction: "INBOUND",
         endedAt: null,
         fromPhone: "+17865550100",
@@ -781,6 +805,7 @@ describe("call center snapshot", () => {
         stateVersion: 12,
         status: "RINGING",
         toPhone: "+17865550101",
+        winningLeg: null,
         winningLegId: null,
       },
       now,

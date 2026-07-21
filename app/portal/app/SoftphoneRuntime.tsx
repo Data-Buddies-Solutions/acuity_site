@@ -183,11 +183,7 @@ export function updateOutboundOperationFromMedia(
   return current;
 }
 
-export function canonicalAvailabilityIntent(session: Pick<AgentSessionView, "presence">) {
-  return resolveAgentAvailabilityIntent(session.presence);
-}
-
-export type SoftphoneRuntimeValue = {
+type SoftphoneRuntimeValue = {
   availabilityError: string | null;
   availabilityIntent: AgentAvailabilityIntent;
   availabilityPending: boolean;
@@ -209,7 +205,7 @@ export type SoftphoneRuntimeValue = {
   takeover(): Promise<void>;
 };
 
-export const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
+const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
 
 export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
@@ -330,8 +326,15 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!session) return;
-    const next = canonicalAvailabilityIntent(session);
-    // Every canonical projection can supersede an older local availability choice.
+    const next = resolveAgentAvailabilityIntent(session.presence);
+    const readinessConstrained =
+      availabilityChoiceRef.current === "AVAILABLE" &&
+      next === "PAUSED" &&
+      (session.connectionState !== "READY" ||
+        !session.microphoneReady ||
+        !session.audioReady);
+    if (readinessConstrained) return;
+    availabilityChoiceRef.current = next;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAvailabilityIntent((current) => (current === next ? current : next));
   }, [session]);
