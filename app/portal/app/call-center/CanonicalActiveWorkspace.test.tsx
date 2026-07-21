@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import {
   act,
   cleanup,
@@ -20,16 +20,17 @@ import {
 import { CallConnectionStatus } from "./CallConnectionStatus";
 import { canonicalStartupConnectionState } from "./use-canonical-agent-session";
 import type { useSoftphoneMedia } from "./use-softphone";
+import * as softphoneRuntime from "../SoftphoneRuntime";
 
 const originalFetch = globalThis.fetch;
-type SoftphoneRuntimeValue = ReturnType<
-  (typeof import("../SoftphoneRuntime"))["useSoftphoneRuntime"]
->;
+type SoftphoneRuntimeValue = ReturnType<typeof softphoneRuntime.useSoftphoneRuntime>;
 let currentRuntime: SoftphoneRuntimeValue;
 
-mock.module("../SoftphoneRuntime", () => ({
-  useSoftphoneRuntime: () => currentRuntime,
-}));
+const runtimeSpy = spyOn(softphoneRuntime, "useSoftphoneRuntime").mockImplementation(
+  () => currentRuntime,
+);
+
+afterAll(() => runtimeSpy.mockRestore());
 
 afterEach(() => {
   cleanup();
