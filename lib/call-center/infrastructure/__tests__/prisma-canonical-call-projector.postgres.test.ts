@@ -342,12 +342,23 @@ describePostgres("canonical call projector on PostgreSQL", () => {
     }
   });
 
-  it("correlates one outbound leg from answer through terminal hangup", async () => {
+  it("releases the customer dial only after the outbound agent answers", async () => {
     const fixture = await createFixture(prisma);
     const { callId, legId } = await fixture.createOutboundCall("lifecycle");
     const commandId = fixture.id("dial-command");
+    const customerLegId = fixture.id("customer-leg");
+    const customerCommandId = fixture.id("customer-command");
 
     try {
+      await prisma.callCenterCallLeg.create({
+        data: {
+          callId,
+          id: customerLegId,
+          kind: "CUSTOMER",
+          startedAt: occurredAt,
+          status: "CREATED",
+        },
+      });
       await prisma.callCenterCommand.create({
         data: {
           attemptCount: 1,
@@ -358,6 +369,17 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           practiceId: fixture.practiceId,
           status: "SENT",
           type: "DIAL_AGENT",
+        },
+      });
+      await prisma.callCenterCommand.create({
+        data: {
+          callId,
+          dependsOnCommandId: commandId,
+          id: customerCommandId,
+          idempotencyKey: fixture.id("customer-command-key"),
+          legId: customerLegId,
+          practiceId: fixture.practiceId,
+          type: "DIAL_CUSTOMER",
         },
       });
       const answered = await fixture.processingEvent("call.answered", "outbound-answer");
@@ -376,7 +398,8 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           projectedAt,
         ),
       ).resolves.toMatchObject({
-        callStatus: "CONNECTED",
+        callStatus: "RINGING",
+        commandIds: [customerCommandId],
         legStatus: "ANSWERED",
       });
       expect(
@@ -402,7 +425,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           new Date("2026-07-20T10:00:02.000Z"),
         ),
       ).resolves.toMatchObject({
-        callStatus: "COMPLETED",
+        callStatus: "ABANDONED",
         legStatus: "ENDED",
       });
       expect(
@@ -411,8 +434,11 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           where: { id: callId },
         }),
       ).toMatchObject({
-        status: "COMPLETED",
-        legs: [{ id: legId, status: "ENDED" }],
+        status: "ABANDONED",
+        legs: expect.arrayContaining([
+          expect.objectContaining({ id: legId, status: "ENDED" }),
+          expect.objectContaining({ id: customerLegId, status: "ENDED" }),
+        ]),
       });
     } finally {
       await fixture.cleanup();
