@@ -4,14 +4,18 @@ import type { MediaObservation } from "./call-center/softphone-media-adapter";
 import {
   phoneOwnerMessageError,
   selectSoftphoneRuntimeCalls,
+  updateOutboundOperationFromMedia,
   updateSuppressedRingtoneOffers,
 } from "./SoftphoneRuntime";
 
 function observation(
   mediaLegId: string,
   state: MediaObservation["state"],
+  canonicalIdentity?: { callId: string; legId: string },
 ): MediaObservation {
   return {
+    canonicalCallId: canonicalIdentity?.callId ?? null,
+    canonicalLegId: canonicalIdentity?.legId ?? null,
     connectionId: "connection-1",
     direction: "INBOUND",
     mediaLegId,
@@ -65,6 +69,83 @@ describe("Softphone Runtime", () => {
     );
 
     expect(result.ringtoneOfferId).toBeNull();
+  });
+
+  it("clears outbound suppression when the media leg fails before answer", () => {
+    const canonicalIdentity = {
+      callId: "canonical-outbound-call",
+      legId: "canonical-outbound-leg",
+    };
+    const ringing = updateOutboundOperationFromMedia(
+      {
+        active: true,
+        canonicalCallId: canonicalIdentity.callId,
+        canonicalLegId: canonicalIdentity.legId,
+        mediaLegId: null,
+      },
+      observation("outbound-agent-leg", "RINGING", canonicalIdentity),
+    );
+    const failed = updateOutboundOperationFromMedia(
+      ringing,
+      observation("outbound-agent-leg", "FAILED", canonicalIdentity),
+    );
+
+    expect(ringing).toEqual({
+      active: true,
+      canonicalCallId: canonicalIdentity.callId,
+      canonicalLegId: canonicalIdentity.legId,
+      mediaLegId: "outbound-agent-leg",
+    });
+    expect(failed).toEqual({
+      active: false,
+      canonicalCallId: null,
+      canonicalLegId: null,
+      mediaLegId: null,
+    });
+  });
+
+  it("does not treat a concurrent inbound offer as the outbound media leg", () => {
+    expect(
+      updateOutboundOperationFromMedia(
+        {
+          active: true,
+          canonicalCallId: "canonical-outbound-call",
+          canonicalLegId: "canonical-outbound-leg",
+          mediaLegId: null,
+        },
+        observation("concurrent-inbound-offer", "RINGING", {
+          callId: "canonical-inbound-call",
+          legId: "canonical-inbound-leg",
+        }),
+      ),
+    ).toEqual({
+      active: true,
+      canonicalCallId: "canonical-outbound-call",
+      canonicalLegId: "canonical-outbound-leg",
+      mediaLegId: null,
+    });
+  });
+
+  it("clears outbound suppression from an exact terminal observation", () => {
+    expect(
+      updateOutboundOperationFromMedia(
+        {
+          active: true,
+          canonicalCallId: "canonical-outbound-call",
+          canonicalLegId: "canonical-outbound-leg",
+          mediaLegId: null,
+        },
+        observation("outbound-agent-leg", "FAILED", {
+          callId: "canonical-outbound-call",
+          legId: "canonical-outbound-leg",
+        }),
+      ),
+    ).toEqual({
+      active: false,
+      canonicalCallId: null,
+      canonicalLegId: null,
+      mediaLegId: null,
+    });
   });
 
   it("does not revive a stale inbound offer after the outbound call ends", () => {

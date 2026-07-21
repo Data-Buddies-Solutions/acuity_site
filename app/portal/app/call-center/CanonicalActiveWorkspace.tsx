@@ -460,13 +460,15 @@ function ConnectedCanonicalActiveWorkspace({
         });
         return callCenterResponse<{
           callId?: unknown;
+          legId?: unknown;
         }>(response);
       };
       const body = await requestOutbound();
-      if (typeof body?.callId !== "string") {
+      if (typeof body?.callId !== "string" || typeof body.legId !== "string") {
         throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
       canonicalOutboundCallIdRef.current = body.callId;
+      setOutboundOperationActive(true, { callId: body.callId, legId: body.legId });
       setCallCenterCurrentCallGuard(body.callId);
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");

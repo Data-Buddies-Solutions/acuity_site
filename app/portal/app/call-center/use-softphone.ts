@@ -454,6 +454,7 @@ function useSoftphoneMediaEngine({
           const call = notification.call;
           calls.set(call.id, call);
           const observation = normalizeMediaObservation({
+            clientState: call.options?.clientState,
             connectionId: adapterConnectionId,
             direction: call.direction,
             mediaLegId: call.id,

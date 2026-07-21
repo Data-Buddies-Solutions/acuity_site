@@ -118,6 +118,50 @@ export function updateSuppressedRingtoneOffers(
   return [...current, observation.mediaLegId];
 }
 
+type OutboundMediaOperation = {
+  active: boolean;
+  canonicalCallId: string | null;
+  canonicalLegId: string | null;
+  mediaLegId: string | null;
+};
+
+export function updateOutboundOperationFromMedia(
+  current: OutboundMediaOperation,
+  observation: MediaObservation,
+): OutboundMediaOperation {
+  if (!current.active) {
+    return {
+      active: false,
+      canonicalCallId: null,
+      canonicalLegId: null,
+      mediaLegId: null,
+    };
+  }
+
+  const matchesCanonicalLeg =
+    current.canonicalCallId &&
+    current.canonicalLegId &&
+    observation.canonicalCallId === current.canonicalCallId &&
+    observation.canonicalLegId === current.canonicalLegId;
+  if (!matchesCanonicalLeg) return current;
+
+  const terminal = ["ENDED", "FAILED"].includes(observation.state);
+  if (terminal) {
+    return {
+      active: false,
+      canonicalCallId: null,
+      canonicalLegId: null,
+      mediaLegId: null,
+    };
+  }
+
+  if (["ACTIVE", "CONNECTING", "HELD", "RINGING"].includes(observation.state)) {
+    return { ...current, mediaLegId: observation.mediaLegId };
+  }
+
+  return current;
+}
+
 type SoftphoneRuntimeValue = {
   clientInstanceId: string | null;
   error: string | null;
@@ -126,7 +170,10 @@ type SoftphoneRuntimeValue = {
   session: AgentSessionView | null;
   answer(mediaLegId: string): Promise<void>;
   answeringMediaLegId: string | null;
-  setOutboundOperationActive(active: boolean): void;
+  setOutboundOperationActive(
+    active: boolean,
+    identity?: { callId: string; legId: string },
+  ): void;
   takeover(): Promise<void>;
 };
 
@@ -146,8 +193,11 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const answeringRef = useRef<string | null>(null);
   const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
+  const outboundCanonicalCallIdRef = useRef<string | null>(null);
+  const outboundCanonicalLegIdRef = useRef<string | null>(null);
   const outboundMediaLegIdRef = useRef<string | null>(null);
   const outboundOperationRef = useRef(false);
+  const suppressedOfferIdsRef = useRef<readonly string[]>([]);
   const clientInstanceId = client?.clientInstanceId ?? null;
 
   useEffect(() => {
@@ -187,20 +237,31 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const startSession = agentSession.start;
   const stopSession = agentSession.stop;
   const observeMedia = useCallback((observation: MediaObservation) => {
-    setSuppressedOfferIds((current) =>
-      updateSuppressedRingtoneOffers(current, observation, outboundOperationRef.current),
+    const currentOutboundOperation = {
+      active: outboundOperationRef.current,
+      canonicalCallId: outboundCanonicalCallIdRef.current,
+      canonicalLegId: outboundCanonicalLegIdRef.current,
+      mediaLegId: outboundMediaLegIdRef.current,
+    };
+    const nextOutboundOperation = updateOutboundOperationFromMedia(
+      currentOutboundOperation,
+      observation,
     );
-    if (outboundOperationRef.current && ["ACTIVE", "HELD"].includes(observation.state)) {
-      outboundMediaLegIdRef.current = observation.mediaLegId;
+    outboundCanonicalCallIdRef.current = nextOutboundOperation.canonicalCallId;
+    outboundCanonicalLegIdRef.current = nextOutboundOperation.canonicalLegId;
+    outboundMediaLegIdRef.current = nextOutboundOperation.mediaLegId;
+    if (nextOutboundOperation.active !== currentOutboundOperation.active) {
+      outboundOperationRef.current = nextOutboundOperation.active;
+      setOutboundOperationActive(nextOutboundOperation.active);
     }
-    if (
-      outboundMediaLegIdRef.current === observation.mediaLegId &&
-      ["ENDED", "FAILED"].includes(observation.state)
-    ) {
-      outboundMediaLegIdRef.current = null;
-      outboundOperationRef.current = false;
-      setOutboundOperationActive(false);
-    }
+
+    const nextSuppressedOfferIds = updateSuppressedRingtoneOffers(
+      suppressedOfferIdsRef.current,
+      observation,
+      outboundOperationRef.current,
+    );
+    suppressedOfferIdsRef.current = nextSuppressedOfferIds;
+    setSuppressedOfferIds(nextSuppressedOfferIds);
   }, []);
   const { setRemoteAudioElement, ...media } = useSoftphoneMedia({
     agentSessionId: session?.id ?? null,
@@ -293,19 +354,30 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     },
     [calls.active, media],
   );
-  const setOutboundOperation = useCallback((active: boolean) => {
-    outboundOperationRef.current = active;
-    if (!active) outboundMediaLegIdRef.current = null;
-    if (active) {
-      setSuppressedOfferIds((current) =>
-        mediaObservationsRef.current.reduce(
+  const setOutboundOperation = useCallback(
+    (active: boolean, identity?: { callId: string; legId: string }) => {
+      outboundOperationRef.current = active;
+      if (!active) {
+        outboundCanonicalCallIdRef.current = null;
+        outboundCanonicalLegIdRef.current = null;
+        outboundMediaLegIdRef.current = null;
+      } else if (identity) {
+        outboundCanonicalCallIdRef.current = identity.callId;
+        outboundCanonicalLegIdRef.current = identity.legId;
+        outboundMediaLegIdRef.current = null;
+      }
+      if (active) {
+        const nextSuppressedOfferIds = mediaObservationsRef.current.reduce(
           (next, observation) => updateSuppressedRingtoneOffers(next, observation, true),
-          current,
-        ),
-      );
-    }
-    setOutboundOperationActive(active);
-  }, []);
+          suppressedOfferIdsRef.current,
+        );
+        suppressedOfferIdsRef.current = nextSuppressedOfferIds;
+        setSuppressedOfferIds(nextSuppressedOfferIds);
+      }
+      setOutboundOperationActive(active);
+    },
+    [],
+  );
   const takeover = useCallback(async () => {
     if (!clientInstanceId) return;
     const response = await fetch("/api/portal/call-center/agent-sessions", {

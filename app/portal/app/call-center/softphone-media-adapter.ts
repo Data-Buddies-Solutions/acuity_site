@@ -4,6 +4,8 @@ type MediaLegState =
   "ACTIVE" | "CONNECTING" | "ENDED" | "FAILED" | "HELD" | "RINGING" | "UNKNOWN";
 
 export type MediaObservation = {
+  canonicalCallId?: string | null;
+  canonicalLegId?: string | null;
   connectionId: string;
   direction: "INBOUND" | "OUTBOUND" | "UNKNOWN";
   mediaLegId: string;
@@ -15,6 +17,7 @@ export type MediaObservation = {
 };
 
 type ProviderMediaUpdate = {
+  clientState?: unknown;
   connectionId: string;
   direction?: unknown;
   mediaLegId: string;
@@ -24,6 +27,33 @@ type ProviderMediaUpdate = {
   remoteAudioReady: boolean;
   state?: unknown;
 };
+
+function canonicalMediaIdentity(clientState: unknown) {
+  if (typeof clientState !== "string" || !clientState.trim()) {
+    return { canonicalCallId: null, canonicalLegId: null };
+  }
+  try {
+    const decoded: unknown = JSON.parse(globalThis.atob(clientState));
+    if (
+      !decoded ||
+      typeof decoded !== "object" ||
+      !("canonicalCommand" in decoded) ||
+      decoded.canonicalCommand !== true ||
+      !("callId" in decoded) ||
+      typeof decoded.callId !== "string" ||
+      !("legId" in decoded) ||
+      typeof decoded.legId !== "string"
+    ) {
+      return { canonicalCallId: null, canonicalLegId: null };
+    }
+    return {
+      canonicalCallId: decoded.callId,
+      canonicalLegId: decoded.legId,
+    };
+  } catch {
+    return { canonicalCallId: null, canonicalLegId: null };
+  }
+}
 
 function providerId(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -62,6 +92,7 @@ export function normalizeMediaObservation(update: ProviderMediaUpdate): MediaObs
   }
 
   return {
+    ...canonicalMediaIdentity(update.clientState),
     connectionId,
     direction: mediaDirection(update.direction),
     mediaLegId,

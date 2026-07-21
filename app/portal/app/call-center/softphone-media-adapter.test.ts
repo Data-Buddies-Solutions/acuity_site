@@ -9,6 +9,13 @@ describe("softphone media adapter", () => {
   it("normalizes Telnyx identifiers without caller-phone correlation", () => {
     expect(
       normalizeMediaObservation({
+        clientState: btoa(
+          JSON.stringify({
+            callId: "canonical-call-1",
+            canonicalCommand: true,
+            legId: "canonical-leg-1",
+          }),
+        ),
         connectionId: " browser-connection ",
         direction: "incoming",
         mediaLegId: " sdk-call-id ",
@@ -19,6 +26,8 @@ describe("softphone media adapter", () => {
         state: "active",
       }),
     ).toEqual({
+      canonicalCallId: "canonical-call-1",
+      canonicalLegId: "canonical-leg-1",
       connectionId: "browser-connection",
       direction: "INBOUND",
       mediaLegId: "sdk-call-id",
@@ -28,6 +37,19 @@ describe("softphone media adapter", () => {
       remoteAudioReady: true,
       state: "ACTIVE",
     });
+  });
+
+  it("ignores malformed and non-canonical client state", () => {
+    for (const clientState of ["not-base64", btoa(JSON.stringify({ legId: "leg-1" }))]) {
+      expect(
+        normalizeMediaObservation({
+          clientState,
+          connectionId: "connection-1",
+          mediaLegId: "media-leg-1",
+          remoteAudioReady: false,
+        }),
+      ).toMatchObject({ canonicalCallId: null, canonicalLegId: null });
+    }
   });
 
   it("keeps correlation on connection and media leg IDs as provider IDs arrive", () => {
