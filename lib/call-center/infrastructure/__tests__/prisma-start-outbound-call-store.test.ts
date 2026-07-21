@@ -25,7 +25,11 @@ const outboundInput = {
 };
 
 function outboundTransaction(now: Date) {
-  const commands: Array<{ id: string; type: string }> = [];
+  const commands: Array<{
+    arguments: Record<string, unknown>;
+    id: string;
+    type: string;
+  }> = [];
   const transaction = {
     $executeRaw: async () => [],
     $queryRaw: async () => [],
@@ -62,7 +66,11 @@ function outboundTransaction(now: Date) {
       findFirst: async () => null,
     },
     callCenterCommand: {
-      create: async ({ data }: { data: { id: string; type: string } }) => {
+      create: async ({
+        data,
+      }: {
+        data: { arguments: Record<string, unknown>; id: string; type: string };
+      }) => {
         commands.push(data);
         return data;
       },
@@ -126,6 +134,11 @@ describe("canonical outbound scope", () => {
     );
 
     expect(dispatched).toEqual(["DIAL_AGENT"]);
+    expect(fake.commands[0]?.arguments).toEqual({
+      agentSessionId: "session-1",
+      endpointId: "endpoint-1",
+      timeoutSeconds: 20,
+    });
   });
 
   it("locks the practice before reading or mutating outbound state", async () => {

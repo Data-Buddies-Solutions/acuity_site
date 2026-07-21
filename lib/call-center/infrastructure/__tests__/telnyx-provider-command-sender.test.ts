@@ -10,7 +10,11 @@ import {
 } from "../telnyx-provider-command-sender";
 
 const command: ProviderCommandDispatchData = {
-  arguments: { agentSessionId: "session-1", endpointId: "endpoint-1" },
+  arguments: {
+    agentSessionId: "session-1",
+    endpointId: "endpoint-1",
+    timeoutSeconds: 20,
+  },
   callId: "call-1",
   commandId: "command-1",
   idempotencyKey: "dial:leg-1",
@@ -151,7 +155,11 @@ describe("Telnyx provider command sender", () => {
     });
 
     await sender.send({
-      arguments: { agentSessionId: "session-1", endpointId: "endpoint-1" },
+      arguments: {
+        agentSessionId: "session-1",
+        endpointId: "endpoint-1",
+        timeoutSeconds: 20,
+      },
       callId: "call-1",
       commandId: "dial-agent-1",
       idempotencyKey: "outbound:agent",

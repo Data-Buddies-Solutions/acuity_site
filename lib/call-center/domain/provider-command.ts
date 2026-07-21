@@ -1,4 +1,6 @@
 export const PROVIDER_COMMAND_SENDING_LEASE_MS = 60_000;
+export const INBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS = 45;
+export const OUTBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS = 20;
 
 type ProviderCommandDispatchBase = {
   callId: string;
@@ -64,6 +66,7 @@ type DialAgentDispatchData = ProviderCommandDispatchBase & {
   arguments: {
     agentSessionId: string;
     endpointId: string;
+    timeoutSeconds: number;
   };
   /** Resolved at claim time; these provider values are not command arguments. */
   provider: {

@@ -122,4 +122,15 @@ describe("softphone media adapter", () => {
       }).state,
     ).toBe("ENDED");
   });
+
+  it("keeps an explicit provider failure terminal", () => {
+    expect(
+      normalizeMediaObservation({
+        connectionId: "connection-1",
+        mediaLegId: "media-leg-1",
+        remoteAudioReady: false,
+        state: "failed",
+      }).state,
+    ).toBe("FAILED");
+  });
 });

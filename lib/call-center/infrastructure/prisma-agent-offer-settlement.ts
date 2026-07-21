@@ -1,15 +1,21 @@
 import { Prisma } from "@/generated/prisma/client";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 
-export async function settleCompetingAgentOffers(
+type AgentOfferSettlementInput = {
+  endpointId: string;
+  now: Date;
+  practiceId: string;
+  winningCallId: string;
+};
+
+export type AgentOfferSettlementResources = {
+  offers: readonly { callId: string; id: string }[];
+};
+
+export async function lockAgentOfferSettlementResources(
   transaction: Prisma.TransactionClient,
-  input: {
-    endpointId: string;
-    now: Date;
-    practiceId: string;
-    winningCallId: string;
-  },
-) {
+  input: AgentOfferSettlementInput,
+): Promise<AgentOfferSettlementResources> {
   await transaction.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${input.endpointId} FOR UPDATE`,
   );
@@ -18,22 +24,31 @@ export async function settleCompetingAgentOffers(
     select: { callId: true, id: true },
     where: {
       call: { practiceId: input.practiceId },
-      callId: { not: input.winningCallId },
       endpointId: input.endpointId,
       kind: "AGENT",
       status: { in: ["CREATED", "DIALING", "RINGING"] },
     },
   });
-
-  const callIds = [...new Set(offers.map(({ callId }) => callId))];
+  const callIds = [
+    ...new Set([input.winningCallId, ...offers.map(({ callId }) => callId)]),
+  ].sort();
   for (const callId of callIds) {
     await transaction.$queryRaw(
       Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${callId} FOR UPDATE`,
     );
   }
+  return {
+    offers: offers.filter(({ callId }) => callId !== input.winningCallId),
+  };
+}
 
+export async function settleCompetingAgentOffers(
+  transaction: Prisma.TransactionClient,
+  input: AgentOfferSettlementInput,
+  resources: AgentOfferSettlementResources,
+) {
   const commandIds: string[] = [];
-  for (const offer of offers) {
+  for (const offer of resources.offers) {
     commandIds.push(
       ...(await settleCanonicalCallLegs(transaction, {
         callId: offer.callId,
