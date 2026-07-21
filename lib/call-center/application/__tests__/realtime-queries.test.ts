@@ -6,7 +6,7 @@ import { selectLiveCallOwnership } from "@/lib/call-center/realtime-contract";
 import {
   CALL_CENTER_READ_TRANSACTION_OPTIONS,
   activeCallWhere,
-  queueCallWhere,
+  queueCallScope,
   readCallCenterSnapshot,
   serializeCall,
 } from "../realtime-queries";
@@ -51,7 +51,7 @@ function outboundSnapshotCall(id: string, locationId: string) {
     stateVersion: 3,
     status: "CONNECTED" as const,
     toPhone: "+19542872010",
-    winningLegId: null,
+    winningLegId: `${id}-leg`,
   };
 }
 
@@ -92,7 +92,7 @@ describe("call center snapshot", () => {
 
   it("scopes queue calls through the configured number location", () => {
     expect(
-      queueCallWhere(
+      queueCallScope(
         {
           allowedLocationIds: ["location-1"],
           hasAllLocationAccess: false,
@@ -101,7 +101,7 @@ describe("call center snapshot", () => {
         },
         "queue-1",
         ["location-1", "location-2"],
-      ),
+      ).where,
     ).toEqual({
       number: {
         practiceId: "practice-1",
@@ -117,7 +117,7 @@ describe("call center snapshot", () => {
 
   it("scopes a practice-wide queue to the actor's selected locations", () => {
     expect(
-      queueCallWhere(
+      queueCallScope(
         {
           allowedLocationIds: ["location-1"],
           hasAllLocationAccess: false,
@@ -126,7 +126,7 @@ describe("call center snapshot", () => {
         },
         "queue-1",
         [],
-      ),
+      ).where,
     ).toMatchObject({
       number: {
         practiceId: "practice-1",
@@ -288,7 +288,7 @@ describe("call center snapshot", () => {
         queueId: "queue-1",
         status: "CONNECTED",
         toPhone: "+19542872010",
-        winningLegId: null,
+        winningLegId: "call-outbound-authorized-leg",
       }),
     );
     expect(state.selectedQueueCallIds).toEqual(["call-outbound-authorized"]);

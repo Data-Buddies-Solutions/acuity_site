@@ -78,7 +78,7 @@ function connectedOutboundCall(update: Partial<CallView> = {}): CallView {
         status: "ANSWERED",
       },
     ],
-    winningLegId: null,
+    winningLegId: "agent-leg-1",
     ...update,
   };
 }
@@ -344,6 +344,7 @@ describe("call readiness", () => {
 
   it("fails closed without authorized queue visibility or one owning seat", async () => {
     const missingWinner = connectedOutboundCall();
+    missingWinner.winningLegId = null;
     missingWinner.legs.push({
       ...missingWinner.legs[0]!,
       agentSessionId: "session-2",
@@ -376,6 +377,19 @@ describe("call readiness", () => {
       .closest("section")!;
     expect(within(liveQueue).getByText("0")).toBeTruthy();
     expect(within(liveQueue).queryByRole("listitem")).toBeNull();
+  });
+
+  it("does not invent an outbound owner without a canonical winning leg", async () => {
+    const call = connectedOutboundCall();
+    call.winningLegId = null;
+
+    renderWorkspace(workspaceRuntime(), [], [call], [call.id]);
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(within(liveQueue).queryByText("(954) 287-2010")).toBeNull();
   });
 
   it("keeps mixed snapshot ordering and removes outbound rows after termination", async () => {

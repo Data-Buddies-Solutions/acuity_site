@@ -76,9 +76,7 @@ export function selectLiveCallOwnership(call: CallView): {
     );
     const winner = call.winningLegId
       ? connectedAgentLegs.find((leg) => leg.id === call.winningLegId)
-      : call.direction === "OUTBOUND" && connectedAgentLegs.length === 1
-        ? connectedAgentLegs[0]
-        : null;
+      : null;
     return winner ? { endpointLabel: winner.endpointLabel, state: "ANSWERED" } : null;
   }
 
