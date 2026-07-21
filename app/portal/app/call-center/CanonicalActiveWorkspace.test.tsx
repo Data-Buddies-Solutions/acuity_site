@@ -61,6 +61,22 @@ function connectedCall(direction: CallView["direction"]): CallView {
   };
 }
 
+function connectedOutboundCall(update: Partial<CallView> = {}): CallView {
+  const call = connectedCall("OUTBOUND");
+  return {
+    ...call,
+    legs: [
+      {
+        ...call.legs[0]!,
+        endpointLabel: "Front Desk 1",
+        status: "ANSWERED",
+      },
+    ],
+    winningLegId: null,
+    ...update,
+  };
+}
+
 function readySession(update: Partial<AgentSessionView> = {}): AgentSessionView {
   return {
     audioReady: true,
@@ -116,6 +132,9 @@ function renderWorkspace(
     phoneNumber: string;
   }> = [],
   calls: CallView[] = [],
+  selectedQueueCallIds: string[] = calls
+    .filter(({ queueId }) => queueId === "queue-1")
+    .map(({ id }) => id),
 ) {
   globalThis.fetch = mock(async (input) =>
     String(input).includes("/snapshot?")
@@ -123,7 +142,8 @@ function renderWorkspace(
           calls,
           observedAt: "2026-07-21T10:00:00.000Z",
           queueId: "queue-1",
-          schemaVersion: 6,
+          selectedQueueCallIds,
+          schemaVersion: 7,
         })
       : Response.json({ items: [], limit: 15 }),
   ) as unknown as typeof fetch;
@@ -256,6 +276,155 @@ describe("call readiness", () => {
     });
     expect(copy).toHaveBeenCalledWith("+19546097250");
     expect(within(row).getByRole("status").textContent).toContain("Phone number copied");
+  });
+
+  it("shows only connected outbound calls with canonical queue details and copy feedback", async () => {
+    const copy = mock(async (_phone: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: copy },
+    });
+    const connected = connectedOutboundCall({
+      callOfficeLabel: "North Miami Beach Optical",
+      callerName: "Hidden Patient",
+    });
+    const created = structuredClone(connected);
+    created.answeredAt = null;
+    created.id = "call-outbound-created";
+    created.status = "RECEIVED";
+    created.legs[0]!.status = "CREATED";
+    const dialing = structuredClone(connected);
+    dialing.answeredAt = null;
+    dialing.id = "call-outbound-dialing";
+    dialing.status = "RINGING";
+    dialing.legs[0]!.status = "DIALING";
+    const ringing = structuredClone(connected);
+    ringing.answeredAt = null;
+    ringing.id = "call-outbound-ringing";
+    ringing.status = "RINGING";
+    ringing.legs[0]!.status = "RINGING";
+    const completed = structuredClone(connected);
+    completed.id = "call-outbound-completed";
+    completed.status = "COMPLETED";
+    completed.endedAt = "2026-07-21T10:01:00.000Z";
+
+    renderWorkspace(
+      workspaceRuntime(),
+      [],
+      [created, dialing, ringing, connected, completed],
+    );
+
+    await screen.findByText("Answered · Front Desk 1");
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(within(liveQueue).getByText("1")).toBeTruthy();
+    const row = within(liveQueue).getByRole("listitem");
+    expect(within(row).getByText("Outbound")).toBeTruthy();
+    expect(within(row).getByText("North Miami Beach Optical")).toBeTruthy();
+    expect(within(row).getByText("(954) 287-2010")).toBeTruthy();
+    expect(within(row).queryByText("Hidden Patient")).toBeNull();
+    expect(within(row).queryByText(/\d\d:\d\d/)).toBeNull();
+
+    const copyButton = within(row).getByRole("button", {
+      name: "Copy recipient phone number",
+    });
+    copyButton.focus();
+    expect(document.activeElement).toBe(copyButton);
+    await act(async () => {
+      fireEvent.click(copyButton, { detail: 0 });
+    });
+    expect(copy).toHaveBeenCalledWith("+19542872010");
+    expect(within(row).getByRole("status").textContent).toContain("Phone number copied");
+  });
+
+  it("fails closed without authorized queue visibility or one owning seat", async () => {
+    const missingWinner = connectedOutboundCall();
+    missingWinner.legs.push({
+      ...missingWinner.legs[0]!,
+      agentSessionId: "session-2",
+      endpointId: "endpoint-2",
+      endpointLabel: "Front Desk 2",
+      id: "agent-leg-2",
+    });
+    const unauthorizedWinner = structuredClone(missingWinner);
+    unauthorizedWinner.id = "call-outbound-unauthorized-winner";
+    unauthorizedWinner.winningLegId = unauthorizedWinner.legs[0]!.id;
+    unauthorizedWinner.legs[0]!.endpointLabel = null;
+    const otherQueue = structuredClone(missingWinner);
+    otherQueue.id = "call-outbound-other-queue";
+    otherQueue.queueId = "queue-2";
+    otherQueue.winningLegId = otherQueue.legs[0]!.id;
+    const unauthorizedLocation = connectedOutboundCall({
+      id: "call-outbound-unauthorized-location",
+    });
+
+    renderWorkspace(
+      workspaceRuntime(),
+      [],
+      [missingWinner, unauthorizedWinner, otherQueue, unauthorizedLocation],
+      [missingWinner.id, unauthorizedWinner.id],
+    );
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(within(liveQueue).getByText("0")).toBeTruthy();
+    expect(within(liveQueue).queryByRole("listitem")).toBeNull();
+  });
+
+  it("keeps mixed snapshot ordering and removes outbound rows after termination", async () => {
+    const inbound = connectedCall("INBOUND");
+    inbound.id = "call-inbound-first";
+    inbound.receivedAt = "2026-07-21T10:00:00.000Z";
+    inbound.legs[0]!.endpointLabel = "Front Desk 2";
+    const outbound = connectedOutboundCall();
+    outbound.id = "call-outbound-second";
+    outbound.receivedAt = "2026-07-21T10:01:00.000Z";
+    let snapshotReads = 0;
+    globalThis.fetch = mock(async (input) => {
+      if (!String(input).includes("/snapshot?")) {
+        return Response.json({ items: [], limit: 15 });
+      }
+      snapshotReads += 1;
+      const calls = snapshotReads === 1 ? [inbound, outbound] : [inbound];
+      return Response.json({
+        calls,
+        observedAt: `2026-07-21T10:00:0${snapshotReads}.000Z`,
+        queueId: "queue-1",
+        selectedQueueCallIds: calls.map(({ id }) => id),
+        schemaVersion: 7,
+      });
+    }) as unknown as typeof fetch;
+
+    render(
+      <SoftphoneContext.Provider value={workspaceRuntime()}>
+        <CanonicalActiveWorkspace
+          agentProfileLabel="Call Center 1"
+          followUpHref="/follow-up"
+          historyHref="/history"
+          outboundNumbers={[]}
+          queueId="queue-1"
+        />
+      </SoftphoneContext.Provider>,
+    );
+
+    await screen.findByText("Answered · Front Desk 1");
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(
+      within(liveQueue)
+        .getAllByRole("listitem")
+        .map((row) => within(row).getByText(/Inbound|Outbound/).textContent),
+    ).toEqual(["Inbound", "Outbound"]);
+
+    await waitFor(
+      () => expect(within(liveQueue).getAllByRole("listitem")).toHaveLength(1),
+      { timeout: 3_000 },
+    );
+    expect(within(liveQueue).queryByText("Outbound")).toBeNull();
   });
 
   it("shows canonical answer evidence with the answering endpoint seat", async () => {

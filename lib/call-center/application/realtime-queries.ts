@@ -59,8 +59,10 @@ const callSelect = {
   },
   number: {
     select: {
+      practiceId: true,
       practicePhoneNumber: {
         select: {
+          locationId: true,
           location: {
             select: {
               name: true,
@@ -100,10 +102,7 @@ export function serializeCall(call: SelectedCall, now: Date = new Date()): CallV
         : null,
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,
-    callOfficeLabel:
-      call.direction === "INBOUND" && callOffice?.practiceId === practiceId
-        ? callOffice.name
-        : null,
+    callOfficeLabel: callOffice?.practiceId === practiceId ? callOffice.name : null,
     legs: legs.map(({ endpoint, ...leg }) => ({
       ...leg,
       endpointLabel: endpoint?.practiceId === practiceId ? endpoint.label : null,
@@ -183,6 +182,29 @@ export function activeCallWhere(
   };
 }
 
+function isSelectedQueueCall(
+  call: SelectedCall,
+  actor: QueueAccessActor,
+  queueId: string,
+  queueLocationIds: string[],
+) {
+  if (call.queueId !== queueId || call.practiceId !== actor.practiceId) return false;
+  if (queueLocationIds.length === 0 && actor.hasAllLocationAccess) return true;
+
+  const location = call.number.practicePhoneNumber.location;
+  const locationId = call.number.practicePhoneNumber.locationId;
+  const visibleLocationIds = accessibleQueueLocationIds(actor, queueLocationIds);
+  const allowedLocationIds = queueLocationIds.length
+    ? visibleLocationIds
+    : actor.allowedLocationIds;
+  return Boolean(
+    call.number.practiceId === actor.practiceId &&
+    location?.practiceId === actor.practiceId &&
+    locationId &&
+    allowedLocationIds.includes(locationId),
+  );
+}
+
 export async function readCallCenterSnapshot(
   actor: QueueAccessActor,
   queueId: string,
@@ -208,6 +230,9 @@ export async function readCallCenterSnapshot(
         calls: activeCalls.map((call) => serializeCall(call, observedAt)),
         observedAt: observedAt.toISOString(),
         queueId: queue.id,
+        selectedQueueCallIds: activeCalls
+          .filter((call) => isSelectedQueueCall(call, actor, queue.id, queueLocationIds))
+          .map(({ id }) => id),
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
       };
     },

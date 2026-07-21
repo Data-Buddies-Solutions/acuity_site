@@ -26,8 +26,8 @@ import type { CanonicalOutboundNumber } from "@/lib/call-center/application/port
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { AgentAvailabilityIntent } from "@/lib/call-center/domain/agent-session-readiness";
 import {
-  selectInboundCallOwnership,
-  selectIncomingCalls,
+  selectLiveCallOwnership,
+  selectLiveQueueCalls,
   type AgentSessionView,
   type CallView,
 } from "@/lib/call-center/realtime-contract";
@@ -467,19 +467,19 @@ function ConnectedCanonicalActiveWorkspace({
     canonicalSnapshotObservedAtRef.current = state?.observedAt ?? null;
   }, [state?.observedAt]);
 
-  const incomingCalls = useMemo(() => {
+  const liveQueueCalls = useMemo(() => {
     if (!state) return [];
-    const queued = selectIncomingCalls(state);
+    const selectedQueueCalls = selectLiveQueueCalls(state);
     const transfers = selectCanonicalTransferOffers(state.calls, session);
     return [
-      ...queued,
-      ...transfers.filter((call) => !queued.some(({ id }) => id === call.id)),
+      ...selectedQueueCalls,
+      ...transfers.filter((call) => !selectedQueueCalls.some(({ id }) => id === call.id)),
     ];
   }, [session, state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
   const hasActiveOutboundCall = activeCall?.direction === "OUTBOUND";
   const localOffer = session
-    ? incomingCalls.find((call) =>
+    ? liveQueueCalls.find((call) =>
         selectCanonicalBrowserMediaLeg(
           call,
           session.id,
@@ -488,7 +488,7 @@ function ConnectedCanonicalActiveWorkspace({
         ),
       )
     : null;
-  const canonicalOffer = hasCanonicalSessionLiveLeg(incomingCalls, session);
+  const canonicalOffer = hasCanonicalSessionLiveLeg(liveQueueCalls, session);
   const availabilityOccupied = Boolean(
     activeCall ||
     localOffer ||
@@ -757,12 +757,12 @@ function ConnectedCanonicalActiveWorkspace({
                   Calls ringing or in progress.
                 </p>
               </div>
-              <PortalBadge className="tabular-nums">{incomingCalls.length}</PortalBadge>
+              <PortalBadge className="tabular-nums">{liveQueueCalls.length}</PortalBadge>
             </div>
 
-            {incomingCalls.length ? (
+            {liveQueueCalls.length ? (
               <ul className="space-y-3">
-                {incomingCalls.map((call) => {
+                {liveQueueCalls.map((call) => {
                   const transferOffer = isCanonicalTransferOffer(call, session);
                   const match = session
                     ? selectCanonicalBrowserMediaLeg(
@@ -789,7 +789,7 @@ function ConnectedCanonicalActiveWorkspace({
                     match?.observation.mediaLegId === runtime.answeringMediaLegId;
                   const rawPhone = callPhone(call);
                   const phone = formatPhone(rawPhone);
-                  const ownership = selectInboundCallOwnership(call);
+                  const ownership = selectLiveCallOwnership(call);
                   const sharedStatus =
                     transferOffer && match
                       ? "Transfer ringing"

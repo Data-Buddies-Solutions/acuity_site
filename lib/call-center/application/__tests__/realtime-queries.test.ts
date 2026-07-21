@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { QueueAccessError } from "@/lib/call-center/auth/queue-access";
-import { selectInboundCallOwnership } from "@/lib/call-center/realtime-contract";
+import { selectLiveCallOwnership } from "@/lib/call-center/realtime-contract";
 
 import {
   CALL_CENTER_READ_TRANSACTION_OPTIONS,
@@ -12,6 +12,48 @@ import {
 } from "../realtime-queries";
 
 const now = new Date("2026-07-11T12:00:00.000Z");
+
+function outboundSnapshotCall(id: string, locationId: string) {
+  return {
+    answerReservation: null,
+    answeredAt: now,
+    callerName: "Hidden Patient",
+    direction: "OUTBOUND" as const,
+    endedAt: null,
+    fromPhone: "+19546097250",
+    id,
+    legs: [
+      {
+        agentSessionId: "session-1",
+        endpoint: { label: "Front Desk 1", practiceId: "practice-1" },
+        endpointId: "endpoint-1",
+        id: `${id}-leg`,
+        kind: "AGENT" as const,
+        providerCallControlId: "control-1",
+        providerCallLegId: "provider-leg-1",
+        providerCallSessionId: "provider-session-1",
+        status: "ANSWERED" as const,
+      },
+    ],
+    number: {
+      practiceId: "practice-1",
+      practicePhoneNumber: {
+        location: {
+          name: "North Miami Beach Optical",
+          practiceId: "practice-1",
+        },
+        locationId,
+      },
+    },
+    practiceId: "practice-1",
+    queueId: "queue-1",
+    receivedAt: now,
+    stateVersion: 3,
+    status: "CONNECTED" as const,
+    toPhone: "+19542872010",
+    winningLegId: null,
+  };
+}
 
 describe("call center snapshot", () => {
   it("includes live offers outside the selected queue while excluding terminal calls", () => {
@@ -175,8 +217,10 @@ describe("call center snapshot", () => {
         },
         number: {
           select: {
+            practiceId: true,
             practicePhoneNumber: {
               select: {
+                locationId: true,
                 location: { select: { name: true, practiceId: true } },
               },
             },
@@ -189,8 +233,65 @@ describe("call center snapshot", () => {
       calls: [],
       observedAt: "2026-07-11T12:00:00.000Z",
       queueId: "queue-1",
-      schemaVersion: 6,
+      selectedQueueCallIds: [],
+      schemaVersion: 7,
     });
+  });
+
+  it("separates the authorized outbound queue row from a personal call at another location", async () => {
+    const authorized = outboundSnapshotCall("call-outbound-authorized", "location-1");
+    const personal = outboundSnapshotCall("call-outbound-personal", "location-2");
+    const database = {
+      $transaction: async (work: (transaction: unknown) => unknown) =>
+        work({
+          callCenterCall: {
+            findMany: async () => [authorized, personal],
+          },
+          callCenterQueue: {
+            findMany: async () => [
+              {
+                id: "queue-1",
+                locations: [{ locationId: "location-1" }],
+                name: "Main queue",
+              },
+            ],
+          },
+        }),
+    } as never;
+
+    const state = await readCallCenterSnapshot(
+      {
+        allowedLocationIds: ["location-1"],
+        hasAllLocationAccess: false,
+        practiceId: "practice-1",
+        userId: "user-1",
+      },
+      "queue-1",
+      database,
+      () => now,
+    );
+
+    expect(state.calls).toHaveLength(2);
+    expect(state.calls[0]).toEqual(
+      expect.objectContaining({
+        callOfficeLabel: "North Miami Beach Optical",
+        callerName: "Hidden Patient",
+        direction: "OUTBOUND",
+        fromPhone: "+19546097250",
+        legs: [
+          expect.objectContaining({
+            endpointLabel: "Front Desk 1",
+            id: "call-outbound-authorized-leg",
+            status: "ANSWERED",
+          }),
+        ],
+        queueId: "queue-1",
+        status: "CONNECTED",
+        toPhone: "+19542872010",
+        winningLegId: null,
+      }),
+    );
+    expect(state.selectedQueueCallIds).toEqual(["call-outbound-authorized"]);
   });
 
   it("serializes durable calls without Date values", () => {
@@ -221,7 +322,10 @@ describe("call center snapshot", () => {
             status: "RINGING",
           },
         ],
-        number: { practicePhoneNumber: { location: null } },
+        number: {
+          practiceId: "practice-1",
+          practicePhoneNumber: { location: null, locationId: null },
+        },
         practiceId: "practice-1",
         queueId: "queue-1",
         receivedAt: now,
@@ -278,7 +382,9 @@ describe("call center snapshot", () => {
           },
         ],
         number: {
+          practiceId: "practice-1",
           practicePhoneNumber: {
+            locationId: "location-1",
             location: {
               name: "North Miami Beach Optical",
               practiceId: "practice-1",
@@ -306,7 +412,7 @@ describe("call center snapshot", () => {
     });
     expect(call).not.toHaveProperty("number");
     expect(call).not.toHaveProperty("practiceId");
-    expect(selectInboundCallOwnership(call)).toEqual({
+    expect(selectLiveCallOwnership(call)).toEqual({
       endpointLabel: "Front Desk 1",
       state: "ANSWERED",
     });
@@ -347,7 +453,9 @@ describe("call center snapshot", () => {
           },
         ],
         number: {
+          practiceId: "practice-1",
           practicePhoneNumber: {
+            locationId: "location-2",
             location: { name: "Other Practice", practiceId: "practice-2" },
           },
         },
@@ -367,7 +475,7 @@ describe("call center snapshot", () => {
       "Front Desk 1",
       null,
     ]);
-    expect(selectInboundCallOwnership(call)).toEqual({
+    expect(selectLiveCallOwnership(call)).toEqual({
       endpointLabel: null,
       state: "RINGING",
     });
@@ -389,7 +497,10 @@ describe("call center snapshot", () => {
         fromPhone: "+17865550100",
         id: "call-1",
         legs: [],
-        number: { practicePhoneNumber: { location: null } },
+        number: {
+          practiceId: "practice-1",
+          practicePhoneNumber: { location: null, locationId: null },
+        },
         practiceId: "practice-1",
         queueId: "queue-1",
         receivedAt: now,

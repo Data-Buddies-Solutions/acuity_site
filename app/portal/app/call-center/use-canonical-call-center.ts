@@ -54,7 +54,9 @@ function isSnapshot(value: unknown, queueId: string): value is CallCenterSnapsho
     typeof value.observedAt === "string" &&
     Number.isFinite(Date.parse(value.observedAt)) &&
     Array.isArray(value.calls) &&
-    value.calls.every(hasVersion)
+    value.calls.every(hasVersion) &&
+    Array.isArray(value.selectedQueueCallIds) &&
+    value.selectedQueueCallIds.every((id) => typeof id === "string")
   );
 }
 

@@ -1,4 +1,4 @@
-export const CALL_CENTER_SCHEMA_VERSION = 6 as const;
+export const CALL_CENTER_SCHEMA_VERSION = 7 as const;
 
 export type CallView = {
   answerReservation?: {
@@ -60,17 +60,25 @@ export type CallCenterSnapshot = {
   queueId: string;
   observedAt: string;
   calls: CallView[];
+  selectedQueueCallIds: string[];
 };
 
-export function selectInboundCallOwnership(call: CallView): {
+export function selectLiveCallOwnership(call: CallView): {
   endpointLabel: string | null;
   state: "ANSWERED" | "ANSWERING" | "RINGING";
 } {
   if (call.status === "CONNECTED") {
-    const winner = call.legs.find(
+    const connectedAgentLegs = call.legs.filter(
       (leg) =>
-        leg.id === call.winningLegId && leg.kind === "AGENT" && leg.status === "BRIDGED",
+        leg.kind === "AGENT" &&
+        (leg.status === "BRIDGED" ||
+          (call.direction === "OUTBOUND" && leg.status === "ANSWERED")),
     );
+    const winner = call.winningLegId
+      ? connectedAgentLegs.find((leg) => leg.id === call.winningLegId)
+      : call.direction === "OUTBOUND" && connectedAgentLegs.length === 1
+        ? connectedAgentLegs[0]
+        : null;
     return { endpointLabel: winner?.endpointLabel ?? null, state: "ANSWERED" };
   }
 
@@ -83,13 +91,24 @@ export function selectInboundCallOwnership(call: CallView): {
     : { endpointLabel: null, state: "RINGING" };
 }
 
-export function selectIncomingCalls(state: CallCenterSnapshot) {
-  return state.calls.filter(
-    ({ direction, status }) =>
-      direction === "INBOUND" &&
-      (status === "RECEIVED" ||
-        status === "QUEUED" ||
-        status === "RINGING" ||
-        status === "CONNECTED"),
-  );
+export function selectLiveQueueCalls(state: CallCenterSnapshot) {
+  return state.calls.filter((call) => {
+    if (call.direction === "INBOUND") {
+      return (
+        call.status === "RECEIVED" ||
+        call.status === "QUEUED" ||
+        call.status === "RINGING" ||
+        call.status === "CONNECTED"
+      );
+    }
+
+    const ownership = selectLiveCallOwnership(call);
+    return (
+      state.selectedQueueCallIds.includes(call.id) &&
+      call.queueId === state.queueId &&
+      call.status === "CONNECTED" &&
+      ownership.state === "ANSWERED" &&
+      Boolean(ownership.endpointLabel)
+    );
+  });
 }
