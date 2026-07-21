@@ -122,7 +122,7 @@ function availabilityRecoveryMessage(
   return null;
 }
 
-export function AvailabilityControl({
+function AvailabilityControl({
   error,
   occupied,
   onChange,
