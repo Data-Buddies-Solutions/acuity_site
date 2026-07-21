@@ -8,6 +8,7 @@ import {
 export type CallCenterAction =
   | "answer"
   | "connect"
+  | "dtmf"
   | "end"
   | "hold"
   | "mute"
@@ -129,6 +130,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
 const actionPhrase: Record<CallCenterAction, string> = {
   answer: "answer this call",
   connect: "connect to the call center",
+  dtmf: "send this keypad input",
   end: "end this call",
   hold: "update hold",
   mute: "update mute",
