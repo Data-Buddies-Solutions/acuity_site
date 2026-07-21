@@ -4,6 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
 import { PrismaClient } from "@/generated/prisma/client";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import {
   CanonicalProjectionError,
@@ -1035,6 +1036,82 @@ describePostgres("canonical call projector on PostgreSQL", () => {
         }),
       ).toBe(2);
     } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("projects unrelated existing calls without waiting for the practice lock", async () => {
+    const fixture = await createFixture(prisma);
+    const first = await fixture.createOutboundCall("unrelated-first");
+    const second = await fixture.createOutboundCall("unrelated-second");
+    const firstEvent = await fixture.processingEvent("call.initiated", "unrelated-first");
+    const secondEvent = await fixture.processingEvent(
+      "call.initiated",
+      "unrelated-second",
+    );
+    let releasePracticeLock = () => {};
+    const holdPracticeLock = new Promise<void>((resolve) => {
+      releasePracticeLock = resolve;
+    });
+    let practiceLockAcquired = () => {};
+    const practiceLocked = new Promise<void>((resolve) => {
+      practiceLockAcquired = resolve;
+    });
+
+    const blocker = prisma.$transaction(
+      async (transaction) => {
+        await lockCallCenterPractice(transaction, fixture.practiceId);
+        practiceLockAcquired();
+        await holdPracticeLock;
+      },
+      { timeout: 10_000 },
+    );
+
+    try {
+      await practiceLocked;
+      const projections = Promise.all([
+        projector.projectAndComplete(
+          firstEvent,
+          fixture.fact({
+            canonicalCallId: first.callId,
+            canonicalLegId: first.legId,
+            direction: "OUTBOUND",
+            endpointId: fixture.endpointId,
+            eventType: "call.initiated",
+            legKind: "AGENT",
+            providerCallControlId: fixture.id("unrelated-first-control"),
+            providerCallLegId: fixture.id("unrelated-first-provider-leg"),
+            providerCallSessionId: fixture.id("unrelated-first-session"),
+            providerEventId: firstEvent.providerEventId,
+          }),
+          projectedAt,
+        ),
+        projector.projectAndComplete(
+          secondEvent,
+          fixture.fact({
+            canonicalCallId: second.callId,
+            canonicalLegId: second.legId,
+            direction: "OUTBOUND",
+            endpointId: fixture.endpointId,
+            eventType: "call.initiated",
+            legKind: "AGENT",
+            providerCallControlId: fixture.id("unrelated-second-control"),
+            providerCallLegId: fixture.id("unrelated-second-provider-leg"),
+            providerCallSessionId: fixture.id("unrelated-second-session"),
+            providerEventId: secondEvent.providerEventId,
+          }),
+          projectedAt,
+        ),
+      ]);
+      const completedBeforeRelease = await Promise.race([
+        projections.then(() => true),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 1_000)),
+      ]);
+      expect(completedBeforeRelease).toBe(true);
+      await projections;
+    } finally {
+      releasePracticeLock();
+      await blocker;
       await fixture.cleanup();
     }
   });

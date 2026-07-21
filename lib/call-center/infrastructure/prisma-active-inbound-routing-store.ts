@@ -11,7 +11,10 @@ import {
   type ActiveRoutingStore,
   type ActiveRoutingTransaction,
 } from "@/lib/call-center/application/active-inbound-routing";
-import { INBOUND_OFFER_WINDOW_SECONDS } from "@/lib/call-center/domain/active-inbound-lifecycle";
+import {
+  INBOUND_HARD_QUEUE_WINDOW_SECONDS,
+  INBOUND_OFFER_WINDOW_SECONDS,
+} from "@/lib/call-center/domain/active-inbound-lifecycle";
 import { normalizeAgentPresence } from "@/lib/call-center/domain/agent-session-wire";
 import { normalizeCanonicalCallStatus } from "@/lib/call-center/domain/canonical-call-state";
 import type { RoutingDecision } from "@/lib/call-center/domain/routing-decision";
@@ -179,7 +182,9 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
     const call = await this.transaction.callCenterCall.findFirst({
       select: {
         deadlineAt: true,
+        hardDeadlineAt: true,
         queuedAt: true,
+        routingRequestedAt: true,
         stateVersion: true,
       },
       where: {
@@ -369,11 +374,16 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
       routed.push({ ...selection, commandId: command.id, legId: leg.id });
     }
 
-    const deadlineAt = addSeconds(now, INBOUND_OFFER_WINDOW_SECONDS);
+    const routingRequestedAt = call.routingRequestedAt ?? now;
+    const hardDeadlineAt =
+      call.hardDeadlineAt ??
+      addSeconds(routingRequestedAt, INBOUND_HARD_QUEUE_WINDOW_SECONDS);
     const updatedCall = await this.transaction.callCenterCall.update({
       data: {
-        deadlineAt,
+        deadlineAt: call.deadlineAt,
+        hardDeadlineAt,
         queuedAt: call.queuedAt ?? now,
+        routingRequestedAt,
         stateVersion: { increment: 1 },
         status: "QUEUED",
       },
@@ -388,9 +398,11 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
         ...createdPrerequisiteCommandIds,
         ...routed.map(({ commandId }) => commandId),
       ],
-      deadlineAt: deadlineAt.toISOString(),
+      deadlineAt: call.deadlineAt?.toISOString() ?? null,
       dialCommandIds: routed.map(({ commandId }) => commandId),
+      hardDeadlineAt: hardDeadlineAt.toISOString(),
       routed,
+      routingRequestedAt: routingRequestedAt.toISOString(),
       startRingbackCommandId,
       stateVersion: updatedCall.stateVersion,
     };

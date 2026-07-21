@@ -640,7 +640,7 @@ async function loadProviderCommandClaim(
   }
 
   if (command.type === "DIAL_AGENT") {
-    const args = dispatchArguments as {
+    let args = dispatchArguments as {
       agentSessionId: string;
       endpointId: string;
     };
@@ -655,9 +655,16 @@ async function loadProviderCommandClaim(
       return reject("COMMAND_QUEUE_NOT_ENABLED");
     }
     const endpoint = leg.endpoint;
-    const session = leg.agentSession;
+    const originalSession = leg.agentSession;
     const settings = command.practice.callCenterSettings;
-    if (!endpoint?.enabled || !endpoint.sipUsername || !settings) {
+    if (
+      !endpoint?.enabled ||
+      !endpoint.sipUsername ||
+      !endpoint.userId ||
+      !originalSession ||
+      originalSession.userId !== endpoint.userId ||
+      !settings
+    ) {
       return reject("COMMAND_PROVIDER_TARGET_INVALID");
     }
     await tx.$queryRaw(
@@ -679,10 +686,27 @@ async function loadProviderCommandClaim(
         status: { in: ["ANSWERED", "BRIDGED"] },
       },
     });
+    const session = await tx.callCenterAgentSession.findFirst({
+      orderBy: [
+        { lastHeartbeatAt: "desc" },
+        { readyAt: "desc" },
+        { createdAt: "desc" },
+        { id: "desc" },
+      ],
+      where: {
+        audioReady: true,
+        connectionState: "READY",
+        endpointId: args.endpointId,
+        leaseExpiresAt: { gt: input.now },
+        microphoneReady: true,
+        practiceId: command.practiceId,
+        presence: "AVAILABLE",
+        userId: endpoint.userId,
+      },
+    });
     if (
       !session ||
       !liveTarget ||
-      session.id !== args.agentSessionId ||
       session.endpointId !== args.endpointId ||
       session.presence !== "AVAILABLE" ||
       occupied ||
@@ -741,6 +765,17 @@ async function loadProviderCommandClaim(
     const from = command.call.number.practicePhoneNumber.phoneNumber.trim();
     if (!connectionId || !from) {
       return reject("COMMAND_PROVIDER_CONFIGURATION_INVALID");
+    }
+    if (session.id !== args.agentSessionId) {
+      args = { ...args, agentSessionId: session.id };
+      await tx.callCenterCallLeg.update({
+        data: { agentSessionId: session.id },
+        where: { id: leg.id },
+      });
+      await tx.callCenterCommand.update({
+        data: { arguments: args },
+        where: { id: command.id },
+      });
     }
     const linkedLeg = await tx.callCenterCallLeg.findFirst({
       orderBy: [{ startedAt: "asc" }, { id: "asc" }],

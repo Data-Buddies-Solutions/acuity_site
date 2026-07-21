@@ -44,9 +44,11 @@ export type ActiveRoutingDial = RoutingSelection & {
 export type ActiveRoutingEventData = RoutingDecision & {
   answerCommandId: string;
   commandIds: string[];
-  deadlineAt: string;
+  deadlineAt: string | null;
   dialCommandIds: string[];
+  hardDeadlineAt: string;
   routed: ActiveRoutingDial[];
+  routingRequestedAt: string;
   startRingbackCommandId: string;
   stateVersion: number;
 };
@@ -123,19 +125,29 @@ function receiptFromEvent(
     typeof data.startRingbackCommandId !== "string" ||
     !Array.isArray(data.dialCommandIds) ||
     !Array.isArray(data.routed) ||
-    typeof data.deadlineAt !== "string" ||
+    (data.deadlineAt !== null && typeof data.deadlineAt !== "string") ||
     typeof data.stateVersion !== "number"
   ) {
     throw new ActiveRoutingError("Stored active routing receipt is invalid", 500);
   }
 
   const receipt = data as ActiveRoutingEventData;
+  const hardDeadlineAt =
+    typeof data.hardDeadlineAt === "string"
+      ? data.hardDeadlineAt
+      : new Date(event.occurredAt.getTime() + 60_000).toISOString();
+  const routingRequestedAt =
+    typeof data.routingRequestedAt === "string"
+      ? data.routingRequestedAt
+      : event.occurredAt.toISOString();
   return {
     ...receipt,
     callId,
     occurredAt: event.occurredAt.toISOString(),
     replayed,
     revision: event.revision.toString(),
+    hardDeadlineAt,
+    routingRequestedAt,
   };
 }
 

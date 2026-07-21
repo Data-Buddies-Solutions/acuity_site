@@ -106,9 +106,10 @@ describe("provider webhook claim decisions", () => {
     ).toBe("EXHAUSTED");
   });
 
-  it("leaves retry timing to the provider", () => {
-    expect(providerWebhookRetryAt(1, now)).toBe(now);
-    expect(providerWebhookRetryAt(20, now)).toBe(now);
+  it("backs retries off without exceeding the bounded recovery delay", () => {
+    expect(providerWebhookRetryAt(1, now)).toEqual(new Date("2026-07-11T12:00:05.000Z"));
+    expect(providerWebhookRetryAt(2, now)).toEqual(new Date("2026-07-11T12:00:10.000Z"));
+    expect(providerWebhookRetryAt(20, now)).toEqual(new Date("2026-07-11T12:05:00.000Z"));
   });
 
   it("allows only one concurrent claimant", async () => {
@@ -124,6 +125,7 @@ describe("provider webhook claim decisions", () => {
       },
       completeIgnored: async () => true,
       fail: async () => true,
+      listDue: async () => [],
       receive: async () => event(),
     };
     const inbox = createProviderWebhookInbox(store, { clock: () => now });

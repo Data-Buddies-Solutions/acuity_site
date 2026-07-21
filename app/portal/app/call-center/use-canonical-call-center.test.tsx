@@ -31,7 +31,7 @@ function snapshot(stateVersion = 0, queueId = "queue-1"): CallCenterSnapshot {
       : [],
     observedAt: "2026-07-19T10:00:00.000Z",
     queueId,
-    schemaVersion: 4,
+    schemaVersion: 5,
   };
 }
 

@@ -24,6 +24,14 @@ export const CALL_CENTER_READ_TRANSACTION_OPTIONS = {
 };
 
 const callSelect = {
+  answerReservation: {
+    select: {
+      agentSessionId: true,
+      expiresAt: true,
+      legId: true,
+      status: true,
+    },
+  },
   answeredAt: true,
   callerName: true,
   direction: true,
@@ -53,9 +61,20 @@ const callSelect = {
 
 type SelectedCall = Prisma.CallCenterCallGetPayload<{ select: typeof callSelect }>;
 
-export function serializeCall(call: SelectedCall): CallView {
+export function serializeCall(call: SelectedCall, now: Date = new Date()): CallView {
   return {
     ...call,
+    answerReservation:
+      call.answerReservation &&
+      (call.answerReservation.status === "BRIDGED" ||
+        (["ACCEPTED", "ANSWERED"].includes(call.answerReservation.status) &&
+          call.answerReservation.expiresAt > now))
+        ? {
+            ...call.answerReservation,
+            expiresAt: call.answerReservation.expiresAt.toISOString(),
+            status: call.answerReservation.status as "ACCEPTED" | "ANSWERED" | "BRIDGED",
+          }
+        : null,
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,
     legs: call.legs,
@@ -153,10 +172,11 @@ export async function readCallCenterSnapshot(
         take: 100,
         where: activeCallWhere(callWhere, actor),
       });
+      const observedAt = clock();
 
       return {
-        calls: activeCalls.map(serializeCall),
-        observedAt: clock().toISOString(),
+        calls: activeCalls.map((call) => serializeCall(call, observedAt)),
+        observedAt: observedAt.toISOString(),
         queueId: queue.id,
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
       };

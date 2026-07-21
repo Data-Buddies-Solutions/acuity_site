@@ -1,4 +1,10 @@
 import {
+  claimInboundAnswer,
+  type InboundAnswerClaimInput,
+  type InboundAnswerReleaseInput,
+  releaseInboundAnswer,
+} from "@/lib/call-center/application/claim-inbound-answer";
+import {
   acquireAgentSession,
   releaseAgentSession,
   type AgentSessionActor,
@@ -44,6 +50,7 @@ import {
 import { reserveDirectHandoff } from "@/lib/call-center/infrastructure/prisma-direct-handoff-store";
 import { prismaAgentSessionStore } from "@/lib/call-center/infrastructure/prisma-agent-session-store";
 import { prismaAgentSessionCredentialStore } from "@/lib/call-center/infrastructure/prisma-agent-session-credential-store";
+import { prismaInboundAnswerClaimStore } from "@/lib/call-center/infrastructure/prisma-inbound-answer-claim-store";
 import { prismaStartOutboundCallStore } from "@/lib/call-center/infrastructure/prisma-start-outbound-call-store";
 import { prismaSetCallHoldMusicStore } from "@/lib/call-center/infrastructure/prisma-set-call-hold-music-store";
 import { prismaTransferAgentCallStore } from "@/lib/call-center/infrastructure/prisma-transfer-agent-call-store";
@@ -166,6 +173,7 @@ type Dependencies<
   AcquiredAgent,
   UpdatedAgent,
   ReleasedAgent,
+  AnswerClaim,
   Outbound,
   OperatorState,
 > = {
@@ -182,6 +190,16 @@ type Dependencies<
     input: AgentSessionCredentialInput,
     now?: Date,
   ): Promise<AgentSessionCredential>;
+  claimInboundAnswer(
+    actor: QueueAccessActor,
+    input: InboundAnswerClaimInput,
+    now?: Date,
+  ): Promise<AnswerClaim>;
+  releaseInboundAnswer(
+    actor: QueueAccessActor,
+    input: InboundAnswerReleaseInput,
+    now?: Date,
+  ): Promise<unknown>;
   readState(actor: QueueAccessActor, queueId: string): Promise<OperatorState>;
   listTransferTargets(
     actor: QueueAccessActor,
@@ -229,6 +247,7 @@ export function createCallCenter<
   AcquiredAgent,
   UpdatedAgent,
   ReleasedAgent,
+  AnswerClaim,
   Outbound,
   OperatorState,
 >(
@@ -238,6 +257,7 @@ export function createCallCenter<
     AcquiredAgent,
     UpdatedAgent,
     ReleasedAgent,
+    AnswerClaim,
     Outbound,
     OperatorState
   >,
@@ -278,6 +298,22 @@ export function createCallCenter<
 
     applyProviderEvent(envelope: TelnyxVoiceWebhookEnvelope) {
       return dependencies.applyProviderEvent(envelope);
+    },
+
+    claimInboundAnswer(
+      actor: QueueAccessActor,
+      input: InboundAnswerClaimInput,
+      now?: Date,
+    ) {
+      return dependencies.claimInboundAnswer(actor, input, now);
+    },
+
+    releaseInboundAnswer(
+      actor: QueueAccessActor,
+      input: InboundAnswerReleaseInput,
+      now?: Date,
+    ) {
+      return dependencies.releaseInboundAnswer(actor, input, now);
     },
 
     authorizeAgentCredential(
@@ -322,11 +358,15 @@ export const callCenter = createCallCenter({
   applyProviderEvent: processTelnyxVoiceEvent,
   authorizeAgentCredential: (actor, input, now) =>
     authorizeAgentSessionCredential(prismaAgentSessionCredentialStore, actor, input, now),
+  claimInboundAnswer: (actor, input, now) =>
+    claimInboundAnswer(prismaInboundAnswerClaimStore, actor, input, now),
   clock: () => new Date(),
   handoffConfig: resolveDirectHandoffConfig,
   listTransferTargets: (actor, input, now) =>
     listTransferTargets(prismaTransferAgentCallStore, actor, input, now),
   readState: readCallCenterSnapshot,
+  releaseInboundAnswer: (actor, input, now) =>
+    releaseInboundAnswer(prismaInboundAnswerClaimStore, actor, input, now),
   releaseAgent: (actor, input, now) =>
     releaseAgentSession(prismaAgentSessionStore, actor, input, now),
   reserveHandoff: reserveDirectHandoff,

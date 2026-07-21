@@ -46,13 +46,19 @@ export type ProviderWebhookInboxStore = {
     eventId: string;
     nextAttemptAt: Date;
   }): Promise<boolean>;
+  listDue(input: {
+    limit: number;
+    maxAttempts: number;
+    now: Date;
+    staleBefore: Date;
+  }): Promise<ProviderWebhookRecord[]>;
   receive(envelope: TelnyxVoiceWebhookEnvelope): Promise<ProviderWebhookRecord>;
 };
 
 export type ProviderWebhookInbox = ReturnType<typeof createProviderWebhookInbox>;
 
-const MAX_ATTEMPTS = 8;
-const PROCESSING_LEASE_MS = 5 * 60_000;
+export const PROVIDER_WEBHOOK_MAX_ATTEMPTS = 8;
+export const PROVIDER_WEBHOOK_PROCESSING_LEASE_MS = 5 * 60_000;
 
 export function decideProviderWebhookClaim(
   event: Pick<
@@ -61,8 +67,8 @@ export function decideProviderWebhookClaim(
   >,
   now: Date,
   {
-    maxAttempts = MAX_ATTEMPTS,
-    processingLeaseMs = PROCESSING_LEASE_MS,
+    maxAttempts = PROVIDER_WEBHOOK_MAX_ATTEMPTS,
+    processingLeaseMs = PROVIDER_WEBHOOK_PROCESSING_LEASE_MS,
   }: { maxAttempts?: number; processingLeaseMs?: number } = {},
 ): ProviderWebhookClaimDecision {
   if (event.processingStatus === "PROCESSED" || event.processingStatus === "IGNORED") {
@@ -97,16 +103,17 @@ export function decideProviderWebhookClaim(
   return "DUPLICATE";
 }
 
-export function providerWebhookRetryAt(_attemptCount: number, now: Date) {
-  return now;
+export function providerWebhookRetryAt(attemptCount: number, now: Date) {
+  const delaySeconds = Math.min(300, 5 * 2 ** Math.max(0, attemptCount - 1));
+  return new Date(now.getTime() + delaySeconds * 1_000);
 }
 
 export function createProviderWebhookInbox(
   store: ProviderWebhookInboxStore,
   {
     clock = () => new Date(),
-    maxAttempts = MAX_ATTEMPTS,
-    processingLeaseMs = PROCESSING_LEASE_MS,
+    maxAttempts = PROVIDER_WEBHOOK_MAX_ATTEMPTS,
+    processingLeaseMs = PROVIDER_WEBHOOK_PROCESSING_LEASE_MS,
   }: {
     clock?: () => Date;
     maxAttempts?: number;
@@ -117,6 +124,15 @@ export function createProviderWebhookInbox(
     completeIgnored: store.completeIgnored,
     fail: store.fail,
     receive: store.receive,
+    listDue: (limit: number) => {
+      const now = clock();
+      return store.listDue({
+        limit,
+        maxAttempts,
+        now,
+        staleBefore: new Date(now.getTime() - processingLeaseMs),
+      });
+    },
     retryAt: (attemptCount: number) => providerWebhookRetryAt(attemptCount, clock()),
     async claim(event: ProviderWebhookRecord) {
       const now = clock();
@@ -270,6 +286,24 @@ const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore = {
     });
 
     return failed.count === 1;
+  },
+  async listDue({ limit, maxAttempts, now, staleBefore }) {
+    return prisma.providerWebhookEvent.findMany({
+      orderBy: [{ nextAttemptAt: "asc" }, { receivedAt: "asc" }, { id: "asc" }],
+      select: selectedFields,
+      take: limit,
+      where: {
+        attemptCount: { lt: maxAttempts },
+        OR: [
+          { processingStatus: "RECEIVED" },
+          {
+            processingStatus: "FAILED",
+            OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+          },
+          { processingStatus: "PROCESSING", updatedAt: { lte: staleBefore } },
+        ],
+      },
+    });
   },
   async receive(envelope) {
     const sanitized = sanitizedProviderWebhookBody(envelope.body);

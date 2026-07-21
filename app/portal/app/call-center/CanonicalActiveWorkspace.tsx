@@ -100,6 +100,135 @@ function formatCallDuration(seconds: number) {
   return `${minutes}:${remainingSeconds}`;
 }
 
+type InboundAnswerClaimWire =
+  | { replayed: boolean; reservation: { id: string }; status: "ACCEPTED" }
+  | { reason: string; status: "REJECTED" };
+
+export function CanonicalInboundAnswerButton({
+  answer,
+  answering,
+  callId,
+  connectionState,
+  disabled,
+  legId,
+  mediaLegId,
+  sessionId,
+}: {
+  answer(mediaLegId: string): Promise<void>;
+  answering: boolean;
+  callId: string;
+  connectionState: MediaConnectionState;
+  disabled: boolean;
+  legId: string;
+  mediaLegId: string;
+  sessionId: string;
+}) {
+  const [claiming, setClaiming] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const keyRef = useRef<{ key: string; scope: string } | null>(null);
+  const reservationRef = useRef<{
+    body: { legId: string; sessionId: string };
+    idempotencyKey: string;
+  } | null>(null);
+
+  const releaseClaim = useCallback(
+    (failureCode: "BROWSER_ANSWER_FAILED" | "BROWSER_DISCONNECTED") => {
+      const claimed = reservationRef.current;
+      if (!claimed) return Promise.resolve();
+      reservationRef.current = null;
+      if (keyRef.current?.key === claimed.idempotencyKey) keyRef.current = null;
+      return fetch(`/api/portal/call-center/calls/${callId}/answer`, {
+        body: JSON.stringify({ ...claimed.body, failureCode }),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": claimed.idempotencyKey,
+        },
+        keepalive: true,
+        method: "DELETE",
+      }).then(() => undefined);
+    },
+    [callId],
+  );
+
+  useEffect(() => {
+    const releaseDisconnectedClaim = () => {
+      void releaseClaim("BROWSER_DISCONNECTED");
+    };
+    window.addEventListener("pagehide", releaseDisconnectedClaim);
+    return () => {
+      window.removeEventListener("pagehide", releaseDisconnectedClaim);
+      releaseDisconnectedClaim();
+    };
+  }, [releaseClaim]);
+
+  useEffect(() => {
+    if (connectionState === "FAILED" || connectionState === "OFFLINE") {
+      void releaseClaim("BROWSER_DISCONNECTED");
+    }
+  }, [connectionState, releaseClaim]);
+
+  const claim = useCallback(async () => {
+    if (claiming) return;
+    setClaiming(true);
+    setFailure(null);
+    const scope = `${callId}:${legId}:${sessionId}`;
+    const idempotencyKey =
+      keyRef.current?.scope === scope
+        ? keyRef.current.key
+        : `canonical-answer:${scope}:${crypto.randomUUID()}`;
+    keyRef.current = { key: idempotencyKey, scope };
+    const body = { legId, sessionId };
+    let accepted = false;
+    try {
+      const response = await fetch(`/api/portal/call-center/calls/${callId}/answer`, {
+        body: JSON.stringify(body),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        method: "POST",
+      });
+      const result = await response
+        .clone()
+        .json()
+        .catch(() => null);
+      if ((result as InboundAnswerClaimWire | null)?.status === "REJECTED") {
+        if (keyRef.current?.key === idempotencyKey) keyRef.current = null;
+        throw localCallCenterError("CALL_NOT_CONNECTED", false);
+      }
+      await callCenterResponse<InboundAnswerClaimWire>(response);
+      accepted = true;
+      reservationRef.current = { body, idempotencyKey };
+      await answer(mediaLegId);
+    } catch (error) {
+      if (accepted) {
+        await releaseClaim("BROWSER_ANSWER_FAILED").catch(() => undefined);
+      }
+      setFailure(errorMessage(error, "answer"));
+    } finally {
+      setClaiming(false);
+    }
+  }, [answer, callId, claiming, legId, mediaLegId, releaseClaim, sessionId]);
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        disabled={disabled || claiming}
+        onClick={() => void claim()}
+        size="sm"
+        variant="primary"
+      >
+        {answering || claiming ? "Answering" : "Answer"}
+      </Button>
+      {failure ? (
+        <span className="max-w-48 text-right text-xs text-red-700" role="alert">
+          {failure}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function CanonicalActiveWorkspace({
   agentProfileLabel,
   followUpHref,
@@ -227,30 +356,6 @@ function ConnectedCanonicalActiveWorkspace({
   useEffect(() => {
     setCallCenterCurrentCallGuard(activeCall?.id ?? localOffer?.id ?? null);
   }, [activeCall?.id, localOffer?.id]);
-
-  const answerCall = useCallback(
-    async (call: CallView) => {
-      if (!session) return;
-      const match = selectCanonicalBrowserMediaLeg(
-        call,
-        session.id,
-        session.endpointId,
-        mediaObservations,
-      );
-      if (!match) {
-        setActionError("This call is still connecting. Try again in a moment.");
-        return;
-      }
-
-      setActionError(null);
-      try {
-        await runtime.answer(match.observation.mediaLegId);
-      } catch (error) {
-        setActionError(errorMessage(error, "answer"));
-      }
-    },
-    [mediaObservations, runtime, session],
-  );
 
   const declineCall = useCallback(
     (call: CallView) => {
@@ -458,11 +563,24 @@ function ConnectedCanonicalActiveWorkspace({
                         mediaObservations,
                       )
                     : null;
+                  const activeReservation =
+                    call.answerReservation?.status === "ACCEPTED" ||
+                    call.answerReservation?.status === "ANSWERED"
+                      ? call.answerReservation
+                      : null;
+                  const reservedForSession = Boolean(
+                    activeReservation &&
+                    match &&
+                    activeReservation.agentSessionId === session?.id &&
+                    activeReservation.legId === match.leg.id,
+                  );
                   const answering =
+                    reservedForSession ||
                     match?.observation.mediaLegId === runtime.answeringMediaLegId;
                   const phone = formatPhone(callPhone(call));
                   let status = "Preparing";
                   if (answering) status = "Connecting…";
+                  else if (activeReservation) status = "Being answered";
                   else if (match) {
                     status = isCanonicalTransferOffer(call, session)
                       ? "Transfer ringing"
@@ -492,19 +610,26 @@ function ConnectedCanonicalActiveWorkspace({
                         >
                           Decline
                         </Button>
-                        <Button
-                          disabled={
-                            !session ||
-                            !match ||
-                            Boolean(runtime.answeringMediaLegId) ||
-                            Boolean(activeCall)
-                          }
-                          onClick={() => void answerCall(call)}
-                          size="sm"
-                          variant="primary"
-                        >
-                          {answering ? "Answering" : "Answer"}
-                        </Button>
+                        {session && match ? (
+                          <CanonicalInboundAnswerButton
+                            answer={runtime.answer}
+                            answering={answering}
+                            callId={call.id}
+                            connectionState={runtime.media.connection}
+                            disabled={
+                              Boolean(activeReservation) ||
+                              Boolean(runtime.answeringMediaLegId) ||
+                              Boolean(activeCall)
+                            }
+                            legId={match.leg.id}
+                            mediaLegId={match.observation.mediaLegId}
+                            sessionId={session.id}
+                          />
+                        ) : (
+                          <Button disabled size="sm" variant="primary">
+                            Answer
+                          </Button>
+                        )}
                       </div>
                     </li>
                   );

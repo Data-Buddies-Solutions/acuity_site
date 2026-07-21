@@ -6,12 +6,14 @@ import type {
 import { ACTIVE_INBOUND_ROUTING_EVENT } from "@/lib/call-center/application/active-inbound-routing";
 import {
   decideActiveInboundLifecycle,
+  INBOUND_ANSWER_GRACE_SECONDS,
   type ActiveInboundLifecycleDecision,
   type ActiveInboundLifecycleIntent,
 } from "@/lib/call-center/domain/active-inbound-lifecycle";
 import { canonicalVoicemailGreetingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { persistCanonicalUnansweredTask } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
+import { createLogger } from "@/lib/logger";
 
 type Transaction = Prisma.TransactionClient;
 
@@ -28,6 +30,163 @@ const LIFECYCLE_EVENT = "CALL_ACTIVE_LIFECYCLE_RECONCILED";
 type SettleAgentLegs = typeof settleCanonicalCallLegs;
 
 type LifecycleCall = NonNullable<Awaited<ReturnType<typeof loadLifecycleCall>>>;
+const logger = createLogger("call-center-active-inbound-lifecycle");
+
+function eventLegId(data: Prisma.JsonValue) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const legId = (data as Record<string, Prisma.JsonValue>).legId;
+  return typeof legId === "string" ? legId : null;
+}
+
+function reportConnectionEvidenceConflict(input: {
+  callId: string;
+  disposition: string;
+  legId: string;
+}) {
+  logger.error("inbound lifecycle settled despite provider connection evidence", {
+    callId: input.callId,
+    disposition: input.disposition,
+    errorCode: "INBOUND_CONNECTION_EVIDENCE_CONFLICT",
+    legId: input.legId,
+  });
+}
+
+async function reportLateConnectionEvidence(
+  transaction: Transaction,
+  input: { callId: string; eventType: string; legId: string },
+) {
+  if (input.eventType !== "call.answered" && input.eventType !== "call.bridged") return;
+  const settled = await transaction.callCenterCall.findUnique({
+    select: {
+      legs: {
+        select: { errorCode: true },
+        where: { id: input.legId },
+      },
+      status: true,
+    },
+    where: { id: input.callId },
+  });
+  if (
+    settled &&
+    (["VOICEMAIL", "ABANDONED"].includes(settled.status) ||
+      settled.legs[0]?.errorCode === "OFFER_TIMEOUT")
+  ) {
+    reportConnectionEvidenceConflict({
+      callId: input.callId,
+      disposition: settled.status,
+      legId: input.legId,
+    });
+  }
+}
+
+function addSeconds(date: Date, seconds: number) {
+  return new Date(date.getTime() + seconds * 1_000);
+}
+
+export async function projectActiveInboundAnswerReservation(
+  transaction: Transaction,
+  input: {
+    callId: string;
+    eventType: string;
+    hardDeadlineAt: Date | null;
+    legId: string;
+    occurredAt: Date;
+    practiceId: string;
+    providerEventId: string;
+  },
+) {
+  await reportLateConnectionEvidence(transaction, input);
+  const reservation = await transaction.callCenterAnswerReservation.findUnique({
+    where: { callId: input.callId },
+  });
+  if (!reservation || reservation.legId !== input.legId) return null;
+
+  let data:
+    | {
+        answeredAt: Date;
+        expiresAt: Date;
+        status: "ANSWERED";
+      }
+    | { bridgedAt: Date; status: "BRIDGED" }
+    | { releasedAt: Date; status: "RELEASED" }
+    | {
+        failureCode: "PROVIDER_HANGUP_BEFORE_BRIDGE";
+        releasedAt: Date;
+        status: "FAILED";
+      }
+    | null = null;
+  let eventType: string | null = null;
+  let fromStatuses: Array<"ACCEPTED" | "ANSWERED"> = ["ACCEPTED", "ANSWERED"];
+
+  if (input.eventType === "call.answered") {
+    const graceDeadline = addSeconds(input.occurredAt, INBOUND_ANSWER_GRACE_SECONDS);
+    data = {
+      answeredAt: input.occurredAt,
+      expiresAt:
+        input.hardDeadlineAt && input.hardDeadlineAt < graceDeadline
+          ? input.hardDeadlineAt
+          : graceDeadline,
+      status: "ANSWERED",
+    };
+    eventType = "CALL_ANSWER_PROVIDER_ANSWERED";
+  } else if (input.eventType === "call.bridged") {
+    data = { bridgedAt: input.occurredAt, status: "BRIDGED" };
+    eventType = "CALL_ANSWER_PROVIDER_BRIDGED";
+  } else if (input.eventType === "call.hangup") {
+    if (reservation.status === "BRIDGED") {
+      data = { releasedAt: input.occurredAt, status: "RELEASED" };
+      eventType = "CALL_ANSWER_RELEASED";
+      fromStatuses = ["ACCEPTED", "ANSWERED"];
+    } else {
+      data = {
+        failureCode: "PROVIDER_HANGUP_BEFORE_BRIDGE",
+        releasedAt: input.occurredAt,
+        status: "FAILED",
+      };
+      eventType = "CALL_ANSWER_FAILED";
+    }
+  }
+  if (!data || !eventType) return reservation;
+
+  if (input.eventType === "call.answered") fromStatuses = ["ACCEPTED"];
+  const updated = await transaction.callCenterAnswerReservation.updateMany({
+    data,
+    where: {
+      id: reservation.id,
+      legId: input.legId,
+      status:
+        input.eventType === "call.hangup" && reservation.status === "BRIDGED"
+          ? "BRIDGED"
+          : { in: fromStatuses },
+    },
+  });
+  if (updated.count !== 1) return reservation;
+
+  await transaction.callCenterEvent.upsert({
+    create: {
+      aggregateId: input.callId,
+      aggregateType: "CALL",
+      data: {
+        legId: input.legId,
+        providerEventId: input.providerEventId,
+        reservationId: reservation.id,
+      },
+      idempotencyKey: `telnyx:${input.providerEventId}`,
+      occurredAt: input.occurredAt,
+      practiceId: input.practiceId,
+      type: eventType,
+    },
+    update: {},
+    where: {
+      practiceId_type_idempotencyKey: {
+        idempotencyKey: `telnyx:${input.providerEventId}`,
+        practiceId: input.practiceId,
+        type: eventType,
+      },
+    },
+  });
+  return { ...reservation, ...data };
+}
 
 async function loadLifecycleCall(
   transaction: Transaction,
@@ -37,6 +196,14 @@ async function loadLifecycleCall(
   return transaction.callCenterCall.findFirst({
     select: {
       answeredAt: true,
+      answerReservation: {
+        select: {
+          expiresAt: true,
+          id: true,
+          legId: true,
+          status: true,
+        },
+      },
       deadlineAt: true,
       direction: true,
       id: true,
@@ -44,6 +211,7 @@ async function loadLifecycleCall(
         select: {
           id: true,
           kind: true,
+          answeredAt: true,
           status: true,
         },
       },
@@ -58,6 +226,7 @@ async function loadLifecycleCall(
       queueId: true,
       stateVersion: true,
       status: true,
+      hardDeadlineAt: true,
       winningLegId: true,
     },
     where: { id: callId, practiceId },
@@ -254,7 +423,12 @@ async function persistState(
       });
       return;
     case "WAITING_FOR_AGENT":
-      if (call.deadlineAt) return;
+      if (
+        call.status === decision.status &&
+        call.deadlineAt?.getTime() === decision.deadlineAt?.getTime()
+      ) {
+        return;
+      }
       await transaction.callCenterCall.update({
         data: {
           ...common,
@@ -305,13 +479,64 @@ async function reconcileLockedCall(
     return { callId: input.callId, commandIds: [], decision: null, status: "SKIPPED" };
   }
 
+  let answerReservation = call.answerReservation;
+  if (
+    answerReservation &&
+    ["ACCEPTED", "ANSWERED"].includes(answerReservation.status) &&
+    (answerReservation.expiresAt <= now ||
+      Boolean(call.hardDeadlineAt && call.hardDeadlineAt <= now))
+  ) {
+    const expired = await transaction.callCenterAnswerReservation.updateMany({
+      data: { releasedAt: now, status: "EXPIRED" },
+      where: {
+        id: answerReservation.id,
+        status: { in: ["ACCEPTED", "ANSWERED"] },
+      },
+    });
+    if (expired.count === 1) {
+      await transaction.callCenterEvent.upsert({
+        create: {
+          aggregateId: call.id,
+          aggregateType: "CALL",
+          data: {
+            legId: answerReservation.legId,
+            reservationId: answerReservation.id,
+          },
+          idempotencyKey: answerReservation.id,
+          occurredAt: now,
+          practiceId: call.practiceId,
+          type: "CALL_ANSWER_RESERVATION_EXPIRED",
+        },
+        update: {},
+        where: {
+          practiceId_type_idempotencyKey: {
+            idempotencyKey: answerReservation.id,
+            practiceId: call.practiceId,
+            type: "CALL_ANSWER_RESERVATION_EXPIRED",
+          },
+        },
+      });
+      answerReservation = null;
+    }
+  }
+
   const decision = decideActiveInboundLifecycle({
     agentLegs: call.legs
       .filter((leg) => leg.kind === "AGENT")
-      .map((leg) => ({ id: leg.id, status: leg.status })),
+      .map((leg) => ({ answeredAt: leg.answeredAt, id: leg.id, status: leg.status })),
+    answerReservation:
+      answerReservation &&
+      ["ACCEPTED", "ANSWERED", "BRIDGED"].includes(answerReservation.status)
+        ? {
+            expiresAt: answerReservation.expiresAt,
+            legId: answerReservation.legId,
+            status: answerReservation.status as "ACCEPTED" | "ANSWERED" | "BRIDGED",
+          }
+        : null,
     callId: call.id,
     customerLegId: customerLeg.id,
     deadlineAt: call.deadlineAt,
+    hardDeadlineAt: call.hardDeadlineAt,
     now,
     processedBridgeLegId: input.processedBridgeLegId,
     queue: {
@@ -322,6 +547,27 @@ async function reconcileLockedCall(
   });
 
   const commandIds: string[] = [];
+  if (["VOICEMAIL", "ABANDONED"].includes(decision.disposition)) {
+    const [evidence] = await transaction.callCenterEvent.findMany({
+      orderBy: { revision: "desc" },
+      select: { data: true },
+      take: 1,
+      where: {
+        aggregateId: call.id,
+        aggregateType: "CALL",
+        practiceId: call.practiceId,
+        type: { in: ["CALL_ANSWER_PROVIDER_ANSWERED", "CALL_ANSWER_PROVIDER_BRIDGED"] },
+      },
+    });
+    const legId = evidence ? eventLegId(evidence.data) : null;
+    if (legId) {
+      reportConnectionEvidenceConflict({
+        callId: call.id,
+        disposition: decision.disposition,
+        legId,
+      });
+    }
+  }
   const agentLegIds = new Set(
     call.legs.filter((leg) => leg.kind === "AGENT").map(({ id }) => id),
   );

@@ -424,7 +424,9 @@ async function findAndBindLegIdentity(tx: AdmissionTransaction, raw: RawIdentity
   const match = matches[0];
   if (!match) return null;
 
-  await lockCallCenterPractice(tx, match.call.practiceId);
+  await tx.$queryRaw(
+    Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${match.call.id} FOR UPDATE`,
+  );
   await tx.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call_leg" WHERE "id" = ${match.id} FOR UPDATE`,
   );
@@ -469,7 +471,9 @@ async function findByCustomerSession(tx: AdmissionTransaction, raw: RawIdentity)
   if (raw.canonicalCallId && raw.canonicalCallId !== call.id) {
     throw new TelnyxEventAdmissionError("TELNYX_EVENT_IDENTITY_MISMATCH");
   }
-  await lockCallCenterPractice(tx, call.practiceId);
+  await tx.$queryRaw(
+    Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${call.id} FOR UPDATE`,
+  );
   return call.id;
 }
 

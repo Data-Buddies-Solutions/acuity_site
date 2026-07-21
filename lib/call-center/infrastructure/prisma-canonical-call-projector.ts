@@ -7,6 +7,7 @@ import {
   terminalCallObservation,
   type CanonicalLegStatus,
 } from "@/lib/call-center/domain/canonical-call-state";
+import { projectInboundOfferTiming } from "@/lib/call-center/domain/active-inbound-lifecycle";
 import { canonicalVoicemailRecordingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
@@ -22,7 +23,10 @@ import {
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
 import { settleCompetingAgentOffers } from "@/lib/call-center/infrastructure/prisma-agent-offer-settlement";
-import { reconcileActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-lifecycle-store";
+import {
+  projectActiveInboundAnswerReservation,
+  reconcileActiveInboundCallInTransaction,
+} from "@/lib/call-center/infrastructure/prisma-active-inbound-lifecycle-store";
 import {
   resolveCanonicalTelnyxCallObservations,
   resolveCanonicalTelnyxLegKind,
@@ -747,10 +751,7 @@ async function resolveCanonicalCustomerCall(
   const existing = await tx.callCenterCall.findUnique({
     where: { providerCallSessionId: fact.providerCallSessionId },
   });
-  if (existing) {
-    await lockCallCenterPractice(tx, existing.practiceId);
-    return existing;
-  }
+  if (existing) return existing;
 
   if (!fact.direction) throw new CanonicalProjectionError("CANONICAL_DIRECTION_MISSING");
   const { callerPhone, practicePhone } = customerPhones(fact, fact.direction);
@@ -827,7 +828,6 @@ async function resolveProjectionCall(
   const resolved = leg
     ? { call: leg.call, endpointId: leg.endpointId }
     : await resolveAgentContext(tx, fact);
-  await lockCallCenterPractice(tx, resolved.call.practiceId);
   return resolved;
 }
 
@@ -1325,6 +1325,17 @@ function createProjectAndComplete(
         include: { call: true },
         where: { id: leg.id },
       });
+      if (call.direction === "INBOUND" && leg.kind === "AGENT") {
+        await projectActiveInboundAnswerReservation(tx, {
+          callId: call.id,
+          eventType: resolvedFact.eventType,
+          hardDeadlineAt: call.hardDeadlineAt,
+          legId: leg.id,
+          occurredAt: resolvedFact.occurredAt,
+          practiceId: call.practiceId,
+          providerEventId: event.providerEventId,
+        });
+      }
 
       const mediaCommandCallback = [
         "call.playback.started",
@@ -1464,14 +1475,27 @@ function createProjectAndComplete(
         identity.fromPhone !== call.fromPhone ||
         identity.toPhone !== call.toPhone ||
         identity.receivedAt.getTime() !== call.receivedAt.getTime();
+      const offerTiming = projectInboundOfferTiming({
+        deadlineAt: call.deadlineAt,
+        direction: call.direction,
+        eventType: resolvedFact.eventType,
+        firstAgentInitiatedAt: call.firstAgentInitiatedAt,
+        hardDeadlineAt: call.hardDeadlineAt,
+        legKind: resolvedFact.legKind,
+        occurredAt: resolvedFact.occurredAt,
+      });
 
       call = normalizeCanonicalCallState(
         await tx.callCenterCall.update({
           data: {
             answeredAt: nextCall.answeredAt,
             callerName: identity.callerName,
-            deadlineAt: projectedCallDeadline(call, resolvedFact),
+            deadlineAt: projectedCallDeadline(
+              { ...call, deadlineAt: offerTiming.deadlineAt },
+              resolvedFact,
+            ),
             endedAt: nextCall.endedAt,
+            firstAgentInitiatedAt: offerTiming.firstAgentInitiatedAt,
             firstRingAt: nextCall.firstRingAt,
             fromPhone: identity.fromPhone,
             queuedAt: nextCall.queuedAt,
