@@ -90,8 +90,10 @@ async function responseJson<T>(response: Response): Promise<T> {
   return callCenterResponse<T>(response);
 }
 
-type AgentSessionPatch = Readiness & {
-  availabilityChange?: boolean;
+type AgentSessionPatch = Pick<
+  Readiness,
+  "audioReady" | "connectionState" | "microphoneReady"
+> & {
   availabilityIntent?: AgentAvailabilityIntent;
   expectedStateVersion: number;
 };
@@ -106,6 +108,16 @@ async function patchActiveSession(active: ActiveSession, update: AgentSessionPat
     },
   );
   return (await responseJson<SessionResponse>(response)).session;
+}
+
+function heartbeatAvailabilityIntent(readiness: Readiness) {
+  const intent = resolveAgentAvailabilityIntent(readiness.presence);
+  return intent === "AVAILABLE" &&
+    (readiness.connectionState !== "READY" ||
+      !readiness.microphoneReady ||
+      !readiness.audioReady)
+    ? undefined
+    : intent;
 }
 
 async function acquireSession(clientInstanceId: string): Promise<ActiveSession> {
@@ -221,14 +233,14 @@ export function useCanonicalAgentSession({
     const request = (async () => {
       const heartbeatPresence = canonicalHeartbeatPresence(readinessRef.current.presence);
       const next = await patchActiveSession(active, {
-        ...readinessRef.current,
-        availabilityIntent:
-          heartbeatPresence === "OFFLINE"
-            ? undefined
-            : resolveAgentAvailabilityIntent(heartbeatPresence),
+        audioReady: readinessRef.current.audioReady,
+        availabilityIntent: heartbeatAvailabilityIntent({
+          ...readinessRef.current,
+          presence: heartbeatPresence,
+        }),
         connectionState: canonicalStartupConnectionState(readinessRef.current),
         expectedStateVersion: requestedStateVersion,
-        presence: heartbeatPresence,
+        microphoneReady: readinessRef.current.microphoneReady,
       });
       active.session = next;
 
@@ -621,12 +633,11 @@ export function useCanonicalAgentSession({
         try {
           const requestedStateVersion = active.session.stateVersion;
           const next = await patchActiveSession(active, {
-            ...readinessRef.current,
-            availabilityChange: true,
+            audioReady: readinessRef.current.audioReady,
             availabilityIntent,
             connectionState: canonicalStartupConnectionState(readinessRef.current),
             expectedStateVersion: requestedStateVersion,
-            presence: availabilityIntent,
+            microphoneReady: readinessRef.current.microphoneReady,
           });
           active.session = next;
           readinessRef.current = {

@@ -122,7 +122,7 @@ function availabilityRecoveryMessage(
   return null;
 }
 
-export function AvailabilityControl({
+function AvailabilityControl({
   error,
   occupied,
   onChange,
@@ -474,7 +474,7 @@ function ConnectedCanonicalActiveWorkspace({
     return [
       ...selectedQueueCalls,
       ...transfers.filter((call) => !selectedQueueCalls.some(({ id }) => id === call.id)),
-    ];
+    ].filter((call) => selectLiveCallOwnership(call) !== null);
   }, [session, state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
   const hasActiveOutboundCall = activeCall?.direction === "OUTBOUND";
@@ -506,6 +506,17 @@ function ConnectedCanonicalActiveWorkspace({
   const callingReady = Boolean(
     session && !availabilityRecovery && isAgentSessionViewReady(session),
   );
+
+  const copyPhone = async (callId: string, phone: string) => {
+    setActionError(null);
+    try {
+      await navigator.clipboard.writeText(phone);
+      setCopiedCallId(callId);
+    } catch {
+      setCopiedCallId((current) => (current === callId ? null : current));
+      setActionError("Phone number could not be copied. Try again.");
+    }
+  };
 
   useEffect(() => {
     setCallCenterCurrentCallGuard(activeCall?.id ?? localOffer?.id ?? null);
@@ -790,6 +801,7 @@ function ConnectedCanonicalActiveWorkspace({
                   const rawPhone = callPhone(call);
                   const phone = formatPhone(rawPhone);
                   const ownership = selectLiveCallOwnership(call);
+                  if (!ownership) return null;
                   const sharedStatus =
                     transferOffer && match
                       ? "Transfer ringing"
@@ -832,9 +844,7 @@ function ConnectedCanonicalActiveWorkspace({
                             call.direction === "OUTBOUND" ? "recipient" : "caller"
                           } phone number`}
                           onClick={() => {
-                            void navigator.clipboard.writeText(rawPhone).then(() => {
-                              setCopiedCallId(call.id);
-                            });
+                            void copyPhone(call.id, rawPhone);
                           }}
                           size="sm"
                           type="button"
