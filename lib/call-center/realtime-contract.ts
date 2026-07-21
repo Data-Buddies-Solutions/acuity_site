@@ -71,7 +71,9 @@ export function selectInboundCallOwnership(call: CallView): {
       (leg) =>
         leg.id === call.winningLegId && leg.kind === "AGENT" && leg.status === "BRIDGED",
     );
-    return winner ? { endpointLabel: winner.endpointLabel, state: "ANSWERED" } : null;
+    return winner?.endpointLabel
+      ? { endpointLabel: winner.endpointLabel, state: "ANSWERED" }
+      : null;
   }
 
   const answeringLegs = call.legs.filter(
