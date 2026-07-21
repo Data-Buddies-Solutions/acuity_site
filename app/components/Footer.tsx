@@ -34,6 +34,7 @@ const footerGroups = [
   {
     title: "Company",
     links: [
+      { href: "/values", label: "Mission & values" },
       { href: "/about", label: "About" },
       { href: "/portal", label: "Practice Portal" },
       { href: SITE_CONFIG.calendarLink, label: "Book a demo", external: true },

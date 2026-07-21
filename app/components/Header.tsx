@@ -42,12 +42,14 @@ export default function Header() {
         </Link>
 
         <nav
-          className="hidden items-center gap-8 lg:flex"
+          className="hidden items-center gap-5 lg:flex xl:gap-8"
           aria-label="Primary navigation"
         >
           <HeaderLink href="/#product">Product</HeaderLink>
           <HeaderMenu label="Specialties" links={specialtyLinks} />
           <HeaderLink href="/#proof">Proof</HeaderLink>
+          <HeaderLink href="/values">Mission & values</HeaderLink>
+          <HeaderLink href="/about">About</HeaderLink>
           <HeaderMenu label="Resources" links={resourceLinks} />
         </nav>
 
@@ -98,6 +100,8 @@ export default function Header() {
                 <div className="space-y-5">
                   <MobileLink href="/#product">Product</MobileLink>
                   <MobileLink href="/#proof">Proof</MobileLink>
+                  <MobileLink href="/values">Mission & values</MobileLink>
+                  <MobileLink href="/about">About</MobileLink>
                 </div>
 
                 <MobileGroup label="Specialties" links={specialtyLinks} />
