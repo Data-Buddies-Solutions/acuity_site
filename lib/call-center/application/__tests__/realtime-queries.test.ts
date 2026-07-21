@@ -692,6 +692,35 @@ describe("call center snapshot", () => {
     });
   });
 
+  it("keeps the canonical outbound winner while a transfer target connects", () => {
+    const source = outboundSnapshotCall("call-transfer", "location-1");
+    const call = serializeCall(
+      {
+        ...source,
+        legs: [
+          source.legs[0],
+          {
+            ...source.legs[0],
+            agentSessionId: "session-2",
+            endpoint: { label: "Front Desk 2", practiceId: "practice-1" },
+            endpointId: "endpoint-2",
+            id: "call-transfer-target-leg",
+            providerCallControlId: "control-2",
+            providerCallLegId: "provider-leg-2",
+            providerCallSessionId: "provider-session-2",
+          },
+        ],
+        winningLegId: "call-transfer-leg",
+      },
+      now,
+    );
+
+    expect(selectLiveCallOwnership(call)).toEqual({
+      endpointLabel: "Front Desk 1",
+      state: "ANSWERED",
+    });
+  });
+
   it("fails closed when endpoint or office ownership crosses the call practice", () => {
     const call = serializeCall(
       {
