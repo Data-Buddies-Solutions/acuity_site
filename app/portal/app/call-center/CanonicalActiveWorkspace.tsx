@@ -106,7 +106,7 @@ type InboundAnswerClaimWire =
   | { replayed: boolean; reservation: { id: string }; status: "ACCEPTED" }
   | { reason: string; status: "REJECTED" };
 
-export function CanonicalInboundAnswerButton({
+export function CanonicalOfferAnswerButton({
   answer,
   answering,
   callId,
@@ -115,6 +115,7 @@ export function CanonicalInboundAnswerButton({
   legId,
   mediaLegId,
   sessionId,
+  transferOffer = false,
 }: {
   answer(mediaLegId: string): Promise<void>;
   answering: boolean;
@@ -124,8 +125,9 @@ export function CanonicalInboundAnswerButton({
   legId: string;
   mediaLegId: string;
   sessionId: string;
+  transferOffer?: boolean;
 }) {
-  const [claiming, setClaiming] = useState(false);
+  const [answerPending, setAnswerPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const keyRef = useRef<{ key: string; scope: string } | null>(null);
   const reservationRef = useRef<{
@@ -169,10 +171,20 @@ export function CanonicalInboundAnswerButton({
     }
   }, [connectionState, releaseClaim]);
 
-  const claim = useCallback(async () => {
-    if (claiming) return;
-    setClaiming(true);
+  const answerOffer = useCallback(async () => {
+    if (answerPending) return;
+    setAnswerPending(true);
     setFailure(null);
+    if (transferOffer) {
+      try {
+        await answer(mediaLegId);
+      } catch (error) {
+        setFailure(errorMessage(error, "answer"));
+      } finally {
+        setAnswerPending(false);
+      }
+      return;
+    }
     const scope = `${callId}:${legId}:${sessionId}`;
     const idempotencyKey =
       keyRef.current?.scope === scope
@@ -208,19 +220,28 @@ export function CanonicalInboundAnswerButton({
       }
       setFailure(errorMessage(error, "answer"));
     } finally {
-      setClaiming(false);
+      setAnswerPending(false);
     }
-  }, [answer, callId, claiming, legId, mediaLegId, releaseClaim, sessionId]);
+  }, [
+    answer,
+    answerPending,
+    callId,
+    legId,
+    mediaLegId,
+    releaseClaim,
+    sessionId,
+    transferOffer,
+  ]);
 
   return (
     <div className="flex flex-col items-end gap-1">
       <Button
-        disabled={disabled || claiming}
-        onClick={() => void claim()}
+        disabled={disabled || answerPending}
+        onClick={() => void answerOffer()}
         size="sm"
         variant="primary"
       >
-        {answering || claiming ? "Answering" : "Answer"}
+        {answering || answerPending ? "Answering" : "Answer"}
       </Button>
       {failure ? (
         <span className="max-w-48 text-right text-xs text-red-700" role="alert">
@@ -621,6 +642,7 @@ function ConnectedCanonicalActiveWorkspace({
             {incomingCalls.length ? (
               <ul className="space-y-3">
                 {incomingCalls.map((call) => {
+                  const transferOffer = isCanonicalTransferOffer(call, session);
                   const match = session
                     ? selectCanonicalBrowserMediaLeg(
                         call,
@@ -630,8 +652,9 @@ function ConnectedCanonicalActiveWorkspace({
                       )
                     : null;
                   const activeReservation =
-                    call.answerReservation?.status === "ACCEPTED" ||
-                    call.answerReservation?.status === "ANSWERED"
+                    !transferOffer &&
+                    (call.answerReservation?.status === "ACCEPTED" ||
+                      call.answerReservation?.status === "ANSWERED")
                       ? call.answerReservation
                       : null;
                   const reservedForSession = Boolean(
@@ -648,9 +671,7 @@ function ConnectedCanonicalActiveWorkspace({
                   if (answering) status = "Connecting…";
                   else if (activeReservation) status = "Being answered";
                   else if (match) {
-                    status = isCanonicalTransferOffer(call, session)
-                      ? "Transfer ringing"
-                      : "Ringing";
+                    status = transferOffer ? "Transfer ringing" : "Ringing";
                   }
 
                   return (
@@ -677,7 +698,7 @@ function ConnectedCanonicalActiveWorkspace({
                           Decline
                         </Button>
                         {session && match ? (
-                          <CanonicalInboundAnswerButton
+                          <CanonicalOfferAnswerButton
                             answer={runtime.answer}
                             answering={answering}
                             callId={call.id}
@@ -690,6 +711,7 @@ function ConnectedCanonicalActiveWorkspace({
                             legId={match.leg.id}
                             mediaLegId={match.observation.mediaLegId}
                             sessionId={session.id}
+                            transferOffer={transferOffer}
                           />
                         ) : (
                           <Button disabled size="sm" variant="primary">

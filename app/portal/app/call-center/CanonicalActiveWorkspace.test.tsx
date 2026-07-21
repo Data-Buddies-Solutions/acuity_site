@@ -5,7 +5,7 @@ import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-cont
 
 import {
   CanonicalActiveCall,
-  CanonicalInboundAnswerButton,
+  CanonicalOfferAnswerButton,
   OperatorStateWarning,
 } from "./CanonicalActiveWorkspace";
 import { CallConnectionStatus } from "./CallConnectionStatus";
@@ -167,7 +167,34 @@ function withMediaState(
   };
 }
 
-describe("canonical inbound Answer", () => {
+describe("canonical offer Answer", () => {
+  it("answers a transfer offer without claiming the connected call as inbound", async () => {
+    globalThis.fetch = mock(async () => {
+      throw new Error("transfer offers must not use the inbound Answer claim");
+    }) as unknown as typeof fetch;
+    const answer = mock(async () => {});
+
+    render(
+      <CanonicalOfferAnswerButton
+        answer={answer}
+        answering={false}
+        callId="call-1"
+        connectionState="READY"
+        disabled={false}
+        legId="leg-1"
+        mediaLegId="media-leg-1"
+        sessionId="session-1"
+        transferOffer
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+
+    expect(answer).toHaveBeenCalledWith("media-leg-1");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("persists the Answer claim before invoking provider media", async () => {
     const order: string[] = [];
     globalThis.fetch = mock(async () => {
@@ -186,7 +213,7 @@ describe("canonical inbound Answer", () => {
     });
 
     render(
-      <CanonicalInboundAnswerButton
+      <CanonicalOfferAnswerButton
         answer={answer}
         answering={false}
         callId="call-1"
@@ -222,7 +249,7 @@ describe("canonical inbound Answer", () => {
     const answer = mock(async () => {});
 
     render(
-      <CanonicalInboundAnswerButton
+      <CanonicalOfferAnswerButton
         answer={answer}
         answering={false}
         callId="call-1"
@@ -271,7 +298,7 @@ describe("canonical inbound Answer", () => {
     });
 
     render(
-      <CanonicalInboundAnswerButton
+      <CanonicalOfferAnswerButton
         answer={answer}
         answering={false}
         callId="call-1"
@@ -319,7 +346,7 @@ describe("canonical inbound Answer", () => {
           );
     }) as unknown as typeof fetch;
     const view = render(
-      <CanonicalInboundAnswerButton
+      <CanonicalOfferAnswerButton
         answer={mock(async () => {})}
         answering={false}
         callId="call-1"
@@ -363,7 +390,7 @@ describe("canonical inbound Answer", () => {
           );
     }) as unknown as typeof fetch;
     const view = render(
-      <CanonicalInboundAnswerButton
+      <CanonicalOfferAnswerButton
         answer={mock(async () => {})}
         answering={false}
         callId="call-1"
@@ -378,7 +405,7 @@ describe("canonical inbound Answer", () => {
       fireEvent.click(screen.getByRole("button", { name: "Answer" }));
     });
     view.rerender(
-      <CanonicalInboundAnswerButton
+      <CanonicalOfferAnswerButton
         answer={mock(async () => {})}
         answering
         callId="call-1"
@@ -416,7 +443,7 @@ describe("canonical inbound Answer", () => {
       );
     }) as unknown as typeof fetch;
     const view = render(
-      <CanonicalInboundAnswerButton
+      <CanonicalOfferAnswerButton
         answer={mock(async () => {})}
         answering={false}
         callId="call-1"
@@ -431,7 +458,7 @@ describe("canonical inbound Answer", () => {
       fireEvent.click(screen.getByRole("button", { name: "Answer" }));
     });
     view.rerender(
-      <CanonicalInboundAnswerButton
+      <CanonicalOfferAnswerButton
         answer={mock(async () => {})}
         answering={false}
         callId="call-1"
