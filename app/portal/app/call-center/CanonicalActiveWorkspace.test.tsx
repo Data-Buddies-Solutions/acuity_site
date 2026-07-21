@@ -49,7 +49,7 @@ function connectedCall(direction: CallView["direction"]): CallView {
       {
         agentSessionId: "session-1",
         endpointId: "endpoint-1",
-        endpointLabel: null,
+        endpointLabel: "Front Desk 1",
         id: "agent-leg-1",
         kind: "AGENT",
         providerCallControlId: "control-1",
@@ -471,6 +471,15 @@ describe("call readiness", () => {
 
     await screen.findByText("No callers waiting. You're ready for calls.");
     expect(screen.queryByText("(954) 609-7250")).toBeNull();
+  });
+
+  it("hides a connected inbound call whose winning seat has no label", async () => {
+    const call = connectedCall("INBOUND");
+    call.legs[0]!.endpointLabel = null;
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
   });
 
   it("shows canonical answer evidence with the answering endpoint seat", async () => {
