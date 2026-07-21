@@ -696,6 +696,9 @@ export function CanonicalActiveCall({
     held: boolean;
     mediaLegId: string;
   } | null>(null);
+  const [previousMediaConnection, setPreviousMediaConnection] = useState(
+    media.connection,
+  );
   const [isMuted, setMuted] = useState(false);
   const [keypadOpen, setKeypadOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -711,6 +714,17 @@ export function CanonicalActiveCall({
     null,
   );
   const outboundAnsweringRef = useRef<string | null>(null);
+
+  // Optimistic hold state belongs to one uninterrupted provider connection.
+  // Reset it before rendering a disconnected state so recovery cannot repaint it.
+  if (previousMediaConnection !== media.connection) {
+    setPreviousMediaConnection(media.connection);
+    if (media.connection !== "READY") {
+      setHoldPending(false);
+      setLocalHoldState(null);
+    }
+  }
+
   const transferInProgress = transferring || hasCanonicalPendingTransfer(call);
   const match = sessionId
     ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
@@ -768,9 +782,6 @@ export function CanonicalActiveCall({
   useEffect(() => {
     if (media.connection !== "READY") {
       holdOperationRef.current = null;
-      // Provider disconnects invalidate every optimistic hold transition.
-      setHoldPending(false);
-      setLocalHoldState(null);
     }
   }, [media.connection]);
 
