@@ -1,7 +1,5 @@
-import {
-  CALL_DISPOSITIONS,
-  type operatorFollowUp,
-} from "@/lib/call-center/operator-follow-up";
+import { CALL_DISPOSITIONS } from "@/lib/call-center/operator-follow-up";
+import type { operatorFollowUp } from "@/lib/call-center/operator-follow-up-runtime";
 import { normalizePhone } from "@/lib/phone";
 
 const CALL_CENTER_MUTATION_ERROR = "Call center action could not be completed";

@@ -412,31 +412,10 @@ class PrismaOperatorFollowUpStore implements OperatorFollowUpStore {
       prisma.$transaction(operation),
   ) {}
 
-  findVoicemail(actor: QueueAccessActor, recordingId: string) {
-    return prisma.callCenterVoicemail.findFirst({
-      select: {
-        durationSec: true,
-        id: true,
-        recordingUrl: true,
-      },
-      where: {
-        callCenterCall: callAccess(actor, undefined, undefined),
-        recordingId,
-      },
-    });
-  }
-
   transaction<T>(operation: (transaction: OperatorFollowUpTransaction) => Promise<T>) {
     return this.run((transaction) =>
       operation(new PrismaOperatorFollowUpTransaction(transaction)),
     );
-  }
-
-  async updateVoicemail(
-    id: string,
-    update: { durationSec?: number; listenedAt?: Date; recordingUrl?: string },
-  ) {
-    await prisma.callCenterVoicemail.update({ data: update, where: { id } });
   }
 }
 

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createCallCenterActionHandlers } from "@/app/portal/app/call-center/action-handlers";
-import { operatorFollowUp } from "@/lib/call-center/operator-follow-up";
+import { operatorFollowUp } from "@/lib/call-center/operator-follow-up-runtime";
 import { reportCallCenterError } from "@/lib/call-center/operator-error-response";
 import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 

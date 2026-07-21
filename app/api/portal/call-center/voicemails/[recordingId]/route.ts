@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { operatorFollowUp } from "@/lib/call-center/operator-follow-up";
 import {
   CallCenterOperatorError,
   withCallCenterApiHandler,
 } from "@/lib/call-center/operator-error-response";
+import { voicemailPlayback } from "@/lib/call-center/voicemail-playback";
 import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export const GET = withCallCenterApiHandler(
     if (!context) {
       throw new CallCenterOperatorError("AUTH_REQUIRED", 401);
     }
-    const playback = await operatorFollowUp.playVoicemail(
+    const playback = await voicemailPlayback.play(
       {
         allowedLocationIds: context.allowedLocationIds,
         hasAllLocationAccess: context.hasAllLocationAccess,

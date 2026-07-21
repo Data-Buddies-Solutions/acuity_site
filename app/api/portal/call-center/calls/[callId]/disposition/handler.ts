@@ -3,10 +3,8 @@ import { z } from "zod";
 
 import { ApiError, parseJsonBody } from "@/lib/api/handler";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
-import {
-  CALL_DISPOSITIONS,
-  operatorFollowUp,
-} from "@/lib/call-center/operator-follow-up";
+import { CALL_DISPOSITIONS } from "@/lib/call-center/operator-follow-up";
+import { operatorFollowUp } from "@/lib/call-center/operator-follow-up-runtime";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z

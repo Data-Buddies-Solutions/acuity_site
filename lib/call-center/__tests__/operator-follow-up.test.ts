@@ -112,9 +112,7 @@ function followUpHarness() {
   return {
     events,
     followUp: createOperatorFollowUp({
-      findVoicemail: async () => null,
       transaction: async (operation) => operation(transaction),
-      updateVoicemail: async () => {},
     }),
     state: {
       get callVersion() {
@@ -250,52 +248,5 @@ describe("operator follow-up module", () => {
       }),
     ).rejects.toMatchObject({ status: 404 });
     expect(events).toEqual([]);
-  });
-
-  it("authorizes voicemail playback and commits provider metadata after audio opens", async () => {
-    let update: unknown;
-    const now = new Date("2026-07-20T12:00:00.000Z");
-    const followUp = createOperatorFollowUp(
-      {
-        findVoicemail: async () => ({
-          durationSec: 10,
-          id: "voicemail-1",
-          recordingUrl: "https://stored.test/recording.mp3",
-        }),
-        transaction: async () => {
-          throw new Error("unused");
-        },
-        updateVoicemail: async (id, data) => {
-          update = { data, id };
-        },
-      },
-      {
-        fetchAudio: async () =>
-          new Response("audio", {
-            headers: { "content-type": "audio/mpeg" },
-          }),
-        fetchRecordingMetadata: async () => ({
-          durationSec: 12,
-          recordingUrl: "https://provider.test/recording.mp3",
-        }),
-      },
-    );
-
-    const playback = await followUp.playVoicemail(
-      actor,
-      { range: null, recordingId: "recording-1" },
-      now,
-    );
-
-    expect(playback.status).toBe(200);
-    expect(playback.headers.get("content-type")).toBe("audio/mpeg");
-    expect(update).toEqual({
-      data: {
-        durationSec: 12,
-        listenedAt: now,
-        recordingUrl: "https://provider.test/recording.mp3",
-      },
-      id: "voicemail-1",
-    });
   });
 });

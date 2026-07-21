@@ -7,8 +7,6 @@ import {
   type OperationReceiptTransaction,
 } from "@/lib/call-center/application/operation-receipts";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
-import { fetchTelnyxRecordingMetadata } from "@/lib/call-center/infrastructure/telnyx-recording";
-import { prismaOperatorFollowUpStore } from "@/lib/call-center/infrastructure/prisma-operator-follow-up-store";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
 
 export const CALL_DISPOSITIONS = [
@@ -84,21 +82,9 @@ export interface OperatorFollowUpTransaction extends OperationReceiptTransaction
 }
 
 export interface OperatorFollowUpStore {
-  findVoicemail(
-    actor: QueueAccessActor,
-    recordingId: string,
-  ): Promise<{
-    durationSec: number;
-    id: string;
-    recordingUrl: string;
-  } | null>;
   transaction<T>(
     operation: (transaction: OperatorFollowUpTransaction) => Promise<T>,
   ): Promise<T>;
-  updateVoicemail(
-    id: string,
-    update: { durationSec?: number; listenedAt?: Date; recordingUrl?: string },
-  ): Promise<void>;
 }
 
 export class OperatorFollowUpError extends Error {
@@ -110,11 +96,6 @@ export class OperatorFollowUpError extends Error {
     this.name = "OperatorFollowUpError";
   }
 }
-
-type OperatorFollowUpProviders = {
-  fetchAudio(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-  fetchRecordingMetadata: typeof fetchTelnyxRecordingMetadata;
-};
 
 function canonicalTaskIds(taskIds: string[]) {
   return [...new Set(taskIds.map((taskId) => taskId.trim()).filter(Boolean))].sort();
@@ -178,13 +159,7 @@ function canonicalCallerInput(
   };
 }
 
-export function createOperatorFollowUp(
-  store: OperatorFollowUpStore,
-  providers: OperatorFollowUpProviders = {
-    fetchAudio: (input, init) => fetch(input, init),
-    fetchRecordingMetadata: fetchTelnyxRecordingMetadata,
-  },
-) {
+export function createOperatorFollowUp(store: OperatorFollowUpStore) {
   return {
     async disposition(
       actor: QueueAccessActor,
@@ -244,74 +219,6 @@ export function createOperatorFollowUp(
       );
     },
 
-    async playVoicemail(
-      actor: QueueAccessActor,
-      input: { range: string | null; recordingId: string },
-      now = new Date(),
-    ) {
-      const recordingId = input.recordingId.trim();
-      if (!recordingId) {
-        throw new OperatorFollowUpError("Voicemail is unavailable", 404);
-      }
-      const voicemail = await store.findVoicemail(actor, recordingId);
-      if (!voicemail) {
-        throw new OperatorFollowUpError("Voicemail is unavailable", 404);
-      }
-      const metadata = await providers.fetchRecordingMetadata(recordingId);
-      const urls = [metadata.recordingUrl, voicemail.recordingUrl].filter(
-        (url, index, values): url is string =>
-          Boolean(url && values.indexOf(url) === index),
-      );
-      if (!urls.length) {
-        throw new OperatorFollowUpError("Voicemail is unavailable", 404);
-      }
-      const upstreamHeaders: Record<string, string> = {};
-      if (input.range) upstreamHeaders.Range = input.range;
-      let audioResponse: Response | null = null;
-      for (const url of urls) {
-        try {
-          const response = await providers.fetchAudio(url, {
-            headers: upstreamHeaders,
-          });
-          if (response.ok && response.body) {
-            audioResponse = response;
-            break;
-          }
-        } catch {
-          // A provider URL may expire while the durable fallback is still usable.
-        }
-      }
-      if (!audioResponse?.body) {
-        throw new OperatorFollowUpError("Voicemail is unavailable", 502);
-      }
-      const update: {
-        durationSec?: number;
-        listenedAt?: Date;
-        recordingUrl?: string;
-      } = {};
-      if (!input.range) update.listenedAt = now;
-      if (metadata.durationSec > voicemail.durationSec) {
-        update.durationSec = metadata.durationSec;
-      }
-      if (metadata.recordingUrl && metadata.recordingUrl !== voicemail.recordingUrl) {
-        update.recordingUrl = metadata.recordingUrl;
-      }
-      if (Object.keys(update).length) {
-        await store.updateVoicemail(voicemail.id, update);
-      }
-      const headers = new Headers({
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "private, max-age=3600",
-        "Content-Disposition": "inline",
-        "Content-Type": audioResponse.headers.get("content-type") || "audio/mpeg",
-      });
-      const contentLength = audioResponse.headers.get("content-length");
-      if (contentLength) headers.set("Content-Length", contentLength);
-      const contentRange = audioResponse.headers.get("content-range");
-      if (contentRange) headers.set("Content-Range", contentRange);
-      return { body: audioResponse.body, headers, status: audioResponse.status };
-    },
-
     async saveNote(
       actor: QueueAccessActor,
       input: SaveOperatorNoteInput,
@@ -359,5 +266,3 @@ export function createOperatorFollowUp(
     },
   };
 }
-
-export const operatorFollowUp = createOperatorFollowUp(prismaOperatorFollowUpStore);
