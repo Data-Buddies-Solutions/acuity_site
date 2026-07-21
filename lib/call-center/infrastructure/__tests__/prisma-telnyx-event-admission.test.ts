@@ -236,6 +236,8 @@ function database({
         operations.push("practice.lock");
       } else if (sql.includes('FROM "practice"')) {
         operations.push("practice.row-lock");
+      } else if (sql.includes('FROM "call_center_call"')) {
+        operations.push("call.row-lock");
       } else if (sql.includes('FROM "call_center_call_leg"')) {
         operations.push("call-leg.row-lock");
       } else if (sql.includes('FROM "call_center_handoff"')) {
@@ -948,7 +950,7 @@ describe("Telnyx event admission", () => {
     await expect(admitTelnyxEvent(first, db.prisma)).resolves.toBe("ADMITTED");
     expect(db.operations).toEqual([
       "provider-session.lock",
-      "practice.lock",
+      "call.row-lock",
       "call-leg.row-lock",
       "provider-session.bind",
     ]);

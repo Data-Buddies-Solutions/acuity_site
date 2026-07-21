@@ -3,7 +3,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
-import { CanonicalActiveCall, OperatorStateWarning } from "./CanonicalActiveWorkspace";
+import {
+  CanonicalActiveCall,
+  CanonicalInboundAnswerButton,
+  OperatorStateWarning,
+} from "./CanonicalActiveWorkspace";
 import { CallConnectionStatus } from "./CallConnectionStatus";
 import { canonicalStartupConnectionState } from "./use-canonical-agent-session";
 import type { useSoftphoneMedia } from "./use-softphone";
@@ -162,6 +166,268 @@ function withMediaState(
     })),
   };
 }
+
+describe("canonical inbound Answer", () => {
+  it("persists the Answer claim before invoking provider media", async () => {
+    const order: string[] = [];
+    globalThis.fetch = mock(async () => {
+      order.push("claim");
+      return Response.json(
+        {
+          replayed: false,
+          reservation: { id: "reservation-1" },
+          status: "ACCEPTED",
+        },
+        { status: 202 },
+      );
+    }) as unknown as typeof fetch;
+    const answer = mock(async () => {
+      order.push("provider-answer");
+    });
+
+    render(
+      <CanonicalInboundAnswerButton
+        answer={answer}
+        answering={false}
+        callId="call-1"
+        connectionState="READY"
+        disabled={false}
+        legId="leg-1"
+        mediaLegId="media-leg-1"
+        sessionId="session-1"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+
+    expect(order).toEqual(["claim", "provider-answer"]);
+    expect(answer).toHaveBeenCalledWith("media-leg-1");
+  });
+
+  it("never invokes provider media after a rejected claim", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        {
+          callId: "call-1",
+          legId: "leg-1",
+          reason: "ANSWER_IN_PROGRESS",
+          status: "REJECTED",
+        },
+        { status: 409 },
+      ),
+    ) as unknown as typeof fetch;
+    const answer = mock(async () => {});
+
+    render(
+      <CanonicalInboundAnswerButton
+        answer={answer}
+        answering={false}
+        callId="call-1"
+        connectionState="READY"
+        disabled={false}
+        legId="leg-1"
+        mediaLegId="media-leg-1"
+        sessionId="session-1"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+
+    expect(answer).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Call ended");
+  });
+
+  it("releases the reservation when provider Answer fails", async () => {
+    const order: string[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "DELETE") {
+        order.push("release");
+        return Response.json({ released: true, status: "RELEASED" });
+      }
+      order.push("claim");
+      return Response.json(
+        {
+          replayed: false,
+          reservation: { id: "reservation-1" },
+          status: "ACCEPTED",
+        },
+        { status: 202 },
+      );
+    }) as unknown as typeof fetch;
+    const answer = mock(async () => {
+      order.push("provider-answer");
+      throw new Error("provider failed");
+    });
+
+    render(
+      <CanonicalInboundAnswerButton
+        answer={answer}
+        answering={false}
+        callId="call-1"
+        connectionState="READY"
+        disabled={false}
+        legId="leg-1"
+        mediaLegId="media-leg-1"
+        sessionId="session-1"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+
+    expect(order).toEqual(["claim", "provider-answer", "release"]);
+    expect(screen.getByRole("alert").textContent).toContain("answer this call");
+  });
+
+  it("releases an accepted reservation when the browser disconnects", async () => {
+    const requests: RequestInit[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      requests.push(init ?? {});
+      return init?.method === "DELETE"
+        ? Response.json({ released: true, status: "RELEASED" })
+        : Response.json(
+            {
+              replayed: false,
+              reservation: { id: "reservation-1" },
+              status: "ACCEPTED",
+            },
+            { status: 202 },
+          );
+    }) as unknown as typeof fetch;
+    const view = render(
+      <CanonicalInboundAnswerButton
+        answer={mock(async () => {})}
+        answering={false}
+        callId="call-1"
+        connectionState="READY"
+        disabled={false}
+        legId="leg-1"
+        mediaLegId="media-leg-1"
+        sessionId="session-1"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+
+    view.unmount();
+
+    await waitFor(() =>
+      expect(requests.some(({ method }) => method === "DELETE")).toBe(true),
+    );
+    const release = requests.find(({ method }) => method === "DELETE");
+    expect(JSON.parse(String(release?.body))).toMatchObject({
+      failureCode: "BROWSER_DISCONNECTED",
+      legId: "leg-1",
+      sessionId: "session-1",
+    });
+  });
+
+  it("releases an accepted reservation when media disconnects", async () => {
+    const requests: RequestInit[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      requests.push(init ?? {});
+      return init?.method === "DELETE"
+        ? Response.json({ released: true, status: "RELEASED" })
+        : Response.json(
+            {
+              replayed: false,
+              reservation: { id: "reservation-1" },
+              status: "ACCEPTED",
+            },
+            { status: 202 },
+          );
+    }) as unknown as typeof fetch;
+    const view = render(
+      <CanonicalInboundAnswerButton
+        answer={mock(async () => {})}
+        answering={false}
+        callId="call-1"
+        connectionState="READY"
+        disabled={false}
+        legId="leg-1"
+        mediaLegId="media-leg-1"
+        sessionId="session-1"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+    view.rerender(
+      <CanonicalInboundAnswerButton
+        answer={mock(async () => {})}
+        answering
+        callId="call-1"
+        connectionState="FAILED"
+        disabled
+        legId="leg-1"
+        mediaLegId="media-leg-1"
+        sessionId="session-1"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(requests.some(({ method }) => method === "DELETE")).toBe(true),
+    );
+    const release = requests.find(({ method }) => method === "DELETE");
+    expect(JSON.parse(String(release?.body))).toMatchObject({
+      failureCode: "BROWSER_DISCONNECTED",
+      legId: "leg-1",
+      sessionId: "session-1",
+    });
+  });
+
+  it("uses a new operation key when the exact offer identity changes", async () => {
+    const keys: string[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      keys.push(String((init?.headers as Record<string, string>)["Idempotency-Key"]));
+      return Response.json(
+        {
+          callId: "call-1",
+          legId: "leg-1",
+          reason: "STALE_OFFER",
+          status: "REJECTED",
+        },
+        { status: 409 },
+      );
+    }) as unknown as typeof fetch;
+    const view = render(
+      <CanonicalInboundAnswerButton
+        answer={mock(async () => {})}
+        answering={false}
+        callId="call-1"
+        connectionState="READY"
+        disabled={false}
+        legId="leg-1"
+        mediaLegId="media-leg-1"
+        sessionId="session-1"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+    view.rerender(
+      <CanonicalInboundAnswerButton
+        answer={mock(async () => {})}
+        answering={false}
+        callId="call-1"
+        connectionState="READY"
+        disabled={false}
+        legId="leg-2"
+        mediaLegId="media-leg-2"
+        sessionId="session-2"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+});
 
 describe("CanonicalActiveCall", () => {
   it("answers the initiating agent leg when the outbound customer connects", async () => {

@@ -183,6 +183,7 @@ describe("server Call Center module", () => {
         };
       },
       authorizeAgentCredential: unused,
+      claimInboundAnswer: unused,
       clock: () => new Date("2026-07-18T12:00:00.000Z"),
       handoffConfig: () => ({
         practiceId: "practice-1",
@@ -192,6 +193,7 @@ describe("server Call Center module", () => {
       listTransferTargets: unused,
       readState: unused,
       releaseAgent: unused,
+      releaseInboundAnswer: unused,
       reserveHandoff: unused,
       setHoldMusic: unused,
       startOutbound: unused,
@@ -219,6 +221,7 @@ describe("server Call Center module", () => {
       acquireAgent: unused,
       applyProviderEvent: unused,
       authorizeAgentCredential: unused,
+      claimInboundAnswer: unused,
       clock: () => now,
       handoffConfig: () => ({
         practiceId: "practice-1",
@@ -228,6 +231,7 @@ describe("server Call Center module", () => {
       listTransferTargets: unused,
       readState: unused,
       releaseAgent: unused,
+      releaseInboundAnswer: unused,
       reserveHandoff: async (input, options) => {
         captured = { input, options };
         return { handoffId: "handoff-1" };
@@ -268,8 +272,10 @@ describe("server Call Center module", () => {
       "acceptHandoff",
       "applyProviderEvent",
       "authorizeAgentCredential",
+      "claimInboundAnswer",
       "listTransferTargets",
       "readOperatorState",
+      "releaseInboundAnswer",
       "setHoldMusic",
       "startOutbound",
       "transferAgent",

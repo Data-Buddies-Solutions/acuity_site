@@ -75,8 +75,9 @@ function fakeTransaction(current = context()) {
           ...decision,
           answerCommandId: "command-answer",
           commandIds: ["command-answer", "command-ringback", "command-dial"],
-          deadlineAt: "2026-07-12T12:00:20.000Z",
+          deadlineAt: null,
           dialCommandIds: ["command-dial"],
+          hardDeadlineAt: "2026-07-12T12:01:00.000Z",
           routed: [
             {
               ...decision.eligible[0]!,
@@ -84,6 +85,7 @@ function fakeTransaction(current = context()) {
               legId: "leg-1",
             },
           ],
+          routingRequestedAt: now.toISOString(),
           startRingbackCommandId: "command-ringback",
           stateVersion: 1,
         },

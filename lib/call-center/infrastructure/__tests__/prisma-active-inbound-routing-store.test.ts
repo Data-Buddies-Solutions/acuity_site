@@ -98,14 +98,18 @@ function fakeDatabase({ failedReservation = false } = {}) {
         operations.push("call.revalidate");
         return {
           deadlineAt: null,
+          hardDeadlineAt: null,
           queuedAt: null,
+          routingRequestedAt: null,
           stateVersion,
         };
       },
       update: async ({ data }: { data: Record<string, unknown> }) => {
         operations.push("call.update");
         expect(data).toMatchObject({
-          deadlineAt: new Date("2026-07-12T12:00:20.000Z"),
+          deadlineAt: null,
+          hardDeadlineAt: new Date("2026-07-12T12:01:00.000Z"),
+          routingRequestedAt: now,
           status: "QUEUED",
         });
         expect(data).not.toHaveProperty("firstRingAt");
@@ -199,8 +203,11 @@ describe("Prisma canonical active inbound routing", () => {
 
     expect(result).toMatchObject({
       commandIds: ["command-1", "command-2", "command-3", "command-4"],
+      deadlineAt: null,
       dialCommandIds: ["command-3", "command-4"],
+      hardDeadlineAt: "2026-07-12T12:01:00.000Z",
       replayed: false,
+      routingRequestedAt: now.toISOString(),
       stateVersion: 5,
     });
     expect(fake.commands).toHaveLength(4);

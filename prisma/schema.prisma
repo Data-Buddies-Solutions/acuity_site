@@ -235,6 +235,15 @@ enum CallCenterLegStatus {
   FAILED
 }
 
+enum CallCenterAnswerReservationStatus {
+  ACCEPTED
+  ANSWERED
+  BRIDGED
+  RELEASED
+  FAILED
+  EXPIRED
+}
+
 enum CallCenterTaskKind {
   MISSED_CALL
   VOICEMAIL
@@ -1039,25 +1048,26 @@ model CallCenterEndpoint {
 }
 
 model CallCenterAgentSession {
-  id               String                         @id @default(cuid())
-  practiceId       String
-  userId           String
-  endpointId       String
-  browserSessionId String
-  presence         CallCenterAgentPresence        @default(OFFLINE)
-  connectionState  CallCenterAgentConnectionState @default(CONNECTING)
-  microphoneReady  Boolean                        @default(false)
-  audioReady       Boolean                        @default(false)
-  readyAt          DateTime?
-  lastHeartbeatAt  DateTime                       @default(now())
-  leaseExpiresAt   DateTime
-  stateVersion     Int                            @default(0)
-  createdAt        DateTime                       @default(now())
-  updatedAt        DateTime                       @updatedAt
-  practice         Practice                       @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  user             User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint         CallCenterEndpoint             @relation(fields: [endpointId], references: [id], onDelete: Cascade)
-  callLegs         CallCenterCallLeg[]
+  id                 String                         @id @default(cuid())
+  practiceId         String
+  userId             String
+  endpointId         String
+  browserSessionId   String
+  presence           CallCenterAgentPresence        @default(OFFLINE)
+  connectionState    CallCenterAgentConnectionState @default(CONNECTING)
+  microphoneReady    Boolean                        @default(false)
+  audioReady         Boolean                        @default(false)
+  readyAt            DateTime?
+  lastHeartbeatAt    DateTime                       @default(now())
+  leaseExpiresAt     DateTime
+  stateVersion       Int                            @default(0)
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  practice           Practice                       @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  user               User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint           CallCenterEndpoint             @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  callLegs           CallCenterCallLeg[]
+  answerReservations CallCenterAnswerReservation[]
 
   @@unique([endpointId, browserSessionId])
   @@index([practiceId, userId, presence])
@@ -1067,36 +1077,40 @@ model CallCenterAgentSession {
 }
 
 model CallCenterCall {
-  id                    String                  @id @default(cuid())
+  id                    String                       @id @default(cuid())
   practiceId            String
   queueId               String?
   numberId              String
   direction             CallCenterCallDirection
-  status                CallCenterCallStatus     @default(RECEIVED)
+  status                CallCenterCallStatus         @default(RECEIVED)
   fromPhone             String
   toPhone               String
   callerName            String?
-  providerCallSessionId String?                 @unique
-  winningLegId          String?                 @unique
-  stateVersion          Int                     @default(0)
-  receivedAt            DateTime                @default(now())
+  providerCallSessionId String?                      @unique
+  winningLegId          String?                      @unique
+  stateVersion          Int                          @default(0)
+  receivedAt            DateTime                     @default(now())
+  routingRequestedAt    DateTime?
+  firstAgentInitiatedAt DateTime?
   deadlineAt            DateTime?
+  hardDeadlineAt        DateTime?
   queuedAt              DateTime?
   firstRingAt           DateTime?
   answeredAt            DateTime?
   voicemailStartedAt    DateTime?
   endedAt               DateTime?
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-  practice              Practice                @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  queue                 CallCenterQueue?        @relation(fields: [queueId], references: [id], onDelete: SetNull)
-  number                CallCenterNumber        @relation(fields: [numberId], references: [id], onDelete: Restrict)
-  winningLeg            CallCenterCallLeg?      @relation("CallCenterWinningLeg", fields: [winningLegId], references: [id], onDelete: SetNull)
-  legs                  CallCenterCallLeg[]     @relation("CallCenterCallLegs")
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+  practice              Practice                     @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  queue                 CallCenterQueue?             @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  number                CallCenterNumber             @relation(fields: [numberId], references: [id], onDelete: Restrict)
+  winningLeg            CallCenterCallLeg?           @relation("CallCenterWinningLeg", fields: [winningLegId], references: [id], onDelete: SetNull)
+  legs                  CallCenterCallLeg[]          @relation("CallCenterCallLegs")
   tasks                 CallCenterTask[]
   commands              CallCenterCommand[]
   voicemail             CallCenterVoicemail?
   handoff               CallCenterHandoff?
+  answerReservation     CallCenterAnswerReservation?
 
   @@index([practiceId, status, receivedAt])
   @@index([practiceId, queueId, status, receivedAt])
@@ -1139,36 +1153,62 @@ model CallCenterHandoff {
 }
 
 model CallCenterCallLeg {
-  id                    String                  @id @default(cuid())
+  id                    String                        @id @default(cuid())
   callId                String
   kind                  CallCenterLegKind
   endpointId            String?
   agentSessionId        String?
-  agentKey              String?                 @unique
-  providerCallControlId String?                 @unique
-  providerCallLegId     String?                 @unique
+  agentKey              String?                       @unique
+  providerCallControlId String?                       @unique
+  providerCallLegId     String?                       @unique
   providerCallSessionId String?
-  status                CallCenterLegStatus     @default(CREATED)
-  attemptNumber         Int                     @default(1)
-  startedAt             DateTime                @default(now())
+  status                CallCenterLegStatus           @default(CREATED)
+  attemptNumber         Int                           @default(1)
+  startedAt             DateTime                      @default(now())
   answeredAt            DateTime?
   bridgedAt             DateTime?
   endedAt               DateTime?
   hangupCauseCode       String?
   errorCode             String?
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-  call                  CallCenterCall          @relation("CallCenterCallLegs", fields: [callId], references: [id], onDelete: Cascade)
-  endpoint              CallCenterEndpoint?     @relation(fields: [endpointId], references: [id], onDelete: SetNull)
-  agentSession          CallCenterAgentSession? @relation(fields: [agentSessionId], references: [id], onDelete: SetNull)
-  wonCall               CallCenterCall?         @relation("CallCenterWinningLeg")
+  createdAt             DateTime                      @default(now())
+  updatedAt             DateTime                      @updatedAt
+  call                  CallCenterCall                @relation("CallCenterCallLegs", fields: [callId], references: [id], onDelete: Cascade)
+  endpoint              CallCenterEndpoint?           @relation(fields: [endpointId], references: [id], onDelete: SetNull)
+  agentSession          CallCenterAgentSession?       @relation(fields: [agentSessionId], references: [id], onDelete: SetNull)
+  wonCall               CallCenterCall?               @relation("CallCenterWinningLeg")
   commands              CallCenterCommand[]
+  answerReservations    CallCenterAnswerReservation[]
 
   @@index([callId, status])
   @@index([endpointId, status])
   @@index([agentSessionId])
   @@index([providerCallSessionId])
   @@map("call_center_call_leg")
+}
+
+model CallCenterAnswerReservation {
+  id             String                            @id @default(cuid())
+  callId         String                            @unique
+  legId          String
+  agentSessionId String
+  idempotencyKey String
+  status         CallCenterAnswerReservationStatus @default(ACCEPTED)
+  acceptedAt     DateTime
+  expiresAt      DateTime
+  answeredAt     DateTime?
+  bridgedAt      DateTime?
+  releasedAt     DateTime?
+  failureCode    String?
+  createdAt      DateTime                          @default(now())
+  updatedAt      DateTime                          @updatedAt
+  call           CallCenterCall                    @relation(fields: [callId], references: [id], onDelete: Cascade)
+  leg            CallCenterCallLeg                 @relation(fields: [legId], references: [id], onDelete: Cascade)
+  agentSession   CallCenterAgentSession            @relation(fields: [agentSessionId], references: [id], onDelete: Cascade)
+
+  @@index([legId])
+  @@index([agentSessionId])
+  @@index([status, expiresAt])
+  @@map("call_center_answer_reservation")
 }
 
 model CallCenterTask {

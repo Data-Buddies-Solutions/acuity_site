@@ -6,6 +6,7 @@ import {
   type CanonicalCallProjector,
 } from "@/lib/call-center/infrastructure/prisma-canonical-call-projector";
 import {
+  PROVIDER_WEBHOOK_MAX_ATTEMPTS,
   providerWebhookInbox,
   type ProviderWebhookInbox,
   type ProviderWebhookRecord,
@@ -105,8 +106,7 @@ export function createTelnyxVoiceEventProcessor({
   inbox,
   projector,
 }: Dependencies) {
-  return async function processTelnyxVoiceEvent(envelope: TelnyxVoiceWebhookEnvelope) {
-    const received = await inbox.receive(envelope);
+  async function processRecord(received: ProviderWebhookRecord) {
     const claim = await inbox.claim(received);
 
     if (!claim.event) {
@@ -152,7 +152,14 @@ export function createTelnyxVoiceEventProcessor({
         };
       }
 
+      const projectionStartedAt = performance.now();
       const projection = await projector.projectAndComplete(event, fact, clock());
+      logger.info("provider event projected", {
+        attemptCount: event.attemptCount,
+        eventType: event.eventType,
+        projectionDurationMs: performance.now() - projectionStartedAt,
+        providerEventId: event.providerEventId,
+      });
       await dispatchCommittedCommands(projection, dispatchCommand);
       return {
         duplicate: false as const,
@@ -189,10 +196,19 @@ export function createTelnyxVoiceEventProcessor({
       });
       if (!failed) throw new CanonicalProjectionError("PROVIDER_EVENT_CLAIM_LOST");
       logger.warn("provider event failed", {
+        attemptCount: event.attemptCount,
         errorCode,
         eventType: event.eventType,
         providerEventId: event.providerEventId,
       });
+      if (event.attemptCount >= PROVIDER_WEBHOOK_MAX_ATTEMPTS) {
+        logger.error("provider event attempts exhausted", {
+          attemptCount: event.attemptCount,
+          errorCode,
+          eventType: event.eventType,
+          providerEventId: event.providerEventId,
+        });
+      }
       return {
         duplicate: false as const,
         errorCode,
@@ -200,7 +216,15 @@ export function createTelnyxVoiceEventProcessor({
         providerWebhookEventId: event.id,
       };
     }
-  };
+  }
+
+  async function processTelnyxVoiceEvent(envelope: TelnyxVoiceWebhookEnvelope) {
+    return processRecord(await inbox.receive(envelope));
+  }
+
+  return Object.assign(processTelnyxVoiceEvent, {
+    processRecord,
+  });
 }
 
 export const processTelnyxVoiceEvent = createTelnyxVoiceEventProcessor({

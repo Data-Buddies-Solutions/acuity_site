@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   decideActiveInboundLifecycle,
+  projectInboundOfferTiming,
   type ActiveInboundLifecycleInput,
 } from "../active-inbound-lifecycle";
 
@@ -12,9 +13,11 @@ function input(
 ): ActiveInboundLifecycleInput {
   return {
     agentLegs: [],
+    answerReservation: null,
     callId: "call-1",
     customerLegId: "customer-leg-1",
     deadlineAt: null,
+    hardDeadlineAt: new Date("2026-07-12T12:01:00.000Z"),
     now,
     processedBridgeLegId: null,
     queue: { id: "queue-1", voicemailEnabled: true },
@@ -24,9 +27,60 @@ function input(
 }
 
 describe("inbound lifecycle", () => {
+  it("starts the shared offer window from first agent provider progress", () => {
+    expect(
+      projectInboundOfferTiming({
+        deadlineAt: null,
+        direction: "INBOUND",
+        eventType: "call.initiated",
+        firstAgentInitiatedAt: null,
+        hardDeadlineAt: new Date("2026-07-12T12:01:00.000Z"),
+        legKind: "AGENT",
+        occurredAt: now,
+      }),
+    ).toEqual({
+      deadlineAt: new Date("2026-07-12T12:00:20.000Z"),
+      firstAgentInitiatedAt: now,
+    });
+  });
+
+  it("never extends an established offer deadline for later endpoints", () => {
+    const first = new Date("2026-07-12T11:59:55.000Z");
+    const deadline = new Date("2026-07-12T12:00:15.000Z");
+    expect(
+      projectInboundOfferTiming({
+        deadlineAt: deadline,
+        direction: "INBOUND",
+        eventType: "call.ringing",
+        firstAgentInitiatedAt: first,
+        hardDeadlineAt: new Date("2026-07-12T12:01:00.000Z"),
+        legKind: "AGENT",
+        occurredAt: now,
+      }),
+    ).toEqual({ deadlineAt: deadline, firstAgentInitiatedAt: first });
+  });
+
+  it("moves the deadline earlier when an earlier provider fact arrives late", () => {
+    const later = new Date("2026-07-12T12:00:05.000Z");
+    expect(
+      projectInboundOfferTiming({
+        deadlineAt: new Date("2026-07-12T12:00:25.000Z"),
+        direction: "INBOUND",
+        eventType: "call.ringing",
+        firstAgentInitiatedAt: later,
+        hardDeadlineAt: new Date("2026-07-12T12:01:00.000Z"),
+        legKind: "AGENT",
+        occurredAt: now,
+      }),
+    ).toEqual({
+      deadlineAt: new Date("2026-07-12T12:00:20.000Z"),
+      firstAgentInitiatedAt: now,
+    });
+  });
+
   it("starts voicemail immediately when no agents can be offered", () => {
     expect(decideActiveInboundLifecycle(input())).toMatchObject({
-      deadlineAt: new Date("2026-07-12T12:00:20.000Z"),
+      deadlineAt: null,
       disposition: "VOICEMAIL",
       status: "VOICEMAIL",
     });
@@ -41,6 +95,28 @@ describe("inbound lifecycle", () => {
       disposition: "WAITING_FOR_AGENT",
       status: "RINGING",
     });
+  });
+
+  it("waits for first provider progress without inventing a normal deadline", () => {
+    expect(
+      decideActiveInboundLifecycle(
+        input({ agentLegs: [{ id: "agent-1", status: "CREATED" }] }),
+      ),
+    ).toMatchObject({
+      deadlineAt: null,
+      disposition: "WAITING_FOR_AGENT",
+    });
+  });
+
+  it("enforces the hard cap when provider progress never starts", () => {
+    expect(
+      decideActiveInboundLifecycle(
+        input({
+          agentLegs: [{ id: "agent-1", status: "CREATED" }],
+          hardDeadlineAt: now,
+        }),
+      ).disposition,
+    ).toBe("VOICEMAIL");
   });
 
   it("elects only the bridge leg currently being processed", () => {
@@ -84,6 +160,69 @@ describe("inbound lifecycle", () => {
         }),
       ).disposition,
     ).toBe("WAITING_FOR_AGENT");
+  });
+
+  it("protects an accepted answer reservation across the offer deadline", () => {
+    expect(
+      decideActiveInboundLifecycle(
+        input({
+          agentLegs: [{ answeredAt: null, id: "agent-1", status: "RINGING" }],
+          answerReservation: {
+            expiresAt: new Date("2026-07-12T12:00:05.000Z"),
+            legId: "agent-1",
+            status: "ACCEPTED",
+          },
+          deadlineAt: now,
+        }),
+      ),
+    ).toMatchObject({
+      disposition: "WAITING_FOR_AGENT",
+      protectedLegId: "agent-1",
+      status: "RINGING",
+    });
+  });
+
+  it("protects provider answer for the bounded answer-to-bridge grace", () => {
+    expect(
+      decideActiveInboundLifecycle(
+        input({
+          agentLegs: [
+            {
+              answeredAt: new Date("2026-07-12T11:59:58.000Z"),
+              id: "agent-1",
+              status: "ANSWERED",
+            },
+          ],
+          deadlineAt: now,
+        }),
+      ),
+    ).toMatchObject({
+      disposition: "WAITING_FOR_AGENT",
+      protectedLegId: "agent-1",
+    });
+  });
+
+  it("lets the hard queue deadline end an expired answer negotiation", () => {
+    expect(
+      decideActiveInboundLifecycle(
+        input({
+          agentLegs: [
+            {
+              answeredAt: new Date("2026-07-12T11:59:58.000Z"),
+              id: "agent-1",
+              status: "ANSWERED",
+            },
+          ],
+          answerReservation: {
+            expiresAt: new Date("2026-07-12T12:00:05.000Z"),
+            legId: "agent-1",
+            status: "ANSWERED",
+          },
+          deadlineAt: now,
+          hardDeadlineAt: now,
+        }),
+      ).disposition,
+    ).toBe("VOICEMAIL");
   });
 
   it("starts voicemail once the offer window expires", () => {

@@ -1,6 +1,12 @@
-export const CALL_CENTER_SCHEMA_VERSION = 4 as const;
+export const CALL_CENTER_SCHEMA_VERSION = 5 as const;
 
 export type CallView = {
+  answerReservation?: {
+    agentSessionId: string;
+    expiresAt: string;
+    legId: string;
+    status: "ACCEPTED" | "ANSWERED" | "BRIDGED";
+  } | null;
   id: string;
   queueId: string | null;
   direction: "INBOUND" | "OUTBOUND";

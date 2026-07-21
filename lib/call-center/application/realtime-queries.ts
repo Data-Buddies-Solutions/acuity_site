@@ -24,6 +24,14 @@ export const CALL_CENTER_READ_TRANSACTION_OPTIONS = {
 };
 
 const callSelect = {
+  answerReservation: {
+    select: {
+      agentSessionId: true,
+      expiresAt: true,
+      legId: true,
+      status: true,
+    },
+  },
   answeredAt: true,
   callerName: true,
   direction: true,
@@ -56,6 +64,15 @@ type SelectedCall = Prisma.CallCenterCallGetPayload<{ select: typeof callSelect 
 export function serializeCall(call: SelectedCall): CallView {
   return {
     ...call,
+    answerReservation:
+      call.answerReservation &&
+      ["ACCEPTED", "ANSWERED", "BRIDGED"].includes(call.answerReservation.status)
+        ? {
+            ...call.answerReservation,
+            expiresAt: call.answerReservation.expiresAt.toISOString(),
+            status: call.answerReservation.status as "ACCEPTED" | "ANSWERED" | "BRIDGED",
+          }
+        : null,
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,
     legs: call.legs,

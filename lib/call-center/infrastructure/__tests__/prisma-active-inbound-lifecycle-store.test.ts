@@ -17,28 +17,38 @@ function fakeDatabase({
   ringbackStatus = "SENT" as "FAILED" | "SENT",
   voicemailEnabled = true,
   winningLegId = null as string | null,
+  answerReservation = null as null | {
+    expiresAt: Date;
+    id: string;
+    legId: string;
+    status: "ACCEPTED" | "ANSWERED" | "BRIDGED" | "EXPIRED";
+  },
 } = {}) {
   const commands = new Map<string, Record<string, unknown>>();
   const operations: string[] = [];
   const tasks: Array<Record<string, unknown>> = [];
   const call = {
     answeredAt: null,
+    answerReservation,
     deadlineAt,
     direction: "INBOUND" as const,
     id: "call-1",
     legs: [
       {
         commands: [],
+        answeredAt: now,
         id: "customer-leg",
         kind: "CUSTOMER" as const,
         status: "ANSWERED",
       },
       ...agentLegs.map((leg) => ({
         ...leg,
+        answeredAt: leg.status === "ANSWERED" ? now : null,
         commands: [{ arguments: {} }],
       })),
     ],
     practiceId: "practice-1",
+    hardDeadlineAt: new Date(now.getTime() + 60_000),
     queue: {
       enabled: true,
       id: "queue-1",
@@ -64,6 +74,13 @@ function fakeDatabase({
     },
     callCenterAgentSession: {
       findMany: async () => [],
+    },
+    callCenterAnswerReservation: {
+      updateMany: async ({ data }: { data: Record<string, unknown> }) => {
+        if (!call.answerReservation) return { count: 0 };
+        Object.assign(call.answerReservation, data);
+        return { count: 1 };
+      },
     },
     callCenterCall: {
       findFirst: async () => call,
@@ -233,6 +250,38 @@ describe("Prisma ACTIVE inbound lifecycle", () => {
         }),
       ]),
     );
+  });
+
+  it("durably expires a reservation before voicemail becomes effective", async () => {
+    const reservation: {
+      expiresAt: Date;
+      id: string;
+      legId: string;
+      status: "ACCEPTED" | "ANSWERED" | "BRIDGED" | "EXPIRED";
+    } = {
+      expiresAt: now,
+      id: "reservation-1",
+      legId: "agent-1",
+      status: "ACCEPTED",
+    };
+    const fake = fakeDatabase({
+      agentLegs: [{ id: "agent-1", kind: "AGENT", status: "RINGING" }],
+      answerReservation: reservation,
+      deadlineAt: now,
+    });
+
+    const result = await fake.store.reconcile(
+      {
+        callId: "call-1",
+        practiceId: "practice-1",
+        processedBridgeLegId: null,
+      },
+      now,
+    );
+
+    expect(result.decision?.disposition).toBe("VOICEMAIL");
+    expect(reservation.status).toBe("EXPIRED");
+    expect(fake.operations).toContain("event.upsert:CALL_ANSWER_RESERVATION_EXPIRED");
   });
 
   it("abandons without voicemail and creates one deduplicated missed-call task", async () => {

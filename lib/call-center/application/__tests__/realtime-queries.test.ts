@@ -167,12 +167,18 @@ describe("call center snapshot", () => {
       calls: [],
       observedAt: "2026-07-11T12:00:00.000Z",
       queueId: "queue-1",
-      schemaVersion: 4,
+      schemaVersion: 5,
     });
   });
 
   it("serializes durable calls without Date values", () => {
     const call = serializeCall({
+      answerReservation: {
+        agentSessionId: "session-1",
+        expiresAt: new Date("2026-07-11T12:00:05.000Z"),
+        legId: "leg-1",
+        status: "ACCEPTED",
+      },
       answeredAt: null,
       callerName: null,
       direction: "INBOUND",
@@ -200,6 +206,10 @@ describe("call center snapshot", () => {
     });
 
     expect(call).toMatchObject({
+      answerReservation: {
+        expiresAt: "2026-07-11T12:00:05.000Z",
+        status: "ACCEPTED",
+      },
       receivedAt: "2026-07-11T12:00:00.000Z",
       stateVersion: 12,
     });

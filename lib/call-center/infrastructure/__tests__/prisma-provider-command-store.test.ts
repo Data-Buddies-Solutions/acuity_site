@@ -45,6 +45,10 @@ function transaction({
   legStatus = "CREATED",
   memberUserId = "user-1",
   sessionState = "ACTIVE",
+  sessionLeaseExpiresAt = new Date(now.getTime() + 60_000),
+  replacementSessionId,
+  replacementUserId = "user-1",
+  endpointUserId = "user-1",
   targetLegStatus = legStatus,
   transferEligibleUserId = memberUserId,
   winningLegId,
@@ -87,6 +91,10 @@ function transaction({
   legStatus?: "CREATED" | "ANSWERED" | "BRIDGED" | "ENDED";
   memberUserId?: string | null;
   sessionState?: "ACTIVE" | "OFFERED";
+  sessionLeaseExpiresAt?: Date;
+  replacementSessionId?: string;
+  replacementUserId?: string;
+  endpointUserId?: string | null;
   targetLegStatus?:
     "ANSWERED" | "BRIDGED" | "CREATED" | "DIALING" | "ENDED" | "FAILED" | "RINGING";
   transferEligibleUserId?: string | null;
@@ -100,13 +108,24 @@ function transaction({
     connectionState: "READY",
     endpointId: "endpoint-1",
     id: "session-1",
-    leaseExpiresAt: new Date(now.getTime() + 60_000),
+    leaseExpiresAt: sessionLeaseExpiresAt,
     microphoneReady: true,
     practiceId: "practice-1",
     presence: sessionState === "ACTIVE" ? "BUSY" : "AVAILABLE",
     stateVersion: 2,
     userId: "user-1",
   };
+  const replacementSession = replacementSessionId
+    ? {
+        ...session,
+        id: replacementSessionId,
+        leaseExpiresAt: new Date(now.getTime() + 120_000),
+        presence: "AVAILABLE",
+        userId: replacementUserId,
+      }
+    : null;
+  let currentAgentSessionId = "session-1";
+  let currentCommandArguments = commandArguments;
   const tx = {
     $queryRaw: async (query: { values?: unknown[] }) => {
       operations.push(
@@ -115,6 +134,11 @@ function transaction({
       return [{ id: "command-1" }];
     },
     callCenterAgentSession: {
+      findFirst: async ({ where }: { where: { userId: string } }) =>
+        (replacementSession?.userId === where.userId ? replacementSession : null) ??
+        (session.leaseExpiresAt > now && session.presence === "AVAILABLE"
+          ? session
+          : null),
       findUnique: async () => session,
       update: async () => {
         operations.push("session.release");
@@ -152,6 +176,11 @@ function transaction({
               : (customerLegs.find(({ id }) => id === where.id) ?? null)
           : (customerLegs[0] ?? null),
       findMany: async () => customerLegs,
+      update: async ({ data }: { data: { agentSessionId: string } }) => {
+        currentAgentSessionId = data.agentSessionId;
+        operations.push("leg.rebind");
+        return { id: "leg-1" };
+      },
       updateMany: async ({
         data,
         where,
@@ -173,7 +202,7 @@ function transaction({
     callCenterCommand: {
       findMany: async () => [],
       findUnique: async () => ({
-        arguments: commandArguments,
+        arguments: currentCommandArguments,
         attemptCount: 0,
         call: {
           direction: callDirection,
@@ -210,12 +239,13 @@ function transaction({
         idempotencyKey: "dial:leg-1",
         leg: {
           agentSession: session,
-          agentSessionId: "session-1",
+          agentSessionId: currentAgentSessionId,
           callId: "call-1",
           endpoint: {
             enabled: true,
             locationId: "location-1",
             sipUsername: "agent-1@example.test",
+            userId: endpointUserId,
           },
           endpointId: "endpoint-1",
           id: "leg-1",
@@ -237,7 +267,12 @@ function transaction({
         type: commandType,
         updatedAt: commandUpdatedAt,
       }),
-      update: async () => {
+      update: async ({ data }: { data: { arguments?: Record<string, unknown> } }) => {
+        if (data.arguments) {
+          currentCommandArguments = data.arguments;
+          operations.push("command.rebind");
+          return { attemptCount: 0 };
+        }
         updates += 1;
         return { attemptCount: 1 };
       },
@@ -350,6 +385,77 @@ describe("Prisma provider command store", () => {
       },
     });
     expect(fake.updates()).toBe(1);
+  });
+
+  it("rebinds a stale dial to the freshest ready session for the same endpoint user", async () => {
+    const fake = transaction({
+      replacementSessionId: "session-2",
+      sessionLeaseExpiresAt: new Date(now.getTime() - 1),
+      sessionState: "OFFERED",
+    });
+    const store = new PrismaProviderCommandStore((operation) =>
+      operation(fake.tx as never),
+    );
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      command: {
+        arguments: { agentSessionId: "session-2", endpointId: "endpoint-1" },
+      },
+    });
+    expect(fake.operations).toContain("leg.rebind");
+    expect(fake.operations).toContain("command.rebind");
+  });
+
+  it("does not rebind when the replacement changes the endpoint user", async () => {
+    const fake = transaction({
+      replacementSessionId: "session-2",
+      replacementUserId: "user-2",
+      sessionLeaseExpiresAt: new Date(now.getTime() - 1),
+      sessionState: "OFFERED",
+    });
+    const store = rejectingStore(fake.tx);
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      errorCode: "COMMAND_AGENT_SESSION_NOT_READY",
+      rejected: true,
+    });
+    expect(fake.operations).not.toContain("leg.rebind");
+    expect(fake.operations).not.toContain("command.rebind");
+  });
+
+  it("does not rebind until the replacement passes location authorization", async () => {
+    const fake = transaction({
+      accessLocationIds: [],
+      replacementSessionId: "session-2",
+      sessionLeaseExpiresAt: new Date(now.getTime() - 1),
+      sessionState: "OFFERED",
+    });
+    const store = rejectingStore(fake.tx);
+
+    await expect(
+      store.claim({
+        commandId: "command-1",
+        now,
+        staleBefore: new Date(now.getTime() - 60_000),
+      }),
+    ).resolves.toMatchObject({
+      errorCode: "COMMAND_AGENT_LOCATION_ACCESS_INVALID",
+      rejected: true,
+    });
+    expect(fake.operations).not.toContain("leg.rebind");
+    expect(fake.operations).not.toContain("command.rebind");
   });
 
   it("claims the initial outbound customer dial", async () => {

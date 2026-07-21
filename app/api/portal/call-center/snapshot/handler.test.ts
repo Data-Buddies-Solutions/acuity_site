@@ -45,7 +45,7 @@ describe("canonical call center snapshot route", () => {
           calls: [],
           observedAt: "2026-07-19T10:00:00.000Z",
           queueId: "queue-1",
-          schemaVersion: 4,
+          schemaVersion: 5,
         };
       },
       reportRead: (context) => reads.push(context),

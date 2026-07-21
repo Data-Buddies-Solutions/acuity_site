@@ -1,18 +1,27 @@
 export const INBOUND_OFFER_WINDOW_SECONDS = 20;
+export const INBOUND_ANSWER_GRACE_SECONDS = 5;
+export const INBOUND_HARD_QUEUE_WINDOW_SECONDS = 60;
 
 type ActiveAgentLegStatus =
   "CREATED" | "DIALING" | "RINGING" | "ANSWERED" | "BRIDGED" | "ENDED" | "FAILED";
 
 type ActiveAgentLeg = {
+  readonly answeredAt?: Date | null;
   readonly id: string;
   readonly status: ActiveAgentLegStatus;
 };
 
 export type ActiveInboundLifecycleInput = {
   readonly agentLegs: readonly ActiveAgentLeg[];
+  readonly answerReservation: {
+    readonly expiresAt: Date;
+    readonly legId: string;
+    readonly status: "ACCEPTED" | "ANSWERED" | "BRIDGED";
+  } | null;
   readonly callId: string;
   readonly customerLegId: string;
   readonly deadlineAt: Date | null;
+  readonly hardDeadlineAt: Date | null;
   readonly now: Date;
   /** The bridge event currently being processed under the call lock. */
   readonly processedBridgeLegId: string | null;
@@ -56,9 +65,10 @@ export type ActiveInboundLifecycleIntent =
   StopPlaybackIntent | HangupLegIntent | VoicemailIntent | MissedCallIntent;
 
 export type ActiveInboundLifecycleDecision = {
-  readonly deadlineAt: Date;
+  readonly deadlineAt: Date | null;
   readonly disposition: "WAITING_FOR_AGENT" | "CONNECTED" | "VOICEMAIL" | "ABANDONED";
   readonly intents: readonly ActiveInboundLifecycleIntent[];
+  readonly protectedLegId: string | null;
   readonly status: "QUEUED" | "RINGING" | "CONNECTED" | "VOICEMAIL" | "ABANDONED";
   readonly winningLegId: string | null;
 };
@@ -75,6 +85,47 @@ function addSeconds(date: Date, seconds: number) {
   return new Date(date.getTime() + seconds * 1_000);
 }
 
+export function projectInboundOfferTiming(input: {
+  deadlineAt: Date | null;
+  direction: "INBOUND" | "OUTBOUND";
+  eventType: string;
+  firstAgentInitiatedAt: Date | null;
+  hardDeadlineAt: Date | null;
+  legKind: "AGENT" | "CUSTOMER";
+  occurredAt: Date;
+}) {
+  if (
+    input.direction !== "INBOUND" ||
+    input.legKind !== "AGENT" ||
+    !["call.initiated", "call.ringing"].includes(input.eventType)
+  ) {
+    return {
+      deadlineAt: input.deadlineAt,
+      firstAgentInitiatedAt: input.firstAgentInitiatedAt,
+    };
+  }
+
+  if (input.firstAgentInitiatedAt && input.firstAgentInitiatedAt <= input.occurredAt) {
+    return {
+      deadlineAt: input.deadlineAt,
+      firstAgentInitiatedAt: input.firstAgentInitiatedAt,
+    };
+  }
+
+  const projectedDeadline = addSeconds(input.occurredAt, INBOUND_OFFER_WINDOW_SECONDS);
+  const cappedDeadline =
+    input.hardDeadlineAt && input.hardDeadlineAt < projectedDeadline
+      ? input.hardDeadlineAt
+      : projectedDeadline;
+  return {
+    deadlineAt:
+      input.deadlineAt && input.deadlineAt < cappedDeadline
+        ? input.deadlineAt
+        : cappedDeadline,
+    firstAgentInitiatedAt: input.occurredAt,
+  };
+}
+
 function liveAgentLegs(agentLegs: readonly ActiveAgentLeg[]) {
   return agentLegs.filter((leg) => LIVE_AGENT_LEG_STATUSES.has(leg.status));
 }
@@ -84,6 +135,29 @@ function winnerFor(input: ActiveInboundLifecycleInput) {
   if (!input.processedBridgeLegId) return null;
   const processed = input.agentLegs.find((leg) => leg.id === input.processedBridgeLegId);
   return processed?.status === "BRIDGED" ? processed.id : null;
+}
+
+function protectedLegFor(input: ActiveInboundLifecycleInput) {
+  if (input.hardDeadlineAt && input.hardDeadlineAt <= input.now) return null;
+
+  const reservation = input.answerReservation;
+  if (
+    reservation &&
+    (reservation.status === "BRIDGED" || reservation.expiresAt > input.now) &&
+    input.agentLegs.some(
+      (leg) => leg.id === reservation.legId && LIVE_AGENT_LEG_STATUSES.has(leg.status),
+    )
+  ) {
+    return reservation.legId;
+  }
+
+  const providerAnswered = input.agentLegs.find(
+    (leg) =>
+      leg.status === "ANSWERED" &&
+      leg.answeredAt &&
+      addSeconds(leg.answeredAt, INBOUND_ANSWER_GRACE_SECONDS) > input.now,
+  );
+  return providerAnswered?.id ?? null;
 }
 
 function stopPlayback(input: ActiveInboundLifecycleInput): StopPlaybackIntent {
@@ -115,10 +189,11 @@ function hangupAgentLeg(
 export function decideActiveInboundLifecycle(
   input: ActiveInboundLifecycleInput,
 ): ActiveInboundLifecycleDecision {
-  const deadlineAt =
-    input.deadlineAt ?? addSeconds(input.now, INBOUND_OFFER_WINDOW_SECONDS);
+  const deadlineAt = input.deadlineAt;
+  const effectiveDeadlineAt = deadlineAt ?? input.hardDeadlineAt;
   const liveLegs = liveAgentLegs(input.agentLegs);
   const winningLegId = winnerFor(input);
+  const protectedLegId = protectedLegFor(input);
 
   if (winningLegId) {
     return {
@@ -130,16 +205,29 @@ export function decideActiveInboundLifecycle(
           .filter(({ id }) => id !== winningLegId)
           .map((leg) => hangupAgentLeg(input, leg.id, `winner:${winningLegId}`)),
       ],
+      protectedLegId: null,
       status: "CONNECTED",
       winningLegId,
     };
   }
 
-  if (deadlineAt > input.now && liveLegs.length > 0) {
+  if (protectedLegId) {
     return {
       deadlineAt,
       disposition: "WAITING_FOR_AGENT",
       intents: [],
+      protectedLegId,
+      status: "RINGING",
+      winningLegId: null,
+    };
+  }
+
+  if ((!effectiveDeadlineAt || effectiveDeadlineAt > input.now) && liveLegs.length > 0) {
+    return {
+      deadlineAt,
+      disposition: "WAITING_FOR_AGENT",
+      intents: [],
+      protectedLegId: null,
       status: "RINGING",
       winningLegId: null,
     };
@@ -168,6 +256,7 @@ export function decideActiveInboundLifecycle(
           type: "CREATE_TASK",
         },
       ],
+      protectedLegId: null,
       status: "VOICEMAIL",
       winningLegId: null,
     };
@@ -192,6 +281,7 @@ export function decideActiveInboundLifecycle(
         type: "CREATE_TASK",
       },
     ],
+    protectedLegId: null,
     status: "ABANDONED",
     winningLegId: null,
   };
