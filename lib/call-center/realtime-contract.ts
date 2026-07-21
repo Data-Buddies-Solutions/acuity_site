@@ -65,13 +65,13 @@ export type CallCenterSnapshot = {
 export function selectInboundCallOwnership(call: CallView): {
   endpointLabel: string | null;
   state: "ANSWERED" | "ANSWERING" | "RINGING";
-} {
+} | null {
   if (call.status === "CONNECTED") {
     const winner = call.legs.find(
       (leg) =>
         leg.id === call.winningLegId && leg.kind === "AGENT" && leg.status === "BRIDGED",
     );
-    return { endpointLabel: winner?.endpointLabel ?? null, state: "ANSWERED" };
+    return winner ? { endpointLabel: winner.endpointLabel, state: "ANSWERED" } : null;
   }
 
   const answeringLegs = call.legs.filter(
@@ -84,12 +84,9 @@ export function selectInboundCallOwnership(call: CallView): {
 }
 
 export function selectIncomingCalls(state: CallCenterSnapshot) {
-  return state.calls.filter(
-    ({ direction, status }) =>
-      direction === "INBOUND" &&
-      (status === "RECEIVED" ||
-        status === "QUEUED" ||
-        status === "RINGING" ||
-        status === "CONNECTED"),
-  );
+  return state.calls.filter((call) => {
+    if (call.direction !== "INBOUND") return false;
+    if (["RECEIVED", "QUEUED", "RINGING"].includes(call.status)) return true;
+    return call.status === "CONNECTED" && selectInboundCallOwnership(call) !== null;
+  });
 }

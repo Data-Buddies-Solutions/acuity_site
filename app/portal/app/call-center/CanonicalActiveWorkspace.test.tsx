@@ -262,6 +262,35 @@ describe("call readiness", () => {
     expect(within(row).getByRole("status").textContent).toContain("Phone number copied");
   });
 
+  it("reports a failed phone copy without claiming success", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: mock(async () => Promise.reject(new Error("denied"))) },
+    });
+    renderWorkspace(workspaceRuntime(), [], [connectedCall("INBOUND")]);
+
+    const row = await screen.findByRole("listitem");
+    fireEvent.click(
+      within(row).getByRole("button", { name: "Copy caller phone number" }),
+    );
+
+    expect(
+      await screen.findByText("Phone number could not be copied. Try again."),
+    ).toBeTruthy();
+    expect(within(row).queryByText("Phone number copied")).toBeNull();
+  });
+
+  it("hides a connected inbound call without an exact winning bridged seat", async () => {
+    const call = connectedCall("INBOUND");
+    call.winningLegId = null;
+    call.legs[0]!.status = "ANSWERED";
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    expect(screen.queryByText("(954) 609-7250")).toBeNull();
+  });
+
   it("shows canonical answer evidence with the answering endpoint seat", async () => {
     const call = connectedCall("INBOUND");
     call.answeredAt = null;
