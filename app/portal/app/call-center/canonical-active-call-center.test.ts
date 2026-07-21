@@ -226,8 +226,11 @@ describe("canonical active call center correlation", () => {
       transferring: false,
       winningLegId: "leg-1",
     };
+    const target = { endpointId: "endpoint-2", id: "session-2" };
 
     expect(hasCanonicalPendingTransfer(failed)).toBe(false);
+    expect(isCanonicalTransferOffer(failed, target)).toBe(false);
+    expect(selectCanonicalTransferOffers([failed], target)).toEqual([]);
     expect(hasCanonicalPendingTransfer({ ...failed, transferring: true })).toBe(true);
   });
 

@@ -761,6 +761,42 @@ describe("call readiness", () => {
     expect(within(row).getByRole("button", { name: "Decline" })).toBeTruthy();
   });
 
+  it("does not offer an orphaned transfer target after transfer activity ends", async () => {
+    const call = connectedCall("OUTBOUND");
+    call.winningLegId = "source-leg";
+    call.legs = [
+      {
+        ...call.legs[0]!,
+        agentSessionId: "source-session",
+        endpointId: "source-endpoint",
+        endpointLabel: "Front Desk 1",
+        id: "source-leg",
+        status: "BRIDGED",
+      },
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        id: "orphaned-target-leg",
+        status: "RINGING",
+      },
+    ];
+
+    renderWorkspace(
+      workspaceRuntime({
+        media: mediaControls("RINGING"),
+        session: readySession({ endpointId: "endpoint-2", id: "session-2" }),
+      }),
+      [],
+      [call],
+    );
+
+    const row = await screen.findByRole("listitem");
+    expect(within(row).getByText("Answered · Front Desk 1")).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: "Answer" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Decline" })).toBeNull();
+  });
+
   it("returns a failed answer attempt to the canonical ringing presentation", async () => {
     const call = connectedCall("INBOUND");
     call.answeredAt = null;

@@ -93,7 +93,7 @@ export function isCanonicalTransferOffer(
   call: CallView,
   session: Pick<AgentSessionView, "endpointId" | "id"> | null,
 ) {
-  if (!session || call.status !== "CONNECTED") return false;
+  if (!session || call.status !== "CONNECTED" || !call.transferring) return false;
   const sourceLegId = transferSourceLegId(call);
   if (!sourceLegId) return false;
   return call.legs.some(
