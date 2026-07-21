@@ -349,7 +349,6 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     }
     availabilityChoiceRef.current = next;
     // Every canonical projection can supersede an older local availability choice.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAvailabilityIntent((current) => (current === next ? current : next));
   }, [session]);
 
