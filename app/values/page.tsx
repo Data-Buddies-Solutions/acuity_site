@@ -27,19 +27,16 @@ const values = [
 
 const differentiators = [
   {
-    title: "Practice-aware, not generic.",
-    description:
-      "Acuity follows each location's providers, visit types, insurance rules, and scheduling workflows.",
+    title: "Move fast.",
+    description: "Small teams with less bureaucracy thrive in the age of AI.",
   },
   {
-    title: "Connected to the systems that matter.",
-    description:
-      "It books directly into the EMR and creates clear staff follow-up when a request needs a person.",
+    title: "Built into your workflow.",
+    description: "We embed our expertise directly into the way your team works.",
   },
   {
-    title: "Accountable for the next step.",
-    description:
-      "Success means a patient is booked, helped, or handed off with context—not merely that a call was answered.",
+    title: "Direct access to the founders.",
+    description: "Work closely with the people building and improving the product.",
   },
 ] as const;
 
@@ -90,12 +87,12 @@ export default function ValuesPage() {
                 className="mt-5 max-w-xl text-4xl leading-[1.02] text-[#101820] md:text-5xl lg:text-[3.5rem]"
                 id="difference-heading"
               >
-                The difference is what happens after hello.
+                A different way of working together.
               </h2>
             </div>
             <p className="max-w-2xl self-end text-lg leading-8 text-[#586372] lg:pb-1">
-              A call is only the beginning. Acuity stays with the patient need until it is
-              completed or the right person has the context to take over.
+              We move quickly, work inside your existing workflow, and keep you close to
+              the people shaping the product.
             </p>
           </div>
 

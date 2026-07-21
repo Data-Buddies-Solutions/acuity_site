@@ -34,12 +34,12 @@ describe("Values page", () => {
     ).toBeInTheDocument();
 
     const difference = screen.getByRole("region", {
-      name: "The difference is what happens after hello.",
+      name: "A different way of working together.",
     });
     for (const proof of [
-      "Practice-aware, not generic.",
-      "Connected to the systems that matter.",
-      "Accountable for the next step.",
+      "Move fast.",
+      "Built into your workflow.",
+      "Direct access to the founders.",
     ]) {
       expect(
         within(difference).getByRole("heading", { name: proof }),
