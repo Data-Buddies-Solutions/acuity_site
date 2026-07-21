@@ -8,7 +8,9 @@ import {
   completeCanonicalOutboundOperation,
   failCanonicalOutboundOperation,
   hasCanonicalPendingTransfer,
+  isDefinitiveCanonicalOutboundFailure,
   isCanonicalTransferOffer,
+  reconcileCanonicalOutboundRuntime,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
   selectCanonicalTransferOffers,
@@ -107,14 +109,28 @@ describe("canonical active call center correlation", () => {
       winningLegId: "leg-1",
     };
     const target = { endpointId: "endpoint-2", id: "session-2" };
+    const outboundTransferred = { ...transferred, direction: "OUTBOUND" as const };
+    const targetActiveCall = selectCanonicalAgentActiveCall(
+      [outboundTransferred],
+      target,
+    );
     expect(isCanonicalTransferOffer(transferred, target)).toBe(true);
     expect(hasCanonicalPendingTransfer(transferred)).toBe(true);
     expect(selectCanonicalTransferOffers([transferred], target)).toEqual([transferred]);
+    expect(targetActiveCall).toBeNull();
     expect(
-      selectCanonicalAgentActiveCall([{ ...transferred, direction: "OUTBOUND" }], target),
-    ).toBeNull();
+      reconcileCanonicalOutboundRuntime({
+        awaitingFreshSnapshot: false,
+        canonicalCallId: null,
+        canonicalCallObserved: false,
+        canonicalCallVisible: false,
+        freshSnapshotAvailable: false,
+        hasActiveOutboundCall: Boolean(targetActiveCall),
+        startingOutbound: false,
+      }),
+    ).toEqual({ active: false, callId: null, observed: false });
     expect(
-      selectCanonicalAgentActiveCall([{ ...transferred, direction: "OUTBOUND" }], {
+      selectCanonicalAgentActiveCall([outboundTransferred], {
         endpointId: "endpoint-1",
         id: "session-1",
       }),
@@ -172,6 +188,72 @@ describe("canonical active call center correlation", () => {
     expect(hasCanonicalPendingTransfer(outbound)).toBe(false);
   });
 
+  it("clears stale suppression after a workspace remount", () => {
+    expect(
+      reconcileCanonicalOutboundRuntime({
+        awaitingFreshSnapshot: false,
+        canonicalCallId: null,
+        canonicalCallObserved: false,
+        canonicalCallVisible: false,
+        freshSnapshotAvailable: false,
+        hasActiveOutboundCall: false,
+        startingOutbound: false,
+      }),
+    ).toEqual({ active: false, callId: null, observed: false });
+  });
+
+  it("preserves suppression while a new call is missing from a stale snapshot", () => {
+    expect(
+      reconcileCanonicalOutboundRuntime({
+        awaitingFreshSnapshot: true,
+        canonicalCallId: "outbound-call-1",
+        canonicalCallObserved: false,
+        canonicalCallVisible: false,
+        freshSnapshotAvailable: false,
+        hasActiveOutboundCall: false,
+        startingOutbound: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("clears suppression when a fresh snapshot misses a fast terminal call", () => {
+    expect(
+      reconcileCanonicalOutboundRuntime({
+        awaitingFreshSnapshot: true,
+        canonicalCallId: "outbound-call-1",
+        canonicalCallObserved: false,
+        canonicalCallVisible: false,
+        freshSnapshotAvailable: true,
+        hasActiveOutboundCall: false,
+        startingOutbound: false,
+      }),
+    ).toEqual({ active: false, callId: null, observed: false });
+  });
+
+  it("keeps ambiguous request failures suppressed until a fresh snapshot", () => {
+    const pending = {
+      awaitingFreshSnapshot: true,
+      canonicalCallId: null,
+      canonicalCallObserved: false,
+      canonicalCallVisible: false,
+      hasActiveOutboundCall: false,
+      startingOutbound: false,
+    };
+
+    expect(
+      reconcileCanonicalOutboundRuntime({
+        ...pending,
+        freshSnapshotAvailable: false,
+      }),
+    ).toBeNull();
+    expect(
+      reconcileCanonicalOutboundRuntime({
+        ...pending,
+        freshSnapshotAvailable: true,
+      }),
+    ).toEqual({ active: false, callId: null, observed: false });
+  });
+
   it("reuses one outbound operation key until that operation completes", () => {
     const values = new Map<string, string>();
     const storage = {
@@ -209,6 +291,7 @@ describe("canonical active call center correlation", () => {
     const first = canonicalOutboundIdempotencyKey(storage, target, () => "one");
 
     failCanonicalOutboundOperation(storage, target, first, new TypeError("lost"));
+    expect(isDefinitiveCanonicalOutboundFailure(new TypeError("lost"))).toBe(false);
     expect(canonicalOutboundIdempotencyKey(storage, target, () => "two")).toBe(first);
 
     failCanonicalOutboundOperation(
@@ -221,6 +304,15 @@ describe("canonical active call center correlation", () => {
         retryable: false,
       }),
     );
+    expect(
+      isDefinitiveCanonicalOutboundFailure(
+        new CallCenterRequestError({
+          code: "OUTBOUND_CALL_FAILED",
+          referenceId: "ABC123",
+          retryable: false,
+        }),
+      ),
+    ).toBe(true);
     expect(canonicalOutboundIdempotencyKey(storage, target, () => "three")).not.toBe(
       first,
     );

@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import type { MediaObservation } from "./call-center/softphone-media-adapter";
 import {
   phoneOwnerMessageError,
+  releaseProvisionalSuppressedRingtoneOffers,
+  scheduleOutboundOperationExpiry,
   selectSoftphoneRuntimeCalls,
   updateOutboundOperationFromMedia,
   updateSuppressedRingtoneOffers,
@@ -28,6 +30,27 @@ function observation(
 }
 
 describe("Softphone Runtime", () => {
+  it("expires an outbound operation when no media observation arrives", async () => {
+    let expired = false;
+    scheduleOutboundOperationExpiry(() => {
+      expired = true;
+    }, 0);
+
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(expired).toBe(true);
+  });
+
+  it("allows outbound expiry to be cancelled after terminal reconciliation", async () => {
+    let expired = false;
+    const cancel = scheduleOutboundOperationExpiry(() => {
+      expired = true;
+    }, 0);
+    cancel();
+
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(expired).toBe(false);
+  });
+
   it("turns another tab's ownership event into the active-elsewhere banner", () => {
     expect(phoneOwnerMessageError({ clientInstanceId: "tab-2" }, "tab-1")).toBe(
       "Phone active in another tab",
@@ -156,6 +179,15 @@ describe("Softphone Runtime", () => {
       selectSoftphoneRuntimeCalls([staleOffer], null, { suppressedOfferIds })
         .ringtoneOfferId,
     ).toBeNull();
+  });
+
+  it("releases only offers provisionally suppressed by a rejected outbound call", () => {
+    expect(
+      releaseProvisionalSuppressedRingtoneOffers(
+        ["previously-suppressed", "provisionally-suppressed"],
+        ["previously-suppressed"],
+      ),
+    ).toEqual(["previously-suppressed"]);
   });
 
   it("allows a genuinely new offer after the stale outbound-era offer terminates", () => {

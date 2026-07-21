@@ -11,6 +11,41 @@ const OUTBOUND_OPERATION_STORAGE_KEY = "acuity-call-center:outbound-operation";
 
 type OutboundOperationStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
+export function reconcileCanonicalOutboundRuntime(input: {
+  awaitingFreshSnapshot: boolean;
+  canonicalCallId: string | null;
+  canonicalCallObserved: boolean;
+  canonicalCallVisible: boolean;
+  freshSnapshotAvailable: boolean;
+  hasActiveOutboundCall: boolean;
+  startingOutbound: boolean;
+}) {
+  const active = input.startingOutbound || input.hasActiveOutboundCall;
+  const observed =
+    input.canonicalCallObserved ||
+    input.canonicalCallVisible ||
+    (active && !input.startingOutbound);
+
+  if (active) {
+    return { active: true, callId: input.canonicalCallId, observed };
+  }
+  if (
+    observed ||
+    input.freshSnapshotAvailable ||
+    (!input.awaitingFreshSnapshot && !input.canonicalCallId)
+  ) {
+    return { active: false, callId: null, observed: false };
+  }
+
+  // Preserve suppression until a snapshot newer than the request result can
+  // prove that an ambiguous or just-created operation has no active call.
+  return null;
+}
+
+export function isDefinitiveCanonicalOutboundFailure(error: unknown) {
+  return error instanceof CallCenterRequestError && !error.operatorError.retryable;
+}
+
 function outboundSourceLegId(call: CallView) {
   return call.direction === "OUTBOUND"
     ? (call.legs.find((leg) => leg.kind === "AGENT")?.id ?? null)
@@ -149,7 +184,7 @@ export function failCanonicalOutboundOperation(
   key: string,
   error: unknown,
 ) {
-  if (error instanceof CallCenterRequestError && !error.operatorError.retryable) {
+  if (isDefinitiveCanonicalOutboundFailure(error)) {
     completeCanonicalOutboundOperation(storage, target, key);
   }
 }
