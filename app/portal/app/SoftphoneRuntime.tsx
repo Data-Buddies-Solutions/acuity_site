@@ -183,10 +183,6 @@ export function updateOutboundOperationFromMedia(
   return current;
 }
 
-export function canonicalAvailabilityIntent(session: Pick<AgentSessionView, "presence">) {
-  return resolveAgentAvailabilityIntent(session.presence);
-}
-
 export type SoftphoneRuntimeValue = {
   availabilityError: string | null;
   availabilityIntent: AgentAvailabilityIntent;
@@ -226,6 +222,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   });
   const answeringRef = useRef<string | null>(null);
   const availabilityChoiceRef = useRef<AgentAvailabilityIntent | null>(null);
+  const availabilitySessionIdRef = useRef<string | null>(null);
   const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
   const outboundCanonicalCallIdRef = useRef<string | null>(null);
@@ -329,8 +326,28 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   useEffect(() => clearOutboundOperationExpiry, [clearOutboundOperationExpiry]);
 
   useEffect(() => {
-    if (!session) return;
-    const next = canonicalAvailabilityIntent(session);
+    if (!session) {
+      availabilitySessionIdRef.current = null;
+      availabilityChoiceRef.current = null;
+      // A released lease starts a new availability decision.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAvailabilityIntent("PAUSED");
+      return;
+    }
+    const next = resolveAgentAvailabilityIntent(session.presence);
+    const sameSession = availabilitySessionIdRef.current === session.id;
+    availabilitySessionIdRef.current = session.id;
+    if (
+      sameSession &&
+      availabilityChoiceRef.current === "AVAILABLE" &&
+      session.presence === "PAUSED" &&
+      (session.connectionState !== "READY" ||
+        !session.microphoneReady ||
+        !session.audioReady)
+    ) {
+      return;
+    }
+    availabilityChoiceRef.current = next;
     // Every canonical projection can supersede an older local availability choice.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAvailabilityIntent((current) => (current === next ? current : next));

@@ -579,7 +579,7 @@ describe("call center snapshot", () => {
           {
             agentSessionId: "session-1",
             commands: [],
-            endpoint: null,
+            endpoint: { label: "Front Desk 1", practiceId: "practice-1" },
             endpointId: "endpoint-1",
             id: "leg-1",
             kind: "AGENT",
@@ -611,6 +611,10 @@ describe("call center snapshot", () => {
       },
       receivedAt: "2026-07-11T12:00:00.000Z",
       stateVersion: 12,
+    });
+    expect(selectLiveCallOwnership(call)).toEqual({
+      endpointLabel: "Front Desk 1",
+      state: "ANSWERING",
     });
   });
 

@@ -8,6 +8,7 @@ import {
 import {
   ACTIVE_CANONICAL_CALL_STATUSES,
   LIVE_CANONICAL_LEG_STATUSES,
+  NONTERMINAL_TRANSFER_COMMAND_STATUSES,
   UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
   normalizeCanonicalCallStatus,
 } from "@/lib/call-center/domain/canonical-call-state";
@@ -120,7 +121,7 @@ function isCanonicalTransferInProgress(call: SelectedCall) {
       leg.commands?.some(
         (command) =>
           command.type === "TRANSFER_AGENT" &&
-          ["PENDING", "SENDING", "SENT", "CONFIRMED"].includes(command.status) &&
+          NONTERMINAL_TRANSFER_COMMAND_STATUSES.includes(command.status as never) &&
           transferSourceLegId(command.arguments) === call.winningLegId,
       ),
   );

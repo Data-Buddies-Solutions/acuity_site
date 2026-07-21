@@ -509,7 +509,7 @@ describe("canonical agent sessions", () => {
       audioReady: false,
       connectionState: "ERROR",
       microphoneReady: false,
-      presence: "AVAILABLE",
+      presence: "PAUSED",
       readyAt: null,
     });
 

@@ -422,6 +422,8 @@ export async function updateAgentSessionReadiness(
       input.availabilityIntent === "AVAILABLE" &&
       !input.availabilityChange
     ) {
+      presence = "PAUSED";
+      nextReadiness = { ...nextReadiness, presence };
       validationError = null;
     }
     if (validationError) {

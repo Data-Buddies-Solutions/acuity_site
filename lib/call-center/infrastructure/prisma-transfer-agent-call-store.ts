@@ -11,6 +11,7 @@ import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveQueueAccess } from "@/lib/call-center/auth/queue-access";
 import {
   LIVE_CANONICAL_LEG_STATUSES,
+  NONTERMINAL_TRANSFER_COMMAND_STATUSES,
   UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
 } from "@/lib/call-center/domain/canonical-call-state";
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
@@ -204,7 +205,7 @@ class PrismaTransferAgentCallTransaction implements TransferAgentCallTransaction
       where: {
         callId: call.id,
         leg: { status: { in: [...UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES] } },
-        status: { in: ["PENDING", "SENDING", "SENT", "CONFIRMED"] },
+        status: { in: [...NONTERMINAL_TRANSFER_COMMAND_STATUSES] },
         type: "TRANSFER_AGENT",
       },
     });

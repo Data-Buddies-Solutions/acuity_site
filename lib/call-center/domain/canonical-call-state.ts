@@ -53,6 +53,13 @@ export const LIVE_CANONICAL_LEG_STATUSES = [
   "BRIDGED",
 ] as const satisfies readonly CanonicalLegStatus[];
 
+export const NONTERMINAL_TRANSFER_COMMAND_STATUSES = [
+  "PENDING",
+  "SENDING",
+  "SENT",
+  "CONFIRMED",
+] as const;
+
 export type CanonicalLegState = {
   answeredAt: Date | null;
   bridgedAt: Date | null;

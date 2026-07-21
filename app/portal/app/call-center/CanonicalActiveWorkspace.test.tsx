@@ -531,6 +531,60 @@ describe("call readiness", () => {
     expect(within(liveQueue).queryByRole("listitem")).toBeNull();
   });
 
+  it("keeps personal inbound calls and transfer offers outside the selected Live queue", async () => {
+    const selected = connectedCall("INBOUND");
+    selected.answeredAt = null;
+    selected.id = "call-selected";
+    selected.legs[0]!.agentSessionId = "session-2";
+    selected.legs[0]!.endpointId = "endpoint-2";
+    selected.legs[0]!.status = "RINGING";
+    selected.status = "RINGING";
+    selected.winningLegId = null;
+
+    const personal = structuredClone(selected);
+    personal.fromPhone = "+17865550199";
+    personal.id = "call-personal";
+    personal.queueId = "queue-2";
+
+    const transfer = connectedCall("INBOUND");
+    transfer.fromPhone = "+17865550200";
+    transfer.id = "call-transfer";
+    transfer.queueId = "queue-2";
+    transfer.legs = [
+      {
+        ...transfer.legs[0]!,
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        endpointLabel: "Front Desk 2",
+        id: "source-leg",
+      },
+      {
+        ...transfer.legs[0]!,
+        id: "target-leg",
+        status: "RINGING",
+      },
+    ];
+    transfer.winningLegId = "source-leg";
+
+    renderWorkspace(
+      workspaceRuntime({ media: mediaControls("RINGING") }),
+      [],
+      [selected, personal, transfer],
+      [selected.id],
+    );
+
+    await screen.findByText("(954) 609-7250");
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(within(liveQueue).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(liveQueue).queryByText("(786) 555-0199")).toBeNull();
+    expect(within(liveQueue).queryByText("(786) 555-0200")).toBeNull();
+    const personalOffer = screen.getByRole("region", { name: "Personal call offer" });
+    expect(within(personalOffer).getByText("(786) 555-0200")).toBeTruthy();
+    expect(within(personalOffer).getByRole("button", { name: "Answer" })).toBeTruthy();
+  });
+
   it("keeps mixed snapshot ordering and removes outbound rows after termination", async () => {
     const inbound = connectedCall("INBOUND");
     inbound.id = "call-inbound-first";
@@ -605,6 +659,54 @@ describe("call readiness", () => {
     const row = screen.getByRole("listitem");
     expect(within(row).queryByRole("button", { name: "Answer" })).toBeNull();
     expect(within(row).queryByRole("button", { name: "Decline" })).toBeNull();
+  });
+
+  it("shows an accepted answer reservation as Answering before the leg answers", async () => {
+    const call = connectedCall("INBOUND");
+    call.answerReservation = {
+      agentSessionId: "session-2",
+      expiresAt: "2026-07-21T10:00:30.000Z",
+      legId: "agent-leg-2",
+      status: "ACCEPTED",
+    };
+    call.answeredAt = null;
+    call.status = "RINGING";
+    call.winningLegId = null;
+    call.legs = [
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        endpointLabel: "Front Desk 2",
+        id: "agent-leg-2",
+        status: "RINGING",
+      },
+    ];
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("Answering · Front Desk 2");
+  });
+
+  it("omits a connected inbound row without one authoritative winning seat", async () => {
+    const call = connectedCall("INBOUND");
+    call.winningLegId = null;
+    call.legs.push({
+      ...call.legs[0]!,
+      agentSessionId: "session-2",
+      endpointId: "endpoint-2",
+      endpointLabel: "Front Desk 2",
+      id: "agent-leg-2",
+    });
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(within(liveQueue).queryByRole("listitem")).toBeNull();
+    expect(within(liveQueue).queryByText(/^Answered/)).toBeNull();
   });
 
   it("fails closed when concurrent answer evidence has no canonical winner", async () => {
@@ -787,6 +889,8 @@ describe("call readiness", () => {
         call.answeredAt = null;
         call.winningLegId = null;
         call.legs[0]!.status = "RINGING";
+      } else {
+        call.legs[0]!.endpointLabel = "Front Desk 1";
       }
       return call;
     });

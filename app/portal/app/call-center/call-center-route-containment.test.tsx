@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Component, type ReactNode } from "react";
 
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
@@ -38,9 +38,43 @@ const { SoftphoneRuntime, useSoftphoneRuntime } = await import("../SoftphoneRunt
 const { default: CallCenterError } = await import("./error");
 
 const originalAudio = globalThis.Audio;
+const originalAudioContext = window.AudioContext;
 const originalBroadcastChannel = globalThis.BroadcastChannel;
 const originalConsoleError = console.error;
 const originalFetch = globalThis.fetch;
+const originalMediaDevices = navigator.mediaDevices;
+
+class FakeAudioContext {
+  currentTime = 0;
+  destination = {};
+
+  close() {
+    return Promise.resolve();
+  }
+
+  createGain() {
+    return {
+      connect: () => {},
+      gain: {
+        linearRampToValueAtTime: () => {},
+        setValueAtTime: () => {},
+      },
+    };
+  }
+
+  createOscillator() {
+    return {
+      connect: () => {},
+      frequency: { value: 0 },
+      start: () => {},
+      stop: () => {},
+    };
+  }
+
+  resume() {
+    return Promise.resolve();
+  }
+}
 
 class WorkspaceBoundary extends Component<
   { children: ReactNode },
@@ -72,6 +106,23 @@ function FailingWorkspace() {
   return <p>Workspace starting</p>;
 }
 
+function AvailabilityProbe() {
+  const runtime = useSoftphoneRuntime();
+  return (
+    <div>
+      <p>Intent: {runtime.availabilityIntent}</p>
+      <p>Presence: {runtime.session?.presence ?? "OFFLINE"}</p>
+      <p>Connection: {runtime.media.connection}</p>
+      <p>
+        Media ready: {String(runtime.media.microphoneReady && runtime.media.soundReady)}
+      </p>
+      <button onClick={() => void runtime.setAvailability("AVAILABLE")} type="button">
+        Become available
+      </button>
+    </div>
+  );
+}
+
 describe("Call Center route failure containment", () => {
   beforeEach(() => {
     clients.length = 0;
@@ -83,6 +134,16 @@ describe("Call Center route failure containment", () => {
     Object.defineProperty(globalThis, "BroadcastChannel", {
       configurable: true,
       value: undefined,
+    });
+    Object.defineProperty(window, "AudioContext", {
+      configurable: true,
+      value: FakeAudioContext,
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }),
+      },
     });
     console.error = mock(() => {});
 
@@ -111,10 +172,19 @@ describe("Call Center route failure containment", () => {
       }
       if (method === "PATCH" && session) {
         const readiness = JSON.parse(String(init?.body));
+        const effectivelyAvailable =
+          readiness.presence === "AVAILABLE" &&
+          readiness.connectionState === "READY" &&
+          readiness.microphoneReady &&
+          readiness.audioReady;
         session = {
           ...session,
           ...readiness,
           leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+          presence:
+            readiness.presence === "AVAILABLE" && !effectivelyAvailable
+              ? "PAUSED"
+              : readiness.presence,
           stateVersion: session.stateVersion + 1,
         };
         return Response.json({ session });
@@ -135,6 +205,14 @@ describe("Call Center route failure containment", () => {
     Object.defineProperty(globalThis, "BroadcastChannel", {
       configurable: true,
       value: originalBroadcastChannel,
+    });
+    Object.defineProperty(window, "AudioContext", {
+      configurable: true,
+      value: originalAudioContext,
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: originalMediaDevices,
     });
   });
 
@@ -158,5 +236,30 @@ describe("Call Center route failure containment", () => {
 
     view.unmount();
     expect(clients[0]?.disconnectCount).toBe(1);
+  });
+
+  it("preserves Available intent while canonical presence follows media loss and recovery", async () => {
+    render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    await screen.findByText("Media ready: true");
+    fireEvent.click(screen.getByRole("button", { name: "Become available" }));
+    await screen.findByText("Intent: AVAILABLE");
+    await screen.findByText("Presence: AVAILABLE");
+
+    act(() => {
+      clients[0]?.handlers.get("telnyx.error")?.({
+        error: { fatal: true, name: "CONNECTION_FAILED" },
+      });
+    });
+
+    await screen.findByText("Presence: PAUSED");
+    expect(screen.getByText("Intent: AVAILABLE")).toBeTruthy();
+    await screen.findByText("Presence: AVAILABLE", {}, { timeout: 5_000 });
+    expect(screen.getByText("Intent: AVAILABLE")).toBeTruthy();
   });
 });

@@ -51,7 +51,6 @@ import {
   reconcileCanonicalOutboundRuntime,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
-  selectCanonicalTransferOffers,
 } from "./canonical-active-call-center";
 import { CallConnectionStatus } from "./CallConnectionStatus";
 import FollowUpPreview from "./FollowUpPreview";
@@ -469,26 +468,48 @@ function ConnectedCanonicalActiveWorkspace({
 
   const liveQueueCalls = useMemo(() => {
     if (!state) return [];
-    const selectedQueueCalls = selectLiveQueueCalls(state);
-    const transfers = selectCanonicalTransferOffers(state.calls, session);
-    return [
-      ...selectedQueueCalls,
-      ...transfers.filter((call) => !selectedQueueCalls.some(({ id }) => id === call.id)),
-    ];
-  }, [session, state]);
+    return selectLiveQueueCalls(state);
+  }, [state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
   const hasActiveOutboundCall = activeCall?.direction === "OUTBOUND";
   const localOffer = session
-    ? liveQueueCalls.find((call) =>
-        selectCanonicalBrowserMediaLeg(
+    ? state?.calls.find((call) => {
+        const match = selectCanonicalBrowserMediaLeg(
           call,
           session.id,
           session.endpointId,
           mediaObservations,
-        ),
-      )
+        );
+        return Boolean(
+          match &&
+          (call.status !== "CONNECTED" || isCanonicalTransferOffer(call, session)),
+        );
+      })
     : null;
-  const canonicalOffer = hasCanonicalSessionLiveLeg(liveQueueCalls, session);
+  const localOfferMatch =
+    localOffer && session
+      ? selectCanonicalBrowserMediaLeg(
+          localOffer,
+          session.id,
+          session.endpointId,
+          mediaObservations,
+        )
+      : null;
+  const personalOffer =
+    localOffer && !liveQueueCalls.some(({ id }) => id === localOffer.id)
+      ? localOffer
+      : null;
+  const personalAnswerReservation =
+    personalOffer &&
+    localOfferMatch &&
+    !isCanonicalTransferOffer(personalOffer, session) &&
+    (personalOffer.answerReservation?.status === "ACCEPTED" ||
+      personalOffer.answerReservation?.status === "ANSWERED") &&
+    personalOffer.answerReservation.agentSessionId === session?.id &&
+    personalOffer.answerReservation.legId === localOfferMatch.leg.id
+      ? personalOffer.answerReservation
+      : null;
+  const canonicalOffer = hasCanonicalSessionLiveLeg(state?.calls ?? [], session);
   const availabilityOccupied = Boolean(
     activeCall ||
     localOffer ||
@@ -998,6 +1019,52 @@ function ConnectedCanonicalActiveWorkspace({
             />
 
             <div className="space-y-4 p-4">
+              {personalOffer && localOfferMatch && session ? (
+                <section
+                  aria-label="Personal call offer"
+                  className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-3"
+                  role="region"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--portal-muted)]">
+                    {isCanonicalTransferOffer(personalOffer, session)
+                      ? "Transfer offer"
+                      : "Incoming call"}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--portal-ink)]">
+                    {formatPhone(callPhone(personalOffer))}
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      disabled={Boolean(activeCall)}
+                      onClick={() => declineCall(personalOffer)}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      Decline
+                    </Button>
+                    <CanonicalOfferAnswerButton
+                      answer={runtime.answer}
+                      answering={
+                        Boolean(personalAnswerReservation) ||
+                        localOfferMatch.observation.mediaLegId ===
+                          runtime.answeringMediaLegId
+                      }
+                      callId={personalOffer.id}
+                      connectionState={runtime.media.connection}
+                      disabled={
+                        Boolean(personalAnswerReservation) ||
+                        Boolean(runtime.answeringMediaLegId) ||
+                        Boolean(activeCall)
+                      }
+                      legId={localOfferMatch.leg.id}
+                      mediaLegId={localOfferMatch.observation.mediaLegId}
+                      sessionId={session.id}
+                      transferOffer={isCanonicalTransferOffer(personalOffer, session)}
+                    />
+                  </div>
+                </section>
+              ) : null}
+
               {activeCall ? (
                 <CanonicalActiveCall
                   call={activeCall}

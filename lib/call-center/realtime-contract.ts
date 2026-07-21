@@ -1,3 +1,5 @@
+import { ACTIVE_CANONICAL_CALL_STATUSES } from "@/lib/call-center/domain/canonical-call-state";
+
 export const CALL_CENTER_SCHEMA_VERSION = 9 as const;
 
 export type CallView = {
@@ -76,12 +78,29 @@ export function selectLiveCallOwnership(call: CallView): {
         (leg.status === "BRIDGED" ||
           (call.direction === "OUTBOUND" && leg.status === "ANSWERED")),
     );
-    const winner = call.winningLegId
-      ? connectedAgentLegs.find((leg) => leg.id === call.winningLegId)
-      : call.direction === "OUTBOUND" && connectedAgentLegs.length === 1
-        ? connectedAgentLegs[0]
-        : null;
-    return { endpointLabel: winner?.endpointLabel ?? null, state: "ANSWERED" };
+    const winner =
+      call.winningLegId && connectedAgentLegs.length === 1
+        ? connectedAgentLegs.find((leg) => leg.id === call.winningLegId)
+        : call.direction === "OUTBOUND" && connectedAgentLegs.length === 1
+          ? connectedAgentLegs[0]
+          : null;
+    return winner?.endpointLabel
+      ? { endpointLabel: winner.endpointLabel, state: "ANSWERED" }
+      : { endpointLabel: null, state: "RINGING" };
+  }
+
+  const reservedLeg = call.answerReservation
+    ? call.legs.find(
+        (leg) =>
+          leg.kind === "AGENT" &&
+          leg.id === call.answerReservation?.legId &&
+          leg.agentSessionId === call.answerReservation.agentSessionId,
+      )
+    : null;
+  if (call.answerReservation) {
+    return reservedLeg?.endpointLabel
+      ? { endpointLabel: reservedLeg.endpointLabel, state: "ANSWERING" }
+      : { endpointLabel: null, state: "RINGING" };
   }
 
   const answeringLegs = call.legs.filter(
@@ -95,19 +114,22 @@ export function selectLiveCallOwnership(call: CallView): {
 
 export function selectLiveQueueCalls(state: CallCenterSnapshot) {
   return state.calls.filter((call) => {
+    if (
+      call.queueId !== state.queueId ||
+      !state.selectedQueueCallIds.includes(call.id) ||
+      !ACTIVE_CANONICAL_CALL_STATUSES.includes(call.status as never)
+    ) {
+      return false;
+    }
+
     if (call.direction === "INBOUND") {
-      return (
-        call.status === "RECEIVED" ||
-        call.status === "QUEUED" ||
-        call.status === "RINGING" ||
-        call.status === "CONNECTED"
-      );
+      if (call.status !== "CONNECTED") return true;
+      const ownership = selectLiveCallOwnership(call);
+      return ownership.state === "ANSWERED" && Boolean(ownership.endpointLabel);
     }
 
     const ownership = selectLiveCallOwnership(call);
     return (
-      state.selectedQueueCallIds.includes(call.id) &&
-      call.queueId === state.queueId &&
       call.status === "CONNECTED" &&
       ownership.state === "ANSWERED" &&
       Boolean(ownership.endpointLabel)
