@@ -850,13 +850,6 @@ function canonicalCallObservation(
   processedLegId: string,
   { deferTransferSourceHangup = false }: { deferTransferSourceHangup?: boolean } = {},
 ) {
-  if (
-    call.direction === "INBOUND" &&
-    fact.eventType === "call.bridged" &&
-    fact.legKind === "CUSTOMER"
-  ) {
-    return null;
-  }
   if (fact.legKind === "AGENT") {
     if (fact.eventType === "call.hangup" && deferTransferSourceHangup) {
       return null;
