@@ -39,6 +39,13 @@ describe("Header mobile navigation", () => {
       "href",
       "/#proof",
     );
+    expect(
+      within(dialog).getByRole("link", { name: "Mission & values" }),
+    ).toHaveAttribute("href", "/values");
+    expect(within(dialog).getByRole("link", { name: "About" })).toHaveAttribute(
+      "href",
+      "/about",
+    );
     expect(within(dialog).getByRole("link", { name: "Practice Portal" })).toHaveAttribute(
       "href",
       "/portal",
