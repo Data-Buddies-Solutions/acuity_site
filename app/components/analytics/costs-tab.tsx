@@ -1,4 +1,4 @@
-import type { AnalyticsData } from "@/lib/analytics";
+import type { AdminPracticeAnalyticsData } from "@/lib/admin-analytics";
 import { formatDuration } from "@/lib/format";
 import { calculateUsageCostBreakdown, microsToDollars } from "@/lib/pricing";
 import { StatCard } from "@/app/components/stat-card";
@@ -38,7 +38,7 @@ function formatQuantity(quantity: number, unit: string) {
   });
 }
 
-export function CostsTab({ data }: { data: AnalyticsData }) {
+export function CostsTab({ data }: { data: AdminPracticeAnalyticsData }) {
   const breakdown = calculateUsageCostBreakdown({
     cachedTokens: data.totalCachedTokens,
     callCount: data.totalCalls,

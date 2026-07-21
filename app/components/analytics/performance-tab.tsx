@@ -1,9 +1,9 @@
-import type { AnalyticsData } from "@/lib/analytics";
+import type { AdminPracticeAnalyticsData } from "@/lib/admin-analytics";
 import { formatLatencyMs, latencyColor } from "@/lib/format";
 import { StatCard } from "@/app/components/stat-card";
 import { LatencyDistributionChart } from "@/app/components/charts/latency-distribution-chart";
 
-export function PerformanceTab({ data }: { data: AnalyticsData }) {
+export function PerformanceTab({ data }: { data: AdminPracticeAnalyticsData }) {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">

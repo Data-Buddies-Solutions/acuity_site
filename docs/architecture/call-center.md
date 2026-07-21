@@ -2,7 +2,7 @@
 
 Status: Canonical production runtime
 
-Last reviewed: 2026-07-19
+Last reviewed: 2026-07-21
 
 ## Decision
 
@@ -150,6 +150,12 @@ not publish the default Voice retry ceiling.
 This migration is forward-only. Application rollback is limited to a revision
 that understands the one-lifecycle schema; rollback must not restore the
 retired owner fence or dual inbox.
+
+Migration `20260720150000_server_owned_outbound_calls` makes the server the sole
+owner of outbound call creation and correlation. The browser receives opaque
+provider state only after the canonical call and agent leg exist. A deployment
+must not roll back to a browser-owned outbound implementation after this
+migration is applied.
 
 ## Configuration and secrets
 

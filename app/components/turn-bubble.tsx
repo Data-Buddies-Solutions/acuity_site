@@ -1,4 +1,4 @@
-import type { TurnRecord, ChatHistoryItem } from "@/lib/types";
+import type { ChatHistoryItem, TurnRecord } from "@/lib/call-types";
 import { Badge } from "@/components/ui/badge";
 import {
   getChatItemCallId,

@@ -1,6 +1,6 @@
 # Call Center Deployment Runbook
 
-Last reviewed: 2026-07-19
+Last reviewed: 2026-07-21
 
 This is a normal canonical deployment, not an activation rollout. There is no
 preflight approval, shadow stage, queue mode, or global enable switch.
@@ -15,13 +15,12 @@ preflight approval, shadow stage, queue mode, or global enable switch.
    practice default points to an enabled outbound number.
 4. Run Prisma validation, formatting, lint on changed files, TypeScript, the
    complete test suite, and the production build.
-5. Prove the cleanup migration on both an empty database and a seeded legacy
-   database. Never use `prisma db push` in production.
+5. Prove new migrations on an empty database and replay the complete migration
+   history. Never use `prisma db push` in production.
 
 ## Deploy
 
-1. Merge the application and migrations through
-   `20260719190000_retire_dual_webhook_lifecycle` to `main`.
+1. Merge the application and every committed migration to `main`.
 2. Run the production migration workflow with its normal `confirm=DEPLOY`
    authorization.
 3. Deploy `main`. Do not add or toggle a call-center activation environment
@@ -29,11 +28,10 @@ preflight approval, shadow stage, queue mode, or global enable switch.
 4. Leave provider credentials and direct-handoff route values unchanged unless
    the deployment explicitly changes that integration.
 
-The SQL migrations are forward-only. After
-`20260719190000_retire_dual_webhook_lifecycle`, roll back the application only
-to a revision that understands the single provider-event status and the schema
-without `effectOwner`; do not restore the owner fence, dual inbox, retired
-tables, or run destructive reverse SQL.
+The SQL migrations are forward-only. Roll back the application only to a
+revision that understands the deployed schema. In particular, do not restore
+the retired provider-event owner fence, dual inbox, browser-owned outbound call
+creation, retired tables, or run destructive reverse SQL.
 
 This retirement accepts one provider-contract risk: Telnyx does not publish its
 default Voice webhook retry ceiling. The release owner assumes a finalized

@@ -2,7 +2,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+const Panel = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
@@ -14,16 +14,17 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     />
   ),
 );
-Card.displayName = "Card";
+Panel.displayName = "Panel";
 
-const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("mb-4 space-y-1.5", className)} {...props} />
-  ),
-);
-CardHeader.displayName = "CardHeader";
+const PanelHeader = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div ref={ref} className={cn("mb-4 space-y-1.5", className)} {...props} />
+));
+PanelHeader.displayName = "PanelHeader";
 
-const CardTitle = React.forwardRef<
+const PanelTitle = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLHeadingElement>
 >(({ className, ...props }, ref) => (
@@ -33,22 +34,22 @@ const CardTitle = React.forwardRef<
     {...props}
   />
 ));
-CardTitle.displayName = "CardTitle";
+PanelTitle.displayName = "PanelTitle";
 
-const CardDescription = React.forwardRef<
+const PanelDescription = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
 >(({ className, ...props }, ref) => (
   <p ref={ref} className={cn("text-sm text-foreground/70", className)} {...props} />
 ));
-CardDescription.displayName = "CardDescription";
+PanelDescription.displayName = "PanelDescription";
 
-const CardContent = React.forwardRef<
+const PanelContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
   <div ref={ref} className={cn("text-sm leading-relaxed", className)} {...props} />
 ));
-CardContent.displayName = "CardContent";
+PanelContent.displayName = "PanelContent";
 
-export { Card, CardContent, CardDescription, CardHeader, CardTitle };
+export { Panel, PanelContent, PanelDescription, PanelHeader, PanelTitle };

@@ -1,6 +1,5 @@
-Contact: mailto:team@databuddiessolutions.com
-Expires: 2026-01-01T00:00:00.000Z
+Contact: mailto:kyle@acuityhealth.io
+Expires: 2027-01-01T00:00:00.000Z
 Preferred-Languages: en
-Canonical: https://databuddiessolutions.com/.well-known/security.txt
-Policy: https://databuddiessolutions.com/privacy-policy
-Acknowledgments: https://databuddiessolutions.com/security-acknowledgments
+Canonical: https://acuityhealth.io/.well-known/security.txt
+Policy: https://acuityhealth.io/privacy-policy

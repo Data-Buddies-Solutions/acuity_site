@@ -16,7 +16,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/app/components/ui/card";
+import { Panel, PanelContent, PanelHeader } from "@/components/ui/panel";
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import { type PortalCallerTimelineItem } from "@/lib/call-center/portal-model";
 import { readCanonicalCallerTimeline } from "@/lib/call-center/application/portal-canonical-history";
@@ -156,8 +156,8 @@ export default async function PortalCallCenterCallerPage({
       </section>
 
       {latestNeedsActionItem ? (
-        <Card className="overflow-hidden border-[var(--portal-border)] bg-white p-0 shadow-sm">
-          <CardHeader className="mb-0 flex flex-row items-center justify-between border-b border-[var(--portal-border)] px-4 py-3">
+        <Panel className="overflow-hidden border-[var(--portal-border)] bg-white p-0 shadow-sm">
+          <PanelHeader className="mb-0 flex flex-row items-center justify-between border-b border-[var(--portal-border)] px-4 py-3">
             <h2 className="text-sm font-semibold text-[var(--portal-ink)]">Follow-up</h2>
             <Badge
               className="border-[var(--portal-border)] bg-white px-2.5 py-1 text-[11px] text-[var(--portal-muted)]"
@@ -165,8 +165,8 @@ export default async function PortalCallCenterCallerPage({
             >
               Needs action
             </Badge>
-          </CardHeader>
-          <CardContent className="p-0">
+          </PanelHeader>
+          <PanelContent className="p-0">
             <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 border-l-2 border-[var(--portal-warning)] pl-3">
                 <TimelineRowContent compact hideStatus item={latestNeedsActionItem} />
@@ -195,8 +195,8 @@ export default async function PortalCallCenterCallerPage({
                 />
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </PanelContent>
+        </Panel>
       ) : null}
 
       {timeline.latestCall ? (
@@ -556,8 +556,8 @@ function OutcomePanel({
   taskIds: string[];
 }) {
   return (
-    <Card className="border-[var(--portal-border)] bg-white p-4 shadow-sm">
-      <CardContent className="p-0">
+    <Panel className="border-[var(--portal-border)] bg-white p-4 shadow-sm">
+      <PanelContent className="p-0">
         <form
           action={saveCallCenterNoteFormAction}
           className="grid w-full gap-2 sm:grid-cols-[minmax(180px,220px)_1fr_auto]"
@@ -598,8 +598,8 @@ function OutcomePanel({
             Save
           </Button>
         </form>
-      </CardContent>
-    </Card>
+      </PanelContent>
+    </Panel>
   );
 }
 

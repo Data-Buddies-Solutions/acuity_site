@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ChevronDown, Menu } from "lucide-react";
 
-import { Button } from "./ui/button";
+import { Button } from "@/components/ui/button";
 import BookCallButton from "./BookCallButton";
 import Logo from "./VisionOpsLogo";
 import {
