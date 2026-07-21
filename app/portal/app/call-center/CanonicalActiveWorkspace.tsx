@@ -299,12 +299,15 @@ function ConnectedCanonicalActiveWorkspace({
   queueId: string;
 }) {
   const runtime = useSoftphoneRuntime();
+  const setOutboundOperationActive = runtime.setOutboundOperationActive;
   const realtime = useCanonicalCallCenter({ queueId });
   const refreshSnapshot = realtime.refetch;
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [numberChoice, setNumberChoice] = useState("");
   const [startingOutbound, setStartingOutbound] = useState(false);
+  const canonicalOutboundCallIdRef = useRef<string | null>(null);
+  const canonicalOutboundObservedRef = useRef(false);
   const outboundStartingRef = useRef(false);
 
   useEffect(() => {
@@ -340,6 +343,21 @@ function ConnectedCanonicalActiveWorkspace({
     ];
   }, [session, state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
+  const outboundOperationActive =
+    startingOutbound ||
+    Boolean(
+      state?.calls.some(
+        (call) =>
+          call.direction === "OUTBOUND" &&
+          call.legs.some(
+            (leg) =>
+              leg.kind === "AGENT" &&
+              leg.agentSessionId === session?.id &&
+              leg.endpointId === session?.endpointId &&
+              !["ENDED", "FAILED"].includes(leg.status),
+          ),
+      ),
+    );
   const localOffer = session
     ? incomingCalls.find((call) =>
         selectCanonicalBrowserMediaLeg(
@@ -356,6 +374,26 @@ function ConnectedCanonicalActiveWorkspace({
   useEffect(() => {
     setCallCenterCurrentCallGuard(activeCall?.id ?? localOffer?.id ?? null);
   }, [activeCall?.id, localOffer?.id]);
+
+  useEffect(() => {
+    if (!state && !startingOutbound) return;
+    if (
+      canonicalOutboundCallIdRef.current &&
+      state?.calls.some(({ id }) => id === canonicalOutboundCallIdRef.current)
+    ) {
+      canonicalOutboundObservedRef.current = true;
+    }
+    if (outboundOperationActive) {
+      if (!startingOutbound) canonicalOutboundObservedRef.current = true;
+      setOutboundOperationActive(true);
+      return;
+    }
+    if (canonicalOutboundObservedRef.current) {
+      canonicalOutboundCallIdRef.current = null;
+      canonicalOutboundObservedRef.current = false;
+      setOutboundOperationActive(false);
+    }
+  }, [outboundOperationActive, setOutboundOperationActive, startingOutbound, state]);
 
   const declineCall = useCallback(
     (call: CallView) => {
@@ -391,6 +429,7 @@ function ConnectedCanonicalActiveWorkspace({
       return;
     }
     outboundStartingRef.current = true;
+    setOutboundOperationActive(true);
     setStartingOutbound(true);
     setActionError(null);
     const target = {
@@ -427,17 +466,28 @@ function ConnectedCanonicalActiveWorkspace({
       if (typeof body?.callId !== "string") {
         throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
+      canonicalOutboundCallIdRef.current = body.callId;
       setCallCenterCurrentCallGuard(body.callId);
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
+      canonicalOutboundCallIdRef.current = null;
+      canonicalOutboundObservedRef.current = false;
+      setOutboundOperationActive(false);
       failCanonicalOutboundOperation(window.sessionStorage, target, operationKey, error);
       setActionError(errorMessage(error, "outbound"));
     } finally {
       outboundStartingRef.current = false;
       setStartingOutbound(false);
     }
-  }, [clientInstanceId, destination, queueId, selectedNumberId, session]);
+  }, [
+    clientInstanceId,
+    destination,
+    queueId,
+    selectedNumberId,
+    session,
+    setOutboundOperationActive,
+  ]);
 
   if (realtime.error && !state) {
     return (

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 import type { MediaObservation } from "./call-center/softphone-media-adapter";
-import { phoneOwnerMessageError, selectSoftphoneRuntimeCalls } from "./SoftphoneRuntime";
+import {
+  phoneOwnerMessageError,
+  selectSoftphoneRuntimeCalls,
+  updateSuppressedRingtoneOffers,
+} from "./SoftphoneRuntime";
 
 function observation(
   mediaLegId: string,
@@ -48,6 +52,55 @@ describe("Softphone Runtime", () => {
 
     expect(result.incoming).toHaveLength(2);
     expect(result.ringtoneOfferId).toBeNull();
+  });
+
+  it("does not ring an inbound offer while an outbound agent leg is connecting", () => {
+    const result = selectSoftphoneRuntimeCalls(
+      [
+        observation("outbound-agent-leg", "RINGING"),
+        observation("inbound-offer", "RINGING"),
+      ],
+      null,
+      { outboundOperationActive: true },
+    );
+
+    expect(result.ringtoneOfferId).toBeNull();
+  });
+
+  it("does not revive a stale inbound offer after the outbound call ends", () => {
+    const staleOffer = observation("stale-inbound-offer", "RINGING");
+    const suppressedOfferIds = updateSuppressedRingtoneOffers([], staleOffer, true);
+
+    expect(
+      selectSoftphoneRuntimeCalls([staleOffer], null, { suppressedOfferIds })
+        .ringtoneOfferId,
+    ).toBeNull();
+  });
+
+  it("allows a genuinely new offer after the stale outbound-era offer terminates", () => {
+    const staleOffer = observation("stale-inbound-offer", "RINGING");
+    const endedOffer = observation("stale-inbound-offer", "ENDED");
+    const newOffer = observation("new-inbound-offer", "RINGING");
+    const suppressedDuringOutbound = updateSuppressedRingtoneOffers([], staleOffer, true);
+    const suppressedAfterTerminal = updateSuppressedRingtoneOffers(
+      suppressedDuringOutbound,
+      endedOffer,
+      false,
+    );
+
+    expect(
+      selectSoftphoneRuntimeCalls([newOffer], null, {
+        suppressedOfferIds: suppressedAfterTerminal,
+      }).ringtoneOfferId,
+    ).toBe("new-inbound-offer");
+  });
+
+  it("does not ring while the canonical agent session is paused or offline", () => {
+    expect(
+      selectSoftphoneRuntimeCalls([observation("leg-1", "RINGING")], null, {
+        enabled: false,
+      }).ringtoneOfferId,
+    ).toBeNull();
   });
 
   it("keeps the answered leg owned while its local media is active or held", () => {

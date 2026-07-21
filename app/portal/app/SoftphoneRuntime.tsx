@@ -58,7 +58,17 @@ function canonicalConnectionState(
 export function selectSoftphoneRuntimeCalls(
   observations: readonly MediaObservation[],
   answeringMediaLegId: string | null,
+  ringtone: {
+    enabled?: boolean;
+    outboundOperationActive?: boolean;
+    suppressedOfferIds?: readonly string[];
+  } = {},
 ) {
+  const {
+    enabled: ringtoneEnabled = true,
+    outboundOperationActive = false,
+    suppressedOfferIds = [],
+  } = ringtone;
   const active =
     observations.find(({ state }) => ["ACTIVE", "HELD"].includes(state)) ?? null;
   const incoming = observations.filter(
@@ -78,8 +88,34 @@ export function selectSoftphoneRuntimeCalls(
     active,
     answeringMediaLegId: answering,
     incoming,
-    ringtoneOfferId: active || answering ? null : (incoming[0]?.mediaLegId ?? null),
+    ringtoneOfferId:
+      !ringtoneEnabled || active || answering || outboundOperationActive
+        ? null
+        : (incoming.find(({ mediaLegId }) => !suppressedOfferIds.includes(mediaLegId))
+            ?.mediaLegId ?? null),
   };
+}
+
+function isIncomingRingtoneObservation({ direction, state }: MediaObservation) {
+  return direction === "INBOUND" && ["CONNECTING", "RINGING"].includes(state);
+}
+
+export function updateSuppressedRingtoneOffers(
+  current: readonly string[],
+  observation: MediaObservation,
+  outboundOperationActive: boolean,
+) {
+  if (["ENDED", "FAILED"].includes(observation.state)) {
+    return current.filter((mediaLegId) => mediaLegId !== observation.mediaLegId);
+  }
+  if (
+    !outboundOperationActive ||
+    !isIncomingRingtoneObservation(observation) ||
+    current.includes(observation.mediaLegId)
+  ) {
+    return current;
+  }
+  return [...current, observation.mediaLegId];
 }
 
 type SoftphoneRuntimeValue = {
@@ -90,6 +126,7 @@ type SoftphoneRuntimeValue = {
   session: AgentSessionView | null;
   answer(mediaLegId: string): Promise<void>;
   answeringMediaLegId: string | null;
+  setOutboundOperationActive(active: boolean): void;
   takeover(): Promise<void>;
 };
 
@@ -99,13 +136,18 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [answeringMediaLegId, setAnsweringMediaLegId] = useState<string | null>(null);
+  const [outboundOperationActive, setOutboundOperationActive] = useState(false);
+  const [suppressedOfferIds, setSuppressedOfferIds] = useState<readonly string[]>([]);
   const [mediaReadiness, setMediaReadiness] = useState({
     audioReady: false,
     connectionState: "CLOSED" as CanonicalAgentConnectionState,
     microphoneReady: false,
   });
   const answeringRef = useRef<string | null>(null);
+  const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
+  const outboundMediaLegIdRef = useRef<string | null>(null);
+  const outboundOperationRef = useRef(false);
   const clientInstanceId = client?.clientInstanceId ?? null;
 
   useEffect(() => {
@@ -144,12 +186,33 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const session = agentSession.session;
   const startSession = agentSession.start;
   const stopSession = agentSession.stop;
+  const observeMedia = useCallback((observation: MediaObservation) => {
+    setSuppressedOfferIds((current) =>
+      updateSuppressedRingtoneOffers(current, observation, outboundOperationRef.current),
+    );
+    if (outboundOperationRef.current && ["ACTIVE", "HELD"].includes(observation.state)) {
+      outboundMediaLegIdRef.current = observation.mediaLegId;
+    }
+    if (
+      outboundMediaLegIdRef.current === observation.mediaLegId &&
+      ["ENDED", "FAILED"].includes(observation.state)
+    ) {
+      outboundMediaLegIdRef.current = null;
+      outboundOperationRef.current = false;
+      setOutboundOperationActive(false);
+    }
+  }, []);
   const { setRemoteAudioElement, ...media } = useSoftphoneMedia({
     agentSessionId: session?.id ?? null,
     autoPrepare: Boolean(session),
     browserSessionId: clientInstanceId ?? "",
     enabled: Boolean(session),
+    onObservation: observeMedia,
   });
+
+  useEffect(() => {
+    mediaObservationsRef.current = media.observations;
+  }, [media.observations]);
 
   useEffect(() => {
     const next = {
@@ -192,7 +255,11 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     };
   }, [clientInstanceId, stopSession]);
 
-  const calls = selectSoftphoneRuntimeCalls(media.observations, answeringMediaLegId);
+  const calls = selectSoftphoneRuntimeCalls(media.observations, answeringMediaLegId, {
+    enabled: session?.presence === "AVAILABLE",
+    outboundOperationActive,
+    suppressedOfferIds,
+  });
   const ringtone = useIncomingCallRingtone(calls.ringtoneOfferId);
 
   useEffect(() => {
@@ -226,6 +293,19 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     },
     [calls.active, media],
   );
+  const setOutboundOperation = useCallback((active: boolean) => {
+    outboundOperationRef.current = active;
+    if (!active) outboundMediaLegIdRef.current = null;
+    if (active) {
+      setSuppressedOfferIds((current) =>
+        mediaObservationsRef.current.reduce(
+          (next, observation) => updateSuppressedRingtoneOffers(next, observation, true),
+          current,
+        ),
+      );
+    }
+    setOutboundOperationActive(active);
+  }, []);
   const takeover = useCallback(async () => {
     if (!clientInstanceId) return;
     const response = await fetch("/api/portal/call-center/agent-sessions", {
@@ -254,6 +334,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       media,
       ringtone,
       session,
+      setOutboundOperationActive: setOutboundOperation,
       takeover,
     }),
     [
@@ -264,6 +345,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       media,
       ringtone,
       session,
+      setOutboundOperation,
       takeover,
       calls.answeringMediaLegId,
     ],
