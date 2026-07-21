@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Delete,
+  Grip,
   Headphones,
   Mic,
   MicOff,
@@ -696,6 +697,7 @@ export function CanonicalActiveCall({
     mediaLegId: string;
   } | null>(null);
   const [isMuted, setMuted] = useState(false);
+  const [keypadOpen, setKeypadOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTargets, setTransferTargets] = useState<
     Array<{ endpointId: string; label: string }>
@@ -806,6 +808,17 @@ export function CanonicalActiveCall({
     }
   };
 
+  const sendDtmf = (digit: string) => {
+    if (!mediaLegId) return;
+
+    try {
+      media.dtmf(mediaLegId, digit);
+      setControlError(null);
+    } catch (error) {
+      showControlError(error, "dtmf");
+    }
+  };
+
   const requestHoldMusic = async (action: "START" | "STOP") => {
     const response = await fetch(
       `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/hold-music`,
@@ -844,6 +857,7 @@ export function CanonicalActiveCall({
     const operationId = crypto.randomUUID();
     holdOperationRef.current = operationId;
     const nextHeld = !isHeld;
+    if (nextHeld) setKeypadOpen(false);
     setHoldPending(true);
     setControlError(null);
 
@@ -903,6 +917,7 @@ export function CanonicalActiveCall({
       setTransferOpen(false);
       return;
     }
+    setKeypadOpen(false);
     setTransferOpen(true);
     setLoadingTargets(true);
     setControlError(null);
@@ -1022,7 +1037,7 @@ export function CanonicalActiveCall({
           </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 @min-[30rem]/active-call:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 @min-[30rem]/active-call:grid-cols-5">
           <Button
             aria-pressed={isMuted}
             className="min-w-0 w-full @min-[30rem]/active-call:px-2"
@@ -1052,6 +1067,23 @@ export function CanonicalActiveCall({
             {isHeld ? "Resume" : "Hold"}
           </Button>
           <Button
+            aria-controls="active-call-keypad"
+            aria-expanded={keypadOpen}
+            aria-pressed={keypadOpen}
+            className="min-w-0 w-full @min-[30rem]/active-call:px-2"
+            disabled={
+              !controlsEnabled || isHeld || ending || holdPending || transferInProgress
+            }
+            onClick={() => {
+              setTransferOpen(false);
+              setKeypadOpen((open) => !open);
+            }}
+            variant={keypadOpen ? "default" : "secondary"}
+          >
+            <Grip className="h-4 w-4" aria-hidden="true" />
+            Keypad
+          </Button>
+          <Button
             className="min-w-0 w-full @min-[30rem]/active-call:px-2"
             disabled={!controlsEnabled || ending || holdPending || transferInProgress}
             onClick={() => void openTransfer()}
@@ -1061,7 +1093,7 @@ export function CanonicalActiveCall({
             Transfer
           </Button>
           <Button
-            className="min-w-0 w-full @min-[30rem]/active-call:px-2"
+            className="col-span-2 min-w-0 w-full @min-[30rem]/active-call:col-span-1 @min-[30rem]/active-call:px-2"
             disabled={!controlsEnabled || ending || transferInProgress}
             onClick={() => void endCall()}
             variant="secondary"
@@ -1070,6 +1102,36 @@ export function CanonicalActiveCall({
             {ending ? "Ending" : "End"}
           </Button>
         </div>
+
+        {keypadOpen ? (
+          <div
+            aria-label="Call keypad"
+            className="mt-3 border-t border-[var(--portal-border)] pt-3"
+            id="active-call-keypad"
+            role="group"
+          >
+            <div className="mx-auto grid max-w-60 grid-cols-3 gap-2">
+              {keypadDigits.map((digit) => (
+                <Button
+                  aria-label={`Send ${digit}`}
+                  className="font-mono text-base"
+                  disabled={
+                    !controlsEnabled ||
+                    isHeld ||
+                    ending ||
+                    holdPending ||
+                    transferInProgress
+                  }
+                  key={digit}
+                  onClick={() => sendDtmf(digit)}
+                  variant="secondary"
+                >
+                  {digit}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {transferOpen ? (
           <div className="mt-3 space-y-2 border-t border-[var(--portal-border)] pt-3">

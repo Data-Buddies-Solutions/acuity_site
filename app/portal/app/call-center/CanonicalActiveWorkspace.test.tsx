@@ -137,6 +137,7 @@ function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
     answer: mock(async () => {}),
     connection: "READY" as const,
     dial: mock(() => "media-leg-1"),
+    dtmf: mock((_mediaLegId: string, _digit: string) => {}),
     error: null,
     hangup: mock(async () => {}),
     hold: mock(async (_mediaLegId: string, _held: boolean) => true),
@@ -209,6 +210,29 @@ describe("CanonicalActiveCall", () => {
     expect(media.answer).toHaveBeenCalledTimes(1);
   });
 
+  it("sends dial pad input through the active media leg", () => {
+    const media = mediaControls();
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("OUTBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Keypad" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send #" }));
+
+    expect(media.dtmf.mock.calls).toEqual([
+      ["media-leg-1", "1"],
+      ["media-leg-1", "#"],
+    ]);
+  });
+
   it("restores connected inbound controls and routes them through canonical media", async () => {
     const media = mediaControls();
 
@@ -234,7 +258,7 @@ describe("CanonicalActiveCall", () => {
     }
     expect(
       screen.getByRole("button", { name: "Mute" }).parentElement?.className,
-    ).toContain("@min-[30rem]/active-call:grid-cols-4");
+    ).toContain("@min-[30rem]/active-call:grid-cols-5");
 
     fireEvent.click(screen.getByRole("button", { name: "Mute" }));
     expect(media.mute).toHaveBeenCalledWith("media-leg-1", true);
