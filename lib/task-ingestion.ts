@@ -3,7 +3,14 @@ import { toJsonCompatible } from "@/lib/call-normalization";
 import { phoneLookupVariants } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
-type TaskCategory = "billing" | "appointments" | "documentation" | "other";
+type TaskCategory =
+  | "billing"
+  | "appointments"
+  | "documentation"
+  | "optical"
+  | "medication"
+  | "referrals"
+  | "other";
 type TaskPriority = "high_priority" | "normal" | "non_urgent";
 const MAX_TASK_CALL_ID_LENGTH = 160;
 const MAX_TASK_IDEMPOTENCY_KEY_LENGTH = 160;
@@ -17,7 +24,10 @@ const categoryByInput = {
   appointments: "APPOINTMENTS",
   billing: "BILLING",
   documentation: "DOCUMENTATION",
+  medication: "MEDICATION",
+  optical: "OPTICAL",
   other: "OTHER",
+  referrals: "REFERRALS",
 } as const satisfies Record<TaskCategory, Prisma.AgentTaskCreateInput["category"]>;
 
 const priorityByInput = {
@@ -30,7 +40,10 @@ const categoryByDb = {
   APPOINTMENTS: "appointments",
   BILLING: "billing",
   DOCUMENTATION: "documentation",
+  MEDICATION: "medication",
+  OPTICAL: "optical",
   OTHER: "other",
+  REFERRALS: "referrals",
 } as const;
 
 const priorityByDb = {
@@ -105,6 +118,9 @@ function parseCategory(value: unknown): TaskCategory {
     value === "billing" ||
     value === "appointments" ||
     value === "documentation" ||
+    value === "optical" ||
+    value === "medication" ||
+    value === "referrals" ||
     value === "other"
   ) {
     return value;
