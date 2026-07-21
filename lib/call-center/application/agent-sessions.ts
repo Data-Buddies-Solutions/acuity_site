@@ -9,6 +9,19 @@ import {
 import { serializeAgentConnectionState } from "@/lib/call-center/domain/agent-session-wire";
 
 export const AGENT_SESSION_LEASE_MS = 30_000;
+export const AGENT_SESSION_CONNECTION_STATES = [
+  "CONNECTING",
+  "READY",
+  "ERROR",
+  "CLOSED",
+] as const satisfies readonly CallCenterAgentConnectionState[];
+export const AGENT_SESSION_PRESENCES = [
+  "AVAILABLE",
+  "PAUSED",
+  "BUSY",
+  "WRAP_UP",
+  "OFFLINE",
+] as const satisfies readonly CallCenterAgentPresence[];
 
 export class AgentSessionError extends Error {
   readonly status: number;

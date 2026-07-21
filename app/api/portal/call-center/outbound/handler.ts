@@ -8,7 +8,6 @@ import {
   type StartOutboundCallResponse,
 } from "@/lib/call-center/application/start-outbound-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
-import { prismaStartOutboundCallStore } from "@/lib/call-center/infrastructure/prisma-start-outbound-call-store";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z
@@ -26,7 +25,6 @@ const IDEMPOTENCY_KEY_MAX_LENGTH = 200;
 type Dependencies = {
   getActor: () => Promise<QueueAccessActor>;
   start?: (
-    store: typeof prismaStartOutboundCallStore,
     actor: QueueAccessActor,
     input: StartOutboundCallInput,
     now?: Date,
@@ -43,7 +41,7 @@ function idempotencyKey(request: Request) {
 
 export function createStartOutboundCallHandler({
   getActor,
-  start = (_store, actor, input, now) => callCenter.startOutbound(actor, input, now),
+  start = callCenter.startOutbound,
 }: Dependencies) {
   return withCallCenterApiHandler(
     async (request: Request) => {
@@ -56,7 +54,7 @@ export function createStartOutboundCallHandler({
         numberId: body.numberId,
         queueId: body.queueId,
       };
-      const receipt = await start(prismaStartOutboundCallStore, actor, input);
+      const receipt = await start(actor, input);
       return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 201 });
     },
     {

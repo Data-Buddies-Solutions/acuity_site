@@ -33,6 +33,7 @@ describe("call center follow-up preview route", () => {
             kind: "missed" as const,
             locationName: "Optical",
             recordingId: null,
+            taskId: `task-${index}`,
           }),
         );
       },
@@ -78,23 +79,30 @@ describe("call center follow-up preview route", () => {
   it("authorizes and resolves the selected caller thread", async () => {
     const received: Record<string, unknown>[] = [];
     const POST = createResolveFollowUpPreviewHandler({
+      followUp: {
+        resolveCallerThread: async (receivedActor, input) => {
+          received.push({ actor: receivedActor, input });
+          return {
+            canonicalTasksResolved: 2,
+            occurredAt: "2026-07-21T12:00:00.000Z",
+            operationType: "CALLER_THREAD_RESOLUTION",
+            replayed: false,
+            revision: "1",
+            status: "CONFIRMED",
+          };
+        },
+      },
       getActor: async () => actor,
-      resolveQueue: async (receivedActor, queueId) => {
-        received.push({ actor: receivedActor, queueId });
-        return { id: queueId, locations: [], name: "Queue" };
-      },
-      resolveThread: async (input) => {
-        received.push({ input });
-        return { canonicalTasksResolved: 2 };
-      },
     });
 
     const response = await POST(
       new Request("https://example.test/api/portal/call-center/follow-up-preview", {
         body: JSON.stringify({
+          idempotencyKey: "resolve-1",
           locationId: "location-1",
           phone: "+15555550123",
           queueId: "queue-1",
+          taskIds: ["task-1", "task-2"],
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -105,13 +113,13 @@ describe("call center follow-up preview route", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(body).toEqual({ ok: true, resolvedCount: 2 });
-    expect(received[0]).toEqual({ actor, queueId: "queue-1" });
-    expect(received[1]).toMatchObject({
+    expect(received[0]).toMatchObject({
+      actor,
       input: {
-        actor,
-        disposition: "RESOLVED",
-        locationIds: ["location-1"],
-        phoneVariants: expect.arrayContaining(["+15555550123"]),
+        expectedTaskIds: ["task-1", "task-2"],
+        idempotencyKey: "resolve-1",
+        locationId: "location-1",
+        phone: "+15555550123",
         queueId: "queue-1",
       },
     });
@@ -120,6 +128,11 @@ describe("call center follow-up preview route", () => {
   it("rejects malformed resolution bodies before authentication", async () => {
     let actorReads = 0;
     const POST = createResolveFollowUpPreviewHandler({
+      followUp: {
+        resolveCallerThread: async () => {
+          throw new Error("unused");
+        },
+      },
       getActor: async () => {
         actorReads += 1;
         return actor;

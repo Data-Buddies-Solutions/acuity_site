@@ -189,7 +189,7 @@ function FollowUpQueueRow({
               <Phone className="h-4 w-4" aria-hidden="true" />
             </Button>
           )}
-          <ResolveIconButton office={office} phone={group.fromPhone} queue={queue} />
+          <ResolveButton iconOnly office={office} queue={queue} thread={group} />
         </div>
       </div>
     </li>
@@ -256,7 +256,7 @@ function FollowUpWorkPanel({
                 </Link>
               </Button>
             ) : null}
-            <ResolveTextButton office={office} phone={thread.fromPhone} queue={queue} />
+            <ResolveButton office={office} queue={queue} thread={thread} />
             {numberHref ? (
               <Link
                 className="text-xs font-semibold text-[var(--portal-accent)] transition hover:text-[var(--portal-accent-hover)]"
@@ -304,61 +304,48 @@ function ThreadMetric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ResolveIconButton({
+function ResolveButton({
+  iconOnly = false,
   office,
-  phone,
   queue,
+  thread,
 }: {
+  iconOnly?: boolean;
   office?: string;
-  phone: string | null;
   queue?: string;
+  thread: PortalNeedsActionGroup;
 }) {
   return (
     <form action={resolveNeedsActionGroupAction}>
+      <input type="hidden" name="idempotencyKey" value={resolutionKey(thread)} />
       {office ? <input type="hidden" name="office" value={office} /> : null}
-      <input type="hidden" name="phone" value={phone ?? ""} />
+      <input type="hidden" name="phone" value={thread.fromPhone ?? ""} />
       {queue ? <input type="hidden" name="queue" value={queue} /> : null}
+      {thread.taskIds.map((taskId) => (
+        <input key={taskId} type="hidden" name="taskId" value={taskId} />
+      ))}
       <Button
-        aria-label="Mark resolved"
-        className="h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
-        disabled={!phone}
+        aria-label={iconOnly ? "Mark resolved" : undefined}
+        className={
+          iconOnly
+            ? "h-8 w-8 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
+            : "w-fit"
+        }
+        disabled={!thread.fromPhone}
         size="sm"
-        title="Mark resolved"
+        title={iconOnly ? "Mark resolved" : undefined}
         type="submit"
-        variant="ghost"
+        variant={iconOnly ? "ghost" : "secondary"}
       >
         <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+        {iconOnly ? null : "Resolve"}
       </Button>
     </form>
   );
 }
 
-function ResolveTextButton({
-  office,
-  phone,
-  queue,
-}: {
-  office?: string;
-  phone: string | null;
-  queue?: string;
-}) {
-  return (
-    <form action={resolveNeedsActionGroupAction}>
-      {office ? <input type="hidden" name="office" value={office} /> : null}
-      <input type="hidden" name="phone" value={phone ?? ""} />
-      {queue ? <input type="hidden" name="queue" value={queue} /> : null}
-      <Button
-        className="w-fit"
-        disabled={!phone}
-        size="sm"
-        type="submit"
-        variant="secondary"
-      >
-        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-        Resolve
-      </Button>
-    </form>
-  );
+function resolutionKey(thread: PortalNeedsActionGroup) {
+  return `resolve:${thread.id}:${thread.lastActivityAt.getTime()}:${thread.eventCount}`;
 }
 
 function PaginationControls({

@@ -14,7 +14,7 @@ describe("canonical disposition route", () => {
     let captured: unknown;
     const POST = createDispositionHandler({
       getActor: async () => actor,
-      save: async (_store, dispositionActor, input) => {
+      save: async (dispositionActor, input) => {
         captured = { actor: dispositionActor, input };
         return {
           callId: input.callId,

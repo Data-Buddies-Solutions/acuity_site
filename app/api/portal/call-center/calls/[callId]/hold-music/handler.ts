@@ -2,13 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ApiError, parseJsonBody } from "@/lib/api/handler";
-import { dispatchProviderCommand } from "@/lib/call-center/application/provider-command-runtime";
-import {
-  setCallHoldMusic,
-  type SetCallHoldMusicInput,
-} from "@/lib/call-center/application/set-call-hold-music";
+import { type SetCallHoldMusicInput } from "@/lib/call-center/application/set-call-hold-music";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
-import { prismaSetCallHoldMusicStore } from "@/lib/call-center/infrastructure/prisma-set-call-hold-music-store";
+import { callCenter } from "@/lib/call-center/call-center";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
 const bodySchema = z
@@ -23,13 +19,12 @@ type Dependencies = {
   set?: (
     actor: QueueAccessActor,
     input: SetCallHoldMusicInput,
-  ) => ReturnType<typeof setCallHoldMusic>;
+  ) => ReturnType<typeof callCenter.setHoldMusic>;
 };
 
 export function createHoldMusicHandler({
   getActor,
-  set = (actor, input) =>
-    setCallHoldMusic(prismaSetCallHoldMusicStore, dispatchProviderCommand, actor, input),
+  set = callCenter.setHoldMusic,
 }: Dependencies) {
   return withCallCenterApiHandler(
     async (request: Request, context: Context) => {

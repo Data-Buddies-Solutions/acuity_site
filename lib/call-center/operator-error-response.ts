@@ -160,7 +160,7 @@ function classify(error: unknown, options: HandlerOptions): Failure {
   }
   return {
     code: options.errorCode,
-    retryable: options.retryable ?? status >= 500,
+    retryable: status >= 500 && options.retryable !== false,
     status,
   };
 }

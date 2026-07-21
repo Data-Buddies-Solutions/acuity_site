@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { Prisma } from "@/generated/prisma/client";
+import type { ReserveDirectHandoffInput } from "@/lib/call-center/direct-handoff";
 import { directHandoffCorrelationLockKey } from "@/lib/call-center/infrastructure/direct-handoff-correlation";
 import {
   directHandoffRequestFingerprint,
@@ -14,14 +15,6 @@ import { prisma } from "@/lib/prisma";
 const SOURCE_SYSTEM = "ABITA";
 const LEGACY_HANDOFF_ID_HEADER = "X-Acuity-Handoff-Id";
 const LEGACY_HANDOFF_TOKEN_HEADER = "X-Acuity-Handoff-Token";
-
-export type ReserveDirectHandoffInput = {
-  callerPhone: string;
-  idempotencyKey: string;
-  practiceId: string;
-  routePhoneNumber: string;
-  sourceCallId: string;
-};
 
 export type DirectHandoffReservation = {
   expiresAt: Date;

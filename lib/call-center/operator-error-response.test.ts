@@ -103,4 +103,29 @@ describe("call-center operator error response", () => {
       },
     });
   });
+
+  it("keeps missing resources non-retryable when the handler retries server failures", async () => {
+    const handler = withCallCenterApiHandler(
+      async (_request: Request) => {
+        throw Object.assign(new Error("Voicemail is unavailable"), { status: 404 });
+      },
+      {
+        errorCode: "VOICEMAIL_UNAVAILABLE",
+        logLabel: "voicemail playback failed",
+        reportFailure: () => {},
+        retryable: true,
+      },
+    );
+
+    const response = await handler(request());
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "VOICEMAIL_UNAVAILABLE",
+        referenceId: "ABC123",
+        retryable: false,
+      },
+    });
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { type authorizeAgentSessionCredential } from "@/lib/call-center/application/agent-session-credentials";
+import { callCenter } from "@/lib/call-center/call-center";
 
 import { createCanonicalAgentSessionTokenHandler } from "./handler";
 
@@ -24,8 +24,7 @@ describe("canonical agent-session token route", () => {
   it("mints a token only after exact lease authorization", async () => {
     let authorized: unknown;
     const checkedAt = new Date("2026-07-12T12:00:00.000Z");
-    const authorize: typeof authorizeAgentSessionCredential = async (
-      _store,
+    const authorize: typeof callCenter.authorizeAgentCredential = async (
       receivedActor,
       input,
       now,

@@ -5,13 +5,9 @@ import {
   CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT,
   readCanonicalNeedsActionPreview,
 } from "@/lib/call-center/application/portal-canonical-history";
-import {
-  resolveQueueAccess,
-  type QueueAccessActor,
-} from "@/lib/call-center/auth/queue-access";
-import { resolveCallerThread } from "@/lib/call-center/infrastructure/prisma-resolve-caller-thread";
+import { type QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
-import { phoneLookupVariants } from "@/lib/phone";
+import type { operatorFollowUp } from "@/lib/call-center/operator-follow-up-runtime";
 
 type Dependencies = {
   getActor: () => Promise<QueueAccessActor>;
@@ -19,9 +15,8 @@ type Dependencies = {
 };
 
 type ResolveDependencies = {
+  followUp: Pick<typeof operatorFollowUp, "resolveCallerThread">;
   getActor: () => Promise<QueueAccessActor>;
-  resolveQueue?: typeof resolveQueueAccess;
-  resolveThread?: typeof resolveCallerThread;
 };
 
 export function createFollowUpPreviewHandler({
@@ -59,9 +54,8 @@ export function createFollowUpPreviewHandler({
 }
 
 export function createResolveFollowUpPreviewHandler({
+  followUp,
   getActor,
-  resolveQueue = resolveQueueAccess,
-  resolveThread = resolveCallerThread,
 }: ResolveDependencies) {
   return withCallCenterApiHandler(
     async (request: Request) => {
@@ -72,19 +66,27 @@ export function createResolveFollowUpPreviewHandler({
       const locationId =
         typeof body.locationId === "string" ? body.locationId.trim() : "";
       const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-      const phoneVariants = phoneLookupVariants(phone);
-      if (!queueId || !phoneVariants.length) {
-        throw new ApiError("A queue and phone number are required", 400);
+      const idempotencyKey =
+        typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
+      const taskIds = Array.isArray(body.taskIds)
+        ? body.taskIds
+            .filter((taskId): taskId is string => typeof taskId === "string")
+            .map((taskId) => taskId.trim())
+            .filter(Boolean)
+        : [];
+      if (!queueId || !phone || !idempotencyKey || !taskIds.length) {
+        throw new ApiError(
+          "A queue, phone number, and follow-up tasks are required",
+          400,
+        );
       }
 
       const actor = await getActor();
-      await resolveQueue(actor, queueId);
-      const result = await resolveThread({
-        actor,
-        disposition: "RESOLVED",
-        locationIds: locationId ? [locationId] : [],
-        now: new Date(),
-        phoneVariants,
+      const result = await followUp.resolveCallerThread(actor, {
+        expectedTaskIds: taskIds,
+        idempotencyKey,
+        ...(locationId ? { locationId } : {}),
+        phone,
         queueId,
       });
 

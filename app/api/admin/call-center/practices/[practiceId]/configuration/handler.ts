@@ -1,11 +1,6 @@
 import { isAdminEmail } from "@/lib/admin-auth";
 import { getAuthSession } from "@/lib/auth";
-import {
-  CallCenterConfigurationError,
-  saveCallCenterConfiguration,
-  type CallCenterConfigurationInput,
-  type SavedCallCenterConfiguration,
-} from "@/lib/call-center/application/configuration";
+import { CallCenterConfigurationError } from "@/lib/call-center/application/configuration";
 import {
   callCenterConfigurationWireSchema,
   formatConfigurationEtag,
@@ -14,11 +9,7 @@ import {
   resolveCallCenterConfigurationWireInput,
   safeZodIssues,
 } from "@/lib/call-center/application/configuration-wire";
-import {
-  PrismaCallCenterConfigurationRepository,
-  readCallCenterConfiguration,
-  type VersionedCallCenterConfiguration,
-} from "@/lib/call-center/infrastructure/prisma-configuration-repository";
+import { callCenterConfiguration } from "@/lib/call-center/configuration";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("admin-call-center-configuration");
@@ -31,14 +22,8 @@ type AdminSession = { user: { id: string; email?: string | null } };
 type ConfigurationHandlerDependencies = {
   getSession?: () => Promise<AdminSession | null>;
   isAdmin?: (email?: string | null) => boolean;
-  readConfiguration?: (
-    practiceId: string,
-  ) => Promise<VersionedCallCenterConfiguration | null>;
-  saveConfiguration?: (
-    input: CallCenterConfigurationInput,
-    expectedVersion: string,
-    actorUserId: string,
-  ) => Promise<SavedCallCenterConfiguration>;
+  readConfiguration?: typeof callCenterConfiguration.read;
+  saveConfiguration?: typeof callCenterConfiguration.save;
 };
 
 function databaseErrorCode(error: unknown) {
@@ -55,16 +40,10 @@ function requestIssue(code: string, message: string) {
 }
 
 export function createConfigurationHandlers({
-  getSession = () => getAuthSession() as Promise<AdminSession | null>,
+  getSession = getAuthSession,
   isAdmin = isAdminEmail,
-  readConfiguration = readCallCenterConfiguration,
-  saveConfiguration = (input, expectedVersion, actorUserId) =>
-    saveCallCenterConfiguration(
-      new PrismaCallCenterConfigurationRepository(),
-      input,
-      expectedVersion,
-      actorUserId,
-    ),
+  readConfiguration = callCenterConfiguration.read,
+  saveConfiguration = callCenterConfiguration.save,
 }: ConfigurationHandlerDependencies = {}) {
   async function getAdminSession() {
     const session = await getSession();

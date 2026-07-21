@@ -1,4 +1,5 @@
 import { requirePortalCallCenterContext } from "@/lib/api/handler";
+import { operatorFollowUp } from "@/lib/call-center/operator-follow-up-runtime";
 
 import {
   createFollowUpPreviewHandler,
@@ -20,6 +21,7 @@ export const GET = createFollowUpPreviewHandler({
 });
 
 export const POST = createResolveFollowUpPreviewHandler({
+  followUp: operatorFollowUp,
   getActor: async () => {
     const context = await requirePortalCallCenterContext();
     return {

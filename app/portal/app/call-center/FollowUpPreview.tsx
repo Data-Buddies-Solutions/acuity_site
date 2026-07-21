@@ -66,6 +66,7 @@ function isPreviewItem(value: unknown): value is PreviewItem {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
+    typeof value.taskId === "string" &&
     typeof value.createdAt === "string" &&
     Number.isFinite(Date.parse(value.createdAt)) &&
     ["missed", "note", "voicemail"].includes(String(value.kind))
@@ -116,16 +117,18 @@ export default function FollowUpPreview({
   const retry = useCallback(() => readNowRef.current(), []);
 
   const resolvePhone = useCallback(
-    async (phone: string) => {
+    async (phone: string, taskIds: string[]) => {
       const phoneKey = normalizePhone(phone) || phone;
       setResolveError(false);
       setResolvingPhone(phoneKey);
       try {
         const response = await fetch("/api/portal/call-center/follow-up-preview", {
           body: JSON.stringify({
+            idempotencyKey: `resolve-preview:${taskIds[0]}`,
             ...(locationId ? { locationId } : {}),
             phone,
             queueId,
+            taskIds,
           }),
           headers: { "Content-Type": "application/json" },
           method: "POST",
@@ -368,7 +371,15 @@ export default function FollowUpPreview({
                       className="h-7 w-7 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
                       disabled={!item.fromPhone || resolvingPhone !== null}
                       onClick={() => {
-                        if (item.fromPhone) void resolvePhone(item.fromPhone);
+                        if (!item.fromPhone) return;
+                        const taskIds = state.items
+                          .filter(
+                            (current) =>
+                              (normalizePhone(current.fromPhone) || current.fromPhone) ===
+                              phoneKey,
+                          )
+                          .map((current) => current.taskId);
+                        void resolvePhone(item.fromPhone, taskIds);
                       }}
                       size="sm"
                       title="Mark resolved"

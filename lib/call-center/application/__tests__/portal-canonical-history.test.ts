@@ -115,6 +115,7 @@ describe("canonical portal history", () => {
           fromPhone: "+15555550123",
           latestKind: "missed",
           missedCount: 1,
+          taskIds: ["task-1"],
           voicemailCount: 0,
         },
       ],

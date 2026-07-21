@@ -21,6 +21,7 @@ function previewItem(index: number) {
     kind: index % 3 === 0 ? "missed" : index % 3 === 1 ? "voicemail" : "note",
     locationName: "Optical",
     recordingId: index % 3 === 1 ? `recording-${index}` : null,
+    taskId: `task-${index}`,
   };
 }
 
@@ -77,9 +78,11 @@ describe("FollowUpPreview", () => {
     );
     expect(fetchPreview.mock.calls[1]?.[1]).toMatchObject({
       body: JSON.stringify({
+        idempotencyKey: "resolve-preview:task-0",
         locationId: "location-1",
         phone: "+15555550000",
         queueId: "queue-1",
+        taskIds: ["task-0"],
       }),
       method: "POST",
     });

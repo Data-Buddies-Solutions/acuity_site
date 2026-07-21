@@ -769,7 +769,6 @@ export function CanonicalActiveCall({
     if (media.connection !== "READY") {
       holdOperationRef.current = null;
       // Provider disconnects invalidate every optimistic hold transition.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHoldPending(false);
       setLocalHoldState(null);
     }

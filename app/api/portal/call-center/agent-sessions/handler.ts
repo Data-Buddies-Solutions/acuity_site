@@ -1,20 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import {
-  CallCenterAgentConnectionState,
-  CallCenterAgentPresence,
-} from "@/generated/prisma/client";
 import { parseJsonBody, requirePortalCallCenterContext } from "@/lib/api/handler";
-import { callCenter } from "@/lib/call-center/call-center";
+import { callCenter, type AgentUpdate } from "@/lib/call-center/call-center";
 import {
-  acquireAgentSession,
+  AGENT_SESSION_CONNECTION_STATES,
   AGENT_SESSION_LEASE_MS,
+  AGENT_SESSION_PRESENCES,
   type AgentSessionActor,
-  releaseAgentSession,
-  updateAgentSessionReadiness,
+  type AgentSessionEndpoint,
+  type AgentSessionRecord,
 } from "@/lib/call-center/application/agent-sessions";
-import { prismaAgentSessionStore } from "@/lib/call-center/infrastructure/prisma-agent-session-store";
 import { serializeAgentSessionView } from "@/lib/call-center/domain/agent-session-wire";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
@@ -24,10 +20,10 @@ const identitySchema = z.object({
 });
 const readinessSchema = identitySchema.extend({
   audioReady: z.boolean(),
-  connectionState: z.enum(CallCenterAgentConnectionState),
+  connectionState: z.enum(AGENT_SESSION_CONNECTION_STATES),
   expectedStateVersion: z.number().int().nonnegative(),
   microphoneReady: z.boolean(),
-  presence: z.enum(CallCenterAgentPresence),
+  presence: z.enum(AGENT_SESSION_PRESENCES),
 });
 const releaseSchema = identitySchema.extend({
   expectedStateVersion: z.number().int().nonnegative(),
@@ -36,12 +32,13 @@ const paramsSchema = z.object({ sessionId: z.string().trim().min(1).max(200) });
 
 type RouteContext = { params: Promise<{ sessionId: string }> };
 type RequestContext = { actor: AgentSessionActor };
+type UpdateAgentOperation = (
+  update: AgentUpdate,
+) => Promise<{ endpoint?: AgentSessionEndpoint; session: AgentSessionRecord }>;
 type AgentSessionHandlersDependencies = {
-  acquire?: typeof acquireAgentSession;
   clock?: () => Date;
   getContext?: () => Promise<RequestContext>;
-  release?: typeof releaseAgentSession;
-  updateReadiness?: typeof updateAgentSessionReadiness;
+  updateAgent?: UpdateAgentOperation;
 };
 
 async function getRequestContext(): Promise<RequestContext> {
@@ -61,40 +58,20 @@ async function readSessionId(routeContext: RouteContext) {
 }
 
 export function createAgentSessionHandlers({
-  acquire = async (_store, actor, input, now) =>
-    (await callCenter.updateAgent({
-      actor,
-      input,
-      kind: "ACQUIRE",
-      now,
-    })) as Awaited<ReturnType<typeof acquireAgentSession>>,
   clock = () => new Date(),
   getContext = getRequestContext,
-  release = async (_store, actor, input, now) =>
-    (await callCenter.updateAgent({
-      actor,
-      input,
-      kind: "RELEASE",
-      now,
-    })) as Awaited<ReturnType<typeof releaseAgentSession>>,
-  updateReadiness = async (_store, actor, input, now) =>
-    (await callCenter.updateAgent({
-      actor,
-      input,
-      kind: "HEARTBEAT",
-      now,
-    })) as Awaited<ReturnType<typeof updateAgentSessionReadiness>>,
+  updateAgent = callCenter.updateAgent,
 }: AgentSessionHandlersDependencies = {}) {
   const POST = withCallCenterApiHandler(
     async (request: Request) => {
       const context = await getContext();
       const input = await parseJsonBody(request, identitySchema);
-      const acquired = await acquire(
-        prismaAgentSessionStore,
-        context.actor,
+      const acquired = await updateAgent({
+        actor: context.actor,
         input,
-        clock(),
-      );
+        kind: "ACQUIRE",
+        now: clock(),
+      });
 
       return NextResponse.json({
         leaseDurationMs: AGENT_SESSION_LEASE_MS,
@@ -113,12 +90,12 @@ export function createAgentSessionHandlers({
       const context = await getContext();
       const sessionId = await readSessionId(routeContext);
       const input = await parseJsonBody(request, readinessSchema);
-      const result = await updateReadiness(
-        prismaAgentSessionStore,
-        context.actor,
-        { ...input, sessionId },
-        clock(),
-      );
+      const result = await updateAgent({
+        actor: context.actor,
+        input: { ...input, sessionId },
+        kind: "HEARTBEAT",
+        now: clock(),
+      });
 
       return NextResponse.json({ session: serializeAgentSessionView(result.session) });
     },
@@ -134,12 +111,12 @@ export function createAgentSessionHandlers({
       const context = await getContext();
       const sessionId = await readSessionId(routeContext);
       const input = await parseJsonBody(request, releaseSchema);
-      const result = await release(
-        prismaAgentSessionStore,
-        context.actor,
-        { ...input, sessionId },
-        clock(),
-      );
+      const result = await updateAgent({
+        actor: context.actor,
+        input: { ...input, sessionId },
+        kind: "RELEASE",
+        now: clock(),
+      });
 
       return NextResponse.json({ session: serializeAgentSessionView(result.session) });
     },
