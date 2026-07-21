@@ -58,7 +58,6 @@ describe("set call hold music", () => {
       {
         action: "START",
         callId: "call-1",
-        expectedStateVersion: 3,
         idempotencyKey: "hold-1",
       },
       now,
@@ -86,7 +85,6 @@ describe("set call hold music", () => {
         {
           action: "STOP",
           callId: "call-1",
-          expectedStateVersion: 3,
           idempotencyKey: "resume-1",
         },
         now,
@@ -110,7 +108,6 @@ describe("set call hold music", () => {
         {
           action: "START",
           callId: "call-1",
-          expectedStateVersion: 3,
           idempotencyKey: "hold-failed-1",
         },
         now,
@@ -118,7 +115,7 @@ describe("set call hold music", () => {
     ).rejects.toBeInstanceOf(SetCallHoldMusicError);
   });
 
-  it("waits for stop confirmation before reconnecting the call", async () => {
+  it("resumes after the durable stop dispatch without waiting for a callback", async () => {
     const stopStore = store();
     let waitedForSettlement = false;
     stopStore.waitForCommandSettlement = async () => {
@@ -138,35 +135,31 @@ describe("set call hold music", () => {
         {
           action: "STOP",
           callId: "call-1",
-          expectedStateVersion: 3,
           idempotencyKey: "resume-timeout-1",
         },
         now,
       ),
-    ).resolves.toMatchObject({ status: "CONFIRMED" });
-    expect(waitedForSettlement).toBe(true);
+    ).resolves.toMatchObject({ status: "DISPATCHED" });
+    expect(waitedForSettlement).toBe(false);
   });
 
-  it("keeps the call held when stop cannot be confirmed", async () => {
-    const stopStore = store();
-    stopStore.waitForCommandSettlement = async () => "TIMEOUT";
-
+  it("does not claim a stop is confirmed when dispatch already found it sent", async () => {
     await expect(
       setCallHoldMusic(
-        stopStore,
+        store(),
         async (commandId) => ({
           commandId,
+          markSent: "ALREADY_MARKED",
           status: "SETTLED",
         }),
         actor,
         {
           action: "STOP",
           callId: "call-1",
-          expectedStateVersion: 3,
-          idempotencyKey: "resume-timeout-1",
+          idempotencyKey: "resume-settled-1",
         },
         now,
       ),
-    ).rejects.toBeInstanceOf(SetCallHoldMusicError);
+    ).resolves.toMatchObject({ status: "DISPATCHED" });
   });
 });

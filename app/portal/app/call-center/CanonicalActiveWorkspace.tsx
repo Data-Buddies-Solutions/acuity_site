@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Delete,
+  Grip,
   Headphones,
   Mic,
   MicOff,
@@ -38,6 +39,7 @@ import { setCallCenterCurrentCallGuard } from "./call-center-current-call-guard"
 import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
+  failCanonicalOutboundOperation,
   hasCanonicalPendingTransfer,
   isCanonicalTransferOffer,
   selectCanonicalAgentActiveCall,
@@ -45,6 +47,7 @@ import {
   selectCanonicalTransferOffers,
 } from "./canonical-active-call-center";
 import { CallConnectionStatus } from "./CallConnectionStatus";
+import FollowUpPreview from "./FollowUpPreview";
 import type { MediaConnectionState } from "./softphone-media-adapter";
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
 import { useSoftphoneMedia } from "./use-softphone";
@@ -55,6 +58,7 @@ type CanonicalActiveWorkspaceProps = {
   followUpHref: string;
   historyHref: string;
   initialDialNumber?: string | null;
+  office?: string | null;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string | null;
 };
@@ -101,6 +105,7 @@ export function CanonicalActiveWorkspace({
   followUpHref,
   historyHref,
   initialDialNumber,
+  office,
   outboundNumbers,
   queueId,
 }: CanonicalActiveWorkspaceProps) {
@@ -138,6 +143,7 @@ export function CanonicalActiveWorkspace({
       followUpHref={followUpHref}
       historyHref={historyHref}
       initialDialNumber={initialDialNumber}
+      office={office}
       outboundNumbers={outboundNumbers}
       queueId={queueId}
     />
@@ -150,6 +156,7 @@ function ConnectedCanonicalActiveWorkspace({
   followUpHref,
   historyHref,
   initialDialNumber,
+  office,
   outboundNumbers,
   queueId,
 }: {
@@ -158,6 +165,7 @@ function ConnectedCanonicalActiveWorkspace({
   followUpHref: string;
   historyHref: string;
   initialDialNumber?: string | null;
+  office?: string | null;
   outboundNumbers: CanonicalOutboundNumber[];
   queueId: string;
 }) {
@@ -191,7 +199,7 @@ function ConnectedCanonicalActiveWorkspace({
   const state = realtime.state;
   const session = runtime.session;
   const media = runtime.media;
-  const { dial: dialMediaLeg, observations: mediaObservations } = media;
+  const { observations: mediaObservations } = media;
 
   const incomingCalls = useMemo(() => {
     if (!state) return [];
@@ -308,35 +316,23 @@ function ConnectedCanonicalActiveWorkspace({
         });
         return callCenterResponse<{
           callId?: unknown;
-          clientState?: unknown;
-          from?: unknown;
-          to?: unknown;
         }>(response);
       };
       const body = await requestOutbound();
-      if (
-        typeof body?.callId !== "string" ||
-        typeof body?.clientState !== "string" ||
-        typeof body.from !== "string" ||
-        typeof body.to !== "string"
-      ) {
+      if (typeof body?.callId !== "string") {
         throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
       setCallCenterCurrentCallGuard(body.callId);
-      dialMediaLeg({
-        callerNumber: body.from,
-        clientState: body.clientState,
-        destinationNumber: body.to,
-      });
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
+      failCanonicalOutboundOperation(window.sessionStorage, target, operationKey, error);
       setActionError(errorMessage(error, "outbound"));
     } finally {
       outboundStartingRef.current = false;
       setStartingOutbound(false);
     }
-  }, [clientInstanceId, destination, dialMediaLeg, queueId, selectedNumberId, session]);
+  }, [clientInstanceId, destination, queueId, selectedNumberId, session]);
 
   if (realtime.error && !state) {
     return (
@@ -521,19 +517,21 @@ function ConnectedCanonicalActiveWorkspace({
             )}
           </section>
 
-          <nav aria-label="Call Center workspaces" className="grid gap-3 sm:grid-cols-2">
+          <FollowUpPreview
+            followUpHref={followUpHref}
+            locationId={office}
+            onCallback={(number) => {
+              setDestination(number);
+              document
+                .getElementById("softphone")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            queueId={queueId}
+          />
+
+          <nav aria-label="Call Center workspaces">
             <Link
-              className="rounded-xl border border-[var(--portal-border)] bg-white p-4 text-sm font-semibold text-[var(--portal-accent)] shadow-sm hover:bg-[var(--portal-panel-soft)]"
-              href={followUpHref}
-              prefetch={false}
-            >
-              Follow-up
-              <span className="mt-1 block text-xs font-normal text-[var(--portal-muted)]">
-                Review calls that need later action.
-              </span>
-            </Link>
-            <Link
-              className="rounded-xl border border-[var(--portal-border)] bg-white p-4 text-sm font-semibold text-[var(--portal-accent)] shadow-sm hover:bg-[var(--portal-panel-soft)]"
+              className="block rounded-xl border border-[var(--portal-border)] bg-white p-4 text-sm font-semibold text-[var(--portal-accent)] shadow-sm hover:bg-[var(--portal-panel-soft)]"
               href={historyHref}
               prefetch={false}
             >
@@ -699,6 +697,7 @@ export function CanonicalActiveCall({
     mediaLegId: string;
   } | null>(null);
   const [isMuted, setMuted] = useState(false);
+  const [keypadOpen, setKeypadOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTargets, setTransferTargets] = useState<
     Array<{ endpointId: string; label: string }>
@@ -711,6 +710,7 @@ export function CanonicalActiveCall({
   const transferOperationRef = useRef<{ key: string; targetEndpointId: string } | null>(
     null,
   );
+  const outboundAnsweringRef = useRef<string | null>(null);
   const transferInProgress = transferring || hasCanonicalPendingTransfer(call);
   const match = sessionId
     ? selectCanonicalBrowserMediaLeg(call, sessionId, endpointId, media.observations)
@@ -738,6 +738,21 @@ export function CanonicalActiveCall({
   const isHeld =
     localHoldStateMatches && localHoldState ? localHoldState.held : observedHeld;
 
+  useEffect(() => {
+    if (call.direction !== "OUTBOUND" || connected || !mediaLegId) {
+      return;
+    }
+    if (match?.observation.state !== "RINGING") {
+      outboundAnsweringRef.current = null;
+      return;
+    }
+    if (outboundAnsweringRef.current === mediaLegId) return;
+    outboundAnsweringRef.current = mediaLegId;
+    void media.answer(mediaLegId).catch((error) => {
+      setControlError(errorMessage(error, "answer"));
+    });
+  }, [call.direction, connected, match?.observation.state, media, mediaLegId]);
+
   const rememberHoldState = (held: boolean, operationId: string) => {
     if (holdOperationRef.current !== operationId || !mediaConnectionId || !mediaLegId) {
       return;
@@ -753,6 +768,7 @@ export function CanonicalActiveCall({
   useEffect(() => {
     if (media.connection !== "READY") {
       holdOperationRef.current = null;
+      // Provider disconnects invalidate every optimistic hold transition.
       setHoldPending(false);
       setLocalHoldState(null);
     }
@@ -791,13 +807,23 @@ export function CanonicalActiveCall({
     }
   };
 
+  const sendDtmf = (digit: string) => {
+    if (!mediaLegId) return;
+
+    try {
+      media.dtmf(mediaLegId, digit);
+      setControlError(null);
+    } catch (error) {
+      showControlError(error, "dtmf");
+    }
+  };
+
   const requestHoldMusic = async (action: "START" | "STOP") => {
     const response = await fetch(
       `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/hold-music`,
       {
         body: JSON.stringify({
           action,
-          expectedStateVersion: call.stateVersion,
         }),
         headers: {
           "Content-Type": "application/json",
@@ -809,11 +835,28 @@ export function CanonicalActiveCall({
     await callCenterResponse(response);
   };
 
+  const resumeFromHold = async (operationId: string) => {
+    if (!mediaLegId) return;
+    await requestHoldMusic("STOP");
+    try {
+      await media.hold(mediaLegId, false);
+      rememberHoldState(false, operationId);
+    } catch (error) {
+      try {
+        await requestHoldMusic("START");
+      } finally {
+        rememberHoldState(true, operationId);
+      }
+      throw error;
+    }
+  };
+
   const toggleHold = async () => {
     if (!mediaLegId || holdPending) return;
     const operationId = crypto.randomUUID();
     holdOperationRef.current = operationId;
     const nextHeld = !isHeld;
+    if (nextHeld) setKeypadOpen(false);
     setHoldPending(true);
     setControlError(null);
 
@@ -842,18 +885,7 @@ export function CanonicalActiveCall({
           throw error;
         }
       } else {
-        await requestHoldMusic("STOP");
-        try {
-          await media.hold(mediaLegId, false);
-          rememberHoldState(false, operationId);
-        } catch (error) {
-          try {
-            await requestHoldMusic("START");
-          } finally {
-            rememberHoldState(true, operationId);
-          }
-          throw error;
-        }
+        await resumeFromHold(operationId);
       }
     } catch (error) {
       showControlError(error, "hold");
@@ -884,6 +916,7 @@ export function CanonicalActiveCall({
       setTransferOpen(false);
       return;
     }
+    setKeypadOpen(false);
     setTransferOpen(true);
     setLoadingTargets(true);
     setControlError(null);
@@ -922,6 +955,19 @@ export function CanonicalActiveCall({
         : `canonical-transfer:${clientInstanceId}:${crypto.randomUUID()}`;
     transferOperationRef.current = { key, targetEndpointId };
     try {
+      if (isHeld) {
+        const operationId = crypto.randomUUID();
+        holdOperationRef.current = operationId;
+        setHoldPending(true);
+        try {
+          await resumeFromHold(operationId);
+        } finally {
+          if (holdOperationRef.current === operationId) {
+            holdOperationRef.current = null;
+            setHoldPending(false);
+          }
+        }
+      }
       const response = await fetch(
         `/api/portal/call-center/calls/${encodeURIComponent(call.id)}/transfer`,
         {
@@ -990,7 +1036,7 @@ export function CanonicalActiveCall({
           </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 @min-[30rem]/active-call:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 @min-[30rem]/active-call:grid-cols-5">
           <Button
             aria-pressed={isMuted}
             className="min-w-0 w-full @min-[30rem]/active-call:px-2"
@@ -1020,6 +1066,23 @@ export function CanonicalActiveCall({
             {isHeld ? "Resume" : "Hold"}
           </Button>
           <Button
+            aria-controls="active-call-keypad"
+            aria-expanded={keypadOpen}
+            aria-pressed={keypadOpen}
+            className="min-w-0 w-full @min-[30rem]/active-call:px-2"
+            disabled={
+              !controlsEnabled || isHeld || ending || holdPending || transferInProgress
+            }
+            onClick={() => {
+              setTransferOpen(false);
+              setKeypadOpen((open) => !open);
+            }}
+            variant={keypadOpen ? "default" : "secondary"}
+          >
+            <Grip className="h-4 w-4" aria-hidden="true" />
+            Keypad
+          </Button>
+          <Button
             className="min-w-0 w-full @min-[30rem]/active-call:px-2"
             disabled={!controlsEnabled || ending || holdPending || transferInProgress}
             onClick={() => void openTransfer()}
@@ -1029,7 +1092,7 @@ export function CanonicalActiveCall({
             Transfer
           </Button>
           <Button
-            className="min-w-0 w-full @min-[30rem]/active-call:px-2"
+            className="col-span-2 min-w-0 w-full @min-[30rem]/active-call:col-span-1 @min-[30rem]/active-call:px-2"
             disabled={!controlsEnabled || ending || transferInProgress}
             onClick={() => void endCall()}
             variant="secondary"
@@ -1038,6 +1101,36 @@ export function CanonicalActiveCall({
             {ending ? "Ending" : "End"}
           </Button>
         </div>
+
+        {keypadOpen ? (
+          <div
+            aria-label="Call keypad"
+            className="mt-3 border-t border-[var(--portal-border)] pt-3"
+            id="active-call-keypad"
+            role="group"
+          >
+            <div className="mx-auto grid max-w-60 grid-cols-3 gap-2">
+              {keypadDigits.map((digit) => (
+                <Button
+                  aria-label={`Send ${digit}`}
+                  className="font-mono text-base"
+                  disabled={
+                    !controlsEnabled ||
+                    isHeld ||
+                    ending ||
+                    holdPending ||
+                    transferInProgress
+                  }
+                  key={digit}
+                  onClick={() => sendDtmf(digit)}
+                  variant="secondary"
+                >
+                  {digit}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {transferOpen ? (
           <div className="mt-3 space-y-2 border-t border-[var(--portal-border)] pt-3">
@@ -1087,6 +1180,11 @@ export function CanonicalActiveCall({
 
   return (
     <div className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-4">
+      {controlError ? (
+        <p className="mb-3 text-sm text-[var(--portal-danger)]" role="alert">
+          {controlError}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">

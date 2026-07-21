@@ -11,6 +11,7 @@ import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastruct
 import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
+type CommandReader = Pick<typeof prisma.callCenterCommand, "findUnique">;
 const HOLD_MUSIC_CONFIRMATION_TIMEOUT_MS = 5_000;
 const HOLD_MUSIC_CONFIRMATION_POLL_MS = 100;
 
@@ -70,7 +71,6 @@ export class PrismaSetCallHoldMusicTransaction implements SetCallHoldMusicTransa
         },
         practiceId: true,
         queueId: true,
-        stateVersion: true,
         status: true,
         winningLegId: true,
       },
@@ -88,9 +88,6 @@ export class PrismaSetCallHoldMusicTransaction implements SetCallHoldMusicTransa
       (!locationId || !actor.allowedLocationIds.includes(locationId))
     ) {
       throw new SetCallHoldMusicError("Canonical call not found", 404);
-    }
-    if (call.stateVersion !== input.expectedStateVersion) {
-      throw new SetCallHoldMusicError("Call changed; refresh and try again", 409);
     }
     if (call.status !== "CONNECTED") {
       throw new SetCallHoldMusicError("Call is not connected", 409);
@@ -171,12 +168,13 @@ export class PrismaSetCallHoldMusicStore implements SetCallHoldMusicStore {
   constructor(
     private readonly run = <T>(operation: (transaction: Transaction) => Promise<T>) =>
       prisma.$transaction(operation),
+    private readonly commands: CommandReader = prisma.callCenterCommand,
   ) {}
 
   async waitForCommandSettlement(commandId: string) {
     const deadline = Date.now() + HOLD_MUSIC_CONFIRMATION_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const command = await prisma.callCenterCommand.findUnique({
+      const command = await this.commands.findUnique({
         select: { status: true },
         where: { id: commandId },
       });

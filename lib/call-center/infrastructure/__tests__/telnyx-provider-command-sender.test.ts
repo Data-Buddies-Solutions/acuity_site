@@ -96,6 +96,51 @@ describe("Telnyx provider command sender", () => {
     });
   });
 
+  it("originates the outbound customer as its own provider leg", async () => {
+    const dials: Record<string, unknown>[] = [];
+    const sender = createTelnyxProviderCommandSender({
+      dial: async (input) => {
+        dials.push(input as unknown as Record<string, unknown>);
+        return {};
+      },
+    });
+
+    await sender.send({
+      arguments: {},
+      callId: "call-1",
+      commandId: "dial-customer-1",
+      idempotencyKey: "outbound:customer",
+      legId: "customer-leg-1",
+      practiceId: "practice-1",
+      provider: {
+        connectionId: "connection-1",
+        from: "+17865550101",
+        timeoutSeconds: 60,
+        to: "+17865550102",
+      },
+      type: "DIAL_CUSTOMER",
+    });
+
+    expect(dials).toEqual([
+      {
+        clientState: expect.any(String),
+        commandId: "dial-customer-1",
+        connectionId: "connection-1",
+        from: "+17865550101",
+        timeoutSecs: 60,
+        to: "+17865550102",
+      },
+    ]);
+    expect(
+      JSON.parse(Buffer.from(String(dials[0]?.clientState), "base64").toString("utf8")),
+    ).toEqual({
+      callId: "call-1",
+      canonicalCommand: true,
+      commandId: "dial-customer-1",
+      legId: "customer-leg-1",
+    });
+  });
+
   it("maps every initial lifecycle command to one idempotent Telnyx action", async () => {
     const calls: Array<[string, unknown]> = [];
     const response = () => new Response(null, { status: 204 });
@@ -189,6 +234,7 @@ describe("Telnyx provider command sender", () => {
       provider: {
         callControlId: "customer-control-1",
         sipUri: "sip:agent-2@example.test",
+        strategy: "TRANSFER",
         timeoutSeconds: 20,
       },
       type: "TRANSFER_AGENT",

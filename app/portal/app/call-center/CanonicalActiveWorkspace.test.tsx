@@ -137,6 +137,7 @@ function mediaControls(state: "ACTIVE" | "HELD" | "RINGING" = "ACTIVE") {
     answer: mock(async () => {}),
     connection: "READY" as const,
     dial: mock(() => "media-leg-1"),
+    dtmf: mock((_mediaLegId: string, _digit: string) => {}),
     error: null,
     hangup: mock(async () => {}),
     hold: mock(async (_mediaLegId: string, _held: boolean) => true),
@@ -163,6 +164,75 @@ function withMediaState(
 }
 
 describe("CanonicalActiveCall", () => {
+  it("answers the initiating agent leg when the outbound customer connects", async () => {
+    const call = connectedCall("OUTBOUND");
+    call.answeredAt = null;
+    call.status = "RINGING";
+    call.winningLegId = null;
+    call.legs[0]!.status = "RINGING";
+    const media = mediaControls("RINGING");
+
+    render(
+      <CanonicalActiveCall
+        call={call}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(media.answer).toHaveBeenCalledWith("media-leg-1");
+    });
+  });
+
+  it("surfaces one outbound auto-answer failure without retrying in a render loop", async () => {
+    const call = connectedCall("OUTBOUND");
+    call.answeredAt = null;
+    call.status = "RINGING";
+    call.winningLegId = null;
+    call.legs[0]!.status = "RINGING";
+    const media = mediaControls("RINGING");
+    media.answer.mockRejectedValueOnce(new Error("answer rejected"));
+
+    render(
+      <CanonicalActiveCall
+        call={call}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    await screen.findByText(/couldn't answer this call/i);
+    expect(media.answer).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends dial pad input through the active media leg", () => {
+    const media = mediaControls();
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("OUTBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Keypad" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send #" }));
+
+    expect(media.dtmf.mock.calls).toEqual([
+      ["media-leg-1", "1"],
+      ["media-leg-1", "#"],
+    ]);
+  });
+
   it("restores connected inbound controls and routes them through canonical media", async () => {
     const media = mediaControls();
 
@@ -188,7 +258,7 @@ describe("CanonicalActiveCall", () => {
     }
     expect(
       screen.getByRole("button", { name: "Mute" }).parentElement?.className,
-    ).toContain("@min-[30rem]/active-call:grid-cols-4");
+    ).toContain("@min-[30rem]/active-call:grid-cols-5");
 
     fireEvent.click(screen.getByRole("button", { name: "Mute" }));
     expect(media.mute).toHaveBeenCalledWith("media-leg-1", true);
@@ -670,6 +740,85 @@ describe("CanonicalActiveCall", () => {
     expect(
       (screen.getByRole("button", { name: "End" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it("resumes a held outbound source before starting its transfer", async () => {
+    const timeline: string[] = [];
+    const media = mediaControls("HELD");
+    media.hold.mockImplementation(async (_mediaLegId, held) => {
+      timeline.push(held ? "hold" : "unhold");
+      return true;
+    });
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("clientInstanceId=")) {
+        timeline.push("load targets");
+        return Response.json({
+          targets: [{ endpointId: "endpoint-2", label: "Front desk" }],
+        });
+      }
+      if (url.endsWith("/hold-music")) {
+        timeline.push(JSON.parse(String(init?.body)).action);
+        return Response.json({ status: "DISPATCHED" }, { status: 202 });
+      }
+      timeline.push("start transfer");
+      return Response.json({ targetLegId: "agent-leg-2" }, { status: 202 });
+    }) as never;
+
+    render(
+      <CanonicalActiveCall
+        call={connectedCall("OUTBOUND")}
+        clientInstanceId="browser-1"
+        endpointId="endpoint-1"
+        media={media}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
+    await screen.findByRole("option", { name: "Front desk" });
+    fireEvent.click(screen.getByRole("button", { name: "Transfer call" }));
+
+    await waitFor(() =>
+      expect(timeline).toEqual(["load targets", "STOP", "unhold", "start transfer"]),
+    );
+    expect(media.hold).toHaveBeenCalledWith("media-leg-1", false);
+  });
+
+  it("holds and resumes the winning leg after an outbound transfer", async () => {
+    const call = connectedCall("OUTBOUND");
+    call.legs[0] = {
+      ...call.legs[0]!,
+      agentSessionId: "session-2",
+      endpointId: "endpoint-2",
+    };
+    const media = mediaControls();
+    const actions: string[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      actions.push(JSON.parse(String(init?.body)).action);
+      return Response.json({ status: "CONFIRMED" }, { status: 202 });
+    }) as unknown as typeof fetch;
+
+    render(
+      <CanonicalActiveCall
+        call={call}
+        clientInstanceId="browser-2"
+        endpointId="endpoint-2"
+        media={media}
+        sessionId="session-2"
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hold" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    });
+
+    expect(actions).toEqual(["START", "STOP"]);
+    expect(media.hold).toHaveBeenNthCalledWith(1, "media-leg-1", true);
+    expect(media.hold).toHaveBeenNthCalledWith(2, "media-leg-1", false);
   });
 
   it("uses a new operation key after a definitive transfer-start failure", async () => {

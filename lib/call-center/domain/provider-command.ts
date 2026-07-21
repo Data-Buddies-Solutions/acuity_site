@@ -76,6 +76,17 @@ type DialAgentDispatchData = ProviderCommandDispatchBase & {
   type: "DIAL_AGENT";
 };
 
+type DialCustomerDispatchData = ProviderCommandDispatchBase & {
+  arguments: Record<string, never>;
+  provider: {
+    connectionId: string;
+    from: string;
+    timeoutSeconds: number;
+    to: string;
+  };
+  type: "DIAL_CUSTOMER";
+};
+
 type TransferAgentDispatchData = ProviderCommandDispatchBase & {
   arguments: {
     agentSessionId: string;
@@ -87,6 +98,7 @@ type TransferAgentDispatchData = ProviderCommandDispatchBase & {
   provider: {
     callControlId: string;
     sipUri: string;
+    strategy: "TRANSFER";
     timeoutSeconds: number;
   };
   type: "TRANSFER_AGENT";
@@ -95,6 +107,7 @@ type TransferAgentDispatchData = ProviderCommandDispatchBase & {
 export type ProviderCommandDispatchData =
   | AnswerCustomerDispatchData
   | StartRingbackDispatchData
+  | DialCustomerDispatchData
   | DialAgentDispatchData
   | TransferAgentDispatchData
   | StopPlaybackDispatchData

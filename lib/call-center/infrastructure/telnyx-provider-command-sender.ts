@@ -133,6 +133,16 @@ export function createTelnyxProviderCommandSender(
             "ringback",
           );
           return;
+        case "DIAL_CUSTOMER":
+          await operations.dial({
+            clientState: canonicalCommandClientState(command),
+            commandId: command.commandId,
+            connectionId: command.provider.connectionId,
+            from: command.provider.from,
+            timeoutSecs: command.provider.timeoutSeconds,
+            to: command.provider.to,
+          });
+          return;
         case "DIAL_AGENT":
           await operations.dial({
             bridgeIntent: true,

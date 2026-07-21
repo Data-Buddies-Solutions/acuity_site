@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import { PrismaSetCallHoldMusicTransaction } from "@/lib/call-center/infrastructure/prisma-set-call-hold-music-store";
+import {
+  PrismaSetCallHoldMusicStore,
+  PrismaSetCallHoldMusicTransaction,
+} from "@/lib/call-center/infrastructure/prisma-set-call-hold-music-store";
 
 const actor = {
   allowedLocationIds: [],
@@ -10,6 +13,24 @@ const actor = {
 };
 
 describe("Prisma hold music store", () => {
+  it("reads settlement through its injected command boundary", async () => {
+    let reads = 0;
+    const store = new PrismaSetCallHoldMusicStore(
+      async () => {
+        throw new Error("transaction should not run");
+      },
+      {
+        findUnique: async () => {
+          reads += 1;
+          return { status: "CONFIRMED" };
+        },
+      } as never,
+    );
+
+    await expect(store.waitForCommandSettlement("command-1")).resolves.toBe("CONFIRMED");
+    expect(reads).toBe(1);
+  });
+
   for (const latestType of ["START_HOLD_MUSIC", "STOP_HOLD_MUSIC"] as const) {
     it(`lets stop supersede an uncertain in-flight ${latestType}`, async () => {
       let created: Record<string, unknown> | null = null;
@@ -62,7 +83,6 @@ describe("Prisma hold music store", () => {
         {
           action: "STOP",
           callId: "call-1",
-          expectedStateVersion: 4,
           idempotencyKey: "resume-1",
         },
         new Date("2026-07-19T12:00:00.000Z"),
@@ -124,7 +144,6 @@ describe("Prisma hold music store", () => {
       {
         action: "STOP",
         callId: "call-1",
-        expectedStateVersion: 4,
         idempotencyKey: "resume-confirmed",
       },
       new Date("2026-07-19T12:00:00.000Z"),

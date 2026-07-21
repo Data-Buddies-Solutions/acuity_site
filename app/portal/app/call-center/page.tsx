@@ -84,6 +84,7 @@ export default async function PortalCallCenterPage({
         followUpHref={followUpHref}
         historyHref={historyHref}
         initialDialNumber={initialDialNumber}
+        office={selectedOfficeId}
         outboundNumbers={canonicalWorkspace?.outboundNumbers ?? []}
         queueId={canonicalWorkspace?.queueId ?? null}
       />

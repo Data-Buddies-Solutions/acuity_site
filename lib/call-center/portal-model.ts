@@ -21,6 +21,10 @@ export type PortalCallActivityItem = {
   taskId: string;
 };
 
+export type PortalNeedsActionPreviewItem = PortalCallActivityItem & {
+  id: string;
+};
+
 export type PortalNeedsActionGroup = {
   callbackNeededCount: number;
   callerName: string | null;

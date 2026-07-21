@@ -83,7 +83,7 @@ type AgentAcquisition = Extract<AgentUpdate, { kind: "ACQUIRE" }>;
 type AgentHeartbeat = Extract<AgentUpdate, { kind: "HEARTBEAT" }>;
 type AgentReleaseUpdate = Extract<AgentUpdate, { kind: "RELEASE" }>;
 
-type OutboundDependencies<Outbound> = {
+type OutboundDependencies<Outbound extends { commandId: string }> = {
   create(
     actor: QueueAccessActor,
     input: StartOutboundCallInput,
@@ -97,7 +97,7 @@ type OutboundDependencies<Outbound> = {
   ): Promise<string[]>;
 };
 
-export async function startCanonicalOutbound<Outbound>(
+export async function startCanonicalOutbound<Outbound extends { commandId: string }>(
   dependencies: OutboundDependencies<Outbound>,
   actor: QueueAccessActor,
   input: StartOutboundCallInput,
@@ -117,7 +117,22 @@ export async function startCanonicalOutbound<Outbound>(
   if (cleanup.deferred.length) {
     throw new StartOutboundCallError("Inbound call offer cleanup is still pending", 503);
   }
-  return dependencies.create(actor, input, now);
+  const outbound = await dependencies.create(actor, input, now);
+  const start = await dispatchProviderCommandGraph({
+    commandIds: [outbound.commandId],
+    dispatch: dependencies.dispatch,
+  });
+  if (start.failures.length) {
+    throw new StartOutboundCallError(
+      "Outbound call was rejected by phone service",
+      502,
+      false,
+    );
+  }
+  if (start.deferred.length) {
+    throw new StartOutboundCallError("Outbound call could not be started", 503);
+  }
+  return outbound;
 }
 
 export async function startCanonicalTransfer(

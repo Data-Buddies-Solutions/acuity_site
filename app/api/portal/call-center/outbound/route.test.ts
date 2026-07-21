@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { StartOutboundCallError } from "@/lib/call-center/application/start-outbound-call";
+
 import { createStartOutboundCallHandler } from "./handler";
 
 const actor = {
@@ -19,17 +21,15 @@ describe("POST /api/portal/call-center/outbound", () => {
         return {
           agentSessionId: "session-1",
           callId: "call-1",
-          clientState: "opaque-client-state",
+          commandId: "dial-customer-1",
+          customerLegId: "customer-leg-1",
           endpointId: "endpoint-1",
-          from: "+15555550000",
           legId: "leg-1",
           occurredAt: "2026-07-12T18:00:00.000Z",
           operationType: "OUTBOUND",
           replayed: false,
           revision: "42",
           stateVersion: 0,
-          status: "CONFIRMED",
-          to: "+15555550123",
         };
       },
     });
@@ -63,7 +63,8 @@ describe("POST /api/portal/call-center/outbound", () => {
     expect(await response.json()).toEqual(
       expect.objectContaining({
         callId: "call-1",
-        clientState: "opaque-client-state",
+        commandId: "dial-customer-1",
+        customerLegId: "customer-leg-1",
       }),
     );
   });
@@ -93,5 +94,38 @@ describe("POST /api/portal/call-center/outbound", () => {
     );
 
     expect(response.status).toBe(422);
+  });
+
+  it("marks a confirmed provider rejection as terminal", async () => {
+    const handler = createStartOutboundCallHandler({
+      getActor: async () => actor,
+      start: async () => {
+        throw new StartOutboundCallError(
+          "Outbound call was rejected by phone service",
+          502,
+          false,
+        );
+      },
+    });
+    const response = await handler(
+      new Request("http://localhost/api/portal/call-center/outbound", {
+        body: JSON.stringify({
+          clientInstanceId: "browser-1",
+          destination: "+15555550123",
+          numberId: "number-1",
+          queueId: "queue-1",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "operation-1",
+        },
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      error: { code: "OUTBOUND_CALL_FAILED", retryable: false },
+    });
   });
 });

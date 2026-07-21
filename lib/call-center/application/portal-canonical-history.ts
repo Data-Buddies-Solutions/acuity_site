@@ -9,8 +9,13 @@ import {
   type PortalCallerTimeline,
   type PortalCallerTimelineItem,
   type PortalNeedsActionGroup,
+  type PortalNeedsActionPreviewItem,
   type PortalRecentCallItem,
 } from "@/lib/call-center/portal-model";
+import {
+  resolveQueueAccess,
+  type QueueAccessActor,
+} from "@/lib/call-center/auth/queue-access";
 import { canonicalCallOutcome } from "@/lib/call-center/domain/canonical-call-outcome";
 import { normalizeCanonicalCallStatus } from "@/lib/call-center/domain/canonical-call-state";
 import { normalizePhone, phoneLookupVariants } from "@/lib/phone";
@@ -27,6 +32,10 @@ type CallAccessContext = {
   practice: { id: string };
 };
 type CanonicalHistoryDatabase = Pick<typeof prisma, "callCenterCall" | "callCenterTask">;
+type CanonicalNeedsActionPreviewDatabase = Pick<
+  typeof prisma,
+  "callCenterQueue" | "callCenterTask"
+>;
 type CanonicalHistoryDependencies = {
   database?: CanonicalHistoryDatabase;
   getContext?: typeof getCurrentPortalPracticeContext;
@@ -227,26 +236,42 @@ export async function readCanonicalCallCenterHistory(
   };
 }
 
-function taskActivity(task: {
+const needsActionTaskSelect = {
   call: {
-    answeredAt: Date | null;
-    callerName: string | null;
-    direction: "INBOUND" | "OUTBOUND";
-    fromPhone: string;
-    number: { practicePhoneNumber: { location: { name: string } | null } };
-    status: CallCenterCallStatus;
-    toPhone: string;
-    voicemail: {
-      durationSec: number;
-      recordingId: string;
-      recordingUrl: string;
-    } | null;
-  };
-  createdAt: Date;
-  id: string;
-  kind: "CALLBACK" | "FOLLOW_UP" | "MISSED_CALL" | "NOTE" | "VOICEMAIL";
-  note: string | null;
-}): PortalCallActivityItem {
+    select: {
+      answeredAt: true,
+      callerName: true,
+      direction: true,
+      fromPhone: true,
+      number: {
+        select: {
+          practicePhoneNumber: {
+            select: { location: { select: { name: true } } },
+          },
+        },
+      },
+      status: true,
+      toPhone: true,
+      voicemail: {
+        select: {
+          durationSec: true,
+          recordingId: true,
+          recordingUrl: true,
+        },
+      },
+    },
+  },
+  createdAt: true,
+  id: true,
+  kind: true,
+  note: true,
+} satisfies Prisma.CallCenterTaskSelect;
+
+type NeedsActionTask = Prisma.CallCenterTaskGetPayload<{
+  select: typeof needsActionTaskSelect;
+}>;
+
+function taskActivity(task: NeedsActionTask): PortalCallActivityItem {
   const storedUnanswered = task.kind === "VOICEMAIL" || task.kind === "MISSED_CALL";
   const outcome =
     storedUnanswered && task.call
@@ -279,6 +304,45 @@ function taskActivity(task: {
   };
 }
 
+export const CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT = 15;
+
+export async function readCanonicalNeedsActionPreview(
+  actor: QueueAccessActor,
+  options: {
+    locationIds?: string[];
+    queueId: string;
+  },
+  database: CanonicalNeedsActionPreviewDatabase = prisma,
+): Promise<PortalNeedsActionPreviewItem[]> {
+  await resolveQueueAccess(actor, options.queueId, database);
+  const callAccess = {
+    ...canonicalCallAccessWhere(
+      {
+        allowedLocationIds: actor.allowedLocationIds,
+        hasAllLocationAccess: actor.hasAllLocationAccess,
+        practice: { id: actor.practiceId },
+      },
+      options.locationIds ?? [],
+    ),
+    queueId: options.queueId,
+  };
+  const tasks = await database.callCenterTask.findMany({
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    select: needsActionTaskSelect,
+    take: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT,
+    where: {
+      call: callAccess,
+      practiceId: actor.practiceId,
+      status: "OPEN",
+    },
+  });
+
+  return tasks.slice(0, CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT).map((task) => ({
+    ...taskActivity(task),
+    id: task.id,
+  }));
+}
+
 export async function readCanonicalNeedsAction(
   options: {
     locationIds?: string[];
@@ -308,17 +372,8 @@ export async function readCanonicalNeedsAction(
     status: "OPEN",
   };
   const tasks = await database.callCenterTask.findMany({
-    include: {
-      call: {
-        include: {
-          number: {
-            include: { practicePhoneNumber: { include: { location: true } } },
-          },
-          voicemail: true,
-        },
-      },
-    },
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    select: needsActionTaskSelect,
     where: taskWhere,
   });
   const groups = buildPortalNeedsActionGroups(tasks.map(taskActivity));

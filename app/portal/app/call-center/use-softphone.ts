@@ -605,11 +605,16 @@ function useSoftphoneMediaEngine({
     callsRef.current.set(call.id, call);
     return call.id;
   }, []);
+  const dtmf = useCallback(
+    (mediaLegId: string, digit: string) => callFor(mediaLegId).dtmf(digit),
+    [callFor],
+  );
   return {
     activate,
     answer,
     connection: enabled ? connection : "OFFLINE",
     dial,
+    dtmf,
     error: enabled ? error : null,
     hangup,
     hold,

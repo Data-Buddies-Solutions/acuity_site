@@ -1,0 +1,1 @@
+ALTER TYPE "CallCenterCommandType" ADD VALUE 'DIAL_CUSTOMER';

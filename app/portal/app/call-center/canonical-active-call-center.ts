@@ -2,6 +2,7 @@ import {
   LIVE_CANONICAL_LEG_STATUSES,
   UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
 } from "@/lib/call-center/domain/canonical-call-state";
+import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
 import type { MediaObservation } from "./softphone-media-adapter";
@@ -139,6 +140,17 @@ export function completeCanonicalOutboundOperation(
     }
   } catch {
     storage.removeItem(OUTBOUND_OPERATION_STORAGE_KEY);
+  }
+}
+
+export function failCanonicalOutboundOperation(
+  storage: OutboundOperationStorage,
+  target: Parameters<typeof outboundTargetFingerprint>[0],
+  key: string,
+  error: unknown,
+) {
+  if (error instanceof CallCenterRequestError && !error.operatorError.retryable) {
+    completeCanonicalOutboundOperation(storage, target, key);
   }
 }
 

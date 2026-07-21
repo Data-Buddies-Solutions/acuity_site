@@ -256,6 +256,7 @@ enum ProviderWebhookProcessingStatus {
 enum CallCenterCommandType {
   ANSWER_CUSTOMER
   START_RINGBACK
+  DIAL_CUSTOMER
   DIAL_AGENT
   TRANSFER_AGENT
   STOP_PLAYBACK

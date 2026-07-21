@@ -48,14 +48,12 @@ function fakeTransaction() {
         data: {
           agentSessionId: "session-1",
           callId: "call-1",
-          clientState: "opaque",
+          commandId: "dial-customer-1",
+          customerLegId: "customer-leg-1",
           endpointId: "endpoint-1",
-          from: "+15555550000",
           legId: "leg-1",
           operationType: "OUTBOUND",
           stateVersion: 0,
-          status: "CONFIRMED",
-          to: "+15555550123",
         } satisfies OperationReceiptData,
       };
     },
@@ -75,7 +73,7 @@ function fakeTransaction() {
 }
 
 describe("canonical outbound call", () => {
-  it("creates one durable intent and replays its exact dial data", async () => {
+  it("creates one durable intent and replays its exact provider command", async () => {
     const fake = fakeTransaction();
 
     const first = await startOutboundCall(fake.store, actor, input);
@@ -83,10 +81,10 @@ describe("canonical outbound call", () => {
 
     expect(first).toMatchObject({
       callId: "call-1",
-      clientState: "opaque",
+      commandId: "dial-customer-1",
+      customerLegId: "customer-leg-1",
       operationType: "OUTBOUND",
       replayed: false,
-      status: "CONFIRMED",
     });
     expect(replay).toEqual({ ...first, replayed: true });
     expect(fake.creates()).toBe(1);

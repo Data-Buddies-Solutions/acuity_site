@@ -856,6 +856,24 @@ describe("Telnyx event admission", () => {
     expect(db.assigned).toEqual(["provider-session-1"]);
   });
 
+  it("keeps an unbound outgoing peer out of an admitted customer session", async () => {
+    const db = database({
+      calls: [
+        {
+          id: "call-1",
+          practiceId: "practice-1",
+          providerCallSessionId: "provider-session-1",
+        },
+      ],
+      number: null,
+    });
+
+    await expect(
+      admitTelnyxEvent(event({ direction: "outgoing" }), db.prisma),
+    ).rejects.toMatchObject({ code: "TELNYX_EVENT_OUT_OF_SCOPE" });
+    expect(db.assigned).toEqual([]);
+  });
+
   it("aborts admission when the configured number changes after practice locking", async () => {
     const db = database({
       lockedNumber: {
