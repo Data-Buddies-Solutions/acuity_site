@@ -19,6 +19,7 @@ import {
 
 const call: CallView = {
   answeredAt: null,
+  callOfficeLabel: null,
   callerName: null,
   direction: "INBOUND",
   endedAt: null,
@@ -28,6 +29,7 @@ const call: CallView = {
     {
       agentSessionId: "session-1",
       endpointId: "endpoint-1",
+      endpointLabel: null,
       id: "leg-1",
       kind: "AGENT",
       providerCallControlId: "control-1",

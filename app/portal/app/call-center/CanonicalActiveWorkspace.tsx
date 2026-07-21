@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
+  Copy,
   Delete,
   Grip,
   Headphones,
@@ -24,6 +26,7 @@ import type { CanonicalOutboundNumber } from "@/lib/call-center/application/port
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
 import type { AgentAvailabilityIntent } from "@/lib/call-center/domain/agent-session-readiness";
 import {
+  selectInboundCallOwnership,
   selectIncomingCalls,
   type AgentSessionView,
   type CallView,
@@ -427,6 +430,7 @@ function ConnectedCanonicalActiveWorkspace({
   const realtime = useCanonicalCallCenter({ queueId });
   const refreshSnapshot = realtime.refetch;
   const [actionError, setActionError] = useState<string | null>(null);
+  const [copiedCallId, setCopiedCallId] = useState<string | null>(null);
   const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [numberChoice, setNumberChoice] = useState("");
   const [startingOutbound, setStartingOutbound] = useState(false);
@@ -750,7 +754,7 @@ function ConnectedCanonicalActiveWorkspace({
                   Live queue
                 </h2>
                 <p className="mt-1 text-sm text-[var(--portal-muted)]">
-                  Live callers that need an answer.
+                  Calls ringing or in progress.
                 </p>
               </div>
               <PortalBadge className="tabular-nums">{incomingCalls.length}</PortalBadge>
@@ -783,13 +787,21 @@ function ConnectedCanonicalActiveWorkspace({
                   const answering =
                     reservedForSession ||
                     match?.observation.mediaLegId === runtime.answeringMediaLegId;
-                  const phone = formatPhone(callPhone(call));
-                  let status = "Preparing";
-                  if (answering) status = "Connecting…";
-                  else if (activeReservation) status = "Being answered";
-                  else if (match) {
-                    status = transferOffer ? "Transfer ringing" : "Ringing";
-                  }
+                  const rawPhone = callPhone(call);
+                  const phone = formatPhone(rawPhone);
+                  const ownership = selectInboundCallOwnership(call);
+                  const sharedStatus =
+                    transferOffer && match
+                      ? "Transfer ringing"
+                      : `${
+                          ownership.state === "ANSWERED"
+                            ? "Answered"
+                            : ownership.state === "ANSWERING"
+                              ? "Answering"
+                              : "Ringing"
+                        }${ownership.endpointLabel ? ` · ${ownership.endpointLabel}` : ""}`;
+                  const actionableOffer =
+                    Boolean(match) && (call.status !== "CONNECTED" || transferOffer);
 
                   return (
                     <li
@@ -798,44 +810,78 @@ function ConnectedCanonicalActiveWorkspace({
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
-                          {call.callerName || phone}
+                          {phone}
                         </p>
                         <p className="mt-1 text-xs text-[var(--portal-muted)]">
-                          {call.callerName ? `${phone} · ` : ""}
-                          {status}
+                          {call.direction === "OUTBOUND" ? "Outbound" : "Inbound"}
                         </p>
+                        <p className="mt-1 text-xs text-[var(--portal-muted)]">
+                          {sharedStatus}
+                        </p>
+                        {call.callOfficeLabel ? (
+                          <p className="mt-1 text-xs text-[var(--portal-muted)]">
+                            <span className="font-medium">Call Office</span>
+                            {" · "}
+                            <span>{call.callOfficeLabel}</span>
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex gap-2">
                         <Button
-                          disabled={!session || !match || Boolean(activeCall)}
-                          onClick={() => declineCall(call)}
+                          aria-label={`Copy ${
+                            call.direction === "OUTBOUND" ? "recipient" : "caller"
+                          } phone number`}
+                          onClick={() => {
+                            void navigator.clipboard.writeText(rawPhone).then(() => {
+                              setCopiedCallId(call.id);
+                            });
+                          }}
                           size="sm"
+                          type="button"
                           variant="secondary"
                         >
-                          Decline
+                          {copiedCallId === call.id ? (
+                            <Check aria-hidden="true" className="h-4 w-4" />
+                          ) : (
+                            <Copy aria-hidden="true" className="h-4 w-4" />
+                          )}
+                          Copy
                         </Button>
-                        {session && match ? (
-                          <CanonicalOfferAnswerButton
-                            answer={runtime.answer}
-                            answering={answering}
-                            callId={call.id}
-                            connectionState={runtime.media.connection}
-                            disabled={
-                              Boolean(activeReservation) ||
-                              Boolean(runtime.answeringMediaLegId) ||
-                              Boolean(activeCall)
-                            }
-                            legId={match.leg.id}
-                            mediaLegId={match.observation.mediaLegId}
-                            sessionId={session.id}
-                            transferOffer={transferOffer}
-                          />
-                        ) : (
-                          <Button disabled size="sm" variant="primary">
-                            Answer
-                          </Button>
-                        )}
+                        {actionableOffer ? (
+                          <>
+                            <Button
+                              disabled={!session || Boolean(activeCall)}
+                              onClick={() => declineCall(call)}
+                              size="sm"
+                              variant="secondary"
+                            >
+                              Decline
+                            </Button>
+                            {session && match ? (
+                              <CanonicalOfferAnswerButton
+                                answer={runtime.answer}
+                                answering={answering}
+                                callId={call.id}
+                                connectionState={runtime.media.connection}
+                                disabled={
+                                  Boolean(activeReservation) ||
+                                  Boolean(runtime.answeringMediaLegId) ||
+                                  Boolean(activeCall)
+                                }
+                                legId={match.leg.id}
+                                mediaLegId={match.observation.mediaLegId}
+                                sessionId={session.id}
+                                transferOffer={transferOffer}
+                              />
+                            ) : null}
+                          </>
+                        ) : null}
                       </div>
+                      {copiedCallId === call.id ? (
+                        <span className="sr-only" role="status">
+                          Phone number copied
+                        </span>
+                      ) : null}
                     </li>
                   );
                 })}

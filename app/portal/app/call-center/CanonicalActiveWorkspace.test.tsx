@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
@@ -25,6 +33,7 @@ afterEach(() => {
 function connectedCall(direction: CallView["direction"]): CallView {
   return {
     answeredAt: new Date().toISOString(),
+    callOfficeLabel: null,
     callerName: null,
     direction,
     endedAt: null,
@@ -34,6 +43,7 @@ function connectedCall(direction: CallView["direction"]): CallView {
       {
         agentSessionId: "session-1",
         endpointId: "endpoint-1",
+        endpointLabel: null,
         id: "agent-leg-1",
         kind: "AGENT",
         providerCallControlId: "control-1",
@@ -105,14 +115,15 @@ function renderWorkspace(
     locationId: string | null;
     phoneNumber: string;
   }> = [],
+  calls: CallView[] = [],
 ) {
   globalThis.fetch = mock(async (input) =>
     String(input).includes("/snapshot?")
       ? Response.json({
-          calls: [],
+          calls,
           observedAt: "2026-07-21T10:00:00.000Z",
           queueId: "queue-1",
-          schemaVersion: 5,
+          schemaVersion: 6,
         })
       : Response.json({ items: [], limit: 15 }),
   ) as unknown as typeof fetch;
@@ -208,6 +219,257 @@ describe("call readiness", () => {
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Unavailable" }).disabled,
     ).toBe(true);
+  });
+
+  it("retains a connected inbound call with seat, office, phone, and copy feedback", async () => {
+    const copy = mock(async (_phone: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: copy },
+    });
+    const call = {
+      ...connectedCall("INBOUND"),
+      callOfficeLabel: "North Miami Beach Optical",
+      callerName: "Hidden Patient",
+      legs: [
+        {
+          ...connectedCall("INBOUND").legs[0]!,
+          endpointLabel: "Front Desk 1",
+        },
+      ],
+    } as CallView;
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("Answered · Front Desk 1");
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText("Inbound")).toBeTruthy();
+    expect(within(row).getByText("North Miami Beach Optical")).toBeTruthy();
+    expect(within(row).getByText("(954) 609-7250")).toBeTruthy();
+    expect(within(row).queryByText("Hidden Patient")).toBeNull();
+    expect(within(row).queryByText(/\d\d:\d\d/)).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(
+        within(row).getByRole("button", { name: "Copy caller phone number" }),
+      );
+    });
+    expect(copy).toHaveBeenCalledWith("+19546097250");
+    expect(within(row).getByRole("status").textContent).toContain("Phone number copied");
+  });
+
+  it("shows canonical answer evidence with the answering endpoint seat", async () => {
+    const call = connectedCall("INBOUND");
+    call.answeredAt = null;
+    call.status = "RINGING";
+    call.winningLegId = null;
+    call.legs = [
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        endpointLabel: "Front Desk 2",
+        status: "ANSWERED",
+      },
+    ];
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("Answering · Front Desk 2");
+    const row = screen.getByRole("listitem");
+    expect(within(row).queryByRole("button", { name: "Answer" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Decline" })).toBeNull();
+  });
+
+  it("fails closed when concurrent answer evidence has no canonical winner", async () => {
+    const call = connectedCall("INBOUND");
+    call.answeredAt = null;
+    call.status = "RINGING";
+    call.winningLegId = null;
+    call.legs = [
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        endpointLabel: "Front Desk 2",
+        id: "agent-leg-2",
+        status: "ANSWERED",
+      },
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-3",
+        endpointId: "endpoint-3",
+        endpointLabel: null,
+        id: "agent-leg-3",
+        status: "ANSWERED",
+      },
+    ];
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("Ringing");
+    const row = screen.getByRole("listitem");
+    expect(within(row).queryByText(/Answering/)).toBeNull();
+    expect(within(row).queryByText(/Front Desk/)).toBeNull();
+  });
+
+  it("keeps Answer and Decline only on the viewer's exact ringing offer", async () => {
+    const exact = connectedCall("INBOUND");
+    exact.answeredAt = null;
+    exact.status = "RINGING";
+    exact.winningLegId = null;
+    exact.legs[0]!.status = "RINGING";
+
+    const teammate = structuredClone(exact);
+    teammate.fromPhone = "+17865550199";
+    teammate.id = "call-teammate";
+    teammate.legs[0] = {
+      ...teammate.legs[0]!,
+      agentSessionId: "session-2",
+      endpointId: "endpoint-2",
+      id: "agent-leg-2",
+      providerCallControlId: "control-2",
+      providerCallLegId: "provider-leg-2",
+      providerCallSessionId: "provider-session-2",
+    };
+
+    renderWorkspace(
+      workspaceRuntime({ media: mediaControls("RINGING") }),
+      [],
+      [exact, teammate],
+    );
+
+    await screen.findByText("(786) 555-0199");
+    const exactRow = screen.getByText("(954) 609-7250").closest("li")!;
+    const teammateRow = screen.getByText("(786) 555-0199").closest("li")!;
+    expect(within(exactRow).getByRole("button", { name: "Answer" })).toBeTruthy();
+    expect(within(exactRow).getByRole("button", { name: "Decline" })).toBeTruthy();
+    expect(within(teammateRow).queryByRole("button", { name: "Answer" })).toBeNull();
+    expect(within(teammateRow).queryByRole("button", { name: "Decline" })).toBeNull();
+  });
+
+  it("preserves direction, status, Answer, and Decline on an exact connected transfer offer", async () => {
+    const call = connectedCall("OUTBOUND");
+    call.winningLegId = "source-leg";
+    call.legs = [
+      {
+        ...call.legs[0]!,
+        agentSessionId: "source-session",
+        endpointId: "source-endpoint",
+        id: "source-leg",
+        providerCallControlId: "source-control",
+        providerCallLegId: "source-provider-leg",
+        status: "BRIDGED",
+      },
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        id: "transfer-leg",
+        status: "RINGING",
+      },
+    ];
+
+    renderWorkspace(
+      workspaceRuntime({
+        media: mediaControls("RINGING"),
+        session: readySession({ endpointId: "endpoint-2", id: "session-2" }),
+      }),
+      [],
+      [call],
+    );
+
+    await screen.findByText("Transfer ringing");
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText("Outbound")).toBeTruthy();
+    expect(within(row).queryByText("Answered")).toBeNull();
+    expect(within(row).getByRole("button", { name: "Answer" })).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Decline" })).toBeTruthy();
+  });
+
+  it("returns a failed answer attempt to the canonical ringing presentation", async () => {
+    const call = connectedCall("INBOUND");
+    call.answeredAt = null;
+    call.status = "RINGING";
+    call.winningLegId = null;
+    call.legs = [
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        endpointLabel: "Front Desk 2",
+        status: "FAILED",
+      },
+    ];
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("Ringing");
+    const row = screen.getByRole("listitem");
+    expect(within(row).queryByText(/Answering/)).toBeNull();
+    expect(within(row).queryByText("Front Desk 2")).toBeNull();
+  });
+
+  it("uses only the canonical winning endpoint after concurrent answers", async () => {
+    const call = connectedCall("INBOUND");
+    call.winningLegId = "agent-leg-3";
+    call.legs = [
+      {
+        ...call.legs[0]!,
+        endpointLabel: "Front Desk 2",
+        id: "agent-leg-2",
+        status: "ANSWERED",
+      },
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-3",
+        endpointId: "endpoint-3",
+        endpointLabel: "Front Desk 3",
+        id: "agent-leg-3",
+        providerCallControlId: "control-3",
+        providerCallLegId: "provider-leg-3",
+        status: "BRIDGED",
+      },
+    ];
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("Answered · Front Desk 3");
+    const row = screen.getByRole("listitem");
+    expect(within(row).queryByText("Front Desk 2")).toBeNull();
+  });
+
+  it("counts every live inbound lifecycle and excludes terminal outcomes", async () => {
+    const statuses: CallView["status"][] = [
+      "RECEIVED",
+      "QUEUED",
+      "RINGING",
+      "CONNECTED",
+      "COMPLETED",
+      "ABANDONED",
+      "FAILED",
+      "VOICEMAIL",
+    ];
+    const calls = statuses.map((status, index) => {
+      const call = connectedCall("INBOUND");
+      call.id = `call-${status.toLowerCase()}`;
+      call.fromPhone = `+1786555010${index}`;
+      call.status = status;
+      if (status !== "CONNECTED") {
+        call.answeredAt = null;
+        call.winningLegId = null;
+        call.legs[0]!.status = "RINGING";
+      }
+      return call;
+    });
+
+    renderWorkspace(workspaceRuntime(), [], calls);
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(4));
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(within(liveQueue).getByText("4")).toBeTruthy();
   });
 
   it("renders labeled Available and Unavailable choices as one canonical action", async () => {

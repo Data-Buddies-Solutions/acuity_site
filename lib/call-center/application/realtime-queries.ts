@@ -42,6 +42,12 @@ const callSelect = {
     orderBy: [{ startedAt: "asc" as const }, { id: "asc" as const }],
     select: {
       agentSessionId: true,
+      endpoint: {
+        select: {
+          label: true,
+          practiceId: true,
+        },
+      },
       endpointId: true,
       id: true,
       kind: true,
@@ -51,6 +57,21 @@ const callSelect = {
       status: true,
     },
   },
+  number: {
+    select: {
+      practicePhoneNumber: {
+        select: {
+          location: {
+            select: {
+              name: true,
+              practiceId: true,
+            },
+          },
+        },
+      },
+    },
+  },
+  practiceId: true,
   queueId: true,
   receivedAt: true,
   stateVersion: true,
@@ -62,8 +83,10 @@ const callSelect = {
 type SelectedCall = Prisma.CallCenterCallGetPayload<{ select: typeof callSelect }>;
 
 export function serializeCall(call: SelectedCall, now: Date = new Date()): CallView {
+  const { legs, number, practiceId, ...view } = call;
+  const callOffice = number.practicePhoneNumber.location;
   return {
-    ...call,
+    ...view,
     answerReservation:
       call.answerReservation &&
       (call.answerReservation.status === "BRIDGED" ||
@@ -77,7 +100,14 @@ export function serializeCall(call: SelectedCall, now: Date = new Date()): CallV
         : null,
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,
-    legs: call.legs,
+    callOfficeLabel:
+      call.direction === "INBOUND" && callOffice?.practiceId === practiceId
+        ? callOffice.name
+        : null,
+    legs: legs.map(({ endpoint, ...leg }) => ({
+      ...leg,
+      endpointLabel: endpoint?.practiceId === practiceId ? endpoint.label : null,
+    })),
     receivedAt: call.receivedAt.toISOString(),
     status: normalizeCanonicalCallStatus(call.status),
   };

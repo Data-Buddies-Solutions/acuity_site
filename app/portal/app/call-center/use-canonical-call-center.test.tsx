@@ -14,6 +14,7 @@ function snapshot(stateVersion = 0, queueId = "queue-1"): CallCenterSnapshot {
       ? [
           {
             answeredAt: null,
+            callOfficeLabel: null,
             callerName: null,
             direction: "INBOUND",
             endedAt: null,
@@ -31,7 +32,7 @@ function snapshot(stateVersion = 0, queueId = "queue-1"): CallCenterSnapshot {
       : [],
     observedAt: "2026-07-19T10:00:00.000Z",
     queueId,
-    schemaVersion: 5,
+    schemaVersion: 6,
   };
 }
 

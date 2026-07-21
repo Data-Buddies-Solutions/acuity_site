@@ -1,4 +1,4 @@
-export const CALL_CENTER_SCHEMA_VERSION = 5 as const;
+export const CALL_CENTER_SCHEMA_VERSION = 6 as const;
 
 export type CallView = {
   answerReservation?: {
@@ -23,6 +23,7 @@ export type CallView = {
   fromPhone: string;
   toPhone: string;
   callerName: string | null;
+  callOfficeLabel: string | null;
   winningLegId: string | null;
   receivedAt: string;
   answeredAt: string | null;
@@ -34,6 +35,7 @@ type CallLegView = {
   id: string;
   kind: "AGENT" | "CUSTOMER";
   endpointId: string | null;
+  endpointLabel: string | null;
   agentSessionId: string | null;
   status: "ANSWERED" | "BRIDGED" | "CREATED" | "DIALING" | "ENDED" | "FAILED" | "RINGING";
   providerCallControlId: string | null;
@@ -60,10 +62,34 @@ export type CallCenterSnapshot = {
   calls: CallView[];
 };
 
+export function selectInboundCallOwnership(call: CallView): {
+  endpointLabel: string | null;
+  state: "ANSWERED" | "ANSWERING" | "RINGING";
+} {
+  if (call.status === "CONNECTED") {
+    const winner = call.legs.find(
+      (leg) =>
+        leg.id === call.winningLegId && leg.kind === "AGENT" && leg.status === "BRIDGED",
+    );
+    return { endpointLabel: winner?.endpointLabel ?? null, state: "ANSWERED" };
+  }
+
+  const answeringLegs = call.legs.filter(
+    (leg) => leg.kind === "AGENT" && leg.status === "ANSWERED",
+  );
+  const answerer = answeringLegs.length === 1 ? answeringLegs[0] : null;
+  return answerer?.endpointLabel
+    ? { endpointLabel: answerer.endpointLabel, state: "ANSWERING" }
+    : { endpointLabel: null, state: "RINGING" };
+}
+
 export function selectIncomingCalls(state: CallCenterSnapshot) {
   return state.calls.filter(
     ({ direction, status }) =>
       direction === "INBOUND" &&
-      (status === "RECEIVED" || status === "QUEUED" || status === "RINGING"),
+      (status === "RECEIVED" ||
+        status === "QUEUED" ||
+        status === "RINGING" ||
+        status === "CONNECTED"),
   );
 }
