@@ -7,8 +7,8 @@ import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 import BookCallButton from "@/app/components/BookCallButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/app/components/ui/card";
-import { Separator } from "@/app/components/ui/separator";
+import { Panel, PanelContent } from "@/components/ui/panel";
+import { Separator } from "@/components/ui/separator";
 import { SITE_CONFIG } from "@/lib/config";
 import { getInsightBySlug, insightPosts } from "../posts";
 
@@ -189,8 +189,8 @@ export default async function InsightPostPage({ params }: PageProps) {
             </section>
           ))}
         </div>
-        <Card className="border-accent/30 bg-accent/10">
-          <CardContent className="space-y-4 p-6">
+        <Panel className="border-accent/30 bg-accent/10">
+          <PanelContent className="space-y-4 p-6">
             <h3 className="text-xl font-semibold text-accent">Key takeaway</h3>
             <p className="text-base text-foreground/80">{post.takeaway}</p>
             <BookCallButton
@@ -199,8 +199,8 @@ export default async function InsightPostPage({ params }: PageProps) {
             >
               Book a strategy session
             </BookCallButton>
-          </CardContent>
-        </Card>
+          </PanelContent>
+        </Panel>
       </div>
     </article>
   );

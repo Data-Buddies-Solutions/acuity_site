@@ -1,4 +1,4 @@
-# Canonical call-center agent sessions
+# Canonical Call-Center Agent Sessions
 
 Agent sessions are the browser-to-endpoint lease boundary for the production
 call center.

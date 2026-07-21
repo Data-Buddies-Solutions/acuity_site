@@ -1,11 +1,11 @@
-import type { AnalyticsData } from "@/lib/analytics";
+import type { AdminPracticeAnalyticsData } from "@/lib/admin-analytics";
 import { inverseRateColor } from "@/lib/format";
 import { StatCard } from "@/app/components/stat-card";
 import { ToolUsageChart } from "@/app/components/charts/tool-usage-chart";
 import { ToolErrorRateChart } from "@/app/components/charts/tool-error-rate-chart";
 import { ToolP95DurationChart } from "@/app/components/charts/tool-p95-duration-chart";
 
-export function ToolsTab({ data }: { data: AnalyticsData }) {
+export function ToolsTab({ data }: { data: AdminPracticeAnalyticsData }) {
   const failureRate =
     data.totalToolCalls > 0
       ? ((data.totalToolErrors / data.totalToolCalls) * 100).toFixed(1)

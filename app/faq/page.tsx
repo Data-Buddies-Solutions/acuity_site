@@ -4,7 +4,7 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@/app/components/ui/accordion";
+} from "@/components/ui/accordion";
 import { SITE_CONFIG } from "@/lib/config";
 
 const faqs = [

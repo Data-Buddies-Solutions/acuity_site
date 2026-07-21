@@ -3,12 +3,12 @@ import { ArrowUpRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/app/components/ui/card";
+  Panel,
+  PanelContent,
+  PanelDescription,
+  PanelHeader,
+  PanelTitle,
+} from "@/components/ui/panel";
 
 type QueueItem = {
   description: string;
@@ -50,12 +50,12 @@ export default function PortalModulePlaceholder({
         </p>
       </section>
 
-      <Card className="rounded-[1.8rem] border-black/6 bg-white">
-        <CardHeader>
-          <CardTitle>{statusTitle}</CardTitle>
-          <CardDescription>{statusDescription}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <Panel className="rounded-[1.8rem] border-black/6 bg-white">
+        <PanelHeader>
+          <PanelTitle>{statusTitle}</PanelTitle>
+          <PanelDescription>{statusDescription}</PanelDescription>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <p className="max-w-2xl text-sm text-[#617477]">
             The route exists and the navigation is real. The remaining work here is wiring
             live events, persisted records, and module-specific actions.
@@ -67,15 +67,15 @@ export default function PortalModulePlaceholder({
               <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </Button>
-        </CardContent>
-      </Card>
+        </PanelContent>
+      </Panel>
 
-      <Card className="rounded-[1.8rem] border-black/6 bg-white">
-        <CardHeader>
-          <CardTitle>Module queue</CardTitle>
-          <CardDescription>{queueDescription}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <Panel className="rounded-[1.8rem] border-black/6 bg-white">
+        <PanelHeader>
+          <PanelTitle>Module queue</PanelTitle>
+          <PanelDescription>{queueDescription}</PanelDescription>
+        </PanelHeader>
+        <PanelContent className="space-y-3">
           {queueItems.map((item) => (
             <div
               key={item.label}
@@ -87,8 +87,8 @@ export default function PortalModulePlaceholder({
               </p>
             </div>
           ))}
-        </CardContent>
-      </Card>
+        </PanelContent>
+      </Panel>
     </div>
   );
 }

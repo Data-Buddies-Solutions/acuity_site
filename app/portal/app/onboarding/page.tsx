@@ -4,12 +4,12 @@ import { ArrowLeft, ArrowUpRight, CheckCircle2, ChevronRight } from "lucide-reac
 
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/app/components/ui/card";
+  Panel,
+  PanelContent,
+  PanelDescription,
+  PanelHeader,
+  PanelTitle,
+} from "@/components/ui/panel";
 import { getCurrentPortalPracticeContext } from "@/lib/portal-access";
 import { getPortalWorkspaceState, type PortalWorkspaceState } from "@/lib/portal-state";
 
@@ -217,14 +217,14 @@ export default async function PortalOnboardingPage({
 
     return (
       <div className="mx-auto max-w-2xl">
-        <Card className="rounded-[1.8rem] border-black/6 bg-white">
-          <CardHeader>
-            <CardTitle>Portal access is not live yet</CardTitle>
-            <CardDescription>
+        <Panel className="rounded-[1.8rem] border-black/6 bg-white">
+          <PanelHeader>
+            <PanelTitle>Portal access is not live yet</PanelTitle>
+            <PanelDescription>
               This scoped login will be available after the practice setup is launched.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+            </PanelDescription>
+          </PanelHeader>
+        </Panel>
       </div>
     );
   }
@@ -278,59 +278,59 @@ export default async function PortalOnboardingPage({
       </div>
 
       {visibleStep === "practiceProfile" ? (
-        <Card className="rounded-[1.8rem] border-black/6 bg-white">
-          <CardHeader>
+        <Panel className="rounded-[1.8rem] border-black/6 bg-white">
+          <PanelHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Practice basics and locations</CardTitle>
+                <PanelTitle>Practice basics and locations</PanelTitle>
               </div>
               <WizardBackButton previousStep={previousStep} />
             </div>
-          </CardHeader>
-          <CardContent>
+          </PanelHeader>
+          <PanelContent>
             <LocationSetupForm
               initialLocations={portalState.draft.locations}
               practiceName={portalState.draft.practiceName}
             />
-          </CardContent>
-        </Card>
+          </PanelContent>
+        </Panel>
       ) : null}
 
       {visibleStep === "providerRouting" ? (
-        <Card className="rounded-[1.8rem] border-black/6 bg-white">
-          <CardHeader>
+        <Panel className="rounded-[1.8rem] border-black/6 bg-white">
+          <PanelHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Providers and locations</CardTitle>
-                <CardDescription>
+                <PanelTitle>Providers and locations</PanelTitle>
+                <PanelDescription>
                   Add every provider staff may route or schedule for.
-                </CardDescription>
+                </PanelDescription>
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
+          </PanelHeader>
+          <PanelContent>
             <ProviderSetupForm
               backHref={getStepHref("practiceProfile")}
               initialProviders={portalState.draft.providers}
               locationNames={locationNames}
             />
-          </CardContent>
-        </Card>
+          </PanelContent>
+        </Panel>
       ) : null}
 
       {visibleStep === "insuranceCrosswalk" ? (
-        <Card className="rounded-[1.8rem] border-black/6 bg-white">
-          <CardHeader>
+        <Panel className="rounded-[1.8rem] border-black/6 bg-white">
+          <PanelHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Insurance rules</CardTitle>
-                <CardDescription>
+                <PanelTitle>Insurance rules</PanelTitle>
+                <PanelDescription>
                   Capture accepted plans, exceptions, and staff handoff rules.
-                </CardDescription>
+                </PanelDescription>
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
+          </PanelHeader>
+          <PanelContent>
             <form action={saveInsuranceCrosswalkAction} className="grid gap-4">
               <PortalTextareaField
                 defaultValue={portalState.draft.insuranceAcceptedPlans}
@@ -370,23 +370,23 @@ export default async function PortalOnboardingPage({
                 </Button>
               </div>
             </form>
-          </CardContent>
-        </Card>
+          </PanelContent>
+        </Panel>
       ) : null}
 
       {visibleStep === "knowledgeBase" ? (
-        <Card className="rounded-[1.8rem] border-black/6 bg-white">
-          <CardHeader>
+        <Panel className="rounded-[1.8rem] border-black/6 bg-white">
+          <PanelHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Practice knowledge</CardTitle>
-                <CardDescription>
+                <PanelTitle>Practice knowledge</PanelTitle>
+                <PanelDescription>
                   Capture the answers, scripts, and handoff rules.
-                </CardDescription>
+                </PanelDescription>
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
+          </PanelHeader>
+          <PanelContent>
             <form action={saveKnowledgeBaseAction} className="grid gap-4">
               <PortalTextareaField
                 defaultValue={portalState.draft.knowledgeCommonQuestions}
@@ -455,23 +455,23 @@ export default async function PortalOnboardingPage({
                 </Button>
               </div>
             </form>
-          </CardContent>
-        </Card>
+          </PanelContent>
+        </Panel>
       ) : null}
 
       {visibleStep === "review" ? (
-        <Card className="rounded-[1.8rem] border-black/6 bg-white">
-          <CardHeader>
+        <Panel className="rounded-[1.8rem] border-black/6 bg-white">
+          <PanelHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Review info</CardTitle>
-                <CardDescription>
+                <PanelTitle>Review info</PanelTitle>
+                <PanelDescription>
                   You can edit the knowledge base and insurance rules after submitting.
-                </CardDescription>
+                </PanelDescription>
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
+          </PanelHeader>
+          <PanelContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-[1.4rem] border border-black/6 bg-[#f7fbfa] px-4 py-4">
                 <div className="flex items-center justify-between gap-3">
@@ -592,8 +592,8 @@ export default async function PortalOnboardingPage({
                 </Button>
               </div>
             </form>
-          </CardContent>
-        </Card>
+          </PanelContent>
+        </Panel>
       ) : null}
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ToolCallRecord } from "@/lib/types";
+import type { ToolCallRecord } from "@/lib/call-types";
 import { formatLatencyMs } from "@/lib/format";
 import { CopyButton } from "@/app/components/copy-button";
 

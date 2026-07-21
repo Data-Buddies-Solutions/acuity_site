@@ -1,10 +1,10 @@
-import type { AnalyticsData } from "@/lib/analytics";
+import type { AdminPracticeAnalyticsData } from "@/lib/admin-analytics";
 import { formatPercent, cacheColor } from "@/lib/format";
 import { StatCard } from "@/app/components/stat-card";
 import { TokenMixTrendChart } from "@/app/components/charts/token-mix-trend-chart";
 import { CacheEfficiencyTrendChart } from "@/app/components/charts/cache-efficiency-trend-chart";
 
-export function TokensTab({ data }: { data: AnalyticsData }) {
+export function TokensTab({ data }: { data: AdminPracticeAnalyticsData }) {
   const totalTokens = data.totalInputTokens + data.totalOutputTokens;
 
   return (

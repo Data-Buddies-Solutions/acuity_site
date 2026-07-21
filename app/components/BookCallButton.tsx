@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 
-import { Button } from "./ui/button";
+import { Button } from "@/components/ui/button";
 import { SITE_CONFIG } from "@/lib/config";
 
 type BookCallButtonProps = {

@@ -1,4 +1,4 @@
-import type { AnalyticsData } from "@/lib/analytics";
+import type { AdminPracticeAnalyticsData } from "@/lib/admin-analytics";
 import { formatDuration } from "@/lib/format";
 import { StatCard } from "@/app/components/stat-card";
 import { CallVolumeTrendChart } from "@/app/components/charts/call-volume-trend-chart";
@@ -6,7 +6,7 @@ import { ActionTrendChart } from "@/app/components/charts/action-trend-chart";
 import { DurationDistributionChart } from "@/app/components/charts/duration-distribution-chart";
 import { PeakTrafficHeatmap } from "@/app/components/charts/peak-traffic-heatmap";
 
-export function OverviewTab({ data }: { data: AnalyticsData }) {
+export function OverviewTab({ data }: { data: AdminPracticeAnalyticsData }) {
   const transferRate =
     data.totalCalls > 0
       ? ((data.transferCount / data.totalCalls) * 100).toFixed(1)

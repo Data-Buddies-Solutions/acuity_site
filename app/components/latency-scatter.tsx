@@ -1,6 +1,6 @@
 "use client";
 
-import type { TurnRecord } from "@/lib/types";
+import type { TurnRecord } from "@/lib/call-types";
 import { computePercentiles, formatLatencyMs, deriveTotalLatency } from "@/lib/format";
 import {
   ScatterChart,
