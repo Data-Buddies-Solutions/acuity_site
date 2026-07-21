@@ -18,6 +18,7 @@ function outboundSnapshotCall(id: string, locationId: string) {
     answerReservation: null,
     answeredAt: now,
     callerName: "Hidden Patient",
+    commands: [],
     direction: "OUTBOUND" as const,
     endedAt: null,
     fromPhone: "+19546097250",
@@ -210,6 +211,20 @@ describe("call center snapshot", () => {
     expect(operations).toEqual(["queue-access", "active-calls"]);
     expect(activeCallQuery).toMatchObject({
       select: {
+        commands: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { status: true, type: true },
+          take: 1,
+          where: {
+            OR: [
+              { status: "CONFIRMED", type: "START_HOLD_MUSIC" },
+              {
+                status: { in: ["SENT", "CONFIRMED"] },
+                type: "STOP_HOLD_MUSIC",
+              },
+            ],
+          },
+        },
         legs: {
           select: {
             endpoint: { select: { label: true, practiceId: true } },
@@ -234,12 +249,15 @@ describe("call center snapshot", () => {
       observedAt: "2026-07-11T12:00:00.000Z",
       queueId: "queue-1",
       selectedQueueCallIds: [],
-      schemaVersion: 7,
+      schemaVersion: 8,
     });
   });
 
   it("separates the authorized outbound queue row from a personal call at another location", async () => {
-    const authorized = outboundSnapshotCall("call-outbound-authorized", "location-1");
+    const authorized = {
+      ...outboundSnapshotCall("call-outbound-authorized", "location-1"),
+      commands: [{ status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const }],
+    };
     const personal = outboundSnapshotCall("call-outbound-personal", "location-2");
     const database = {
       $transaction: async (work: (transaction: unknown) => unknown) =>
@@ -285,6 +303,7 @@ describe("call center snapshot", () => {
             status: "ANSWERED",
           }),
         ],
+        onHold: true,
         queueId: "queue-1",
         status: "CONNECTED",
         toPhone: "+19542872010",
@@ -292,6 +311,60 @@ describe("call center snapshot", () => {
       }),
     );
     expect(state.selectedQueueCallIds).toEqual(["call-outbound-authorized"]);
+  });
+
+  it("does not project incomplete, failed, rolled-back, or stale hold work", async () => {
+    const histories = [
+      [{ status: "PENDING" as const, type: "START_HOLD_MUSIC" as const }],
+      [{ status: "SENDING" as const, type: "START_HOLD_MUSIC" as const }],
+      [{ status: "SENT" as const, type: "START_HOLD_MUSIC" as const }],
+      [{ status: "FAILED" as const, type: "START_HOLD_MUSIC" as const }],
+      [
+        { status: "SENT" as const, type: "STOP_HOLD_MUSIC" as const },
+        { status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const },
+      ],
+      [
+        { status: "FAILED" as const, type: "START_HOLD_MUSIC" as const },
+        { status: "SENT" as const, type: "STOP_HOLD_MUSIC" as const },
+        { status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const },
+      ],
+    ];
+    const database = {
+      $transaction: async (work: (transaction: unknown) => unknown) =>
+        work({
+          callCenterCall: {
+            findMany: async () =>
+              histories.map((commands, index) => ({
+                ...outboundSnapshotCall(`call-${index}`, "location-1"),
+                commands,
+              })),
+          },
+          callCenterQueue: {
+            findMany: async () => [{ id: "queue-1", locations: [], name: "Main" }],
+          },
+        }),
+    } as never;
+
+    const state = await readCallCenterSnapshot(
+      {
+        allowedLocationIds: [],
+        hasAllLocationAccess: true,
+        practiceId: "practice-1",
+        userId: "user-1",
+      },
+      "queue-1",
+      database,
+      () => now,
+    );
+
+    expect(state.calls.map(({ onHold }) => onHold)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 
   it("serializes durable calls without Date values", () => {
@@ -305,6 +378,7 @@ describe("call center snapshot", () => {
         },
         answeredAt: null,
         callerName: null,
+        commands: [],
         direction: "INBOUND",
         endedAt: null,
         fromPhone: "+17865550100",
@@ -353,6 +427,7 @@ describe("call center snapshot", () => {
         answerReservation: null,
         answeredAt: now,
         callerName: "Hidden Patient",
+        commands: [],
         direction: "INBOUND",
         endedAt: null,
         fromPhone: "+17865550100",
@@ -424,6 +499,7 @@ describe("call center snapshot", () => {
         answerReservation: null,
         answeredAt: null,
         callerName: null,
+        commands: [],
         direction: "INBOUND",
         endedAt: null,
         fromPhone: "+17865550100",
@@ -492,6 +568,7 @@ describe("call center snapshot", () => {
         },
         answeredAt: null,
         callerName: null,
+        commands: [],
         direction: "INBOUND",
         endedAt: null,
         fromPhone: "+17865550100",

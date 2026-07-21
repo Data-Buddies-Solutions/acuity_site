@@ -46,7 +46,7 @@ describe("canonical call center snapshot route", () => {
           observedAt: "2026-07-19T10:00:00.000Z",
           queueId: "queue-1",
           selectedQueueCallIds: [],
-          schemaVersion: 7,
+          schemaVersion: 8,
         };
       },
       reportRead: (context) => reads.push(context),
@@ -67,7 +67,7 @@ describe("canonical call center snapshot route", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("server-timing")).toMatch(/^operator-state;dur=/);
-    expect(response.headers.get("x-call-center-schema-version")).toBe("7");
+    expect(response.headers.get("x-call-center-schema-version")).toBe("8");
     expect((await response.json()).queueId).toBe("queue-1");
     expect(reads).toEqual([
       {
@@ -76,7 +76,7 @@ describe("canonical call center snapshot route", () => {
         retryAttempt: 2,
         retryDelayMs: 1750,
         revision: "test-revision",
-        schemaVersion: 7,
+        schemaVersion: 8,
       },
     ]);
   });
@@ -105,7 +105,7 @@ describe("canonical call center snapshot route", () => {
         revision: "local",
         retryAttempt: 0,
         retryDelayMs: 0,
-        schemaVersion: 7,
+        schemaVersion: 8,
       }),
     ]);
   });

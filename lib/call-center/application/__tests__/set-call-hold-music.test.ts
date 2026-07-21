@@ -115,6 +115,45 @@ describe("set call hold music", () => {
     ).rejects.toBeInstanceOf(SetCallHoldMusicError);
   });
 
+  it("rejects a start that cannot obtain canonical provider confirmation", async () => {
+    const timedOutStore = store();
+    timedOutStore.waitForCommandSettlement = async () => "TIMEOUT";
+
+    await expect(
+      setCallHoldMusic(
+        timedOutStore,
+        async (commandId) => ({
+          commandId,
+          markSent: "MARKED",
+          status: "DISPATCHED",
+        }),
+        actor,
+        {
+          action: "START",
+          callId: "call-1",
+          idempotencyKey: "hold-timeout-1",
+        },
+        now,
+      ),
+    ).rejects.toBeInstanceOf(SetCallHoldMusicError);
+  });
+
+  it("rejects a stale hold dispatch completion", async () => {
+    await expect(
+      setCallHoldMusic(
+        store(),
+        async (commandId) => ({ commandId, phase: "MARK_SENT", status: "STALE" }),
+        actor,
+        {
+          action: "START",
+          callId: "call-1",
+          idempotencyKey: "hold-stale-1",
+        },
+        now,
+      ),
+    ).rejects.toBeInstanceOf(SetCallHoldMusicError);
+  });
+
   it("resumes after the durable stop dispatch without waiting for a callback", async () => {
     const stopStore = store();
     let waitedForSettlement = false;

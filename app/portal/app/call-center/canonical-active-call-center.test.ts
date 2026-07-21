@@ -38,6 +38,7 @@ const call: CallView = {
       status: "RINGING",
     },
   ],
+  onHold: false,
   queueId: "queue-1",
   receivedAt: "2026-07-12T12:00:00.000Z",
   stateVersion: 1,

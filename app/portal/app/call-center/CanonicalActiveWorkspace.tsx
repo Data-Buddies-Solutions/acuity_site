@@ -794,11 +794,13 @@ function ConnectedCanonicalActiveWorkspace({
                     transferOffer && match
                       ? "Transfer ringing"
                       : `${
-                          ownership.state === "ANSWERED"
-                            ? "Answered"
-                            : ownership.state === "ANSWERING"
-                              ? "Answering"
-                              : "Ringing"
+                          call.status === "CONNECTED" && call.onHold
+                            ? "On hold"
+                            : ownership.state === "ANSWERED"
+                              ? "Answered"
+                              : ownership.state === "ANSWERING"
+                                ? "Answering"
+                                : "Ringing"
                         }${ownership.endpointLabel ? ` · ${ownership.endpointLabel}` : ""}`;
                   const actionableOffer =
                     Boolean(match) && (call.status !== "CONNECTED" || transferOffer);

@@ -1,4 +1,4 @@
-export const CALL_CENTER_SCHEMA_VERSION = 7 as const;
+export const CALL_CENTER_SCHEMA_VERSION = 8 as const;
 
 export type CallView = {
   answerReservation?: {
@@ -24,6 +24,7 @@ export type CallView = {
   toPhone: string;
   callerName: string | null;
   callOfficeLabel: string | null;
+  onHold: boolean;
   winningLegId: string | null;
   receivedAt: string;
   answeredAt: string | null;

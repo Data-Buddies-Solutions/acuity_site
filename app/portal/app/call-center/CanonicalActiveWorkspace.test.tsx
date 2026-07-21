@@ -52,6 +52,7 @@ function connectedCall(direction: CallView["direction"]): CallView {
         status: "BRIDGED",
       },
     ],
+    onHold: false,
     queueId: "queue-1",
     receivedAt: "2026-07-10T15:43:20.000Z",
     stateVersion: 2,
@@ -143,7 +144,7 @@ function renderWorkspace(
           observedAt: "2026-07-21T10:00:00.000Z",
           queueId: "queue-1",
           selectedQueueCallIds,
-          schemaVersion: 7,
+          schemaVersion: 8,
         })
       : Response.json({ items: [], limit: 15 }),
   ) as unknown as typeof fetch;
@@ -338,6 +339,74 @@ describe("call readiness", () => {
     expect(within(row).getByRole("status").textContent).toContain("Phone number copied");
   });
 
+  it("keeps held inbound and outbound details and restores both rows on Resume", async () => {
+    const inbound = connectedCall("INBOUND");
+    inbound.callOfficeLabel = "Hollywood Optical";
+    inbound.legs[0]!.endpointLabel = "Front Desk 1";
+    inbound.onHold = true;
+
+    const outbound = connectedOutboundCall({
+      callOfficeLabel: "Sweetwater Optical",
+      id: "call-outbound-held",
+    });
+    outbound.onHold = true;
+
+    renderWorkspace(workspaceRuntime(), [], [inbound, outbound]);
+
+    expect(await screen.findAllByText("On hold · Front Desk 1")).toHaveLength(2);
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    const rows = within(liveQueue).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]!).getByText("Inbound")).toBeTruthy();
+    expect(within(rows[0]!).getByText("Hollywood Optical")).toBeTruthy();
+    expect(within(rows[0]!).getByText("(954) 609-7250")).toBeTruthy();
+    expect(within(rows[1]!).getByText("Outbound")).toBeTruthy();
+    expect(within(rows[1]!).getByText("Sweetwater Optical")).toBeTruthy();
+    expect(within(rows[1]!).getByText("(954) 287-2010")).toBeTruthy();
+    expect(screen.getByText("On a call")).toBeTruthy();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Unavailable" }).disabled,
+    ).toBe(true);
+
+    cleanup();
+    const resumedInbound = structuredClone(inbound);
+    resumedInbound.onHold = false;
+    const resumedOutbound = structuredClone(outbound);
+    resumedOutbound.onHold = false;
+    renderWorkspace(workspaceRuntime(), [], [resumedInbound, resumedOutbound]);
+    expect(await screen.findAllByText("Answered · Front Desk 1")).toHaveLength(2);
+    expect(screen.queryByText(/On hold/)).toBeNull();
+  });
+
+  it("reconstructs hold after reconnect, returns to Answered on Resume, and removes the ended row", async () => {
+    const held = connectedCall("INBOUND");
+    held.legs[0]!.endpointLabel = "Front Desk 1";
+    held.onHold = true;
+
+    renderWorkspace(workspaceRuntime(), [], [held]);
+    await screen.findByText("On hold · Front Desk 1");
+
+    cleanup();
+    const resumed = structuredClone(held);
+    resumed.onHold = false;
+    renderWorkspace(workspaceRuntime(), [], [resumed]);
+    await screen.findByText("Answered · Front Desk 1");
+    expect(screen.queryByText(/On hold/)).toBeNull();
+
+    cleanup();
+    const ended = structuredClone(held);
+    ended.endedAt = "2026-07-21T10:01:00.000Z";
+    ended.status = "COMPLETED";
+    renderWorkspace(workspaceRuntime(), [], [ended]);
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(within(liveQueue).queryByRole("listitem")).toBeNull();
+  });
+
   it("fails closed without authorized queue visibility or one owning seat", async () => {
     const missingWinner = connectedOutboundCall();
     missingWinner.legs.push({
@@ -394,7 +463,7 @@ describe("call readiness", () => {
         observedAt: `2026-07-21T10:00:0${snapshotReads}.000Z`,
         queueId: "queue-1",
         selectedQueueCallIds: calls.map(({ id }) => id),
-        schemaVersion: 7,
+        schemaVersion: 8,
       });
     }) as unknown as typeof fetch;
 

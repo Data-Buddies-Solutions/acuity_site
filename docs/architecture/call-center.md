@@ -53,6 +53,11 @@ durable provider commands. Only after those commands are accepted does the
 server create the canonical outbound call and agent leg. The browser then dials
 with opaque, server-issued correlation state.
 
+A connected call remains in the authorized Live queue while held. The snapshot
+projects `On hold` only from the latest effective durable hold-music command: a
+confirmed start establishes hold, and a successfully dispatched stop clears it.
+Pending, failed, timed-out, or superseded work never becomes shared hold state.
+
 Direct handoff uses:
 
 ```text

@@ -34,6 +34,20 @@ const callSelect = {
   },
   answeredAt: true,
   callerName: true,
+  commands: {
+    orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+    select: { status: true, type: true },
+    take: 1,
+    where: {
+      OR: [
+        { status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const },
+        {
+          status: { in: ["SENT" as const, "CONFIRMED" as const] },
+          type: "STOP_HOLD_MUSIC" as const,
+        },
+      ],
+    },
+  },
   direction: true,
   endedAt: true,
   fromPhone: true,
@@ -85,8 +99,14 @@ const callSelect = {
 type SelectedCall = Prisma.CallCenterCallGetPayload<{ select: typeof callSelect }>;
 
 export function serializeCall(call: SelectedCall, now: Date = new Date()): CallView {
-  const { legs, number, practiceId, ...view } = call;
+  const { commands, legs, number, practiceId, ...view } = call;
   const callOffice = number.practicePhoneNumber.location;
+  const effectiveHoldCommand = commands.find(
+    (command) =>
+      (command.type === "START_HOLD_MUSIC" && command.status === "CONFIRMED") ||
+      (command.type === "STOP_HOLD_MUSIC" &&
+        (command.status === "SENT" || command.status === "CONFIRMED")),
+  );
   return {
     ...view,
     answerReservation:
@@ -103,6 +123,8 @@ export function serializeCall(call: SelectedCall, now: Date = new Date()): CallV
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,
     callOfficeLabel: callOffice?.practiceId === practiceId ? callOffice.name : null,
+    onHold:
+      call.status === "CONNECTED" && effectiveHoldCommand?.type === "START_HOLD_MUSIC",
     legs: legs.map(({ endpoint, ...leg }) => ({
       ...leg,
       endpointLabel: endpoint?.practiceId === practiceId ? endpoint.label : null,
