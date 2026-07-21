@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import FollowUpPreview from "./FollowUpPreview";
 
@@ -117,21 +117,16 @@ describe("FollowUpPreview", () => {
 
   it("clears retained items when a refresh loses queue access", async () => {
     let readCount = 0;
+    let resolveDeniedRead!: (response: Response) => void;
+    const deniedRead = new Promise<Response>((resolve) => {
+      resolveDeniedRead = resolve;
+    });
     const fetchPreview = mock(async (_input: RequestInfo | URL) => {
       readCount += 1;
       if (readCount === 1) {
         return Response.json({ items: [previewItem(0)], limit: 15 });
       }
-      return Response.json(
-        {
-          error: {
-            code: "ACCESS_DENIED",
-            referenceId: "ACCESS1",
-            retryable: false,
-          },
-        },
-        { status: 403 },
-      );
+      return deniedRead;
     });
     globalThis.fetch = fetchPreview as unknown as typeof fetch;
 
@@ -145,6 +140,22 @@ describe("FollowUpPreview", () => {
     );
 
     await waitFor(() => expect(screen.getByText("Patient One")).toBeTruthy());
+    await waitFor(() => expect(readCount).toBe(2));
+    await act(async () => {
+      resolveDeniedRead(
+        Response.json(
+          {
+            error: {
+              code: "ACCESS_DENIED",
+              referenceId: "ACCESS1",
+              retryable: false,
+            },
+          },
+          { status: 403 },
+        ),
+      );
+      await deniedRead;
+    });
     await waitFor(() =>
       expect(
         screen.getByText("Follow-up preview delayed. Calling is unaffected."),
@@ -156,14 +167,20 @@ describe("FollowUpPreview", () => {
 
   it("does not restore a resolved caller from an older in-flight refresh", async () => {
     let getCount = 0;
+    let postCount = 0;
+    let resolvePost!: (response: Response) => void;
     let resolveStaleRead!: (response: Response) => void;
+    const post = new Promise<Response>((resolve) => {
+      resolvePost = resolve;
+    });
     const staleRead = new Promise<Response>((resolve) => {
       resolveStaleRead = resolve;
     });
     const fetchPreview = mock(
       async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         if (init?.method === "POST") {
-          return Response.json({ ok: true, resolvedCount: 1 });
+          postCount += 1;
+          return post;
         }
         getCount += 1;
         if (getCount === 1) {
@@ -187,9 +204,17 @@ describe("FollowUpPreview", () => {
     await waitFor(() => expect(screen.getByText("Patient One")).toBeTruthy());
     await waitFor(() => expect(getCount).toBe(2));
     fireEvent.click(screen.getByRole("button", { name: "Mark Patient One resolved" }));
+    await waitFor(() => expect(postCount).toBe(1));
+    await act(async () => {
+      resolvePost(Response.json({ ok: true, resolvedCount: 1 }));
+      await post;
+    });
     await waitFor(() => expect(screen.queryByText("Patient One")).toBeNull());
 
-    resolveStaleRead(Response.json({ items: [previewItem(0)], limit: 15 }));
+    await act(async () => {
+      resolveStaleRead(Response.json({ items: [previewItem(0)], limit: 15 }));
+      await staleRead;
+    });
 
     await waitFor(() => expect(getCount).toBeGreaterThanOrEqual(3));
     await waitFor(() => expect(screen.queryByText("Patient One")).toBeNull());

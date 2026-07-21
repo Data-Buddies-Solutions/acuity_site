@@ -41,7 +41,9 @@ import {
   completeCanonicalOutboundOperation,
   failCanonicalOutboundOperation,
   hasCanonicalPendingTransfer,
+  isDefinitiveCanonicalOutboundFailure,
   isCanonicalTransferOffer,
+  reconcileCanonicalOutboundRuntime,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
   selectCanonicalTransferOffers,
@@ -299,12 +301,17 @@ function ConnectedCanonicalActiveWorkspace({
   queueId: string;
 }) {
   const runtime = useSoftphoneRuntime();
+  const setOutboundOperationActive = runtime.setOutboundOperationActive;
   const realtime = useCanonicalCallCenter({ queueId });
   const refreshSnapshot = realtime.refetch;
   const [actionError, setActionError] = useState<string | null>(null);
   const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [numberChoice, setNumberChoice] = useState("");
   const [startingOutbound, setStartingOutbound] = useState(false);
+  const canonicalOutboundAwaitingSnapshotRef = useRef<string | null>(null);
+  const canonicalOutboundCallIdRef = useRef<string | null>(null);
+  const canonicalOutboundObservedRef = useRef(false);
+  const canonicalSnapshotObservedAtRef = useRef<string | null>(null);
   const outboundStartingRef = useRef(false);
 
   useEffect(() => {
@@ -330,6 +337,10 @@ function ConnectedCanonicalActiveWorkspace({
   const media = runtime.media;
   const { observations: mediaObservations } = media;
 
+  useEffect(() => {
+    canonicalSnapshotObservedAtRef.current = state?.observedAt ?? null;
+  }, [state?.observedAt]);
+
   const incomingCalls = useMemo(() => {
     if (!state) return [];
     const queued = selectIncomingCalls(state);
@@ -340,6 +351,7 @@ function ConnectedCanonicalActiveWorkspace({
     ];
   }, [session, state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
+  const hasActiveOutboundCall = activeCall?.direction === "OUTBOUND";
   const localOffer = session
     ? incomingCalls.find((call) =>
         selectCanonicalBrowserMediaLeg(
@@ -356,6 +368,33 @@ function ConnectedCanonicalActiveWorkspace({
   useEffect(() => {
     setCallCenterCurrentCallGuard(activeCall?.id ?? localOffer?.id ?? null);
   }, [activeCall?.id, localOffer?.id]);
+
+  useEffect(() => {
+    if (!state && !startingOutbound) return;
+    const awaitingSnapshotObservedAt = canonicalOutboundAwaitingSnapshotRef.current;
+    const next = reconcileCanonicalOutboundRuntime({
+      awaitingFreshSnapshot: awaitingSnapshotObservedAt !== null,
+      canonicalCallId: canonicalOutboundCallIdRef.current,
+      canonicalCallObserved: canonicalOutboundObservedRef.current,
+      canonicalCallVisible: Boolean(
+        canonicalOutboundCallIdRef.current &&
+        state?.calls.some(({ id }) => id === canonicalOutboundCallIdRef.current),
+      ),
+      freshSnapshotAvailable: Boolean(
+        awaitingSnapshotObservedAt &&
+        state?.observedAt &&
+        state.observedAt !== awaitingSnapshotObservedAt,
+      ),
+      hasActiveOutboundCall,
+      startingOutbound,
+    });
+    if (!next) return;
+
+    canonicalOutboundAwaitingSnapshotRef.current = null;
+    canonicalOutboundCallIdRef.current = next.callId;
+    canonicalOutboundObservedRef.current = next.observed;
+    setOutboundOperationActive(next.active);
+  }, [hasActiveOutboundCall, setOutboundOperationActive, startingOutbound, state]);
 
   const declineCall = useCallback(
     (call: CallView) => {
@@ -391,6 +430,8 @@ function ConnectedCanonicalActiveWorkspace({
       return;
     }
     outboundStartingRef.current = true;
+    canonicalOutboundAwaitingSnapshotRef.current = null;
+    setOutboundOperationActive(true);
     setStartingOutbound(true);
     setActionError(null);
     const target = {
@@ -421,23 +462,48 @@ function ConnectedCanonicalActiveWorkspace({
         });
         return callCenterResponse<{
           callId?: unknown;
+          legId?: unknown;
         }>(response);
       };
       const body = await requestOutbound();
-      if (typeof body?.callId !== "string") {
+      if (typeof body?.callId !== "string" || typeof body.legId !== "string") {
         throw localCallCenterError("OUTBOUND_CALL_FAILED");
       }
+      canonicalOutboundCallIdRef.current = body.callId;
+      canonicalOutboundAwaitingSnapshotRef.current =
+        canonicalSnapshotObservedAtRef.current ?? state?.observedAt ?? null;
+      setOutboundOperationActive(true, { callId: body.callId, legId: body.legId });
       setCallCenterCurrentCallGuard(body.callId);
       completeCanonicalOutboundOperation(window.sessionStorage, target, operationKey);
       setDestination("");
     } catch (error) {
+      canonicalOutboundCallIdRef.current = null;
+      canonicalOutboundObservedRef.current = false;
+      if (isDefinitiveCanonicalOutboundFailure(error)) {
+        canonicalOutboundAwaitingSnapshotRef.current = null;
+        setOutboundOperationActive(false, undefined, {
+          releaseProvisionalSuppression: true,
+        });
+      } else {
+        canonicalOutboundAwaitingSnapshotRef.current =
+          canonicalSnapshotObservedAtRef.current ?? state?.observedAt ?? null;
+        setOutboundOperationActive(true);
+      }
       failCanonicalOutboundOperation(window.sessionStorage, target, operationKey, error);
       setActionError(errorMessage(error, "outbound"));
     } finally {
       outboundStartingRef.current = false;
       setStartingOutbound(false);
     }
-  }, [clientInstanceId, destination, queueId, selectedNumberId, session]);
+  }, [
+    clientInstanceId,
+    destination,
+    queueId,
+    selectedNumberId,
+    session,
+    setOutboundOperationActive,
+    state,
+  ]);
 
   if (realtime.error && !state) {
     return (

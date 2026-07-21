@@ -27,6 +27,15 @@ import { useSoftphoneMedia } from "./call-center/use-softphone";
 
 const PHONE_OWNER_CHANNEL = "acuity-call-center-phone-owner";
 const PHONE_ACTIVE_ELSEWHERE = "Phone active in another tab";
+const OUTBOUND_MEDIA_OBSERVATION_TIMEOUT_MS = 75_000;
+
+export function scheduleOutboundOperationExpiry(
+  expire: () => void,
+  delayMs = OUTBOUND_MEDIA_OBSERVATION_TIMEOUT_MS,
+) {
+  const timeout = setTimeout(expire, delayMs);
+  return () => clearTimeout(timeout);
+}
 
 export function phoneOwnerMessageError(
   data: unknown,
@@ -58,7 +67,17 @@ function canonicalConnectionState(
 export function selectSoftphoneRuntimeCalls(
   observations: readonly MediaObservation[],
   answeringMediaLegId: string | null,
+  ringtone: {
+    enabled?: boolean;
+    outboundOperationActive?: boolean;
+    suppressedOfferIds?: readonly string[];
+  } = {},
 ) {
+  const {
+    enabled: ringtoneEnabled = true,
+    outboundOperationActive = false,
+    suppressedOfferIds = [],
+  } = ringtone;
   const active =
     observations.find(({ state }) => ["ACTIVE", "HELD"].includes(state)) ?? null;
   const incoming = observations.filter(
@@ -78,8 +97,86 @@ export function selectSoftphoneRuntimeCalls(
     active,
     answeringMediaLegId: answering,
     incoming,
-    ringtoneOfferId: active || answering ? null : (incoming[0]?.mediaLegId ?? null),
+    ringtoneOfferId:
+      !ringtoneEnabled || active || answering || outboundOperationActive
+        ? null
+        : (incoming.find(({ mediaLegId }) => !suppressedOfferIds.includes(mediaLegId))
+            ?.mediaLegId ?? null),
   };
+}
+
+function isIncomingRingtoneObservation({ direction, state }: MediaObservation) {
+  return direction === "INBOUND" && ["CONNECTING", "RINGING"].includes(state);
+}
+
+export function updateSuppressedRingtoneOffers(
+  current: readonly string[],
+  observation: MediaObservation,
+  outboundOperationActive: boolean,
+) {
+  if (["ENDED", "FAILED"].includes(observation.state)) {
+    return current.filter((mediaLegId) => mediaLegId !== observation.mediaLegId);
+  }
+  if (
+    !outboundOperationActive ||
+    !isIncomingRingtoneObservation(observation) ||
+    current.includes(observation.mediaLegId)
+  ) {
+    return current;
+  }
+  return [...current, observation.mediaLegId];
+}
+
+export function releaseProvisionalSuppressedRingtoneOffers(
+  current: readonly string[],
+  baseline: readonly string[] | null,
+) {
+  if (!baseline) return current;
+  return current.filter((mediaLegId) => baseline.includes(mediaLegId));
+}
+
+type OutboundMediaOperation = {
+  active: boolean;
+  canonicalCallId: string | null;
+  canonicalLegId: string | null;
+  mediaLegId: string | null;
+};
+
+export function updateOutboundOperationFromMedia(
+  current: OutboundMediaOperation,
+  observation: MediaObservation,
+): OutboundMediaOperation {
+  if (!current.active) {
+    return {
+      active: false,
+      canonicalCallId: null,
+      canonicalLegId: null,
+      mediaLegId: null,
+    };
+  }
+
+  const matchesCanonicalLeg =
+    current.canonicalCallId &&
+    current.canonicalLegId &&
+    observation.canonicalCallId === current.canonicalCallId &&
+    observation.canonicalLegId === current.canonicalLegId;
+  if (!matchesCanonicalLeg) return current;
+
+  const terminal = ["ENDED", "FAILED"].includes(observation.state);
+  if (terminal) {
+    return {
+      active: false,
+      canonicalCallId: null,
+      canonicalLegId: null,
+      mediaLegId: null,
+    };
+  }
+
+  if (["ACTIVE", "CONNECTING", "HELD", "RINGING"].includes(observation.state)) {
+    return { ...current, mediaLegId: observation.mediaLegId };
+  }
+
+  return current;
 }
 
 type SoftphoneRuntimeValue = {
@@ -90,6 +187,11 @@ type SoftphoneRuntimeValue = {
   session: AgentSessionView | null;
   answer(mediaLegId: string): Promise<void>;
   answeringMediaLegId: string | null;
+  setOutboundOperationActive(
+    active: boolean,
+    identity?: { callId: string; legId: string },
+    options?: { releaseProvisionalSuppression?: boolean },
+  ): void;
   takeover(): Promise<void>;
 };
 
@@ -99,13 +201,23 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [answeringMediaLegId, setAnsweringMediaLegId] = useState<string | null>(null);
+  const [outboundOperationActive, setOutboundOperationActive] = useState(false);
+  const [suppressedOfferIds, setSuppressedOfferIds] = useState<readonly string[]>([]);
   const [mediaReadiness, setMediaReadiness] = useState({
     audioReady: false,
     connectionState: "CLOSED" as CanonicalAgentConnectionState,
     microphoneReady: false,
   });
   const answeringRef = useRef<string | null>(null);
+  const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
+  const outboundCanonicalCallIdRef = useRef<string | null>(null);
+  const outboundCanonicalLegIdRef = useRef<string | null>(null);
+  const outboundOperationExpiryRef = useRef<(() => void) | null>(null);
+  const outboundMediaLegIdRef = useRef<string | null>(null);
+  const outboundOperationRef = useRef(false);
+  const outboundSuppressionBaselineRef = useRef<readonly string[] | null>(null);
+  const suppressedOfferIdsRef = useRef<readonly string[]>([]);
   const clientInstanceId = client?.clientInstanceId ?? null;
 
   useEffect(() => {
@@ -144,12 +256,67 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const session = agentSession.session;
   const startSession = agentSession.start;
   const stopSession = agentSession.stop;
+  const clearOutboundOperationExpiry = useCallback(() => {
+    outboundOperationExpiryRef.current?.();
+    outboundOperationExpiryRef.current = null;
+  }, []);
+  const schedulePersistentOutboundExpiry = useCallback(() => {
+    clearOutboundOperationExpiry();
+    outboundOperationExpiryRef.current = scheduleOutboundOperationExpiry(() => {
+      outboundOperationExpiryRef.current = null;
+      outboundCanonicalCallIdRef.current = null;
+      outboundCanonicalLegIdRef.current = null;
+      outboundMediaLegIdRef.current = null;
+      outboundOperationRef.current = false;
+      setOutboundOperationActive(false);
+    });
+  }, [clearOutboundOperationExpiry]);
+  const observeMedia = useCallback(
+    (observation: MediaObservation) => {
+      const currentOutboundOperation = {
+        active: outboundOperationRef.current,
+        canonicalCallId: outboundCanonicalCallIdRef.current,
+        canonicalLegId: outboundCanonicalLegIdRef.current,
+        mediaLegId: outboundMediaLegIdRef.current,
+      };
+      const nextOutboundOperation = updateOutboundOperationFromMedia(
+        currentOutboundOperation,
+        observation,
+      );
+      outboundCanonicalCallIdRef.current = nextOutboundOperation.canonicalCallId;
+      outboundCanonicalLegIdRef.current = nextOutboundOperation.canonicalLegId;
+      outboundMediaLegIdRef.current = nextOutboundOperation.mediaLegId;
+      if (!nextOutboundOperation.active) {
+        clearOutboundOperationExpiry();
+      }
+      if (nextOutboundOperation.active !== currentOutboundOperation.active) {
+        outboundOperationRef.current = nextOutboundOperation.active;
+        setOutboundOperationActive(nextOutboundOperation.active);
+      }
+
+      const nextSuppressedOfferIds = updateSuppressedRingtoneOffers(
+        suppressedOfferIdsRef.current,
+        observation,
+        outboundOperationRef.current,
+      );
+      suppressedOfferIdsRef.current = nextSuppressedOfferIds;
+      setSuppressedOfferIds(nextSuppressedOfferIds);
+    },
+    [clearOutboundOperationExpiry],
+  );
   const { setRemoteAudioElement, ...media } = useSoftphoneMedia({
     agentSessionId: session?.id ?? null,
     autoPrepare: Boolean(session),
     browserSessionId: clientInstanceId ?? "",
     enabled: Boolean(session),
+    onObservation: observeMedia,
   });
+
+  useEffect(() => {
+    mediaObservationsRef.current = media.observations;
+  }, [media.observations]);
+
+  useEffect(() => clearOutboundOperationExpiry, [clearOutboundOperationExpiry]);
 
   useEffect(() => {
     const next = {
@@ -192,7 +359,11 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     };
   }, [clientInstanceId, stopSession]);
 
-  const calls = selectSoftphoneRuntimeCalls(media.observations, answeringMediaLegId);
+  const calls = selectSoftphoneRuntimeCalls(media.observations, answeringMediaLegId, {
+    enabled: session?.presence === "AVAILABLE",
+    outboundOperationActive,
+    suppressedOfferIds,
+  });
   const ringtone = useIncomingCallRingtone(calls.ringtoneOfferId);
 
   useEffect(() => {
@@ -226,6 +397,50 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     },
     [calls.active, media],
   );
+  const setOutboundOperation = useCallback(
+    (
+      active: boolean,
+      identity?: { callId: string; legId: string },
+      options?: { releaseProvisionalSuppression?: boolean },
+    ) => {
+      const wasActive = outboundOperationRef.current;
+      outboundOperationRef.current = active;
+      if (!active) {
+        clearOutboundOperationExpiry();
+        outboundCanonicalCallIdRef.current = null;
+        outboundCanonicalLegIdRef.current = null;
+        outboundMediaLegIdRef.current = null;
+        if (options?.releaseProvisionalSuppression) {
+          const nextSuppressedOfferIds = releaseProvisionalSuppressedRingtoneOffers(
+            suppressedOfferIdsRef.current,
+            outboundSuppressionBaselineRef.current,
+          );
+          suppressedOfferIdsRef.current = nextSuppressedOfferIds;
+          setSuppressedOfferIds(nextSuppressedOfferIds);
+        }
+        outboundSuppressionBaselineRef.current = null;
+      } else if (identity) {
+        outboundCanonicalCallIdRef.current = identity.callId;
+        outboundCanonicalLegIdRef.current = identity.legId;
+        outboundMediaLegIdRef.current = null;
+        outboundSuppressionBaselineRef.current = null;
+        schedulePersistentOutboundExpiry();
+      } else if (!wasActive) {
+        outboundSuppressionBaselineRef.current = suppressedOfferIdsRef.current;
+        schedulePersistentOutboundExpiry();
+      }
+      if (active) {
+        const nextSuppressedOfferIds = mediaObservationsRef.current.reduce(
+          (next, observation) => updateSuppressedRingtoneOffers(next, observation, true),
+          suppressedOfferIdsRef.current,
+        );
+        suppressedOfferIdsRef.current = nextSuppressedOfferIds;
+        setSuppressedOfferIds(nextSuppressedOfferIds);
+      }
+      setOutboundOperationActive(active);
+    },
+    [clearOutboundOperationExpiry, schedulePersistentOutboundExpiry],
+  );
   const takeover = useCallback(async () => {
     if (!clientInstanceId) return;
     const response = await fetch("/api/portal/call-center/agent-sessions", {
@@ -254,6 +469,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       media,
       ringtone,
       session,
+      setOutboundOperationActive: setOutboundOperation,
       takeover,
     }),
     [
@@ -264,6 +480,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       media,
       ringtone,
       session,
+      setOutboundOperation,
       takeover,
       calls.answeringMediaLegId,
     ],
