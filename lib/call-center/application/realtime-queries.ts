@@ -6,6 +6,7 @@ import {
   type QueueAccessActor,
 } from "@/lib/call-center/auth/queue-access";
 import {
+  ACTIVE_CANONICAL_CALL_STATUSES,
   LIVE_CANONICAL_LEG_STATUSES,
   normalizeCanonicalCallStatus,
 } from "@/lib/call-center/domain/canonical-call-state";
@@ -16,7 +17,6 @@ import {
 } from "@/lib/call-center/realtime-contract";
 import { prisma } from "@/lib/prisma";
 
-const ACTIVE_CALL_STATUSES = ["RECEIVED", "QUEUED", "RINGING", "CONNECTED"] as const;
 export const CALL_CENTER_READ_TRANSACTION_OPTIONS = {
   isolationLevel: "RepeatableRead" as const,
   maxWait: 2_000,
@@ -148,7 +148,7 @@ export function activeCallWhere(
           },
         ],
       },
-      { status: { in: [...ACTIVE_CALL_STATUSES] } },
+      { status: { in: [...ACTIVE_CANONICAL_CALL_STATUSES] } },
     ],
   };
 }

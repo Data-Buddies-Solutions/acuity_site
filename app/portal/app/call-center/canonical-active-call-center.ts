@@ -113,6 +113,22 @@ export function selectCanonicalTransferOffers(
   return calls.filter((call) => isCanonicalTransferOffer(call, session));
 }
 
+export function hasCanonicalSessionLiveLeg(
+  calls: readonly CallView[],
+  session: Pick<AgentSessionView, "id"> | null,
+) {
+  return Boolean(
+    session &&
+    calls.some((call) =>
+      call.legs.some(
+        (leg) =>
+          leg.agentSessionId === session.id &&
+          LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never),
+      ),
+    ),
+  );
+}
+
 export function hasCanonicalPendingTransfer(call: CallView) {
   const sourceLegId = transferSourceLegId(call);
   return Boolean(

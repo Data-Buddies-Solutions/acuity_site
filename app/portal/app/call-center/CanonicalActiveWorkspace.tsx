@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
+import type { AgentAvailabilityIntent } from "@/lib/call-center/domain/agent-session-readiness";
 import {
   selectIncomingCalls,
   type AgentSessionView,
@@ -41,6 +42,7 @@ import {
   completeCanonicalOutboundOperation,
   failCanonicalOutboundOperation,
   hasCanonicalPendingTransfer,
+  hasCanonicalSessionLiveLeg,
   isDefinitiveCanonicalOutboundFailure,
   isCanonicalTransferOffer,
   reconcileCanonicalOutboundRuntime,
@@ -90,6 +92,105 @@ function isAgentSessionViewReady(session: AgentSessionView) {
     session.connectionState === "READY" &&
     session.microphoneReady &&
     session.audioReady
+  );
+}
+
+function availabilityRecoveryMessage(
+  intent: "AVAILABLE" | "PAUSED",
+  occupied: boolean,
+  session: AgentSessionView | null,
+  media: Pick<
+    ReturnType<typeof useSoftphoneMedia>,
+    "connection" | "microphoneReady" | "soundReady"
+  >,
+) {
+  if (intent !== "AVAILABLE" || occupied || !session) {
+    return null;
+  }
+  if (media.connection !== "READY") {
+    return "Restore the phone connection to become Available.";
+  }
+  if (!media.microphoneReady) {
+    return "Allow microphone access to become Available.";
+  }
+  if (!media.soundReady) {
+    return "Allow browser audio to become Available.";
+  }
+  return null;
+}
+
+export function AvailabilityControl({
+  error,
+  occupied,
+  onChange,
+  onRetry,
+  pending,
+  presence,
+  recoveryMessage,
+}: {
+  error: string | null;
+  occupied: boolean;
+  onChange: (presence: AgentAvailabilityIntent) => Promise<void>;
+  onRetry: (() => void) | null;
+  pending: boolean;
+  presence: AgentSessionView["presence"];
+  recoveryMessage: string | null;
+}) {
+  const selected = occupied || presence === "BUSY" || recoveryMessage ? null : presence;
+
+  return (
+    <div className="space-y-2 border-b border-[var(--portal-border)] px-4 py-4">
+      <p className="text-xs font-medium text-[var(--portal-muted)]">Availability</p>
+      <div aria-label="Availability" className="grid grid-cols-2 gap-2" role="group">
+        <Button
+          aria-pressed={selected === "AVAILABLE"}
+          disabled={occupied || pending}
+          onClick={() => void onChange("AVAILABLE").catch(() => {})}
+          type="button"
+          variant={selected === "AVAILABLE" ? "primary" : "secondary"}
+        >
+          Available
+        </Button>
+        <Button
+          aria-pressed={selected === "PAUSED"}
+          disabled={occupied || pending}
+          onClick={() => void onChange("PAUSED").catch(() => {})}
+          type="button"
+          variant={selected === "PAUSED" ? "primary" : "secondary"}
+        >
+          Unavailable
+        </Button>
+      </div>
+      {occupied ? (
+        <p className="text-xs font-medium text-[var(--portal-muted)]" role="status">
+          On a call
+        </p>
+      ) : pending ? (
+        <p className="text-xs text-[var(--portal-muted)]" role="status">
+          Updating availability…
+        </p>
+      ) : recoveryMessage ? (
+        <p className="text-xs text-[var(--portal-muted)]" role="status">
+          {recoveryMessage}
+        </p>
+      ) : null}
+      {error ? (
+        <div className="flex items-center justify-between gap-3" role="alert">
+          <p className="text-xs text-red-700">{error}</p>
+          {onRetry ? (
+            <Button
+              disabled={occupied || pending}
+              onClick={onRetry}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Retry
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -383,8 +484,24 @@ function ConnectedCanonicalActiveWorkspace({
         ),
       )
     : null;
+  const canonicalOffer = hasCanonicalSessionLiveLeg(incomingCalls, session);
+  const availabilityOccupied = Boolean(
+    activeCall ||
+    localOffer ||
+    canonicalOffer ||
+    runtime.answeringMediaLegId ||
+    session?.presence === "BUSY",
+  );
+  const availabilityRecovery = availabilityRecoveryMessage(
+    runtime.availabilityIntent,
+    availabilityOccupied,
+    session,
+    media,
+  );
 
-  const callingReady = Boolean(session && isAgentSessionViewReady(session));
+  const callingReady = Boolean(
+    session && !availabilityRecovery && isAgentSessionViewReady(session),
+  );
 
   useEffect(() => {
     setCallCenterCurrentCallGuard(activeCall?.id ?? localOffer?.id ?? null);
@@ -725,7 +842,8 @@ function ConnectedCanonicalActiveWorkspace({
               </ul>
             ) : (
               <div className="mt-4 rounded-lg border border-dashed border-[var(--portal-border-strong)] px-3 py-4 text-center text-sm text-[var(--portal-muted)]">
-                No callers waiting. You&apos;re ready for calls.
+                No callers waiting.
+                {callingReady ? " You're ready for calls." : null}
               </div>
             )}
           </section>
@@ -817,6 +935,20 @@ function ConnectedCanonicalActiveWorkspace({
                 </p>
               </div>
             </div>
+
+            <AvailabilityControl
+              error={runtime.availabilityError}
+              occupied={availabilityOccupied}
+              onChange={runtime.setAvailability}
+              onRetry={
+                runtime.availabilityRetryable
+                  ? () => void runtime.retryAvailability().catch(() => {})
+                  : null
+              }
+              pending={runtime.availabilityPending}
+              presence={session?.presence ?? "OFFLINE"}
+              recoveryMessage={availabilityRecovery}
+            />
 
             <div className="space-y-4 p-4">
               {activeCall ? (

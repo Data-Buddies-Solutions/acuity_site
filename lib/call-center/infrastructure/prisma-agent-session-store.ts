@@ -14,6 +14,10 @@ import type {
   AgentSessionTransaction,
   AgentSessionUpdate,
 } from "@/lib/call-center/application/agent-sessions";
+import {
+  ACTIVE_CANONICAL_CALL_STATUSES,
+  LIVE_CANONICAL_LEG_STATUSES,
+} from "@/lib/call-center/domain/canonical-call-state";
 import { prisma } from "@/lib/prisma";
 
 const sessionSelect = {
@@ -179,9 +183,10 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     const leg = await this.transaction.callCenterCallLeg.findFirst({
       select: { id: true },
       where: {
+        call: { status: { in: [...ACTIVE_CANONICAL_CALL_STATUSES] } },
         endpointId,
         kind: "AGENT",
-        status: { in: ["ANSWERED", "BRIDGED"] },
+        status: { in: [...LIVE_CANONICAL_LEG_STATUSES] },
       },
     });
     return Boolean(leg);

@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
+import {
+  resolveAgentAvailabilityIntent,
+  type AgentAvailabilityIntent,
+} from "@/lib/call-center/domain/agent-session-readiness";
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 
 import { callCenterResponse, operatorErrorCopy } from "./call-center-errors";
@@ -86,6 +90,24 @@ async function responseJson<T>(response: Response): Promise<T> {
   return callCenterResponse<T>(response);
 }
 
+type AgentSessionPatch = Readiness & {
+  availabilityChange?: boolean;
+  availabilityIntent?: AgentAvailabilityIntent;
+  expectedStateVersion: number;
+};
+
+async function patchActiveSession(active: ActiveSession, update: AgentSessionPatch) {
+  const response = await fetch(
+    `/api/portal/call-center/agent-sessions/${encodeURIComponent(active.session.id)}`,
+    {
+      body: JSON.stringify({ ...update, clientInstanceId: active.clientInstanceId }),
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    },
+  );
+  return (await responseJson<SessionResponse>(response)).session;
+}
+
 async function acquireSession(clientInstanceId: string): Promise<ActiveSession> {
   const response = await fetch("/api/portal/call-center/agent-sessions", {
     body: JSON.stringify({ clientInstanceId }),
@@ -111,9 +133,15 @@ export function useCanonicalAgentSession({
   projectedSession = null,
   retryBaseMs = RECOVERY_RETRY_BASE_MS,
 }: CanonicalAgentSessionOptions) {
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [availabilityPending, setAvailabilityPending] = useState(false);
+  const [availabilityRetryable, setAvailabilityRetryable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<AgentSessionView | null>(null);
   const activeRef = useRef<ActiveSession | null>(null);
+  const availabilityConfirmationRef = useRef<Readiness | null>(null);
+  const availabilityPromiseRef = useRef<Promise<AgentSessionView> | null>(null);
+  const availabilityRetryRef = useRef<AgentAvailabilityIntent | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const identityRef = useRef({ clientInstanceId });
   const lifecycleRef = useRef(0);
@@ -191,25 +219,21 @@ export function useCanonicalAgentSession({
     );
     let recoverExpiredSession = false;
     const request = (async () => {
-      const response = await fetch(
-        `/api/portal/call-center/agent-sessions/${encodeURIComponent(active.session.id)}`,
-        {
-          body: JSON.stringify({
-            ...readinessRef.current,
-            clientInstanceId: active.clientInstanceId,
-            connectionState: canonicalStartupConnectionState(readinessRef.current),
-            expectedStateVersion: requestedStateVersion,
-            presence: canonicalHeartbeatPresence(readinessRef.current.presence),
-          }),
-          headers: { "Content-Type": "application/json" },
-          method: "PATCH",
-        },
-      );
-      const next = await responseJson<SessionResponse>(response);
-      active.session = next.session;
+      const heartbeatPresence = canonicalHeartbeatPresence(readinessRef.current.presence);
+      const next = await patchActiveSession(active, {
+        ...readinessRef.current,
+        availabilityIntent:
+          heartbeatPresence === "OFFLINE"
+            ? undefined
+            : resolveAgentAvailabilityIntent(heartbeatPresence),
+        connectionState: canonicalStartupConnectionState(readinessRef.current),
+        expectedStateVersion: requestedStateVersion,
+        presence: heartbeatPresence,
+      });
+      active.session = next;
 
       if (mountedRef.current && activeRef.current === active && !active.stopping) {
-        setSession(next.session);
+        setSession(next);
         setError(null);
       }
     })()
@@ -420,6 +444,16 @@ export function useCanonicalAgentSession({
           ) {
             active.session = current.session;
           }
+          if (
+            !current &&
+            (active.session.presence === "AVAILABLE" ||
+              active.session.presence === "BUSY")
+          ) {
+            readinessRef.current = {
+              ...readinessRef.current,
+              presence: canonicalHeartbeatPresence(active.session.presence),
+            };
+          }
           activeRef.current = active;
           setSession(active.session);
           if (!force) void patchReadiness().catch(() => {});
@@ -570,10 +604,119 @@ export function useCanonicalAgentSession({
     return refreshed.session;
   }, [drainReadiness, flushReadiness, patchReadiness, resetRecoveryRetry, startSession]);
 
+  const setAvailability = useCallback(
+    (availabilityIntent: AgentAvailabilityIntent) => {
+      if (availabilityPromiseRef.current) return availabilityPromiseRef.current;
+
+      const pending = (async () => {
+        setAvailabilityPending(true);
+        setAvailabilityError(null);
+        setAvailabilityRetryable(false);
+        await drainReadiness();
+        const active = activeRef.current;
+        if (!active || active.stopping) {
+          throw new Error("Call center session is unavailable");
+        }
+
+        try {
+          const requestedStateVersion = active.session.stateVersion;
+          const next = await patchActiveSession(active, {
+            ...readinessRef.current,
+            availabilityChange: true,
+            availabilityIntent,
+            connectionState: canonicalStartupConnectionState(readinessRef.current),
+            expectedStateVersion: requestedStateVersion,
+            presence: availabilityIntent,
+          });
+          active.session = next;
+          readinessRef.current = {
+            ...readinessRef.current,
+            presence: availabilityIntent,
+          };
+          availabilityConfirmationRef.current = { ...readinessRef.current };
+          availabilityRetryRef.current = null;
+          setAvailabilityRetryable(false);
+          if (mountedRef.current && activeRef.current === active && !active.stopping) {
+            setSession(next);
+            setError(null);
+          }
+          return next;
+        } catch (availabilityFailure) {
+          if (
+            availabilityFailure instanceof CallCenterRequestError &&
+            availabilityFailure.operatorError.code === "SESSION_STALE" &&
+            activeRef.current === active &&
+            !active.stopping
+          ) {
+            try {
+              const converged = await acquireSession(active.clientInstanceId);
+              if (
+                converged.session.id === active.session.id &&
+                converged.endpointId === active.endpointId
+              ) {
+                active.leaseDurationMs = converged.leaseDurationMs;
+                active.session = converged.session;
+                readinessRef.current = {
+                  ...readinessRef.current,
+                  presence: resolveAgentAvailabilityIntent(converged.session.presence),
+                };
+                if (mountedRef.current && activeRef.current === active) {
+                  setSession(converged.session);
+                }
+              }
+            } catch {
+              // Preserve the last confirmed local state if convergence also fails.
+            }
+          }
+          const copy = operatorErrorCopy(availabilityFailure, "readiness");
+          availabilityRetryRef.current = copy.retryable ? availabilityIntent : null;
+          if (mountedRef.current) {
+            setAvailabilityError(copy.message);
+            setAvailabilityRetryable(copy.retryable);
+          }
+          throw availabilityFailure;
+        } finally {
+          if (activeRef.current === active && !active.stopping) {
+            heartbeatRef.current = setTimeout(
+              () => void patchReadinessRef.current().catch(() => {}),
+              Math.min(10_000, Math.max(1_000, Math.floor(active.leaseDurationMs / 2))),
+            );
+          }
+        }
+      })().finally(() => {
+        if (availabilityPromiseRef.current === pending) {
+          availabilityPromiseRef.current = null;
+        }
+        if (mountedRef.current) setAvailabilityPending(false);
+      });
+
+      availabilityPromiseRef.current = pending;
+      return pending;
+    },
+    [drainReadiness],
+  );
+
+  const retryAvailability = useCallback(async () => {
+    const availabilityIntent = availabilityRetryRef.current;
+    if (!availabilityIntent) return;
+    await setAvailability(availabilityIntent);
+  }, [setAvailability]);
+
   useEffect(() => {
     if (presence === "OFFLINE") {
       const timeout = setTimeout(() => void stop(), 0);
       return () => clearTimeout(timeout);
+    }
+    const confirmation = availabilityConfirmationRef.current;
+    availabilityConfirmationRef.current = null;
+    if (
+      confirmation &&
+      confirmation.audioReady === audioReady &&
+      confirmation.connectionState === connectionState &&
+      confirmation.microphoneReady === microphoneReady &&
+      confirmation.presence === presence
+    ) {
+      return;
     }
     void patchReadiness().catch(() => {});
   }, [audioReady, connectionState, microphoneReady, patchReadiness, presence, stop]);
@@ -611,9 +754,14 @@ export function useCanonicalAgentSession({
       : session;
 
   return {
+    availabilityError,
+    availabilityPending,
+    availabilityRetryable,
     error,
     refresh,
+    retryAvailability,
     session: effectiveSession,
+    setAvailability,
     start,
     stop,
   };

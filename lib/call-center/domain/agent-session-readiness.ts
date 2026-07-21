@@ -3,6 +3,15 @@ import type {
   CallCenterAgentPresence,
 } from "@/generated/prisma/client";
 
+export const AGENT_AVAILABILITY_INTENTS = ["AVAILABLE", "PAUSED"] as const;
+export type AgentAvailabilityIntent = (typeof AGENT_AVAILABILITY_INTENTS)[number];
+
+export function resolveAgentAvailabilityIntent(
+  presence: CallCenterAgentPresence,
+): AgentAvailabilityIntent {
+  return presence === "AVAILABLE" || presence === "BUSY" ? "AVAILABLE" : "PAUSED";
+}
+
 export type AgentSessionReadiness = {
   audioReady: boolean;
   connectionState: CallCenterAgentConnectionState;

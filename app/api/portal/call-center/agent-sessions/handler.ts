@@ -11,6 +11,7 @@ import {
   type AgentSessionEndpoint,
   type AgentSessionRecord,
 } from "@/lib/call-center/application/agent-sessions";
+import { AGENT_AVAILABILITY_INTENTS } from "@/lib/call-center/domain/agent-session-readiness";
 import { serializeAgentSessionView } from "@/lib/call-center/domain/agent-session-wire";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
 
@@ -20,6 +21,8 @@ const identitySchema = z.object({
 });
 const readinessSchema = identitySchema.extend({
   audioReady: z.boolean(),
+  availabilityChange: z.boolean().optional(),
+  availabilityIntent: z.enum(AGENT_AVAILABILITY_INTENTS).optional(),
   connectionState: z.enum(AGENT_SESSION_CONNECTION_STATES),
   expectedStateVersion: z.number().int().nonnegative(),
   microphoneReady: z.boolean(),

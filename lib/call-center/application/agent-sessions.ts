@@ -3,6 +3,7 @@ import type {
   CallCenterAgentPresence,
 } from "@/generated/prisma/client";
 import {
+  type AgentAvailabilityIntent,
   readinessValidationError,
   resolveAgentSessionReadyAt,
 } from "@/lib/call-center/domain/agent-session-readiness";
@@ -129,6 +130,8 @@ type SessionIdentity = {
 
 export type AgentSessionReadinessUpdate = SessionIdentity & {
   audioReady: boolean;
+  availabilityChange?: boolean;
+  availabilityIntent?: AgentAvailabilityIntent;
   connectionState: CallCenterAgentConnectionState;
   expectedStateVersion: number;
   microphoneReady: boolean;
@@ -390,18 +393,37 @@ export async function updateAgentSessionReadiness(
       };
     }
 
-    const presence: CallCenterAgentPresence = (await transaction.hasConnectedCall(
+    const availabilityIntent = input.availabilityIntent ?? input.presence;
+
+    const occupied = await transaction.hasActiveCall(session.endpointId);
+    if (occupied && (input.availabilityChange || availabilityIntent === "PAUSED")) {
+      return {
+        error: new AgentSessionError(
+          "Availability cannot be changed during an active call",
+          409,
+        ),
+      };
+    }
+
+    let presence: CallCenterAgentPresence = (await transaction.hasConnectedCall(
       session.endpointId,
     ))
       ? "BUSY"
-      : input.presence;
-    const nextReadiness = {
+      : availabilityIntent;
+    let nextReadiness = {
       audioReady: input.audioReady,
       connectionState: input.connectionState,
       microphoneReady: input.microphoneReady,
       presence,
     };
-    const validationError = readinessValidationError(nextReadiness);
+    let validationError = readinessValidationError(nextReadiness);
+    if (
+      validationError &&
+      input.availabilityIntent === "AVAILABLE" &&
+      !input.availabilityChange
+    ) {
+      validationError = null;
+    }
     if (validationError) {
       return { error: new AgentSessionError(validationError, 422) };
     }

@@ -7,6 +7,7 @@ import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
   failCanonicalOutboundOperation,
+  hasCanonicalSessionLiveLeg,
   hasCanonicalPendingTransfer,
   isDefinitiveCanonicalOutboundFailure,
   isCanonicalTransferOffer,
@@ -53,6 +54,18 @@ const observation = {
   remoteAudioReady: false,
   state: "RINGING" as const,
 };
+
+describe("hasCanonicalSessionLiveLeg", () => {
+  it("uses canonical live-leg status semantics for session occupancy", () => {
+    expect(hasCanonicalSessionLiveLeg([call], { id: "session-1" })).toBe(true);
+    expect(
+      hasCanonicalSessionLiveLeg(
+        [{ ...call, legs: [{ ...call.legs[0]!, status: "ENDED" }] }],
+        { id: "session-1" },
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("canonical active call center correlation", () => {
   it("derives occupancy from the winning bridged leg instead of session pointers", () => {

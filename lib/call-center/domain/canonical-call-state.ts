@@ -18,6 +18,13 @@ export type CanonicalCallState = {
   voicemailStartedAt: Date | null;
 };
 
+export const ACTIVE_CANONICAL_CALL_STATUSES = [
+  "RECEIVED",
+  "QUEUED",
+  "RINGING",
+  "CONNECTED",
+] as const satisfies readonly CanonicalCallStatus[];
+
 export function normalizeCanonicalCallState<
   T extends { status: CanonicalCallStatus | "WRAP_UP" },
 >(state: T): Omit<T, "status"> & { status: CanonicalCallStatus } {
