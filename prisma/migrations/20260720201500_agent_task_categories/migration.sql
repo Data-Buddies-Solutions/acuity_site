@@ -1,0 +1,3 @@
+ALTER TYPE "AgentTaskCategory" ADD VALUE 'OPTICAL';
+ALTER TYPE "AgentTaskCategory" ADD VALUE 'MEDICATION';
+ALTER TYPE "AgentTaskCategory" ADD VALUE 'REFERRALS';

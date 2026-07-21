@@ -104,6 +104,45 @@ describe("task ingestion", () => {
     });
   });
 
+  it("creates tasks in the optical, medication, and referrals buckets", async () => {
+    const categories = [
+      ["optical", "OPTICAL"],
+      ["medication", "MEDICATION"],
+      ["referrals", "REFERRALS"],
+    ] as const;
+
+    for (const [category, databaseCategory] of categories) {
+      resetPrismaMock();
+      prismaMock.agentTask.findUnique.mockResolvedValue(null);
+      prismaMock.practicePhoneNumber.findFirst.mockResolvedValue({
+        locationId: "spring-location",
+        practiceId: "practice-1",
+      });
+      prismaMock.agentCall.findFirst.mockResolvedValue({ id: "agent-call-1" });
+      prismaMock.agentTask.create.mockResolvedValue({
+        category: databaseCategory,
+        id: `task-${category}`,
+        priority: "NORMAL",
+      });
+
+      const result = await ingestLiveKitTaskPayload(
+        taskPayload({ category, urgency: "normal" }),
+      );
+
+      expect(result).toEqual({
+        category,
+        status: "created",
+        taskId: `task-${category}`,
+        urgency: "normal",
+      });
+      expect(prismaMock.agentTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ category: databaseCategory }),
+        }),
+      );
+    }
+  });
+
   it("returns a duplicate task within the resolved practice", async () => {
     prismaMock.agentTask.findUnique.mockResolvedValue({
       category: "DOCUMENTATION",

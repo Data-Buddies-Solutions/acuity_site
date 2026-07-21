@@ -13,6 +13,7 @@ import {
   parsePortalTaskOffice,
   parsePortalTaskPriority,
   portalTaskCategories,
+  portalTaskCategoryLabels,
   type PortalTask,
   type PortalTaskCategoryFilter,
   type PortalTaskPriorityFilter,
@@ -23,13 +24,6 @@ import { cn } from "@/lib/utils";
 
 type SearchParamsInput = Promise<Record<string, string | string[] | undefined>>;
 type TaskView = "active" | "completed" | "dismissed";
-
-const categoryLabels = {
-  appointments: "Appointments",
-  billing: "Billing",
-  documentation: "Documentation",
-  other: "Other",
-} as const;
 
 const priorityLabels = {
   high_priority: "High priority",
@@ -142,7 +136,7 @@ function TaskRow({ task }: { task: PortalTask }) {
           <PortalBadge tone={task.priority === "high_priority" ? "accent" : "neutral"}>
             {priorityLabels[task.priority]}
           </PortalBadge>
-          <PortalBadge tone="soft">{categoryLabels[task.category]}</PortalBadge>
+          <PortalBadge tone="soft">{portalTaskCategoryLabels[task.category]}</PortalBadge>
           {task.status === "in_progress" ? (
             <PortalBadge tone="accent">In progress</PortalBadge>
           ) : null}
@@ -298,7 +292,7 @@ export default async function PortalTasksPage({
               options={[
                 { label: "All categories", value: "" },
                 ...portalTaskCategories.map((item) => ({
-                  label: categoryLabels[item],
+                  label: portalTaskCategoryLabels[item],
                   value: item,
                 })),
               ]}
