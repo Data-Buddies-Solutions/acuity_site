@@ -130,16 +130,7 @@ export function hasCanonicalSessionLiveLeg(
 }
 
 export function hasCanonicalPendingTransfer(call: CallView) {
-  const sourceLegId = transferSourceLegId(call);
-  return Boolean(
-    sourceLegId &&
-    call.legs.some(
-      (leg) =>
-        leg.kind === "AGENT" &&
-        leg.id !== sourceLegId &&
-        LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never),
-    ),
-  );
+  return call.status === "CONNECTED" && call.transferring;
 }
 
 function outboundTargetFingerprint(target: {

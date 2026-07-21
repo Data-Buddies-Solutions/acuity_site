@@ -58,6 +58,13 @@ projects `On hold` only from the latest effective durable hold-music command: a
 confirmed start establishes hold, and a successfully dispatched stop clears it.
 Pending, failed, timed-out, or superseded work never becomes shared hold state.
 
+A connected call also remains in the authorized Live queue while transferring.
+The snapshot projects `Transferring` only when one live target leg is linked to
+the current winning source by a nonterminal durable transfer command. The source
+seat remains the shared owner until canonical bridge and answer evidence replaces
+it with the target winner. Failed, declined, timed-out, stale, or ambiguous
+transfer evidence leaves the source presentation unchanged.
+
 Direct handoff uses:
 
 ```text

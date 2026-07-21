@@ -26,6 +26,7 @@ function outboundSnapshotCall(id: string, locationId: string) {
     legs: [
       {
         agentSessionId: "session-1",
+        commands: [],
         endpoint: { label: "Front Desk 1", practiceId: "practice-1" },
         endpointId: "endpoint-1",
         id: `${id}-leg`,
@@ -227,6 +228,12 @@ describe("call center snapshot", () => {
         },
         legs: {
           select: {
+            commands: {
+              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+              select: { arguments: true, status: true, type: true },
+              take: 1,
+              where: { type: "TRANSFER_AGENT" },
+            },
             endpoint: { select: { label: true, practiceId: true } },
           },
         },
@@ -249,7 +256,7 @@ describe("call center snapshot", () => {
       observedAt: "2026-07-11T12:00:00.000Z",
       queueId: "queue-1",
       selectedQueueCallIds: [],
-      schemaVersion: 8,
+      schemaVersion: 9,
     });
   });
 
@@ -367,6 +374,191 @@ describe("call center snapshot", () => {
     ]);
   });
 
+  it("projects a pending transfer from its linked canonical target leg", () => {
+    const selected = {
+      ...outboundSnapshotCall("call-transfer", "location-1"),
+      winningLegId: "call-transfer-leg",
+    };
+    const sourceLegId = selected.winningLegId;
+    const target = {
+      ...selected.legs[0]!,
+      agentSessionId: "session-2",
+      commands: [
+        {
+          arguments: { sourceLegId },
+          status: "PENDING" as const,
+          type: "TRANSFER_AGENT" as const,
+        },
+      ],
+      endpoint: { label: "Front Desk 2", practiceId: "practice-1" },
+      endpointId: "endpoint-2",
+      id: "target-leg",
+      status: "CREATED" as const,
+    };
+
+    expect(
+      serializeCall({
+        ...selected,
+        legs: [{ ...selected.legs[0]!, commands: [] }, target],
+      } as never).transferring,
+    ).toBe(true);
+  });
+
+  it("keeps transfer activity through durable dispatch and target ringing", () => {
+    const selected = {
+      ...outboundSnapshotCall("call-transfer", "location-1"),
+      winningLegId: "call-transfer-leg",
+    };
+    const target = {
+      ...selected.legs[0]!,
+      agentSessionId: "session-2",
+      endpoint: { label: "Front Desk 2", practiceId: "practice-1" },
+      endpointId: "endpoint-2",
+      id: "target-leg",
+      status: "RINGING" as const,
+    };
+
+    const transferring = ["SENDING", "SENT", "CONFIRMED"].map(
+      (status) =>
+        serializeCall({
+          ...selected,
+          legs: [
+            { ...selected.legs[0]!, commands: [] },
+            {
+              ...target,
+              commands: [
+                {
+                  arguments: { sourceLegId: selected.winningLegId },
+                  status,
+                  type: "TRANSFER_AGENT",
+                },
+              ],
+            },
+          ],
+        } as never).transferring,
+    );
+
+    expect(transferring).toEqual([true, true, true]);
+  });
+
+  it("rejects failed, declined, timed-out, stale, or ambiguous transfer evidence", () => {
+    const selected = {
+      ...outboundSnapshotCall("call-transfer", "location-1"),
+      winningLegId: "call-transfer-leg",
+    };
+    const target = {
+      ...selected.legs[0]!,
+      agentSessionId: "session-2",
+      endpoint: { label: "Front Desk 2", practiceId: "practice-1" },
+      endpointId: "endpoint-2",
+      id: "target-leg",
+    };
+    const projection = (
+      commandStatus: "CONFIRMED" | "FAILED",
+      targetStatus: "ENDED" | "FAILED" | "RINGING",
+      sourceLegId = selected.winningLegId,
+    ) =>
+      serializeCall({
+        ...selected,
+        legs: [
+          { ...selected.legs[0]!, commands: [] },
+          {
+            ...target,
+            commands: [
+              {
+                arguments: { sourceLegId },
+                status: commandStatus,
+                type: "TRANSFER_AGENT",
+              },
+            ],
+            status: targetStatus,
+          },
+        ],
+      } as never).transferring;
+    const ambiguousTarget = {
+      ...target,
+      commands: [
+        {
+          arguments: { sourceLegId: selected.winningLegId },
+          status: "SENT" as const,
+          type: "TRANSFER_AGENT" as const,
+        },
+      ],
+      id: "second-target-leg",
+      status: "RINGING" as const,
+    };
+
+    expect({
+      ambiguous: serializeCall({
+        ...selected,
+        legs: [
+          { ...selected.legs[0]!, commands: [] },
+          { ...target, ...ambiguousTarget, id: "target-leg" },
+          ambiguousTarget,
+        ],
+      } as never).transferring,
+      declined: projection("CONFIRMED", "ENDED"),
+      failed: projection("FAILED", "RINGING"),
+      stale: projection("CONFIRMED", "RINGING", "stale-source-leg"),
+      timedOut: projection("FAILED", "FAILED"),
+    }).toEqual({
+      ambiguous: false,
+      declined: false,
+      failed: false,
+      stale: false,
+      timedOut: false,
+    });
+  });
+
+  it("converges successful inbound and outbound transfers on the winning target seat", () => {
+    const ownership = (["INBOUND", "OUTBOUND"] as const).map((direction) => {
+      const selected = {
+        ...outboundSnapshotCall(`call-${direction.toLowerCase()}`, "location-1"),
+        direction,
+        winningLegId: "target-leg",
+      };
+      const source = {
+        ...selected.legs[0]!,
+        commands: [],
+        status: "ENDED" as const,
+      };
+      const target = {
+        ...source,
+        agentSessionId: "session-2",
+        commands: [
+          {
+            arguments: { sourceLegId: source.id },
+            status: "CONFIRMED" as const,
+            type: "TRANSFER_AGENT" as const,
+          },
+        ],
+        endpoint: { label: "Front Desk 2", practiceId: "practice-1" },
+        endpointId: "endpoint-2",
+        id: "target-leg",
+        status: "BRIDGED" as const,
+      };
+      const call = serializeCall({ ...selected, legs: [source, target] } as never);
+      return {
+        direction,
+        owner: selectLiveCallOwnership(call),
+        transferring: call.transferring,
+      };
+    });
+
+    expect(ownership).toEqual([
+      {
+        direction: "INBOUND",
+        owner: { endpointLabel: "Front Desk 2", state: "ANSWERED" },
+        transferring: false,
+      },
+      {
+        direction: "OUTBOUND",
+        owner: { endpointLabel: "Front Desk 2", state: "ANSWERED" },
+        transferring: false,
+      },
+    ]);
+  });
+
   it("serializes durable calls without Date values", () => {
     const call = serializeCall(
       {
@@ -386,6 +578,7 @@ describe("call center snapshot", () => {
         legs: [
           {
             agentSessionId: "session-1",
+            commands: [],
             endpoint: null,
             endpointId: "endpoint-1",
             id: "leg-1",
@@ -435,6 +628,7 @@ describe("call center snapshot", () => {
         legs: [
           {
             agentSessionId: "session-1",
+            commands: [],
             endpoint: { label: "Front Desk 1", practiceId: "practice-1" },
             endpointId: "endpoint-1",
             id: "leg-1",
@@ -446,6 +640,7 @@ describe("call center snapshot", () => {
           },
           {
             agentSessionId: "session-2",
+            commands: [],
             endpoint: { label: "Front Desk 2", practiceId: "practice-1" },
             endpointId: "endpoint-2",
             id: "leg-2",
@@ -507,6 +702,7 @@ describe("call center snapshot", () => {
         legs: [
           {
             agentSessionId: "session-1",
+            commands: [],
             endpoint: { label: "Front Desk 1", practiceId: "practice-1" },
             endpointId: "endpoint-1",
             id: "leg-1",
@@ -518,6 +714,7 @@ describe("call center snapshot", () => {
           },
           {
             agentSessionId: "session-2",
+            commands: [],
             endpoint: { label: "Other Practice Seat", practiceId: "practice-2" },
             endpointId: "endpoint-2",
             id: "leg-2",

@@ -53,6 +53,7 @@ function connectedCall(direction: CallView["direction"]): CallView {
       },
     ],
     onHold: false,
+    transferring: false,
     queueId: "queue-1",
     receivedAt: "2026-07-10T15:43:20.000Z",
     stateVersion: 2,
@@ -144,7 +145,7 @@ function renderWorkspace(
           observedAt: "2026-07-21T10:00:00.000Z",
           queueId: "queue-1",
           selectedQueueCallIds,
-          schemaVersion: 8,
+          schemaVersion: 9,
         })
       : Response.json({ items: [], limit: 15 }),
   ) as unknown as typeof fetch;
@@ -380,6 +381,93 @@ describe("call readiness", () => {
     expect(screen.queryByText(/On hold/)).toBeNull();
   });
 
+  it("keeps transferring inbound and outbound details with Busy availability", async () => {
+    const inbound = connectedCall("INBOUND");
+    inbound.callOfficeLabel = "Hollywood Optical";
+    inbound.legs[0]!.endpointLabel = "Front Desk 1";
+    inbound.transferring = true;
+
+    const outbound = connectedOutboundCall({
+      callOfficeLabel: "Sweetwater Optical",
+      id: "call-outbound-transferring",
+      transferring: true,
+    });
+
+    renderWorkspace(workspaceRuntime(), [], [inbound, outbound]);
+
+    expect(await screen.findAllByText("Transferring · Front Desk 1")).toHaveLength(2);
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    const rows = within(liveQueue).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]!).getByText("Inbound")).toBeTruthy();
+    expect(within(rows[0]!).getByText("Hollywood Optical")).toBeTruthy();
+    expect(within(rows[0]!).getByText("(954) 609-7250")).toBeTruthy();
+    expect(within(rows[1]!).getByText("Outbound")).toBeTruthy();
+    expect(within(rows[1]!).getByText("Sweetwater Optical")).toBeTruthy();
+    expect(within(rows[1]!).getByText("(954) 287-2010")).toBeTruthy();
+    expect(screen.getByText("On a call")).toBeTruthy();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Unavailable" }).disabled,
+    ).toBe(true);
+
+    cleanup();
+    const successful = structuredClone(inbound);
+    successful.transferring = false;
+    successful.legs[0]!.status = "ENDED";
+    successful.legs.push({
+      ...successful.legs[0]!,
+      agentSessionId: "session-2",
+      endpointId: "endpoint-2",
+      endpointLabel: "Front Desk 2",
+      id: "target-leg",
+      status: "BRIDGED",
+    });
+    successful.winningLegId = "target-leg";
+    renderWorkspace(workspaceRuntime(), [], [successful]);
+    await screen.findByText("Answered · Front Desk 2");
+    expect(
+      within(
+        screen.getByRole("heading", { name: "Live queue" }).closest("section")!,
+      ).getAllByRole("listitem"),
+    ).toHaveLength(1);
+
+    cleanup();
+    const failed = structuredClone(inbound);
+    failed.transferring = false;
+    failed.legs.push({
+      ...failed.legs[0]!,
+      agentSessionId: "session-2",
+      endpointId: "endpoint-2",
+      endpointLabel: "Front Desk 2",
+      id: "failed-target-leg",
+      status: "RINGING",
+    });
+    const connectedMedia = mediaControls();
+    renderWorkspace(
+      workspaceRuntime({ media: { observations: connectedMedia.observations } }),
+      [],
+      [failed],
+    );
+    await screen.findByText("Answered · Front Desk 1");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "End" }).disabled).toBe(
+      false,
+    );
+
+    cleanup();
+    const ended = structuredClone(inbound);
+    ended.endedAt = "2026-07-21T10:01:00.000Z";
+    ended.status = "COMPLETED";
+    renderWorkspace(workspaceRuntime(), [], [ended]);
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    expect(
+      within(
+        screen.getByRole("heading", { name: "Live queue" }).closest("section")!,
+      ).queryByRole("listitem"),
+    ).toBeNull();
+  });
+
   it("reconstructs hold after reconnect, returns to Answered on Resume, and removes the ended row", async () => {
     const held = connectedCall("INBOUND");
     held.legs[0]!.endpointLabel = "Front Desk 1";
@@ -463,7 +551,7 @@ describe("call readiness", () => {
         observedAt: `2026-07-21T10:00:0${snapshotReads}.000Z`,
         queueId: "queue-1",
         selectedQueueCallIds: calls.map(({ id }) => id),
-        schemaVersion: 8,
+        schemaVersion: 9,
       });
     }) as unknown as typeof fetch;
 
@@ -586,14 +674,16 @@ describe("call readiness", () => {
     expect(within(teammateRow).queryByRole("button", { name: "Decline" })).toBeNull();
   });
 
-  it("preserves direction, status, Answer, and Decline on an exact connected transfer offer", async () => {
+  it("keeps shared source ownership with Answer and Decline on an exact transfer offer", async () => {
     const call = connectedCall("OUTBOUND");
+    call.transferring = true;
     call.winningLegId = "source-leg";
     call.legs = [
       {
         ...call.legs[0]!,
         agentSessionId: "source-session",
         endpointId: "source-endpoint",
+        endpointLabel: "Front Desk 1",
         id: "source-leg",
         providerCallControlId: "source-control",
         providerCallLegId: "source-provider-leg",
@@ -617,7 +707,7 @@ describe("call readiness", () => {
       [call],
     );
 
-    await screen.findByText("Transfer ringing");
+    await screen.findByText("Transferring · Front Desk 1");
     const row = screen.getByRole("listitem");
     expect(within(row).getByText("Outbound")).toBeTruthy();
     expect(within(row).queryByText("Answered")).toBeNull();

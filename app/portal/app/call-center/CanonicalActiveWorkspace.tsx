@@ -790,18 +790,17 @@ function ConnectedCanonicalActiveWorkspace({
                   const rawPhone = callPhone(call);
                   const phone = formatPhone(rawPhone);
                   const ownership = selectLiveCallOwnership(call);
-                  const sharedStatus =
-                    transferOffer && match
-                      ? "Transfer ringing"
-                      : `${
-                          call.status === "CONNECTED" && call.onHold
-                            ? "On hold"
-                            : ownership.state === "ANSWERED"
-                              ? "Answered"
-                              : ownership.state === "ANSWERING"
-                                ? "Answering"
-                                : "Ringing"
-                        }${ownership.endpointLabel ? ` · ${ownership.endpointLabel}` : ""}`;
+                  const sharedStatus = `${
+                    call.status === "CONNECTED" && call.transferring
+                      ? "Transferring"
+                      : call.status === "CONNECTED" && call.onHold
+                        ? "On hold"
+                        : ownership.state === "ANSWERED"
+                          ? "Answered"
+                          : ownership.state === "ANSWERING"
+                            ? "Answering"
+                            : "Ringing"
+                  }${ownership.endpointLabel ? ` · ${ownership.endpointLabel}` : ""}`;
                   const actionableOffer =
                     Boolean(match) && (call.status !== "CONNECTED" || transferOffer);
 

@@ -8,6 +8,7 @@ import {
 import {
   ACTIVE_CANONICAL_CALL_STATUSES,
   LIVE_CANONICAL_LEG_STATUSES,
+  UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
   normalizeCanonicalCallStatus,
 } from "@/lib/call-center/domain/canonical-call-state";
 import {
@@ -56,6 +57,12 @@ const callSelect = {
     orderBy: [{ startedAt: "asc" as const }, { id: "asc" as const }],
     select: {
       agentSessionId: true,
+      commands: {
+        orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+        select: { arguments: true, status: true, type: true },
+        take: 1,
+        where: { type: "TRANSFER_AGENT" as const },
+      },
       endpoint: {
         select: {
           label: true,
@@ -98,6 +105,28 @@ const callSelect = {
 
 type SelectedCall = Prisma.CallCenterCallGetPayload<{ select: typeof callSelect }>;
 
+function transferSourceLegId(value: Prisma.JsonValue) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const sourceLegId = (value as Record<string, unknown>).sourceLegId;
+  return typeof sourceLegId === "string" && sourceLegId ? sourceLegId : null;
+}
+
+function isCanonicalTransferInProgress(call: SelectedCall) {
+  if (call.status !== "CONNECTED" || !call.winningLegId) return false;
+  const targetLegs = call.legs.filter(
+    (leg) =>
+      leg.kind === "AGENT" &&
+      UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never) &&
+      leg.commands?.some(
+        (command) =>
+          command.type === "TRANSFER_AGENT" &&
+          ["PENDING", "SENDING", "SENT", "CONFIRMED"].includes(command.status) &&
+          transferSourceLegId(command.arguments) === call.winningLegId,
+      ),
+  );
+  return targetLegs.length === 1;
+}
+
 export function serializeCall(call: SelectedCall, now: Date = new Date()): CallView {
   const { commands, legs, number, practiceId, ...view } = call;
   const callOffice = number.practicePhoneNumber.location;
@@ -125,12 +154,13 @@ export function serializeCall(call: SelectedCall, now: Date = new Date()): CallV
     callOfficeLabel: callOffice?.practiceId === practiceId ? callOffice.name : null,
     onHold:
       call.status === "CONNECTED" && effectiveHoldCommand?.type === "START_HOLD_MUSIC",
-    legs: legs.map(({ endpoint, ...leg }) => ({
+    legs: legs.map(({ commands: _commands, endpoint, ...leg }) => ({
       ...leg,
       endpointLabel: endpoint?.practiceId === practiceId ? endpoint.label : null,
     })),
     receivedAt: call.receivedAt.toISOString(),
     status: normalizeCanonicalCallStatus(call.status),
+    transferring: isCanonicalTransferInProgress(call),
   };
 }
 
