@@ -136,6 +136,7 @@ export function CanonicalInboundAnswerButton({
       const claimed = reservationRef.current;
       if (!claimed) return Promise.resolve();
       reservationRef.current = null;
+      if (keyRef.current?.key === claimed.idempotencyKey) keyRef.current = null;
       return fetch(`/api/portal/call-center/calls/${callId}/answer`, {
         body: JSON.stringify({ ...claimed.body, failureCode }),
         headers: {
@@ -192,6 +193,7 @@ export function CanonicalInboundAnswerButton({
         .json()
         .catch(() => null);
       if ((result as InboundAnswerClaimWire | null)?.status === "REJECTED") {
+        if (keyRef.current?.key === idempotencyKey) keyRef.current = null;
         throw localCallCenterError("CALL_NOT_CONNECTED", false);
       }
       await callCenterResponse<InboundAnswerClaimWire>(response);

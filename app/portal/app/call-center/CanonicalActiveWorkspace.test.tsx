@@ -205,9 +205,11 @@ describe("canonical inbound Answer", () => {
     expect(answer).toHaveBeenCalledWith("media-leg-1");
   });
 
-  it("never invokes provider media after a rejected claim", async () => {
-    globalThis.fetch = mock(async () =>
-      Response.json(
+  it("allows a fresh claim after a rejected attempt", async () => {
+    const keys: string[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      keys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
+      return Response.json(
         {
           callId: "call-1",
           legId: "leg-1",
@@ -215,8 +217,8 @@ describe("canonical inbound Answer", () => {
           status: "REJECTED",
         },
         { status: 409 },
-      ),
-    ) as unknown as typeof fetch;
+      );
+    }) as unknown as typeof fetch;
     const answer = mock(async () => {});
 
     render(
@@ -234,19 +236,26 @@ describe("canonical inbound Answer", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Answer" }));
     });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
 
     expect(answer).not.toHaveBeenCalled();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
     expect(screen.getByRole("alert").textContent).toContain("Call ended");
   });
 
-  it("releases the reservation when provider Answer fails", async () => {
+  it("releases the reservation and allows a fresh claim when provider Answer fails", async () => {
     const order: string[] = [];
+    const keys: string[] = [];
     globalThis.fetch = mock(async (_input, init) => {
       if (init?.method === "DELETE") {
         order.push("release");
         return Response.json({ released: true, status: "RELEASED" });
       }
       order.push("claim");
+      keys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
       return Response.json(
         {
           replayed: false,
@@ -279,6 +288,19 @@ describe("canonical inbound Answer", () => {
 
     expect(order).toEqual(["claim", "provider-answer", "release"]);
     expect(screen.getByRole("alert").textContent).toContain("answer this call");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Answer" }));
+    });
+    expect(order).toEqual([
+      "claim",
+      "provider-answer",
+      "release",
+      "claim",
+      "provider-answer",
+      "release",
+    ]);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
   });
 
   it("releases an accepted reservation when the browser disconnects", async () => {

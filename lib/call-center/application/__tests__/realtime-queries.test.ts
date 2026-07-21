@@ -172,38 +172,41 @@ describe("call center snapshot", () => {
   });
 
   it("serializes durable calls without Date values", () => {
-    const call = serializeCall({
-      answerReservation: {
-        agentSessionId: "session-1",
-        expiresAt: new Date("2026-07-11T12:00:05.000Z"),
-        legId: "leg-1",
-        status: "ACCEPTED",
-      },
-      answeredAt: null,
-      callerName: null,
-      direction: "INBOUND",
-      endedAt: null,
-      fromPhone: "+17865550100",
-      id: "call-1",
-      legs: [
-        {
+    const call = serializeCall(
+      {
+        answerReservation: {
           agentSessionId: "session-1",
-          endpointId: "endpoint-1",
-          id: "leg-1",
-          kind: "AGENT",
-          providerCallControlId: "control-1",
-          providerCallLegId: "provider-leg-1",
-          providerCallSessionId: "provider-session-1",
-          status: "RINGING",
+          expiresAt: new Date("2026-07-11T12:00:05.000Z"),
+          legId: "leg-1",
+          status: "ACCEPTED",
         },
-      ],
-      queueId: "queue-1",
-      receivedAt: now,
-      stateVersion: 12,
-      status: "RINGING",
-      toPhone: "+17865550101",
-      winningLegId: null,
-    });
+        answeredAt: null,
+        callerName: null,
+        direction: "INBOUND",
+        endedAt: null,
+        fromPhone: "+17865550100",
+        id: "call-1",
+        legs: [
+          {
+            agentSessionId: "session-1",
+            endpointId: "endpoint-1",
+            id: "leg-1",
+            kind: "AGENT",
+            providerCallControlId: "control-1",
+            providerCallLegId: "provider-leg-1",
+            providerCallSessionId: "provider-session-1",
+            status: "RINGING",
+          },
+        ],
+        queueId: "queue-1",
+        receivedAt: now,
+        stateVersion: 12,
+        status: "RINGING",
+        toPhone: "+17865550101",
+        winningLegId: null,
+      },
+      now,
+    );
 
     expect(call).toMatchObject({
       answerReservation: {
@@ -213,5 +216,34 @@ describe("call center snapshot", () => {
       receivedAt: "2026-07-11T12:00:00.000Z",
       stateVersion: 12,
     });
+  });
+
+  it("omits an expired active answer reservation", () => {
+    const call = serializeCall(
+      {
+        answerReservation: {
+          agentSessionId: "session-1",
+          expiresAt: now,
+          legId: "leg-1",
+          status: "ANSWERED",
+        },
+        answeredAt: null,
+        callerName: null,
+        direction: "INBOUND",
+        endedAt: null,
+        fromPhone: "+17865550100",
+        id: "call-1",
+        legs: [],
+        queueId: "queue-1",
+        receivedAt: now,
+        stateVersion: 12,
+        status: "RINGING",
+        toPhone: "+17865550101",
+        winningLegId: null,
+      },
+      now,
+    );
+
+    expect(call.answerReservation).toBeNull();
   });
 });
