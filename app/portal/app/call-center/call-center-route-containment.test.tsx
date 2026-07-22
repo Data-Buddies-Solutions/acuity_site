@@ -490,4 +490,36 @@ describe("Call Center route failure containment", () => {
     await screen.findByText("Presence: AVAILABLE", {}, { timeout: 5_000 });
     expect(screen.getByText("Intent: AVAILABLE")).toBeTruthy();
   });
+
+  it("replays confirmed Paused intent when refreshed during occupancy", async () => {
+    const first = render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    await screen.findByText("Media ready: true");
+    await screen.findByText("Presence: PAUSED");
+    connectedOccupancy = true;
+
+    act(() => {
+      clients[0]?.handlers.get("telnyx.error")?.({
+        error: { fatal: true, name: "CONNECTION_FAILED" },
+      });
+    });
+    await screen.findByText("Presence: BUSY");
+    expect(screen.getByText("Intent: PAUSED")).toBeTruthy();
+    first.unmount();
+
+    render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    await screen.findByText("Presence: BUSY");
+    expect(screen.getByText("Intent: PAUSED")).toBeTruthy();
+  });
 });

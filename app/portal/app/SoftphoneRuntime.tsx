@@ -351,12 +351,6 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       agentSession.leaseGeneration !== null &&
       availabilityLeaseGenerationRef.current !== agentSession.leaseGeneration;
     const sameLease = !newLease && availabilitySessionIdRef.current === session.id;
-    const next =
-      newLease && agentSession.leaseContinuity !== "REPLAYED"
-        ? "PAUSED"
-        : sameLease && session.presence === "BUSY" && availabilityChoiceRef.current
-          ? availabilityChoiceRef.current
-          : resolveAgentAvailabilityIntent(session.presence);
     const confirmedChoice = sameLease
       ? availabilityChoiceRef.current
       : clientInstanceId && agentSession.leaseContinuity === "REPLAYED"
@@ -366,6 +360,12 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
             session.id,
           )
         : null;
+    const next =
+      newLease && agentSession.leaseContinuity !== "REPLAYED"
+        ? "PAUSED"
+        : session.presence === "BUSY" && confirmedChoice
+          ? confirmedChoice
+          : resolveAgentAvailabilityIntent(session.presence);
     if (!sameLease && clientInstanceId && agentSession.leaseContinuity !== "REPLAYED") {
       try {
         window.sessionStorage.removeItem(
