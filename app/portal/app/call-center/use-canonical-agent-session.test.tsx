@@ -234,6 +234,7 @@ describe("useCanonicalAgentSession", () => {
       if (method === "POST") {
         postCount += 1;
         return Response.json({
+          leaseContinuity: postCount === 1 ? "ACQUIRED" : "RECONNECTED",
           leaseDurationMs: 2_000,
           session:
             postCount === 1 ? agentSession() : { ...agentSession(5), presence: "PAUSED" },
@@ -272,10 +273,13 @@ describe("useCanonicalAgentSession", () => {
 
     await act(() => result.current.start());
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    expect(result.current.leaseGeneration).toBe(1);
     await act(async () => {
       await result.current.setAvailability("AVAILABLE").catch(() => {});
     });
 
+    expect(result.current.leaseContinuity).toBe("RECONNECTED");
+    expect(result.current.leaseGeneration).toBe(2);
     expect(result.current.session).toMatchObject({
       presence: "PAUSED",
       stateVersion: 5,

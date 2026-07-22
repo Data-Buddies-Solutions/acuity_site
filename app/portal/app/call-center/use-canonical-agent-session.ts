@@ -679,10 +679,15 @@ export function useCanonicalAgentSession({
                 active.session = converged.session;
                 readinessRef.current = {
                   ...readinessRef.current,
-                  presence: resolveAgentAvailabilityIntent(converged.session.presence),
+                  presence:
+                    converged.leaseContinuity === "RECONNECTED"
+                      ? "PAUSED"
+                      : resolveAgentAvailabilityIntent(converged.session.presence),
                 };
                 if (mountedRef.current && activeRef.current === active) {
                   setLeaseContinuity(converged.leaseContinuity);
+                  leaseGenerationRef.current += 1;
+                  setLeaseGeneration(leaseGenerationRef.current);
                   setSession(converged.session);
                 }
               }
