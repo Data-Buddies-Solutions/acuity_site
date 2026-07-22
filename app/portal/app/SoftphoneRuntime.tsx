@@ -246,7 +246,7 @@ export type SoftphoneRuntimeValue = {
   takeover(): Promise<void>;
 };
 
-export const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
+const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
 
 export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);

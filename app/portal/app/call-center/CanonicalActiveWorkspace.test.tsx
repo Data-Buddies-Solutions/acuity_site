@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import {
   act,
   cleanup,
@@ -11,9 +11,7 @@ import {
 
 import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-contract";
 
-import { SoftphoneContext, type SoftphoneRuntimeValue } from "../SoftphoneRuntime";
 import {
-  AvailabilityControl,
   CanonicalActiveWorkspace,
   CanonicalActiveCall,
   CanonicalOfferAnswerButton,
@@ -22,8 +20,17 @@ import {
 import { CallConnectionStatus } from "./CallConnectionStatus";
 import { canonicalStartupConnectionState } from "./use-canonical-agent-session";
 import type { useSoftphoneMedia } from "./use-softphone";
+import * as softphoneRuntime from "../SoftphoneRuntime";
 
 const originalFetch = globalThis.fetch;
+type SoftphoneRuntimeValue = ReturnType<typeof softphoneRuntime.useSoftphoneRuntime>;
+let currentRuntime: SoftphoneRuntimeValue;
+
+const runtimeSpy = spyOn(softphoneRuntime, "useSoftphoneRuntime").mockImplementation(
+  () => currentRuntime,
+);
+
+afterAll(() => runtimeSpy.mockRestore());
 
 afterEach(() => {
   cleanup();
@@ -43,7 +50,7 @@ function connectedCall(direction: CallView["direction"]): CallView {
       {
         agentSessionId: "session-1",
         endpointId: "endpoint-1",
-        endpointLabel: null,
+        endpointLabel: "Front Desk 1",
         id: "agent-leg-1",
         kind: "AGENT",
         providerCallControlId: "control-1",
@@ -138,6 +145,7 @@ function renderWorkspace(
     .filter(({ queueId }) => queueId === "queue-1")
     .map(({ id }) => id),
 ) {
+  currentRuntime = runtime;
   globalThis.fetch = mock(async (input) =>
     String(input).includes("/snapshot?")
       ? Response.json({
@@ -151,15 +159,13 @@ function renderWorkspace(
   ) as unknown as typeof fetch;
 
   return render(
-    <SoftphoneContext.Provider value={runtime}>
-      <CanonicalActiveWorkspace
-        agentProfileLabel="Call Center 1"
-        followUpHref="/follow-up"
-        historyHref="/history"
-        outboundNumbers={outboundNumbers}
-        queueId="queue-1"
-      />
-    </SoftphoneContext.Provider>,
+    <CanonicalActiveWorkspace
+      agentProfileLabel="Call Center 1"
+      followUpHref="/follow-up"
+      historyHref="/history"
+      outboundNumbers={outboundNumbers}
+      queueId="queue-1"
+    />,
   );
 }
 
@@ -223,16 +229,15 @@ describe("call readiness", () => {
     const busy = workspaceRuntime({
       session: readySession({ presence: "BUSY" }),
     });
+    currentRuntime = busy;
     view.rerender(
-      <SoftphoneContext.Provider value={busy}>
-        <CanonicalActiveWorkspace
-          agentProfileLabel="Call Center 1"
-          followUpHref="/follow-up"
-          historyHref="/history"
-          outboundNumbers={[]}
-          queueId="queue-1"
-        />
-      </SoftphoneContext.Provider>,
+      <CanonicalActiveWorkspace
+        agentProfileLabel="Call Center 1"
+        followUpHref="/follow-up"
+        historyHref="/history"
+        outboundNumbers={[]}
+        queueId="queue-1"
+      />,
     );
     expect(screen.getByText("On a call")).toBeTruthy();
     expect(
@@ -579,6 +584,7 @@ describe("call readiness", () => {
         status: "RINGING",
       },
     ];
+    transfer.transferring = true;
     transfer.winningLegId = "source-leg";
 
     renderWorkspace(
@@ -598,6 +604,19 @@ describe("call readiness", () => {
     const personalOffer = screen.getByRole("region", { name: "Personal call offer" });
     expect(within(personalOffer).getByText("(786) 555-0200")).toBeTruthy();
     expect(within(personalOffer).getByRole("button", { name: "Answer" })).toBeTruthy();
+  });
+
+  it("does not invent an outbound owner without a canonical winning leg", async () => {
+    const call = connectedOutboundCall();
+    call.winningLegId = null;
+
+    renderWorkspace(workspaceRuntime(), [], [call], [call.id]);
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    const liveQueue = screen
+      .getByRole("heading", { name: "Live queue" })
+      .closest("section")!;
+    expect(within(liveQueue).queryByText("(954) 287-2010")).toBeNull();
   });
 
   it("keeps mixed snapshot ordering and removes outbound rows after termination", async () => {
@@ -624,16 +643,15 @@ describe("call readiness", () => {
       });
     }) as unknown as typeof fetch;
 
+    currentRuntime = workspaceRuntime();
     render(
-      <SoftphoneContext.Provider value={workspaceRuntime()}>
-        <CanonicalActiveWorkspace
-          agentProfileLabel="Call Center 1"
-          followUpHref="/follow-up"
-          historyHref="/history"
-          outboundNumbers={[]}
-          queueId="queue-1"
-        />
-      </SoftphoneContext.Provider>,
+      <CanonicalActiveWorkspace
+        agentProfileLabel="Call Center 1"
+        followUpHref="/follow-up"
+        historyHref="/history"
+        outboundNumbers={[]}
+        queueId="queue-1"
+      />,
     );
 
     await screen.findByText("Answered · Front Desk 1");
@@ -651,6 +669,44 @@ describe("call readiness", () => {
       { timeout: 3_000 },
     );
     expect(within(liveQueue).queryByText("Outbound")).toBeNull();
+  });
+
+  it("reports a failed phone copy without claiming success", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: mock(async () => Promise.reject(new Error("denied"))) },
+    });
+    renderWorkspace(workspaceRuntime(), [], [connectedCall("INBOUND")]);
+
+    const row = await screen.findByRole("listitem");
+    fireEvent.click(
+      within(row).getByRole("button", { name: "Copy caller phone number" }),
+    );
+
+    expect(
+      await screen.findByText("Phone number could not be copied. Try again."),
+    ).toBeTruthy();
+    expect(within(row).queryByText("Phone number copied")).toBeNull();
+  });
+
+  it("hides a connected inbound call without an exact winning bridged seat", async () => {
+    const call = connectedCall("INBOUND");
+    call.winningLegId = null;
+    call.legs[0]!.status = "ANSWERED";
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    expect(screen.queryByText("(954) 609-7250")).toBeNull();
+  });
+
+  it("hides a connected inbound call whose winning seat has no label", async () => {
+    const call = connectedCall("INBOUND");
+    call.legs[0]!.endpointLabel = null;
+
+    renderWorkspace(workspaceRuntime(), [], [call]);
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
   });
 
   it("shows canonical answer evidence with the answering endpoint seat", async () => {
@@ -832,6 +888,42 @@ describe("call readiness", () => {
     expect(within(row).getByRole("button", { name: "Decline" })).toBeTruthy();
   });
 
+  it("does not offer an orphaned transfer target after transfer activity ends", async () => {
+    const call = connectedCall("OUTBOUND");
+    call.winningLegId = "source-leg";
+    call.legs = [
+      {
+        ...call.legs[0]!,
+        agentSessionId: "source-session",
+        endpointId: "source-endpoint",
+        endpointLabel: "Front Desk 1",
+        id: "source-leg",
+        status: "BRIDGED",
+      },
+      {
+        ...call.legs[0]!,
+        agentSessionId: "session-2",
+        endpointId: "endpoint-2",
+        id: "orphaned-target-leg",
+        status: "RINGING",
+      },
+    ];
+
+    renderWorkspace(
+      workspaceRuntime({
+        media: mediaControls("RINGING"),
+        session: readySession({ endpointId: "endpoint-2", id: "session-2" }),
+      }),
+      [],
+      [call],
+    );
+
+    const row = await screen.findByRole("listitem");
+    expect(within(row).getByText("Answered · Front Desk 1")).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: "Answer" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Decline" })).toBeNull();
+  });
+
   it("returns a failed answer attempt to the canonical ringing presentation", async () => {
     const call = connectedCall("INBOUND");
     call.answeredAt = null;
@@ -919,99 +1011,31 @@ describe("call readiness", () => {
     expect(within(liveQueue).getByText("4")).toBeTruthy();
   });
 
-  it("renders labeled Available and Unavailable choices as one canonical action", async () => {
-    const change = mock(async (_presence: "AVAILABLE" | "PAUSED") => {});
-    render(
-      <AvailabilityControl
-        error={null}
-        occupied={false}
-        onChange={change}
-        onRetry={() => {}}
-        pending={false}
-        presence="PAUSED"
-        recoveryMessage={null}
-      />,
+  it("exposes pending and retry states through the workspace", async () => {
+    const retry = mock(async () => {});
+    const view = renderWorkspace(
+      workspaceRuntime({ availabilityPending: true, retryAvailability: retry }),
     );
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    expect(screen.getByText("Updating availability…")).toBeTruthy();
 
-    const control = screen.getByRole("group", { name: "Availability" });
-    expect(control).toBeTruthy();
-    expect(screen.getByText("Availability")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Unavailable" }).getAttribute("aria-pressed"),
-    ).toBe("true");
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Available" }));
+    currentRuntime = workspaceRuntime({
+      availabilityError: "The call center is temporarily unavailable.",
+      availabilityRetryable: true,
+      retryAvailability: retry,
     });
-    expect(change).toHaveBeenCalledTimes(1);
-    expect(change).toHaveBeenCalledWith("AVAILABLE");
-  });
-
-  it("disables availability during occupancy and exposes pending and retry states", () => {
-    const retry = mock(() => {});
-    const view = render(
-      <AvailabilityControl
-        error={null}
-        occupied
-        onChange={async () => {}}
-        onRetry={retry}
-        pending={false}
-        presence="BUSY"
-        recoveryMessage={null}
-      />,
-    );
-
-    expect(screen.getByRole("status").textContent).toBe("On a call");
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Available" }).disabled,
-    ).toBe(true);
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Unavailable" }).disabled,
-    ).toBe(true);
-
     view.rerender(
-      <AvailabilityControl
-        error="The call center is temporarily unavailable."
-        occupied
-        onChange={async () => {}}
-        onRetry={retry}
-        pending={false}
-        presence="BUSY"
-        recoveryMessage={null}
-      />,
-    );
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Retry" }).disabled,
-    ).toBe(true);
-
-    view.rerender(
-      <AvailabilityControl
-        error={null}
-        occupied={false}
-        onChange={async () => {}}
-        onRetry={retry}
-        pending
-        presence="PAUSED"
-        recoveryMessage={null}
-      />,
-    );
-    expect(screen.getByRole("status").textContent).toBe("Updating availability…");
-
-    view.rerender(
-      <AvailabilityControl
-        error="The call center is temporarily unavailable."
-        occupied={false}
-        onChange={async () => {}}
-        onRetry={retry}
-        pending={false}
-        presence="AVAILABLE"
-        recoveryMessage="Allow microphone access, then select Available again."
+      <CanonicalActiveWorkspace
+        agentProfileLabel="Call Center 1"
+        followUpHref="/follow-up"
+        historyHref="/history"
+        outboundNumbers={[]}
+        queueId="queue-1"
       />,
     );
     expect(screen.getByRole("alert").textContent).toContain(
       "The call center is temporarily unavailable.",
     );
-    expect(screen.getByRole("status").textContent).toContain("Allow microphone access");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalledTimes(1);
   });

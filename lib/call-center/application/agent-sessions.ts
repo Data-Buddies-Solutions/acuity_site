@@ -5,6 +5,7 @@ import type {
 import {
   type AgentAvailabilityIntent,
   readinessValidationError,
+  resolveAgentAvailabilityIntent,
   resolveAgentSessionReadyAt,
 } from "@/lib/call-center/domain/agent-session-readiness";
 import { serializeAgentConnectionState } from "@/lib/call-center/domain/agent-session-wire";
@@ -16,14 +17,6 @@ export const AGENT_SESSION_CONNECTION_STATES = [
   "ERROR",
   "CLOSED",
 ] as const satisfies readonly CallCenterAgentConnectionState[];
-export const AGENT_SESSION_PRESENCES = [
-  "AVAILABLE",
-  "PAUSED",
-  "BUSY",
-  "WRAP_UP",
-  "OFFLINE",
-] as const satisfies readonly CallCenterAgentPresence[];
-
 export class AgentSessionError extends Error {
   readonly status: number;
 
@@ -136,7 +129,6 @@ export type AgentSessionReadinessUpdate = SessionIdentity & {
   connectionState: CallCenterAgentConnectionState;
   expectedStateVersion: number;
   microphoneReady: boolean;
-  presence: CallCenterAgentPresence;
   sessionId: string;
 };
 
@@ -385,11 +377,7 @@ export async function updateAgentSessionReadiness(
       };
     }
 
-    if (
-      input.presence === "BUSY" ||
-      input.presence === "OFFLINE" ||
-      input.connectionState === "CLOSED"
-    ) {
+    if (input.connectionState === "CLOSED") {
       return {
         error: new AgentSessionError(
           "Browser readiness cannot set an owned call state",
@@ -398,12 +386,17 @@ export async function updateAgentSessionReadiness(
       };
     }
 
-    const availabilityIntent = input.availabilityIntent ?? input.presence;
+    const availabilityIntent =
+      input.availabilityIntent ?? resolveAgentAvailabilityIntent(session.presence);
+    const availabilityChanged =
+      availabilityIntent !== resolveAgentAvailabilityIntent(session.presence);
 
     const requiredWrapUp = await transaction.hasRequiredWrapUp(session.endpointId);
-    const occupied =
-      requiredWrapUp || (await transaction.hasActiveCall(session.endpointId));
-    if (occupied && input.availabilityChange) {
+    const activeCall = await transaction.hasActiveCall(session.endpointId);
+    if (
+      (activeCall && availabilityChanged) ||
+      (requiredWrapUp && input.availabilityChange)
+    ) {
       return {
         error: new AgentSessionError(
           "Availability cannot be changed during an active call",
@@ -412,32 +405,27 @@ export async function updateAgentSessionReadiness(
       };
     }
 
-    let presence: CallCenterAgentPresence = (await transaction.hasConnectedCall(
+    const requestedReadiness = {
+      audioReady: input.audioReady,
+      connectionState: input.connectionState,
+      microphoneReady: input.microphoneReady,
+      presence: availabilityIntent,
+    };
+    const validationError = readinessValidationError(requestedReadiness);
+    if (validationError && availabilityChanged) {
+      return { error: new AgentSessionError(validationError, 422) };
+    }
+
+    const presence: CallCenterAgentPresence = (await transaction.hasConnectedCall(
       session.endpointId,
     ))
       ? "BUSY"
       : requiredWrapUp
         ? "WRAP_UP"
-        : availabilityIntent;
-    let nextReadiness = {
-      audioReady: input.audioReady,
-      connectionState: input.connectionState,
-      microphoneReady: input.microphoneReady,
-      presence,
-    };
-    let validationError = readinessValidationError(nextReadiness);
-    if (
-      validationError &&
-      input.availabilityIntent === "AVAILABLE" &&
-      !input.availabilityChange
-    ) {
-      presence = "PAUSED";
-      nextReadiness = { ...nextReadiness, presence };
-      validationError = null;
-    }
-    if (validationError) {
-      return { error: new AgentSessionError(validationError, 422) };
-    }
+        : validationError
+          ? "PAUSED"
+          : availabilityIntent;
+    const nextReadiness = { ...requestedReadiness, presence };
 
     const readyAt = resolveAgentSessionReadyAt(nextReadiness, session.readyAt, now);
     const readinessUnchanged =

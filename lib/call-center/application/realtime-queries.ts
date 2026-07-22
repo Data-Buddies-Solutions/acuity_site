@@ -36,20 +36,6 @@ const callSelect = {
   },
   answeredAt: true,
   callerName: true,
-  commands: {
-    orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
-    select: { status: true, type: true },
-    take: 1,
-    where: {
-      OR: [
-        { status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const },
-        {
-          status: { in: ["SENT" as const, "CONFIRMED" as const] },
-          type: "STOP_HOLD_MUSIC" as const,
-        },
-      ],
-    },
-  },
   direction: true,
   endedAt: true,
   fromPhone: true,
@@ -101,6 +87,24 @@ const callSelect = {
   stateVersion: true,
   status: true,
   toPhone: true,
+  winningLeg: {
+    select: {
+      commands: {
+        orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+        select: { status: true, type: true },
+        take: 1,
+        where: {
+          OR: [
+            { status: "CONFIRMED" as const, type: "START_HOLD_MUSIC" as const },
+            {
+              status: { in: ["SENT" as const, "CONFIRMED" as const] },
+              type: "STOP_HOLD_MUSIC" as const,
+            },
+          ],
+        },
+      },
+    },
+  },
   winningLegId: true,
 } satisfies Prisma.CallCenterCallSelect;
 
@@ -129,9 +133,9 @@ function isCanonicalTransferInProgress(call: SelectedCall) {
 }
 
 export function serializeCall(call: SelectedCall, now: Date = new Date()): CallView {
-  const { commands, legs, number, practiceId, ...view } = call;
+  const { legs, number, practiceId, winningLeg, ...view } = call;
   const callOffice = number.practicePhoneNumber.location;
-  const effectiveHoldCommand = commands.find(
+  const effectiveHoldCommand = winningLeg?.commands.find(
     (command) =>
       (command.type === "START_HOLD_MUSIC" && command.status === "CONFIRMED") ||
       (command.type === "STOP_HOLD_MUSIC" &&
@@ -165,44 +169,54 @@ export function serializeCall(call: SelectedCall, now: Date = new Date()): CallV
   };
 }
 
-function accessibleQueueLocationIds(actor: QueueAccessActor, queueLocationIds: string[]) {
-  return actor.hasAllLocationAccess
-    ? queueLocationIds
-    : queueLocationIds.filter((id) => actor.allowedLocationIds.includes(id));
-}
-
-export function queueCallWhere(
+export function queueCallScope(
   actor: QueueAccessActor,
   queueId: string,
   queueLocationIds: string[],
-): Prisma.CallCenterCallWhereInput {
-  const locationIds = accessibleQueueLocationIds(actor, queueLocationIds);
-  return {
+): {
+  includes(call: SelectedCall): boolean;
+  where: Prisma.CallCenterCallWhereInput;
+} {
+  const locationIds = queueLocationIds.length
+    ? actor.hasAllLocationAccess
+      ? queueLocationIds
+      : queueLocationIds.filter((id) => actor.allowedLocationIds.includes(id))
+    : actor.hasAllLocationAccess
+      ? null
+      : actor.allowedLocationIds;
+  const where: Prisma.CallCenterCallWhereInput = {
     practiceId: actor.practiceId,
     queueId,
-    ...(queueLocationIds.length
-      ? {
-          number: {
-            practiceId: actor.practiceId,
-            practicePhoneNumber: {
-              location: { practiceId: actor.practiceId },
-              locationId: { in: locationIds },
-            },
-          },
-        }
-      : actor.hasAllLocationAccess
-        ? {}
-        : actor.allowedLocationIds.length
-          ? {
-              number: {
-                practiceId: actor.practiceId,
-                practicePhoneNumber: {
-                  location: { practiceId: actor.practiceId },
-                  locationId: { in: actor.allowedLocationIds },
-                },
+    ...(locationIds === null
+      ? {}
+      : queueLocationIds.length || locationIds.length
+        ? {
+            number: {
+              practiceId: actor.practiceId,
+              practicePhoneNumber: {
+                location: { practiceId: actor.practiceId },
+                locationId: { in: locationIds },
               },
-            }
-          : { id: { in: [] } }),
+            },
+          }
+        : { id: { in: [] } }),
+  };
+
+  return {
+    includes(call) {
+      if (call.queueId !== queueId || call.practiceId !== actor.practiceId) return false;
+      if (locationIds === null) return true;
+
+      const location = call.number.practicePhoneNumber.location;
+      const locationId = call.number.practicePhoneNumber.locationId;
+      return Boolean(
+        call.number.practiceId === actor.practiceId &&
+        location?.practiceId === actor.practiceId &&
+        locationId &&
+        locationIds.includes(locationId),
+      );
+    },
+    where,
   };
 }
 
@@ -235,29 +249,6 @@ export function activeCallWhere(
   };
 }
 
-function isSelectedQueueCall(
-  call: SelectedCall,
-  actor: QueueAccessActor,
-  queueId: string,
-  queueLocationIds: string[],
-) {
-  if (call.queueId !== queueId || call.practiceId !== actor.practiceId) return false;
-  if (queueLocationIds.length === 0 && actor.hasAllLocationAccess) return true;
-
-  const location = call.number.practicePhoneNumber.location;
-  const locationId = call.number.practicePhoneNumber.locationId;
-  const visibleLocationIds = accessibleQueueLocationIds(actor, queueLocationIds);
-  const allowedLocationIds = queueLocationIds.length
-    ? visibleLocationIds
-    : actor.allowedLocationIds;
-  return Boolean(
-    call.number.practiceId === actor.practiceId &&
-    location?.practiceId === actor.practiceId &&
-    locationId &&
-    allowedLocationIds.includes(locationId),
-  );
-}
-
 export async function readCallCenterSnapshot(
   actor: QueueAccessActor,
   queueId: string,
@@ -270,12 +261,12 @@ export async function readCallCenterSnapshot(
       const queue = accessibleQueues.find(({ id }) => id === queueId);
       if (!queue) throw new QueueAccessError();
       const queueLocationIds = queue.locations.map(({ locationId }) => locationId);
-      const callWhere = queueCallWhere(actor, queueId, queueLocationIds);
+      const selectedQueue = queueCallScope(actor, queueId, queueLocationIds);
       const activeCalls = await transaction.callCenterCall.findMany({
         orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
         select: callSelect,
         take: 100,
-        where: activeCallWhere(callWhere, actor),
+        where: activeCallWhere(selectedQueue.where, actor),
       });
       const observedAt = clock();
 
@@ -284,7 +275,7 @@ export async function readCallCenterSnapshot(
         observedAt: observedAt.toISOString(),
         queueId: queue.id,
         selectedQueueCallIds: activeCalls
-          .filter((call) => isSelectedQueueCall(call, actor, queue.id, queueLocationIds))
+          .filter(selectedQueue.includes)
           .map(({ id }) => id),
         schemaVersion: CALL_CENTER_SCHEMA_VERSION,
       };

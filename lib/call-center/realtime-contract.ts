@@ -72,7 +72,7 @@ export type CallCenterSnapshot = {
 export function selectLiveCallOwnership(call: CallView): {
   endpointLabel: string | null;
   state: "ANSWERED" | "ANSWERING" | "RINGING";
-} {
+} | null {
   if (call.status === "CONNECTED") {
     const connectedAgentLegs = call.legs.filter(
       (leg) => leg.kind === "AGENT" && leg.status === "BRIDGED",
@@ -82,7 +82,7 @@ export function selectLiveCallOwnership(call: CallView): {
       : null;
     return winner?.endpointLabel
       ? { endpointLabel: winner.endpointLabel, state: "ANSWERED" }
-      : { endpointLabel: null, state: "RINGING" };
+      : null;
   }
 
   const reservedLeg = call.answerReservation
@@ -96,7 +96,7 @@ export function selectLiveCallOwnership(call: CallView): {
   if (call.answerReservation) {
     return reservedLeg?.endpointLabel
       ? { endpointLabel: reservedLeg.endpointLabel, state: "ANSWERING" }
-      : { endpointLabel: null, state: "RINGING" };
+      : null;
   }
 
   const answeringLegs = call.legs.filter(
@@ -121,14 +121,14 @@ export function selectLiveQueueCalls(state: CallCenterSnapshot) {
     if (call.direction === "INBOUND") {
       if (call.status !== "CONNECTED") return true;
       const ownership = selectLiveCallOwnership(call);
-      return ownership.state === "ANSWERED" && Boolean(ownership.endpointLabel);
+      return ownership?.state === "ANSWERED" && Boolean(ownership.endpointLabel);
     }
 
     const ownership = selectLiveCallOwnership(call);
     return (
       call.status === "CONNECTED" &&
-      ownership.state === "ANSWERED" &&
-      Boolean(ownership.endpointLabel)
+      ownership?.state === "ANSWERED" &&
+      Boolean(ownership?.endpointLabel)
     );
   });
 }

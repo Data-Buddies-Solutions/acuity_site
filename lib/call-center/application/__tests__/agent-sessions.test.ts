@@ -288,9 +288,9 @@ describe("canonical agent sessions", () => {
       {
         ...identity,
         audioReady: true,
+        availabilityIntent: "AVAILABLE",
         connectionState: "READY",
         microphoneReady: true,
-        presence: "AVAILABLE",
         expectedStateVersion: 0,
         sessionId: "session-1",
       },
@@ -318,9 +318,9 @@ describe("canonical agent sessions", () => {
       {
         ...identity,
         audioReady: true,
+        availabilityIntent: "AVAILABLE",
         connectionState: "READY",
         microphoneReady: true,
-        presence: "AVAILABLE",
         expectedStateVersion: 0,
         sessionId: "session-1",
       },
@@ -334,9 +334,9 @@ describe("canonical agent sessions", () => {
       {
         ...identity,
         audioReady: true,
+        availabilityIntent: "AVAILABLE",
         connectionState: "READY",
         microphoneReady: true,
-        presence: "AVAILABLE",
         expectedStateVersion: ready.session.stateVersion,
         sessionId: ready.session.id,
       },
@@ -357,6 +357,20 @@ describe("canonical agent sessions", () => {
   it("derives busy and available presence from connected calls", async () => {
     const store = new FakeStore();
     const acquired = await acquireAgentSession(store, actor, identity, start);
+    const ready = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        availabilityIntent: "AVAILABLE",
+        connectionState: "READY",
+        expectedStateVersion: acquired.session.stateVersion,
+        microphoneReady: true,
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 500),
+    );
     store.activeCallEndpoints.add(acquired.session.endpointId);
     store.connectedCallEndpoints.add(acquired.session.endpointId);
 
@@ -367,9 +381,8 @@ describe("canonical agent sessions", () => {
         ...identity,
         audioReady: true,
         connectionState: "READY",
-        expectedStateVersion: acquired.session.stateVersion,
+        expectedStateVersion: ready.session.stateVersion,
         microphoneReady: true,
-        presence: "AVAILABLE",
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 1_000),
@@ -384,10 +397,10 @@ describe("canonical agent sessions", () => {
       {
         ...identity,
         audioReady: true,
+        availabilityIntent: "AVAILABLE",
         connectionState: "READY",
         expectedStateVersion: busy.session.stateVersion,
         microphoneReady: true,
-        presence: "AVAILABLE",
         sessionId: busy.session.id,
       },
       new Date(start.getTime() + 2_000),
@@ -401,6 +414,8 @@ describe("canonical agent sessions", () => {
     store.activeCallEndpoints.add(acquired.session.endpointId);
 
     for (const availabilityIntent of ["AVAILABLE", "PAUSED"] as const) {
+      store.sessions[0]!.presence =
+        availabilityIntent === "AVAILABLE" ? "PAUSED" : "AVAILABLE";
       await expect(
         updateAgentSessionReadiness(
           store,
@@ -408,12 +423,10 @@ describe("canonical agent sessions", () => {
           {
             ...identity,
             audioReady: true,
-            availabilityChange: true,
             availabilityIntent,
             connectionState: "READY",
             expectedStateVersion: acquired.session.stateVersion,
             microphoneReady: true,
-            presence: availabilityIntent,
             sessionId: acquired.session.id,
           },
           new Date(start.getTime() + 1_000),
@@ -426,7 +439,7 @@ describe("canonical agent sessions", () => {
       );
     }
     expect(store.sessions[0]).toMatchObject({
-      presence: "PAUSED",
+      presence: "AVAILABLE",
       stateVersion: acquired.session.stateVersion,
     });
   });
@@ -447,7 +460,6 @@ describe("canonical agent sessions", () => {
         connectionState: "READY",
         expectedStateVersion: acquired.session.stateVersion,
         microphoneReady: true,
-        presence: "PAUSED",
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 1_000),
@@ -466,7 +478,6 @@ describe("canonical agent sessions", () => {
         connectionState: "READY",
         expectedStateVersion: busy.session.stateVersion,
         microphoneReady: true,
-        presence: "PAUSED",
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 2_000),
@@ -483,12 +494,10 @@ describe("canonical agent sessions", () => {
       {
         ...identity,
         audioReady: false,
-        availabilityChange: true,
         availabilityIntent: "PAUSED",
         connectionState: "CONNECTING",
         expectedStateVersion: acquired.session.stateVersion,
         microphoneReady: false,
-        presence: "PAUSED",
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 1_000),
@@ -504,7 +513,6 @@ describe("canonical agent sessions", () => {
         connectionState: "READY",
         expectedStateVersion: paused.session.stateVersion,
         microphoneReady: true,
-        presence: "AVAILABLE",
         sessionId: paused.session.id,
       },
       new Date(start.getTime() + 2_000),
@@ -518,7 +526,7 @@ describe("canonical agent sessions", () => {
     });
   });
 
-  it("preserves available intent while media readiness recovers", async () => {
+  it("pauses routing while an available operator's media readiness recovers", async () => {
     const store = new FakeStore();
     const acquired = await acquireAgentSession(store, actor, identity, start);
     const available = await updateAgentSessionReadiness(
@@ -527,12 +535,10 @@ describe("canonical agent sessions", () => {
       {
         ...identity,
         audioReady: true,
-        availabilityChange: true,
         availabilityIntent: "AVAILABLE",
         connectionState: "READY",
         expectedStateVersion: acquired.session.stateVersion,
         microphoneReady: true,
-        presence: "AVAILABLE",
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 1_000),
@@ -548,7 +554,6 @@ describe("canonical agent sessions", () => {
         connectionState: "ERROR",
         expectedStateVersion: available.session.stateVersion,
         microphoneReady: false,
-        presence: "AVAILABLE",
         sessionId: available.session.id,
       },
       new Date(start.getTime() + 2_000),
@@ -571,7 +576,6 @@ describe("canonical agent sessions", () => {
         connectionState: "READY",
         expectedStateVersion: notReady.session.stateVersion,
         microphoneReady: true,
-        presence: "AVAILABLE",
         sessionId: notReady.session.id,
       },
       new Date(start.getTime() + 3_000),
@@ -594,7 +598,6 @@ describe("canonical agent sessions", () => {
         connectionState: "READY",
         expectedStateVersion: acquired.session.stateVersion,
         microphoneReady: true,
-        presence: "AVAILABLE",
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 1_000),
@@ -613,7 +616,6 @@ describe("canonical agent sessions", () => {
         connectionState: "READY",
         expectedStateVersion: wrappingUp.session.stateVersion,
         microphoneReady: true,
-        presence: "AVAILABLE",
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 2_000),
@@ -633,16 +635,41 @@ describe("canonical agent sessions", () => {
         {
           ...identity,
           audioReady: true,
+          availabilityIntent: "AVAILABLE",
           connectionState: "READY",
           expectedStateVersion: 0,
           microphoneReady: false,
-          presence: "AVAILABLE",
           sessionId: "session-1",
         },
         new Date(start.getTime() + 1_000),
       ),
     ).rejects.toEqual(new AgentSessionError("AVAILABLE requires microphone access", 422));
     expect(store.sessions[0]).toMatchObject({ presence: "PAUSED" });
+  });
+
+  it("derives an availability change instead of trusting the browser flag", async () => {
+    const store = new FakeStore();
+    await acquireAgentSession(store, actor, identity, start);
+
+    await expect(
+      updateAgentSessionReadiness(
+        store,
+        actor,
+        {
+          ...identity,
+          audioReady: false,
+          availabilityIntent: "AVAILABLE",
+          connectionState: "ERROR",
+          expectedStateVersion: 0,
+          microphoneReady: false,
+          sessionId: "session-1",
+        },
+        new Date(start.getTime() + 1_000),
+      ),
+    ).rejects.toEqual(
+      new AgentSessionError("AVAILABLE requires a ready provider connection", 422),
+    );
+    expect(store.sessions[0]).toMatchObject({ presence: "PAUSED", stateVersion: 0 });
   });
 
   it("does not let a delayed older readiness update restore availability", async () => {
@@ -658,7 +685,6 @@ describe("canonical agent sessions", () => {
         connectionState: "ERROR",
         expectedStateVersion: acquired.session.stateVersion,
         microphoneReady: false,
-        presence: "PAUSED",
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 2_000),
@@ -671,10 +697,10 @@ describe("canonical agent sessions", () => {
         {
           ...identity,
           audioReady: true,
+          availabilityIntent: "AVAILABLE",
           connectionState: "READY",
           expectedStateVersion: acquired.session.stateVersion,
           microphoneReady: true,
-          presence: "AVAILABLE",
           sessionId: acquired.session.id,
         },
         new Date(start.getTime() + 1_000),
