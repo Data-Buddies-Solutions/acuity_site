@@ -22,6 +22,7 @@ const actor = {
 class FakeStore implements AgentSessionStore {
   activeCallEndpoints = new Set<string>();
   connectedCallEndpoints = new Set<string>();
+  requiredWrapUpEndpoints = new Set<string>();
   endpoint = {
     id: "seat-legacy-id",
     label: "Optical",
@@ -115,6 +116,8 @@ class FakeStore implements AgentSessionStore {
       },
       hasActiveCall: async (endpointId) => this.activeCallEndpoints.has(endpointId),
       hasConnectedCall: async (endpointId) => this.connectedCallEndpoints.has(endpointId),
+      hasRequiredWrapUp: async (endpointId) =>
+        this.requiredWrapUpEndpoints.has(endpointId),
       hasQueueAccess: async () => this.queueAccess,
       updateSession: async (id, update) => {
         const session = this.sessions.find((candidate) => candidate.id === id);
@@ -207,6 +210,8 @@ describe("canonical agent sessions", () => {
       new Date(start.getTime() + 1_000),
     );
 
+    expect(first.leaseContinuity).toBe("ACQUIRED");
+    expect(second.leaseContinuity).toBe("REPLAYED");
     expect(second.session.id).toBe(first.session.id);
     expect(first.session.stateVersion).toBe(0);
     expect(second.session.stateVersion).toBe(0);
@@ -531,12 +536,12 @@ describe("canonical agent sessions", () => {
     expect(recovered.session.presence).toBe("AVAILABLE");
   });
 
-  it("derives stale wrap-up from the canonical active-call lifecycle", async () => {
+  it("preserves required wrap-up until the canonical call lifecycle clears", async () => {
     const store = new FakeStore();
     const acquired = await acquireAgentSession(store, actor, identity, start);
-    store.sessions[0]!.presence = "WRAP_UP";
+    store.requiredWrapUpEndpoints.add(acquired.session.endpointId);
 
-    const heartbeat = await updateAgentSessionReadiness(
+    const wrappingUp = await updateAgentSessionReadiness(
       store,
       actor,
       {
@@ -552,7 +557,26 @@ describe("canonical agent sessions", () => {
       new Date(start.getTime() + 1_000),
     );
 
-    expect(heartbeat.session.presence).toBe("AVAILABLE");
+    expect(wrappingUp.session.presence).toBe("WRAP_UP");
+
+    store.requiredWrapUpEndpoints.clear();
+    const cleared = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        availabilityIntent: "AVAILABLE",
+        connectionState: "READY",
+        expectedStateVersion: wrappingUp.session.stateVersion,
+        microphoneReady: true,
+        presence: "AVAILABLE",
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 2_000),
+    );
+
+    expect(cleared.session.presence).toBe("AVAILABLE");
   });
 
   it("rejects incomplete availability without changing the session", async () => {
@@ -691,6 +715,7 @@ describe("canonical agent sessions", () => {
       new Date(start.getTime() + AGENT_SESSION_LEASE_MS + 1),
     );
 
+    expect(reconnected.leaseContinuity).toBe("RECONNECTED");
     expect(reconnected.session).toMatchObject({
       connectionState: "CONNECTING",
       id: acquired.session.id,

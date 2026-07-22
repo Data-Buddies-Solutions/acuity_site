@@ -59,6 +59,8 @@ export type AgentSessionView = {
   stateVersion: number;
 };
 
+export type AgentSessionLeaseContinuity = "ACQUIRED" | "RECONNECTED" | "REPLAYED";
+
 export type CallCenterSnapshot = {
   schemaVersion: typeof CALL_CENTER_SCHEMA_VERSION;
   queueId: string;

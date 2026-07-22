@@ -217,6 +217,18 @@ class PrismaAgentSessionTransaction implements AgentSessionTransaction {
     );
   }
 
+  async hasRequiredWrapUp(endpointId: string) {
+    const leg = await this.transaction.callCenterCallLeg.findFirst({
+      select: { id: true },
+      where: {
+        call: { status: "WRAP_UP" },
+        endpointId,
+        kind: "AGENT",
+      },
+    });
+    return Boolean(leg);
+  }
+
   async hasQueueAccess(actor: AgentSessionActor, endpoint: AgentSessionEndpoint) {
     const locationWhere: Prisma.CallCenterQueueMemberWhereInput = endpoint.locationId
       ? {

@@ -49,6 +49,7 @@ function acquisition() {
       locationId: "location-1",
       providerCredentialId: "credential-1",
     },
+    leaseContinuity: "ACQUIRED" as const,
     session,
   };
 }
@@ -97,6 +98,7 @@ describe("canonical agent-session route", () => {
     expect(acquired).toBe(true);
     const body = await response.json();
     expect(body).toEqual({
+      leaseContinuity: "ACQUIRED",
       leaseDurationMs: 30_000,
       session: expect.objectContaining({
         clientInstanceId: "browser-1",

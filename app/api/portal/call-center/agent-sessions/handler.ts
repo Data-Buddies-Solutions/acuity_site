@@ -14,6 +14,7 @@ import {
 import { AGENT_AVAILABILITY_INTENTS } from "@/lib/call-center/domain/agent-session-readiness";
 import { serializeAgentSessionView } from "@/lib/call-center/domain/agent-session-wire";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
+import type { AgentSessionLeaseContinuity } from "@/lib/call-center/realtime-contract";
 
 const identitySchema = z.object({
   clientInstanceId: z.string().trim().min(1).max(200),
@@ -35,9 +36,11 @@ const paramsSchema = z.object({ sessionId: z.string().trim().min(1).max(200) });
 
 type RouteContext = { params: Promise<{ sessionId: string }> };
 type RequestContext = { actor: AgentSessionActor };
-type UpdateAgentOperation = (
-  update: AgentUpdate,
-) => Promise<{ endpoint?: AgentSessionEndpoint; session: AgentSessionRecord }>;
+type UpdateAgentOperation = (update: AgentUpdate) => Promise<{
+  endpoint?: AgentSessionEndpoint;
+  leaseContinuity?: AgentSessionLeaseContinuity;
+  session: AgentSessionRecord;
+}>;
 type AgentSessionHandlersDependencies = {
   clock?: () => Date;
   getContext?: () => Promise<RequestContext>;
@@ -77,6 +80,7 @@ export function createAgentSessionHandlers({
       });
 
       return NextResponse.json({
+        leaseContinuity: acquired.leaseContinuity,
         leaseDurationMs: AGENT_SESSION_LEASE_MS,
         session: serializeAgentSessionView(acquired.session),
       });

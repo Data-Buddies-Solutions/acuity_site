@@ -108,6 +108,7 @@ export interface AgentSessionTransaction {
   getAccessibleEndpoint(actor: AgentSessionActor): Promise<AgentSessionEndpoint | null>;
   hasActiveCall(endpointId: string): Promise<boolean>;
   hasConnectedCall(endpointId: string): Promise<boolean>;
+  hasRequiredWrapUp(endpointId: string): Promise<boolean>;
   hasQueueAccess(
     actor: AgentSessionActor,
     endpoint: AgentSessionEndpoint,
@@ -274,7 +275,7 @@ export async function acquireAgentSession(
     );
     if (existing && active?.id === existing.id) {
       if (existing.connectionState !== "CLOSED" && existing.presence !== "OFFLINE") {
-        return { endpoint, session: existing };
+        return { endpoint, leaseContinuity: "REPLAYED" as const, session: existing };
       }
 
       const session = await transaction.updateSession(existing.id, {
@@ -291,7 +292,7 @@ export async function acquireAgentSession(
       await transaction.appendEvent(
         eventFor(actor, session, "AGENT_SESSION_RECONNECTED", now),
       );
-      return { endpoint, session };
+      return { endpoint, leaseContinuity: "RECONNECTED" as const, session };
     }
 
     let session: AgentSessionRecord;
@@ -328,7 +329,11 @@ export async function acquireAgentSession(
     await transaction.appendEvent(
       eventFor(actor, session, "AGENT_SESSION_LEASE_ACQUIRED", now),
     );
-    return { endpoint, session };
+    return {
+      endpoint,
+      leaseContinuity: existing ? ("RECONNECTED" as const) : ("ACQUIRED" as const),
+      session,
+    };
   });
 
   return throwExpected(result);
@@ -395,7 +400,9 @@ export async function updateAgentSessionReadiness(
 
     const availabilityIntent = input.availabilityIntent ?? input.presence;
 
-    const occupied = await transaction.hasActiveCall(session.endpointId);
+    const requiredWrapUp = await transaction.hasRequiredWrapUp(session.endpointId);
+    const occupied =
+      requiredWrapUp || (await transaction.hasActiveCall(session.endpointId));
     if (occupied && (input.availabilityChange || availabilityIntent === "PAUSED")) {
       return {
         error: new AgentSessionError(
@@ -409,7 +416,9 @@ export async function updateAgentSessionReadiness(
       session.endpointId,
     ))
       ? "BUSY"
-      : availabilityIntent;
+      : requiredWrapUp
+        ? "WRAP_UP"
+        : availabilityIntent;
     let nextReadiness = {
       audioReady: input.audioReady,
       connectionState: input.connectionState,

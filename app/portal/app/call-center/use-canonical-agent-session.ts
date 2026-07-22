@@ -7,7 +7,10 @@ import {
   resolveAgentAvailabilityIntent,
   type AgentAvailabilityIntent,
 } from "@/lib/call-center/domain/agent-session-readiness";
-import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
+import type {
+  AgentSessionLeaseContinuity,
+  AgentSessionView,
+} from "@/lib/call-center/realtime-contract";
 
 import { callCenterResponse, operatorErrorCopy } from "./call-center-errors";
 import { callCenterRetryDelay } from "./call-center-retry";
@@ -25,6 +28,7 @@ export type CanonicalAgentSessionOptions = {
 };
 
 type AcquisitionResponse = {
+  leaseContinuity?: AgentSessionLeaseContinuity;
   leaseDurationMs: number;
   session: AgentSessionView;
 };
@@ -34,6 +38,7 @@ type SessionResponse = { session: AgentSessionView };
 type ActiveSession = {
   clientInstanceId: string;
   endpointId: string;
+  leaseContinuity: AgentSessionLeaseContinuity;
   leaseDurationMs: number;
   session: AgentSessionView;
   stopping: boolean;
@@ -118,6 +123,7 @@ async function acquireSession(clientInstanceId: string): Promise<ActiveSession> 
   return {
     clientInstanceId,
     endpointId: acquired.session.endpointId,
+    leaseContinuity: acquired.leaseContinuity ?? "ACQUIRED",
     leaseDurationMs: acquired.leaseDurationMs,
     session: acquired.session,
     stopping: false,
@@ -137,6 +143,8 @@ export function useCanonicalAgentSession({
   const [availabilityPending, setAvailabilityPending] = useState(false);
   const [availabilityRetryable, setAvailabilityRetryable] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [leaseContinuity, setLeaseContinuity] =
+    useState<AgentSessionLeaseContinuity | null>(null);
   const [session, setSession] = useState<AgentSessionView | null>(null);
   const activeRef = useRef<ActiveSession | null>(null);
   const availabilityConfirmationRef = useRef<Readiness | null>(null);
@@ -381,6 +389,7 @@ export function useCanonicalAgentSession({
     resetStartupRetry();
     patchRequestedRef.current = false;
     if (mountedRef.current) {
+      setLeaseContinuity(null);
       setSession(null);
     }
 
@@ -455,6 +464,7 @@ export function useCanonicalAgentSession({
             };
           }
           activeRef.current = active;
+          setLeaseContinuity(active.leaseContinuity);
           setSession(active.session);
           if (!force) void patchReadiness().catch(() => {});
           return active;
@@ -655,12 +665,14 @@ export function useCanonicalAgentSession({
                 converged.endpointId === active.endpointId
               ) {
                 active.leaseDurationMs = converged.leaseDurationMs;
+                active.leaseContinuity = converged.leaseContinuity;
                 active.session = converged.session;
                 readinessRef.current = {
                   ...readinessRef.current,
                   presence: resolveAgentAvailabilityIntent(converged.session.presence),
                 };
                 if (mountedRef.current && activeRef.current === active) {
+                  setLeaseContinuity(converged.leaseContinuity);
                   setSession(converged.session);
                 }
               }
@@ -758,6 +770,7 @@ export function useCanonicalAgentSession({
     availabilityPending,
     availabilityRetryable,
     error,
+    leaseContinuity,
     refresh,
     retryAvailability,
     session: effectiveSession,

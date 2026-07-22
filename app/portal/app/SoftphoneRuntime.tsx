@@ -53,7 +53,7 @@ function readConfirmedAvailabilityIntent(
     }
     if (stored) storage.removeItem(key);
   } catch {
-    storage.removeItem(key);
+    // Unavailable browser storage cannot supersede canonical Agent Session state.
   }
   return null;
 }
@@ -381,13 +381,22 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     const sameSession = availabilitySessionIdRef.current === session.id;
     const confirmedChoice = sameSession
       ? availabilityChoiceRef.current
-      : clientInstanceId
+      : clientInstanceId && agentSession.leaseContinuity === "REPLAYED"
         ? readConfirmedAvailabilityIntent(
             window.sessionStorage,
             clientInstanceId,
             session.id,
           )
         : null;
+    if (!sameSession && clientInstanceId && agentSession.leaseContinuity !== "REPLAYED") {
+      try {
+        window.sessionStorage.removeItem(
+          `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`,
+        );
+      } catch {
+        // Canonical Agent Session state remains authoritative without storage.
+      }
+    }
     availabilitySessionIdRef.current = session.id;
     if (
       confirmedChoice === "AVAILABLE" &&
@@ -397,6 +406,14 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
         !session.audioReady)
     ) {
       availabilityChoiceRef.current = confirmedChoice;
+      if (clientInstanceId) {
+        writeConfirmedAvailabilityIntent(
+          window.sessionStorage,
+          clientInstanceId,
+          session.id,
+          confirmedChoice,
+        );
+      }
       setAvailabilityIntent((current) =>
         current === confirmedChoice ? current : confirmedChoice,
       );
@@ -421,7 +438,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     }
     // Every canonical projection can supersede an older local availability choice.
     setAvailabilityIntent((current) => (current === next ? current : next));
-  }, [clientInstanceId, session]);
+  }, [agentSession.leaseContinuity, clientInstanceId, session]);
 
   useEffect(() => {
     const next = {

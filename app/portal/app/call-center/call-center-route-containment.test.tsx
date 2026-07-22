@@ -44,8 +44,8 @@ const originalConsoleError = console.error;
 const originalFetch = globalThis.fetch;
 const originalMediaDevices = navigator.mediaDevices;
 let availabilityPatchAttempts = 0;
-let acquiredSessionId = "session-1";
 let rejectAvailabilityChange = false;
+let reopenSessionOnNextAcquire = false;
 
 class FakeAudioContext {
   currentTime = 0;
@@ -133,8 +133,8 @@ describe("Call Center route failure containment", () => {
   beforeEach(() => {
     clients.length = 0;
     availabilityPatchAttempts = 0;
-    acquiredSessionId = "session-1";
     rejectAvailabilityChange = false;
+    reopenSessionOnNextAcquire = false;
     window.sessionStorage.clear();
     Object.defineProperty(globalThis, "Audio", {
       configurable: true,
@@ -167,18 +167,31 @@ describe("Call Center route failure containment", () => {
       }
       if (url === "/api/portal/call-center/agent-sessions" && method === "POST") {
         const { clientInstanceId } = JSON.parse(String(init?.body));
+        if (session && !reopenSessionOnNextAcquire) {
+          return Response.json({
+            leaseContinuity: "REPLAYED",
+            leaseDurationMs: 60_000,
+            session,
+          });
+        }
+        const reconnecting = Boolean(session && reopenSessionOnNextAcquire);
+        reopenSessionOnNextAcquire = false;
         session = {
           audioReady: false,
           clientInstanceId,
           connectionState: "CONNECTING",
           endpointId: "endpoint-1",
-          id: acquiredSessionId,
+          id: "session-1",
           leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
           microphoneReady: false,
           presence: "PAUSED",
           stateVersion: 0,
         };
-        return Response.json({ leaseDurationMs: 60_000, session });
+        return Response.json({
+          leaseContinuity: reconnecting ? "RECONNECTED" : "ACQUIRED",
+          leaseDurationMs: 60_000,
+          session,
+        });
       }
       if (method === "PATCH" && session) {
         const readiness = JSON.parse(String(init?.body));
@@ -350,7 +363,7 @@ describe("Call Center route failure containment", () => {
     fireEvent.click(screen.getByRole("button", { name: "Become available" }));
     await screen.findByText("Presence: AVAILABLE");
     first.unmount();
-    acquiredSessionId = "session-2";
+    reopenSessionOnNextAcquire = true;
 
     render(
       <SoftphoneRuntime>
