@@ -1290,13 +1290,11 @@ function createProjectAndComplete(
       };
       let preemptedCommandIds: string[] = [];
       if (
+        settlementResources &&
         leg.kind === "AGENT" &&
         leg.endpointId &&
         (nextLeg.status === "ANSWERED" || nextLeg.status === "BRIDGED")
       ) {
-        if (!settlementResources) {
-          throw new CanonicalProjectionError("CANONICAL_ENDPOINT_NOT_FOUND");
-        }
         const occupied = await tx.callCenterCallLeg.findFirst({
           select: { id: true },
           where: {
