@@ -126,6 +126,7 @@ function AvailabilityProbe() {
 describe("Call Center route failure containment", () => {
   beforeEach(() => {
     clients.length = 0;
+    window.sessionStorage.clear();
     Object.defineProperty(globalThis, "Audio", {
       configurable: true,
       value: window.Audio,
@@ -261,5 +262,38 @@ describe("Call Center route failure containment", () => {
     expect(screen.getByText("Intent: AVAILABLE")).toBeTruthy();
     await screen.findByText("Presence: AVAILABLE", {}, { timeout: 5_000 });
     expect(screen.getByText("Intent: AVAILABLE")).toBeTruthy();
+  });
+
+  it("restores Available intent after a refresh during temporary media loss", async () => {
+    const first = render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    await screen.findByText("Media ready: true");
+    fireEvent.click(screen.getByRole("button", { name: "Become available" }));
+    await screen.findByText("Presence: AVAILABLE");
+
+    act(() => {
+      clients[0]?.handlers.get("telnyx.error")?.({
+        error: { fatal: true, name: "CONNECTION_FAILED" },
+      });
+    });
+    await screen.findByText("Presence: PAUSED");
+    expect(screen.getByText("Intent: AVAILABLE")).toBeTruthy();
+    first.unmount();
+
+    render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    await screen.findByText("Media ready: true");
+    await screen.findByText("Intent: AVAILABLE");
+    await screen.findByText("Presence: AVAILABLE");
   });
 });

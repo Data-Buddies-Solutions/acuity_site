@@ -531,6 +531,30 @@ describe("canonical agent sessions", () => {
     expect(recovered.session.presence).toBe("AVAILABLE");
   });
 
+  it("does not clear required wrap-up from a readiness heartbeat", async () => {
+    const store = new FakeStore();
+    const acquired = await acquireAgentSession(store, actor, identity, start);
+    store.sessions[0]!.presence = "WRAP_UP";
+
+    const heartbeat = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        availabilityIntent: "AVAILABLE",
+        connectionState: "READY",
+        expectedStateVersion: acquired.session.stateVersion,
+        microphoneReady: true,
+        presence: "AVAILABLE",
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 1_000),
+    );
+
+    expect(heartbeat.session.presence).toBe("WRAP_UP");
+  });
+
   it("rejects incomplete availability without changing the session", async () => {
     const store = new FakeStore();
     await acquireAgentSession(store, actor, identity, start);

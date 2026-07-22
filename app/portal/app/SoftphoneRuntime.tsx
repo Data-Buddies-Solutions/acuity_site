@@ -31,6 +31,7 @@ import { useSoftphoneMedia } from "./call-center/use-softphone";
 
 const PHONE_OWNER_CHANNEL = "acuity-call-center-phone-owner";
 const PHONE_ACTIVE_ELSEWHERE = "Phone active in another tab";
+const AVAILABILITY_INTENT_STORAGE_PREFIX = "acuity.call-center.availability-intent";
 const OUTBOUND_MEDIA_OBSERVATION_TIMEOUT_MS = 75_000;
 
 export function scheduleOutboundOperationExpiry(
@@ -222,7 +223,6 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   });
   const answeringRef = useRef<string | null>(null);
   const availabilityChoiceRef = useRef<AgentAvailabilityIntent | null>(null);
-  const availabilitySessionIdRef = useRef<string | null>(null);
   const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
   const outboundCanonicalCallIdRef = useRef<string | null>(null);
@@ -244,6 +244,13 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
           return;
         }
         claimed = next;
+        const storedAvailability = window.sessionStorage.getItem(
+          `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${next.clientInstanceId}`,
+        );
+        if (storedAvailability === "AVAILABLE" || storedAvailability === "PAUSED") {
+          availabilityChoiceRef.current = storedAvailability;
+          setAvailabilityIntent(storedAvailability);
+        }
         setClient(next);
       })
       .catch(() => {
@@ -327,18 +334,16 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!session) {
-      availabilitySessionIdRef.current = null;
-      availabilityChoiceRef.current = null;
-      // A released lease starts a new availability decision.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAvailabilityIntent("PAUSED");
+      if (!clientInstanceId) {
+        availabilityChoiceRef.current = null;
+        // A new browser identity starts with an explicit unavailable choice.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setAvailabilityIntent("PAUSED");
+      }
       return;
     }
     const next = resolveAgentAvailabilityIntent(session.presence);
-    const sameSession = availabilitySessionIdRef.current === session.id;
-    availabilitySessionIdRef.current = session.id;
     if (
-      sameSession &&
       availabilityChoiceRef.current === "AVAILABLE" &&
       session.presence === "PAUSED" &&
       (session.connectionState !== "READY" ||
@@ -350,7 +355,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     availabilityChoiceRef.current = next;
     // Every canonical projection can supersede an older local availability choice.
     setAvailabilityIntent((current) => (current === next ? current : next));
-  }, [session]);
+  }, [clientInstanceId, session]);
 
   useEffect(() => {
     const next = {
@@ -478,10 +483,16 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const setAvailability = useCallback(
     async (presence: AgentAvailabilityIntent) => {
       availabilityChoiceRef.current = presence;
+      if (clientInstanceId) {
+        window.sessionStorage.setItem(
+          `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`,
+          presence,
+        );
+      }
       await agentSession.setAvailability(presence);
       setAvailabilityIntent(presence);
     },
-    [agentSession],
+    [agentSession, clientInstanceId],
   );
   const retryAvailability = useCallback(async () => {
     const presence = availabilityChoiceRef.current;
