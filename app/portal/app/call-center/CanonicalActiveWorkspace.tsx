@@ -57,8 +57,8 @@ import { CallConnectionStatus } from "./CallConnectionStatus";
 import FollowUpPreview from "./FollowUpPreview";
 import type { MediaConnectionState } from "./softphone-media-adapter";
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
-import { useSoftphoneMedia } from "./use-softphone";
-import { useSoftphoneRuntime } from "../SoftphoneRuntime";
+import { useSoftphoneRuntime } from "./softphone-runtime-context";
+import type { useSoftphoneMedia } from "./use-softphone";
 
 type CanonicalActiveWorkspaceProps = {
   agentProfileLabel: string | null;

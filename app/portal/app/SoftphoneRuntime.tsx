@@ -1,17 +1,7 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 import {
   resolveAgentAvailabilityIntent,
   type AgentAvailabilityIntent,
@@ -22,6 +12,10 @@ import {
   type CallCenterClientInstance,
 } from "./call-center/call-center-client-instance";
 import type { MediaObservation } from "./call-center/softphone-media-adapter";
+import {
+  SoftphoneRuntimeProvider,
+  type SoftphoneRuntimeValue,
+} from "./call-center/softphone-runtime-context";
 import {
   type CanonicalAgentConnectionState,
   useCanonicalAgentSession,
@@ -223,30 +217,6 @@ export function updateOutboundOperationFromMedia(
 
   return current;
 }
-
-export type SoftphoneRuntimeValue = {
-  availabilityError: string | null;
-  availabilityIntent: AgentAvailabilityIntent;
-  availabilityPending: boolean;
-  availabilityRetryable: boolean;
-  clientInstanceId: string | null;
-  error: string | null;
-  media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
-  ringtone: ReturnType<typeof useIncomingCallRingtone>;
-  session: AgentSessionView | null;
-  answer(mediaLegId: string, expiresAt?: string): Promise<void>;
-  answeringMediaLegId: string | null;
-  retryAvailability(): Promise<void>;
-  setAvailability(presence: AgentAvailabilityIntent): Promise<void>;
-  setOutboundOperationActive(
-    active: boolean,
-    identity?: { callId: string; legId: string },
-    options?: { releaseProvisionalSuppression?: boolean },
-  ): void;
-  takeover(): Promise<void>;
-};
-
-const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
 
 export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
@@ -653,17 +623,9 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   );
 
   return (
-    <SoftphoneContext.Provider value={value}>
+    <SoftphoneRuntimeProvider value={value}>
       {children}
       <audio ref={setRemoteAudioElement} autoPlay className="hidden" playsInline />
-    </SoftphoneContext.Provider>
+    </SoftphoneRuntimeProvider>
   );
-}
-
-export function useSoftphoneRuntime() {
-  const runtime = useContext(SoftphoneContext);
-  if (!runtime) {
-    throw new Error("Softphone Runtime is not mounted");
-  }
-  return runtime;
 }

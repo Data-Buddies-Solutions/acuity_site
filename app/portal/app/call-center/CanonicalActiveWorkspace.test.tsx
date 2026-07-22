@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 import {
   act,
   cleanup,
@@ -20,17 +20,12 @@ import {
 import { CallConnectionStatus } from "./CallConnectionStatus";
 import { canonicalStartupConnectionState } from "./use-canonical-agent-session";
 import type { useSoftphoneMedia } from "./use-softphone";
-import * as softphoneRuntime from "../SoftphoneRuntime";
+import {
+  SoftphoneRuntimeProvider,
+  type SoftphoneRuntimeValue,
+} from "./softphone-runtime-context";
 
 const originalFetch = globalThis.fetch;
-type SoftphoneRuntimeValue = ReturnType<typeof softphoneRuntime.useSoftphoneRuntime>;
-let currentRuntime: SoftphoneRuntimeValue;
-
-const runtimeSpy = spyOn(softphoneRuntime, "useSoftphoneRuntime").mockImplementation(
-  () => currentRuntime,
-);
-
-afterAll(() => runtimeSpy.mockRestore());
 
 afterEach(() => {
   cleanup();
@@ -145,7 +140,6 @@ function renderWorkspace(
     .filter(({ queueId }) => queueId === "queue-1")
     .map(({ id }) => id),
 ) {
-  currentRuntime = runtime;
   globalThis.fetch = mock(async (input) =>
     String(input).includes("/snapshot?")
       ? Response.json({
@@ -159,13 +153,15 @@ function renderWorkspace(
   ) as unknown as typeof fetch;
 
   return render(
-    <CanonicalActiveWorkspace
-      agentProfileLabel="Call Center 1"
-      followUpHref="/follow-up"
-      historyHref="/history"
-      outboundNumbers={outboundNumbers}
-      queueId="queue-1"
-    />,
+    <SoftphoneRuntimeProvider value={runtime}>
+      <CanonicalActiveWorkspace
+        agentProfileLabel="Call Center 1"
+        followUpHref="/follow-up"
+        historyHref="/history"
+        outboundNumbers={outboundNumbers}
+        queueId="queue-1"
+      />
+    </SoftphoneRuntimeProvider>,
   );
 }
 
@@ -229,15 +225,16 @@ describe("call readiness", () => {
     const busy = workspaceRuntime({
       session: readySession({ presence: "BUSY" }),
     });
-    currentRuntime = busy;
     view.rerender(
-      <CanonicalActiveWorkspace
-        agentProfileLabel="Call Center 1"
-        followUpHref="/follow-up"
-        historyHref="/history"
-        outboundNumbers={[]}
-        queueId="queue-1"
-      />,
+      <SoftphoneRuntimeProvider value={busy}>
+        <CanonicalActiveWorkspace
+          agentProfileLabel="Call Center 1"
+          followUpHref="/follow-up"
+          historyHref="/history"
+          outboundNumbers={[]}
+          queueId="queue-1"
+        />
+      </SoftphoneRuntimeProvider>,
     );
     expect(screen.getByText("On a call")).toBeTruthy();
     expect(
@@ -643,15 +640,16 @@ describe("call readiness", () => {
       });
     }) as unknown as typeof fetch;
 
-    currentRuntime = workspaceRuntime();
     render(
-      <CanonicalActiveWorkspace
-        agentProfileLabel="Call Center 1"
-        followUpHref="/follow-up"
-        historyHref="/history"
-        outboundNumbers={[]}
-        queueId="queue-1"
-      />,
+      <SoftphoneRuntimeProvider value={workspaceRuntime()}>
+        <CanonicalActiveWorkspace
+          agentProfileLabel="Call Center 1"
+          followUpHref="/follow-up"
+          historyHref="/history"
+          outboundNumbers={[]}
+          queueId="queue-1"
+        />
+      </SoftphoneRuntimeProvider>,
     );
 
     await screen.findByText("Answered · Front Desk 1");
@@ -1019,19 +1017,21 @@ describe("call readiness", () => {
     await screen.findByText("No callers waiting. You're ready for calls.");
     expect(screen.getByText("Updating availability…")).toBeTruthy();
 
-    currentRuntime = workspaceRuntime({
+    const failedRuntime = workspaceRuntime({
       availabilityError: "The call center is temporarily unavailable.",
       availabilityRetryable: true,
       retryAvailability: retry,
     });
     view.rerender(
-      <CanonicalActiveWorkspace
-        agentProfileLabel="Call Center 1"
-        followUpHref="/follow-up"
-        historyHref="/history"
-        outboundNumbers={[]}
-        queueId="queue-1"
-      />,
+      <SoftphoneRuntimeProvider value={failedRuntime}>
+        <CanonicalActiveWorkspace
+          agentProfileLabel="Call Center 1"
+          followUpHref="/follow-up"
+          historyHref="/history"
+          outboundNumbers={[]}
+          queueId="queue-1"
+        />
+      </SoftphoneRuntimeProvider>,
     );
     expect(screen.getByRole("alert").textContent).toContain(
       "The call center is temporarily unavailable.",

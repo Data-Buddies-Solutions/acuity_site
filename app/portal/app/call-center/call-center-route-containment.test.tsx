@@ -4,6 +4,8 @@ import { Component, type ReactNode } from "react";
 
 import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
 
+import { useSoftphoneRuntime } from "./softphone-runtime-context";
+
 const clients: FakeTelnyxClient[] = [];
 
 class FakeTelnyxClient {
@@ -34,7 +36,7 @@ class FakeTelnyxClient {
 
 mock.module("@telnyx/webrtc", () => ({ TelnyxRTC: FakeTelnyxClient }));
 
-const { SoftphoneRuntime, useSoftphoneRuntime } = await import("../SoftphoneRuntime");
+const { SoftphoneRuntime } = await import("../SoftphoneRuntime");
 const { default: CallCenterError } = await import("./error");
 
 const originalAudio = globalThis.Audio;
@@ -217,19 +219,26 @@ describe("Call Center route failure containment", () => {
             return Response.json({ error: "Availability rejected" }, { status: 409 });
           }
         }
+        const availabilityIntent =
+          readiness.availabilityIntent ??
+          (session.presence === "AVAILABLE" || session.presence === "BUSY"
+            ? "AVAILABLE"
+            : "PAUSED");
         const effectivelyAvailable =
-          readiness.presence === "AVAILABLE" &&
+          availabilityIntent === "AVAILABLE" &&
           readiness.connectionState === "READY" &&
           readiness.microphoneReady &&
           readiness.audioReady;
         session = {
           ...session,
-          ...readiness,
+          audioReady: readiness.audioReady,
+          connectionState: readiness.connectionState,
           leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+          microphoneReady: readiness.microphoneReady,
           presence:
-            readiness.presence === "AVAILABLE" && !effectivelyAvailable
+            availabilityIntent === "AVAILABLE" && !effectivelyAvailable
               ? "PAUSED"
-              : readiness.presence,
+              : availabilityIntent,
           stateVersion: session.stateVersion + 1,
         };
         return Response.json({ session });
