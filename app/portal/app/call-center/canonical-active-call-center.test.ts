@@ -7,6 +7,7 @@ import {
   canonicalOutboundIdempotencyKey,
   completeCanonicalOutboundOperation,
   failCanonicalOutboundOperation,
+  hasCanonicalSessionLiveLeg,
   hasCanonicalPendingTransfer,
   isDefinitiveCanonicalOutboundFailure,
   isCanonicalTransferOffer,
@@ -18,6 +19,7 @@ import {
 
 const call: CallView = {
   answeredAt: null,
+  callOfficeLabel: null,
   callerName: null,
   direction: "INBOUND",
   endedAt: null,
@@ -27,6 +29,7 @@ const call: CallView = {
     {
       agentSessionId: "session-1",
       endpointId: "endpoint-1",
+      endpointLabel: null,
       id: "leg-1",
       kind: "AGENT",
       providerCallControlId: "control-1",
@@ -35,6 +38,8 @@ const call: CallView = {
       status: "RINGING",
     },
   ],
+  onHold: false,
+  transferring: false,
   queueId: "queue-1",
   receivedAt: "2026-07-12T12:00:00.000Z",
   stateVersion: 1,
@@ -54,6 +59,18 @@ const observation = {
   state: "RINGING" as const,
 };
 
+describe("hasCanonicalSessionLiveLeg", () => {
+  it("uses canonical live-leg status semantics for session occupancy", () => {
+    expect(hasCanonicalSessionLiveLeg([call], { id: "session-1" })).toBe(true);
+    expect(
+      hasCanonicalSessionLiveLeg(
+        [{ ...call, legs: [{ ...call.legs[0]!, status: "ENDED" }] }],
+        { id: "session-1" },
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("canonical active call center correlation", () => {
   it("derives occupancy from the winning bridged leg instead of session pointers", () => {
     const connected = {
@@ -61,6 +78,7 @@ describe("canonical active call center correlation", () => {
       answeredAt: "2026-07-12T12:00:10.000Z",
       legs: [{ ...call.legs[0]!, status: "BRIDGED" as const }],
       status: "CONNECTED" as const,
+      transferring: false,
       winningLegId: "leg-1",
     };
     expect(
@@ -106,6 +124,7 @@ describe("canonical active call center correlation", () => {
         },
       ],
       status: "CONNECTED" as const,
+      transferring: true,
       winningLegId: "leg-1",
     };
     const target = { endpointId: "endpoint-2", id: "session-2" };
@@ -143,7 +162,7 @@ describe("canonical active call center correlation", () => {
     ).toEqual([]);
   });
 
-  it("keeps a null-winner outbound source active and its transfer target answerable", () => {
+  it("fails closed for connected outbound calls without a bridged winner", () => {
     const outbound = {
       ...call,
       answeredAt: "2026-07-12T12:00:10.000Z",
@@ -161,16 +180,17 @@ describe("canonical active call center correlation", () => {
         },
       ],
       status: "CONNECTED" as const,
+      transferring: true,
       winningLegId: null,
     };
     const source = { endpointId: "endpoint-1", id: "session-1" };
     const target = { endpointId: "endpoint-2", id: "session-2" };
 
-    expect(selectCanonicalAgentActiveCall([outbound], source)).toEqual(outbound);
+    expect(selectCanonicalAgentActiveCall([outbound], source)).toBeNull();
     expect(selectCanonicalAgentActiveCall([outbound], target)).toBeNull();
     expect(isCanonicalTransferOffer(outbound, source)).toBe(false);
-    expect(isCanonicalTransferOffer(outbound, target)).toBe(true);
-    expect(hasCanonicalPendingTransfer(outbound)).toBe(true);
+    expect(isCanonicalTransferOffer(outbound, target)).toBe(false);
+    expect(hasCanonicalPendingTransfer(outbound)).toBe(false);
   });
 
   it("does not treat a lone null-winner outbound source as a transfer offer", () => {
@@ -186,6 +206,32 @@ describe("canonical active call center correlation", () => {
 
     expect(isCanonicalTransferOffer(outbound, source)).toBe(false);
     expect(hasCanonicalPendingTransfer(outbound)).toBe(false);
+  });
+
+  it("does not keep source controls hidden for an orphaned live target leg", () => {
+    const failed = {
+      ...call,
+      answeredAt: "2026-07-12T12:00:10.000Z",
+      legs: [
+        { ...call.legs[0]!, status: "BRIDGED" as const },
+        {
+          ...call.legs[0]!,
+          agentSessionId: "session-2",
+          endpointId: "endpoint-2",
+          id: "target-leg",
+          status: "RINGING" as const,
+        },
+      ],
+      status: "CONNECTED" as const,
+      transferring: false,
+      winningLegId: "leg-1",
+    };
+    const target = { endpointId: "endpoint-2", id: "session-2" };
+
+    expect(hasCanonicalPendingTransfer(failed)).toBe(false);
+    expect(isCanonicalTransferOffer(failed, target)).toBe(false);
+    expect(selectCanonicalTransferOffers([failed], target)).toEqual([]);
+    expect(hasCanonicalPendingTransfer({ ...failed, transferring: true })).toBe(true);
   });
 
   it("clears stale suppression after a workspace remount", () => {

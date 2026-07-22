@@ -46,14 +46,8 @@ export function isDefinitiveCanonicalOutboundFailure(error: unknown) {
   return error instanceof CallCenterRequestError && !error.operatorError.retryable;
 }
 
-function outboundSourceLegId(call: CallView) {
-  return call.direction === "OUTBOUND"
-    ? (call.legs.find((leg) => leg.kind === "AGENT")?.id ?? null)
-    : null;
-}
-
 function transferSourceLegId(call: CallView) {
-  return call.winningLegId ?? outboundSourceLegId(call);
+  return call.winningLegId;
 }
 
 export function selectCanonicalAgentActiveCall(
@@ -73,8 +67,7 @@ export function selectCanonicalAgentActiveCall(
       if (call.direction === "OUTBOUND") {
         if (call.status === "CONNECTED") {
           return (
-            transferSourceLegId(call) === ownedLeg?.id &&
-            ["ANSWERED", "BRIDGED"].includes(ownedLeg.status)
+            transferSourceLegId(call) === ownedLeg?.id && ownedLeg.status === "BRIDGED"
           );
         }
         return Boolean(ownedLeg);
@@ -93,7 +86,7 @@ export function isCanonicalTransferOffer(
   call: CallView,
   session: Pick<AgentSessionView, "endpointId" | "id"> | null,
 ) {
-  if (!session || call.status !== "CONNECTED") return false;
+  if (!session || call.status !== "CONNECTED" || !call.transferring) return false;
   const sourceLegId = transferSourceLegId(call);
   if (!sourceLegId) return false;
   return call.legs.some(
@@ -113,17 +106,24 @@ export function selectCanonicalTransferOffers(
   return calls.filter((call) => isCanonicalTransferOffer(call, session));
 }
 
-export function hasCanonicalPendingTransfer(call: CallView) {
-  const sourceLegId = transferSourceLegId(call);
+export function hasCanonicalSessionLiveLeg(
+  calls: readonly CallView[],
+  session: Pick<AgentSessionView, "id"> | null,
+) {
   return Boolean(
-    sourceLegId &&
-    call.legs.some(
-      (leg) =>
-        leg.kind === "AGENT" &&
-        leg.id !== sourceLegId &&
-        LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never),
+    session &&
+    calls.some((call) =>
+      call.legs.some(
+        (leg) =>
+          leg.agentSessionId === session.id &&
+          LIVE_CANONICAL_LEG_STATUSES.includes(leg.status as never),
+      ),
     ),
   );
+}
+
+export function hasCanonicalPendingTransfer(call: CallView) {
+  return call.status === "CONNECTED" && Boolean(call.winningLegId) && call.transferring;
 }
 
 function outboundTargetFingerprint(target: {

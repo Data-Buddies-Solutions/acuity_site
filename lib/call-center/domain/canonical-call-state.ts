@@ -18,6 +18,13 @@ export type CanonicalCallState = {
   voicemailStartedAt: Date | null;
 };
 
+export const ACTIVE_CANONICAL_CALL_STATUSES = [
+  "RECEIVED",
+  "QUEUED",
+  "RINGING",
+  "CONNECTED",
+] as const satisfies readonly CanonicalCallStatus[];
+
 export function normalizeCanonicalCallState<
   T extends { status: CanonicalCallStatus | "WRAP_UP" },
 >(state: T): Omit<T, "status"> & { status: CanonicalCallStatus } {
@@ -45,6 +52,13 @@ export const LIVE_CANONICAL_LEG_STATUSES = [
   ...UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES,
   "BRIDGED",
 ] as const satisfies readonly CanonicalLegStatus[];
+
+export const NONTERMINAL_TRANSFER_COMMAND_STATUSES = [
+  "PENDING",
+  "SENDING",
+  "SENT",
+  "CONFIRMED",
+] as const;
 
 export type CanonicalLegState = {
   answeredAt: Date | null;

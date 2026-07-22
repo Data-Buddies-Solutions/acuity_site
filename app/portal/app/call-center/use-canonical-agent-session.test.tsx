@@ -82,14 +82,16 @@ describe("useCanonicalAgentSession", () => {
   });
 
   it("acquires explicitly without requesting provider credentials", async () => {
-    const { result } = renderHook(() =>
-      useCanonicalAgentSession({
-        audioReady: true,
-        clientInstanceId: "browser-1",
-        connectionState: "READY",
-        microphoneReady: true,
-        presence: "AVAILABLE",
-      }),
+    const { result, rerender } = renderHook(
+      ({ presence }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+        }),
+      { initialProps: { presence: "AVAILABLE" as AgentSessionView["presence"] } },
     );
 
     expect(result.current.session).toBeNull();
@@ -115,11 +117,214 @@ describe("useCanonicalAgentSession", () => {
     expect(patchInit.method).toBe("PATCH");
     expect(JSON.parse(String(patchInit.body))).toEqual({
       audioReady: true,
+      availabilityIntent: "AVAILABLE",
       clientInstanceId: "browser-1",
       connectionState: "READY",
       expectedStateVersion: 0,
       microphoneReady: true,
+    });
+  });
+
+  it("confirms an explicit availability change with one canonical update", async () => {
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      requests.push({ method, body });
+      if (method === "POST") return acquisition();
+      patchCount += 1;
+      return Response.json({
+        session: {
+          ...agentSession(patchCount),
+          presence: patchCount === 1 ? "AVAILABLE" : "PAUSED",
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    const { result, rerender } = renderHook(
+      ({ presence }) =>
+        useCanonicalAgentSession({
+          audioReady: true,
+          clientInstanceId: "browser-1",
+          connectionState: "READY",
+          microphoneReady: true,
+          presence,
+        }),
+      { initialProps: { presence: "AVAILABLE" as AgentSessionView["presence"] } },
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    const updatesBeforeChoice = requests.filter(
+      ({ method }) => method === "PATCH",
+    ).length;
+
+    await act(() => result.current.setAvailability("PAUSED"));
+    rerender({ presence: "PAUSED" });
+    await act(async () => Promise.resolve());
+
+    expect(result.current.session?.presence).toBe("PAUSED");
+    expect(requests.filter(({ method }) => method === "PATCH")).toHaveLength(
+      updatesBeforeChoice + 1,
+    );
+    expect(requests.at(-1)?.body).toMatchObject({
+      availabilityIntent: "PAUSED",
+      expectedStateVersion: 1,
+    });
+  });
+
+  it("keeps confirmed availability after a failed update and retries the choice", async () => {
+    let patchCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") return acquisition();
+      patchCount += 1;
+      if (patchCount === 2) return temporaryFailure();
+      return Response.json({
+        session: {
+          ...agentSession(patchCount),
+          presence: patchCount >= 3 ? "PAUSED" : "AVAILABLE",
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalAgentSession({
+        audioReady: true,
+        clientInstanceId: "browser-1",
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "AVAILABLE",
+      }),
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.presence).toBe("AVAILABLE"));
+    let failure: unknown;
+    await act(async () => {
+      try {
+        await result.current.setAvailability("PAUSED");
+      } catch (error) {
+        failure = error;
+      }
+    });
+
+    expect(failure).toBeInstanceOf(CallCenterRequestError);
+    expect(result.current.session?.presence).toBe("AVAILABLE");
+    expect(result.current.availabilityError).toContain(
+      "The call center is temporarily unavailable",
+    );
+
+    await act(() => result.current.retryAvailability());
+    expect(result.current.session?.presence).toBe("PAUSED");
+    expect(result.current.availabilityError).toBeNull();
+  });
+
+  it("converges on a newer canonical session before retrying a stale choice", async () => {
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    let patchCount = 0;
+    let postCount = 0;
+    globalThis.fetch = mock(async (_input, init) => {
+      const method = init?.method ?? "GET";
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      requests.push({ method, body });
+      if (method === "POST") {
+        postCount += 1;
+        return Response.json({
+          leaseContinuity: postCount === 1 ? "ACQUIRED" : "RECONNECTED",
+          leaseDurationMs: 2_000,
+          session:
+            postCount === 1 ? agentSession() : { ...agentSession(5), presence: "PAUSED" },
+        });
+      }
+      patchCount += 1;
+      if (patchCount === 2) {
+        return Response.json(
+          {
+            error: {
+              code: "SESSION_STALE",
+              referenceId: "STALE1",
+              retryable: true,
+            },
+          },
+          { status: 409 },
+        );
+      }
+      return Response.json({
+        session:
+          patchCount === 1
+            ? agentSession(1)
+            : { ...agentSession(6), presence: body.availabilityIntent },
+      });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalAgentSession({
+        audioReady: true,
+        clientInstanceId: "browser-1",
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "AVAILABLE",
+      }),
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(result.current.session?.stateVersion).toBe(1));
+    expect(result.current.leaseGeneration).toBe(1);
+    await act(async () => {
+      await result.current.setAvailability("AVAILABLE").catch(() => {});
+    });
+
+    expect(result.current.leaseContinuity).toBe("RECONNECTED");
+    expect(result.current.leaseGeneration).toBe(2);
+    expect(result.current.session).toMatchObject({
+      presence: "PAUSED",
+      stateVersion: 5,
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 1_050)));
+    expect(requests.at(-1)?.body).toMatchObject({
+      availabilityIntent: "PAUSED",
+      expectedStateVersion: 5,
+    });
+    await act(() => result.current.retryAvailability());
+    expect(result.current.session).toMatchObject({
       presence: "AVAILABLE",
+      stateVersion: 6,
+    });
+    expect(requests.at(-1)?.body).toMatchObject({
+      availabilityIntent: "AVAILABLE",
+      expectedStateVersion: 6,
+    });
+  });
+
+  it("preserves acquired availability across same-session refresh", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      if (init?.method === "POST") {
+        return Response.json({
+          leaseDurationMs: 60_000,
+          session: agentSession(4),
+        });
+      }
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json({ session: agentSession(4) });
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() =>
+      useCanonicalAgentSession({
+        audioReady: true,
+        clientInstanceId: "browser-1",
+        connectionState: "READY",
+        microphoneReady: true,
+        presence: "PAUSED",
+      }),
+    );
+
+    await act(() => result.current.start());
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]).toMatchObject({
+      availabilityIntent: "AVAILABLE",
+      expectedStateVersion: 4,
     });
   });
 
@@ -147,8 +352,8 @@ describe("useCanonicalAgentSession", () => {
       expect(requests.some(({ method }) => method === "PATCH")).toBe(true),
     );
     expect(requests.at(-1)?.body).toMatchObject({
+      availabilityIntent: "PAUSED",
       connectionState: "CONNECTING",
-      presence: "PAUSED",
     });
   });
 
@@ -233,7 +438,6 @@ describe("useCanonicalAgentSession", () => {
         connectionState: "READY",
         expectedStateVersion: 1,
         microphoneReady: true,
-        presence: "AVAILABLE",
       },
     });
   });
@@ -427,11 +631,11 @@ describe("useCanonicalAgentSession", () => {
     expect(result.current.session?.presence).toBe("AVAILABLE");
     expect(requests.at(-1)).toMatchObject({
       method: "PATCH",
-      body: { expectedStateVersion: 4, presence: "AVAILABLE" },
+      body: { availabilityIntent: "AVAILABLE", expectedStateVersion: 4 },
     });
   });
 
-  it("restores availability after recovering an expired paused lease", async () => {
+  it("resets availability after reconnecting an expired paused lease", async () => {
     const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
     let postCount = 0;
     let patchCount = 0;
@@ -447,16 +651,14 @@ describe("useCanonicalAgentSession", () => {
       if (method === "POST") {
         postCount += 1;
         return Response.json({
+          leaseContinuity: postCount === 1 ? "ACQUIRED" : "RECONNECTED",
           leaseDurationMs: 60_000,
           session: postCount === 1 ? agentSession() : pausedSession(3),
         });
       }
       patchCount += 1;
       return Response.json({
-        session:
-          patchCount === 1
-            ? agentSession(1)
-            : { ...pausedSession(4), presence: "AVAILABLE" },
+        session: patchCount === 1 ? agentSession(1) : pausedSession(4),
       });
     }) as unknown as typeof fetch;
 
@@ -478,10 +680,10 @@ describe("useCanonicalAgentSession", () => {
     rerender({ projectedSession: pausedSession(2, true) });
 
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
-    expect(result.current.session?.presence).toBe("AVAILABLE");
+    expect(result.current.session?.presence).toBe("PAUSED");
     expect(requests.at(-1)).toMatchObject({
       method: "PATCH",
-      body: { presence: "AVAILABLE" },
+      body: { availabilityIntent: "PAUSED" },
     });
   });
 
@@ -1017,9 +1219,9 @@ describe("useCanonicalAgentSession", () => {
     ]);
     expect(requests[2]?.body).toEqual({ clientInstanceId: "browser-1" });
     expect(requests[3]?.body).toMatchObject({
+      availabilityIntent: "AVAILABLE",
       clientInstanceId: "browser-1",
       expectedStateVersion: 2,
-      presence: "AVAILABLE",
     });
     expect(result.current.session?.stateVersion).toBe(3);
   });

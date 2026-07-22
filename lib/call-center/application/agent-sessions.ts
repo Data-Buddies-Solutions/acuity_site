@@ -3,7 +3,9 @@ import type {
   CallCenterAgentPresence,
 } from "@/generated/prisma/client";
 import {
+  type AgentAvailabilityIntent,
   readinessValidationError,
+  resolveAgentAvailabilityIntent,
   resolveAgentSessionReadyAt,
 } from "@/lib/call-center/domain/agent-session-readiness";
 import { serializeAgentConnectionState } from "@/lib/call-center/domain/agent-session-wire";
@@ -15,14 +17,6 @@ export const AGENT_SESSION_CONNECTION_STATES = [
   "ERROR",
   "CLOSED",
 ] as const satisfies readonly CallCenterAgentConnectionState[];
-export const AGENT_SESSION_PRESENCES = [
-  "AVAILABLE",
-  "PAUSED",
-  "BUSY",
-  "WRAP_UP",
-  "OFFLINE",
-] as const satisfies readonly CallCenterAgentPresence[];
-
 export class AgentSessionError extends Error {
   readonly status: number;
 
@@ -107,6 +101,7 @@ export interface AgentSessionTransaction {
   getAccessibleEndpoint(actor: AgentSessionActor): Promise<AgentSessionEndpoint | null>;
   hasActiveCall(endpointId: string): Promise<boolean>;
   hasConnectedCall(endpointId: string): Promise<boolean>;
+  hasRequiredWrapUp(endpointId: string): Promise<boolean>;
   hasQueueAccess(
     actor: AgentSessionActor,
     endpoint: AgentSessionEndpoint,
@@ -129,10 +124,11 @@ type SessionIdentity = {
 
 export type AgentSessionReadinessUpdate = SessionIdentity & {
   audioReady: boolean;
+  availabilityChange?: boolean;
+  availabilityIntent?: AgentAvailabilityIntent;
   connectionState: CallCenterAgentConnectionState;
   expectedStateVersion: number;
   microphoneReady: boolean;
-  presence: CallCenterAgentPresence;
   sessionId: string;
 };
 
@@ -271,7 +267,7 @@ export async function acquireAgentSession(
     );
     if (existing && active?.id === existing.id) {
       if (existing.connectionState !== "CLOSED" && existing.presence !== "OFFLINE") {
-        return { endpoint, session: existing };
+        return { endpoint, leaseContinuity: "REPLAYED" as const, session: existing };
       }
 
       const session = await transaction.updateSession(existing.id, {
@@ -288,7 +284,7 @@ export async function acquireAgentSession(
       await transaction.appendEvent(
         eventFor(actor, session, "AGENT_SESSION_RECONNECTED", now),
       );
-      return { endpoint, session };
+      return { endpoint, leaseContinuity: "RECONNECTED" as const, session };
     }
 
     let session: AgentSessionRecord;
@@ -325,7 +321,11 @@ export async function acquireAgentSession(
     await transaction.appendEvent(
       eventFor(actor, session, "AGENT_SESSION_LEASE_ACQUIRED", now),
     );
-    return { endpoint, session };
+    return {
+      endpoint,
+      leaseContinuity: existing ? ("RECONNECTED" as const) : ("ACQUIRED" as const),
+      session,
+    };
   });
 
   return throwExpected(result);
@@ -377,11 +377,7 @@ export async function updateAgentSessionReadiness(
       };
     }
 
-    if (
-      input.presence === "BUSY" ||
-      input.presence === "OFFLINE" ||
-      input.connectionState === "CLOSED"
-    ) {
+    if (input.connectionState === "CLOSED") {
       return {
         error: new AgentSessionError(
           "Browser readiness cannot set an owned call state",
@@ -390,21 +386,44 @@ export async function updateAgentSessionReadiness(
       };
     }
 
+    const availabilityIntent =
+      input.availabilityIntent ?? resolveAgentAvailabilityIntent(session.presence);
+    const availabilityChanged =
+      availabilityIntent !== resolveAgentAvailabilityIntent(session.presence);
+
+    const requiredWrapUp = await transaction.hasRequiredWrapUp(session.endpointId);
+    const occupied =
+      requiredWrapUp || (await transaction.hasActiveCall(session.endpointId));
+    if (occupied && input.availabilityChange) {
+      return {
+        error: new AgentSessionError(
+          "Availability cannot be changed during an active call",
+          409,
+        ),
+      };
+    }
+
+    const requestedReadiness = {
+      audioReady: input.audioReady,
+      connectionState: input.connectionState,
+      microphoneReady: input.microphoneReady,
+      presence: availabilityIntent,
+    };
+    const validationError = readinessValidationError(requestedReadiness);
+    if (validationError && availabilityChanged) {
+      return { error: new AgentSessionError(validationError, 422) };
+    }
+
     const presence: CallCenterAgentPresence = (await transaction.hasConnectedCall(
       session.endpointId,
     ))
       ? "BUSY"
-      : input.presence;
-    const nextReadiness = {
-      audioReady: input.audioReady,
-      connectionState: input.connectionState,
-      microphoneReady: input.microphoneReady,
-      presence,
-    };
-    const validationError = readinessValidationError(nextReadiness);
-    if (validationError) {
-      return { error: new AgentSessionError(validationError, 422) };
-    }
+      : requiredWrapUp
+        ? "WRAP_UP"
+        : validationError
+          ? "PAUSED"
+          : availabilityIntent;
+    const nextReadiness = { ...requestedReadiness, presence };
 
     const readyAt = resolveAgentSessionReadyAt(nextReadiness, session.readyAt, now);
     const readinessUnchanged =

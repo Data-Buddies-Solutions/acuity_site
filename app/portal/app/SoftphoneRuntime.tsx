@@ -1,23 +1,21 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import type { AgentSessionView } from "@/lib/call-center/realtime-contract";
+import {
+  resolveAgentAvailabilityIntent,
+  type AgentAvailabilityIntent,
+} from "@/lib/call-center/domain/agent-session-readiness";
 
 import {
   claimCallCenterClientInstance,
   type CallCenterClientInstance,
 } from "./call-center/call-center-client-instance";
 import type { MediaObservation } from "./call-center/softphone-media-adapter";
+import {
+  SoftphoneRuntimeProvider,
+  type SoftphoneRuntimeValue,
+} from "./call-center/softphone-runtime-context";
 import {
   type CanonicalAgentConnectionState,
   useCanonicalAgentSession,
@@ -27,7 +25,48 @@ import { useSoftphoneMedia } from "./call-center/use-softphone";
 
 const PHONE_OWNER_CHANNEL = "acuity-call-center-phone-owner";
 const PHONE_ACTIVE_ELSEWHERE = "Phone active in another tab";
+const AVAILABILITY_INTENT_STORAGE_PREFIX = "acuity.call-center.availability-intent";
 const OUTBOUND_MEDIA_OBSERVATION_TIMEOUT_MS = 75_000;
+
+function readConfirmedAvailabilityIntent(
+  storage: Storage,
+  clientInstanceId: string,
+  sessionId: string,
+): AgentAvailabilityIntent | null {
+  const key = `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`;
+  try {
+    const stored = JSON.parse(storage.getItem(key) ?? "null") as {
+      intent?: unknown;
+      sessionId?: unknown;
+    } | null;
+    if (
+      stored?.sessionId === sessionId &&
+      (stored.intent === "AVAILABLE" || stored.intent === "PAUSED")
+    ) {
+      return stored.intent;
+    }
+    if (stored) storage.removeItem(key);
+  } catch {
+    // Unavailable browser storage cannot supersede canonical Agent Session state.
+  }
+  return null;
+}
+
+function writeConfirmedAvailabilityIntent(
+  storage: Storage,
+  clientInstanceId: string,
+  sessionId: string,
+  intent: AgentAvailabilityIntent,
+) {
+  try {
+    storage.setItem(
+      `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`,
+      JSON.stringify({ intent, sessionId }),
+    );
+  } catch {
+    // Canonical Agent Session state remains authoritative if storage is unavailable.
+  }
+}
 
 export function scheduleOutboundOperationExpiry(
   expire: () => void,
@@ -179,27 +218,11 @@ export function updateOutboundOperationFromMedia(
   return current;
 }
 
-type SoftphoneRuntimeValue = {
-  clientInstanceId: string | null;
-  error: string | null;
-  media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
-  ringtone: ReturnType<typeof useIncomingCallRingtone>;
-  session: AgentSessionView | null;
-  answer(mediaLegId: string, expiresAt?: string): Promise<void>;
-  answeringMediaLegId: string | null;
-  setOutboundOperationActive(
-    active: boolean,
-    identity?: { callId: string; legId: string },
-    options?: { releaseProvisionalSuppression?: boolean },
-  ): void;
-  takeover(): Promise<void>;
-};
-
-const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
-
 export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
+  const [availabilityIntent, setAvailabilityIntent] =
+    useState<AgentAvailabilityIntent>("PAUSED");
   const [outboundOperationActive, setOutboundOperationActive] = useState(false);
   const [suppressedOfferIds, setSuppressedOfferIds] = useState<readonly string[]>([]);
   const [mediaReadiness, setMediaReadiness] = useState({
@@ -207,6 +230,9 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     connectionState: "CLOSED" as CanonicalAgentConnectionState,
     microphoneReady: false,
   });
+  const availabilityChoiceRef = useRef<AgentAvailabilityIntent | null>(null);
+  const availabilityLeaseGenerationRef = useRef<number | null>(null);
+  const availabilitySessionIdRef = useRef<string | null>(null);
   const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
   const outboundCanonicalCallIdRef = useRef<string | null>(null);
@@ -242,14 +268,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const agentSession = useCanonicalAgentSession({
     ...mediaReadiness,
     clientInstanceId,
-    presence:
-      mediaReadiness.connectionState === "READY" &&
-      mediaReadiness.audioReady &&
-      mediaReadiness.microphoneReady
-        ? "AVAILABLE"
-        : clientInstanceId
-          ? "PAUSED"
-          : "OFFLINE",
+    presence: clientInstanceId ? availabilityIntent : "OFFLINE",
   });
   const session = agentSession.session;
   const startSession = agentSession.start;
@@ -315,6 +334,95 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   }, [media.observations]);
 
   useEffect(() => clearOutboundOperationExpiry, [clearOutboundOperationExpiry]);
+
+  useEffect(() => {
+    if (!session) {
+      if (!clientInstanceId) {
+        availabilityChoiceRef.current = null;
+        availabilityLeaseGenerationRef.current = null;
+        availabilitySessionIdRef.current = null;
+        // A new browser identity starts with an explicit unavailable choice.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setAvailabilityIntent("PAUSED");
+      }
+      return;
+    }
+    const newLease =
+      agentSession.leaseGeneration !== null &&
+      availabilityLeaseGenerationRef.current !== agentSession.leaseGeneration;
+    const sameLease = !newLease && availabilitySessionIdRef.current === session.id;
+    const confirmedChoice = sameLease
+      ? availabilityChoiceRef.current
+      : clientInstanceId && agentSession.leaseContinuity === "REPLAYED"
+        ? readConfirmedAvailabilityIntent(
+            window.sessionStorage,
+            clientInstanceId,
+            session.id,
+          )
+        : null;
+    const next =
+      newLease && agentSession.leaseContinuity !== "REPLAYED"
+        ? "PAUSED"
+        : session.presence === "BUSY" && confirmedChoice
+          ? confirmedChoice
+          : resolveAgentAvailabilityIntent(session.presence);
+    if (!sameLease && clientInstanceId && agentSession.leaseContinuity !== "REPLAYED") {
+      try {
+        window.sessionStorage.removeItem(
+          `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`,
+        );
+      } catch {
+        // Canonical Agent Session state remains authoritative without storage.
+      }
+    }
+    availabilityLeaseGenerationRef.current = agentSession.leaseGeneration;
+    availabilitySessionIdRef.current = session.id;
+    if (
+      confirmedChoice === "AVAILABLE" &&
+      session.presence === "PAUSED" &&
+      (session.connectionState !== "READY" ||
+        !session.microphoneReady ||
+        !session.audioReady)
+    ) {
+      availabilityChoiceRef.current = confirmedChoice;
+      if (clientInstanceId) {
+        writeConfirmedAvailabilityIntent(
+          window.sessionStorage,
+          clientInstanceId,
+          session.id,
+          confirmedChoice,
+        );
+      }
+      setAvailabilityIntent((current) =>
+        current === confirmedChoice ? current : confirmedChoice,
+      );
+      return;
+    }
+    availabilityChoiceRef.current = next;
+    if (
+      clientInstanceId &&
+      (session.presence === "AVAILABLE" ||
+        session.presence === "BUSY" ||
+        (session.presence === "PAUSED" &&
+          session.connectionState === "READY" &&
+          session.microphoneReady &&
+          session.audioReady))
+    ) {
+      writeConfirmedAvailabilityIntent(
+        window.sessionStorage,
+        clientInstanceId,
+        session.id,
+        next,
+      );
+    }
+    // Every canonical projection can supersede an older local availability choice.
+    setAvailabilityIntent((current) => (current === next ? current : next));
+  }, [
+    agentSession.leaseContinuity,
+    agentSession.leaseGeneration,
+    clientInstanceId,
+    session,
+  ]);
 
   useEffect(() => {
     const next = {
@@ -426,6 +534,39 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     },
     [clearOutboundOperationExpiry, schedulePersistentOutboundExpiry],
   );
+  const setAvailability = useCallback(
+    async (presence: AgentAvailabilityIntent) => {
+      const confirmed = await agentSession.setAvailability(presence);
+      availabilityChoiceRef.current = presence;
+      availabilitySessionIdRef.current = confirmed?.id ?? null;
+      if (clientInstanceId && confirmed) {
+        writeConfirmedAvailabilityIntent(
+          window.sessionStorage,
+          clientInstanceId,
+          confirmed.id,
+          presence,
+        );
+      }
+      setAvailabilityIntent(presence);
+    },
+    [agentSession, clientInstanceId],
+  );
+  const retryAvailability = useCallback(async () => {
+    const confirmed = await agentSession.retryAvailability();
+    if (!confirmed) return;
+    const presence = resolveAgentAvailabilityIntent(confirmed.presence);
+    availabilityChoiceRef.current = presence;
+    availabilitySessionIdRef.current = confirmed.id;
+    if (clientInstanceId) {
+      writeConfirmedAvailabilityIntent(
+        window.sessionStorage,
+        clientInstanceId,
+        confirmed.id,
+        presence,
+      );
+    }
+    setAvailabilityIntent(presence);
+  }, [agentSession, clientInstanceId]);
   const takeover = useCallback(async () => {
     if (!clientInstanceId) return;
     const response = await fetch("/api/portal/call-center/agent-sessions", {
@@ -445,6 +586,10 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     () => ({
       answer,
       answeringMediaLegId: calls.answeringMediaLegId,
+      availabilityError: agentSession.availabilityError,
+      availabilityIntent,
+      availabilityPending: agentSession.availabilityPending,
+      availabilityRetryable: agentSession.availabilityRetryable,
       clientInstanceId,
       error:
         identityError ??
@@ -452,19 +597,27 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
         media.microphoneError ??
         (media.connection === "FAILED" ? "Phone disconnected — reconnecting" : null),
       media,
+      retryAvailability,
       ringtone,
       session,
+      setAvailability,
       setOutboundOperationActive: setOutboundOperation,
       takeover,
     }),
     [
       agentSession.error,
+      agentSession.availabilityError,
+      agentSession.availabilityPending,
+      agentSession.availabilityRetryable,
       answer,
+      availabilityIntent,
       clientInstanceId,
       identityError,
       media,
+      retryAvailability,
       ringtone,
       session,
+      setAvailability,
       setOutboundOperation,
       takeover,
       calls.answeringMediaLegId,
@@ -472,17 +625,9 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   );
 
   return (
-    <SoftphoneContext.Provider value={value}>
+    <SoftphoneRuntimeProvider value={value}>
       {children}
       <audio ref={setRemoteAudioElement} autoPlay className="hidden" playsInline />
-    </SoftphoneContext.Provider>
+    </SoftphoneRuntimeProvider>
   );
-}
-
-export function useSoftphoneRuntime() {
-  const runtime = useContext(SoftphoneContext);
-  if (!runtime) {
-    throw new Error("Softphone Runtime is not mounted");
-  }
-  return runtime;
 }

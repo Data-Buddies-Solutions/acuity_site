@@ -11,13 +11,13 @@ import {
   type ActiveInboundLifecycleIntent,
 } from "@/lib/call-center/domain/active-inbound-lifecycle";
 import { canonicalVoicemailGreetingDeadline } from "@/lib/call-center/domain/canonical-voicemail-lifecycle";
+import { ACTIVE_CANONICAL_CALL_STATUSES } from "@/lib/call-center/domain/canonical-call-state";
 import { persistCanonicalUnansweredTask } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
 import { createLogger } from "@/lib/logger";
 
 type Transaction = Prisma.TransactionClient;
 
-const ACTIVE_STATUSES = ["RECEIVED", "QUEUED", "RINGING", "CONNECTED"] as const;
 const LIVE_LEG_STATUSES = [
   "CREATED",
   "DIALING",
@@ -468,7 +468,9 @@ async function reconcileLockedCall(
   if (
     !call ||
     call.direction !== "INBOUND" ||
-    !ACTIVE_STATUSES.includes(call.status as (typeof ACTIVE_STATUSES)[number]) ||
+    !ACTIVE_CANONICAL_CALL_STATUSES.includes(
+      call.status as (typeof ACTIVE_CANONICAL_CALL_STATUSES)[number],
+    ) ||
     !call.queue
   ) {
     return { callId: input.callId, commandIds: [], decision: null, status: "SKIPPED" };

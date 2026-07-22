@@ -14,12 +14,15 @@ function snapshot(stateVersion = 0, queueId = "queue-1"): CallCenterSnapshot {
       ? [
           {
             answeredAt: null,
+            callOfficeLabel: null,
             callerName: null,
             direction: "INBOUND",
             endedAt: null,
             fromPhone: "+17865550100",
             id: "call-1",
             legs: [],
+            onHold: false,
+            transferring: false,
             queueId,
             receivedAt: "2026-07-19T10:00:00.000Z",
             stateVersion,
@@ -31,7 +34,8 @@ function snapshot(stateVersion = 0, queueId = "queue-1"): CallCenterSnapshot {
       : [],
     observedAt: "2026-07-19T10:00:00.000Z",
     queueId,
-    schemaVersion: 5,
+    selectedQueueCallIds: stateVersion ? ["call-1"] : [],
+    schemaVersion: 9,
   };
 }
 

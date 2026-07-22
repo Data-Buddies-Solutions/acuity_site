@@ -4,9 +4,8 @@ import { Headphones } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
-import { useSoftphoneRuntime } from "../SoftphoneRuntime";
-
 import { CallConnectionStatus } from "./CallConnectionStatus";
+import { useSoftphoneRuntime } from "./softphone-runtime-context";
 
 export function CallCenterRouteState({
   busy = false,

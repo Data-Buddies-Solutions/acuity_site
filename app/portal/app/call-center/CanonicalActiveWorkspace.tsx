@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
+  Copy,
   Delete,
   Grip,
   Headphones,
@@ -23,8 +25,10 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { CanonicalOutboundNumber } from "@/lib/call-center/application/portal-canonical-workspace";
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
+import type { AgentAvailabilityIntent } from "@/lib/call-center/domain/agent-session-readiness";
 import {
-  selectIncomingCalls,
+  selectLiveCallOwnership,
+  selectLiveQueueCalls,
   type AgentSessionView,
   type CallView,
 } from "@/lib/call-center/realtime-contract";
@@ -42,19 +46,19 @@ import {
   completeCanonicalOutboundOperation,
   failCanonicalOutboundOperation,
   hasCanonicalPendingTransfer,
+  hasCanonicalSessionLiveLeg,
   isDefinitiveCanonicalOutboundFailure,
   isCanonicalTransferOffer,
   reconcileCanonicalOutboundRuntime,
   selectCanonicalAgentActiveCall,
   selectCanonicalBrowserMediaLeg,
-  selectCanonicalTransferOffers,
 } from "./canonical-active-call-center";
 import { CallConnectionStatus } from "./CallConnectionStatus";
 import FollowUpPreview from "./FollowUpPreview";
 import type { MediaConnectionState } from "./softphone-media-adapter";
 import { useCanonicalCallCenter } from "./use-canonical-call-center";
-import { useSoftphoneMedia } from "./use-softphone";
-import { useSoftphoneRuntime } from "../SoftphoneRuntime";
+import { useSoftphoneRuntime } from "./softphone-runtime-context";
+import type { useSoftphoneMedia } from "./use-softphone";
 
 type CanonicalActiveWorkspaceProps = {
   agentProfileLabel: string | null;
@@ -91,6 +95,105 @@ function isAgentSessionViewReady(session: AgentSessionView) {
     session.connectionState === "READY" &&
     session.microphoneReady &&
     session.audioReady
+  );
+}
+
+function availabilityRecoveryMessage(
+  intent: "AVAILABLE" | "PAUSED",
+  occupied: boolean,
+  session: AgentSessionView | null,
+  media: Pick<
+    ReturnType<typeof useSoftphoneMedia>,
+    "connection" | "microphoneReady" | "soundReady"
+  >,
+) {
+  if (intent !== "AVAILABLE" || occupied || !session) {
+    return null;
+  }
+  if (media.connection !== "READY") {
+    return "Restore the phone connection to become Available.";
+  }
+  if (!media.microphoneReady) {
+    return "Allow microphone access to become Available.";
+  }
+  if (!media.soundReady) {
+    return "Allow browser audio to become Available.";
+  }
+  return null;
+}
+
+function AvailabilityControl({
+  error,
+  occupied,
+  onChange,
+  onRetry,
+  pending,
+  presence,
+  recoveryMessage,
+}: {
+  error: string | null;
+  occupied: boolean;
+  onChange: (presence: AgentAvailabilityIntent) => Promise<void>;
+  onRetry: (() => void) | null;
+  pending: boolean;
+  presence: AgentSessionView["presence"];
+  recoveryMessage: string | null;
+}) {
+  const selected = occupied || presence === "BUSY" || recoveryMessage ? null : presence;
+
+  return (
+    <div className="space-y-2 border-b border-[var(--portal-border)] px-4 py-4">
+      <p className="text-xs font-medium text-[var(--portal-muted)]">Availability</p>
+      <div aria-label="Availability" className="grid grid-cols-2 gap-2" role="group">
+        <Button
+          aria-pressed={selected === "AVAILABLE"}
+          disabled={occupied || pending}
+          onClick={() => void onChange("AVAILABLE").catch(() => {})}
+          type="button"
+          variant={selected === "AVAILABLE" ? "primary" : "secondary"}
+        >
+          Available
+        </Button>
+        <Button
+          aria-pressed={selected === "PAUSED"}
+          disabled={occupied || pending}
+          onClick={() => void onChange("PAUSED").catch(() => {})}
+          type="button"
+          variant={selected === "PAUSED" ? "primary" : "secondary"}
+        >
+          Unavailable
+        </Button>
+      </div>
+      {occupied ? (
+        <p className="text-xs font-medium text-[var(--portal-muted)]" role="status">
+          On a call
+        </p>
+      ) : pending ? (
+        <p className="text-xs text-[var(--portal-muted)]" role="status">
+          Updating availability…
+        </p>
+      ) : recoveryMessage ? (
+        <p className="text-xs text-[var(--portal-muted)]" role="status">
+          {recoveryMessage}
+        </p>
+      ) : null}
+      {error ? (
+        <div className="flex items-center justify-between gap-3" role="alert">
+          <p className="text-xs text-red-700">{error}</p>
+          {onRetry ? (
+            <Button
+              disabled={occupied || pending}
+              onClick={onRetry}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Retry
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -422,6 +525,7 @@ function ConnectedCanonicalActiveWorkspace({
   const realtime = useCanonicalCallCenter({ queueId });
   const refreshSnapshot = realtime.refetch;
   const [actionError, setActionError] = useState<string | null>(null);
+  const [copiedCallId, setCopiedCallId] = useState<string | null>(null);
   const [destination, setDestination] = useState(initialDialNumber ?? "");
   const [numberChoice, setNumberChoice] = useState("");
   const [startingOutbound, setStartingOutbound] = useState(false);
@@ -458,29 +562,79 @@ function ConnectedCanonicalActiveWorkspace({
     canonicalSnapshotObservedAtRef.current = state?.observedAt ?? null;
   }, [state?.observedAt]);
 
-  const incomingCalls = useMemo(() => {
+  const liveQueueCalls = useMemo(() => {
     if (!state) return [];
-    const queued = selectIncomingCalls(state);
-    const transfers = selectCanonicalTransferOffers(state.calls, session);
-    return [
-      ...queued,
-      ...transfers.filter((call) => !queued.some(({ id }) => id === call.id)),
-    ];
-  }, [session, state]);
+    return selectLiveQueueCalls(state);
+  }, [state]);
   const activeCall = selectCanonicalAgentActiveCall(state?.calls ?? [], session);
   const hasActiveOutboundCall = activeCall?.direction === "OUTBOUND";
   const localOffer = session
-    ? incomingCalls.find((call) =>
-        selectCanonicalBrowserMediaLeg(
+    ? state?.calls.find((call) => {
+        const match = selectCanonicalBrowserMediaLeg(
           call,
           session.id,
           session.endpointId,
           mediaObservations,
-        ),
-      )
+        );
+        return Boolean(
+          match &&
+          ((call.direction === "INBOUND" && call.status !== "CONNECTED") ||
+            isCanonicalTransferOffer(call, session)),
+        );
+      })
     : null;
+  const localOfferMatch =
+    localOffer && session
+      ? selectCanonicalBrowserMediaLeg(
+          localOffer,
+          session.id,
+          session.endpointId,
+          mediaObservations,
+        )
+      : null;
+  const personalOffer =
+    localOffer && !liveQueueCalls.some(({ id }) => id === localOffer.id)
+      ? localOffer
+      : null;
+  const personalAnswerReservation =
+    personalOffer &&
+    localOfferMatch &&
+    !isCanonicalTransferOffer(personalOffer, session) &&
+    (personalOffer.answerReservation?.status === "ACCEPTED" ||
+      personalOffer.answerReservation?.status === "ANSWERED") &&
+    personalOffer.answerReservation.agentSessionId === session?.id &&
+    personalOffer.answerReservation.legId === localOfferMatch.leg.id
+      ? personalOffer.answerReservation
+      : null;
+  const canonicalOffer = hasCanonicalSessionLiveLeg(state?.calls ?? [], session);
+  const availabilityOccupied = Boolean(
+    activeCall ||
+    localOffer ||
+    canonicalOffer ||
+    runtime.answeringMediaLegId ||
+    session?.presence === "BUSY",
+  );
+  const availabilityRecovery = availabilityRecoveryMessage(
+    runtime.availabilityIntent,
+    availabilityOccupied,
+    session,
+    media,
+  );
 
-  const callingReady = Boolean(session && isAgentSessionViewReady(session));
+  const callingReady = Boolean(
+    session && !availabilityRecovery && isAgentSessionViewReady(session),
+  );
+
+  const copyPhone = async (callId: string, phone: string) => {
+    setActionError(null);
+    try {
+      await navigator.clipboard.writeText(phone);
+      setCopiedCallId(callId);
+    } catch {
+      setCopiedCallId((current) => (current === callId ? null : current));
+      setActionError("Phone number could not be copied. Try again.");
+    }
+  };
 
   useEffect(() => {
     setCallCenterCurrentCallGuard(activeCall?.id ?? localOffer?.id ?? null);
@@ -729,15 +883,15 @@ function ConnectedCanonicalActiveWorkspace({
                   Live queue
                 </h2>
                 <p className="mt-1 text-sm text-[var(--portal-muted)]">
-                  Live callers that need an answer.
+                  Calls ringing or in progress.
                 </p>
               </div>
-              <PortalBadge className="tabular-nums">{incomingCalls.length}</PortalBadge>
+              <PortalBadge className="tabular-nums">{liveQueueCalls.length}</PortalBadge>
             </div>
 
-            {incomingCalls.length ? (
+            {liveQueueCalls.length ? (
               <ul className="space-y-3">
-                {incomingCalls.map((call) => {
+                {liveQueueCalls.map((call) => {
                   const transferOffer = isCanonicalTransferOffer(call, session);
                   const match = session
                     ? selectCanonicalBrowserMediaLeg(
@@ -762,13 +916,26 @@ function ConnectedCanonicalActiveWorkspace({
                   const answering =
                     reservedForSession ||
                     match?.observation.mediaLegId === runtime.answeringMediaLegId;
-                  const phone = formatPhone(callPhone(call));
-                  let status = "Preparing";
-                  if (answering) status = "Connecting…";
-                  else if (activeReservation) status = "Being answered";
-                  else if (match) {
-                    status = transferOffer ? "Transfer ringing" : "Ringing";
-                  }
+                  const rawPhone = callPhone(call);
+                  const phone = formatPhone(rawPhone);
+                  const ownership = selectLiveCallOwnership(call);
+                  if (!ownership) return null;
+                  const sharedStatus =
+                    transferOffer && match && !call.transferring
+                      ? "Transfer ringing"
+                      : `${
+                          call.status === "CONNECTED" && call.transferring
+                            ? "Transferring"
+                            : call.status === "CONNECTED" && call.onHold
+                              ? "On hold"
+                              : ownership.state === "ANSWERED"
+                                ? "Answered"
+                                : ownership.state === "ANSWERING"
+                                  ? "Answering"
+                                  : "Ringing"
+                        }${ownership.endpointLabel ? ` · ${ownership.endpointLabel}` : ""}`;
+                  const actionableOffer =
+                    Boolean(match) && (call.status !== "CONNECTED" || transferOffer);
 
                   return (
                     <li
@@ -777,52 +944,85 @@ function ConnectedCanonicalActiveWorkspace({
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
-                          {call.callerName || phone}
+                          {phone}
                         </p>
                         <p className="mt-1 text-xs text-[var(--portal-muted)]">
-                          {call.callerName ? `${phone} · ` : ""}
-                          {status}
+                          {call.direction === "OUTBOUND" ? "Outbound" : "Inbound"}
                         </p>
+                        <p className="mt-1 text-xs text-[var(--portal-muted)]">
+                          {sharedStatus}
+                        </p>
+                        {call.callOfficeLabel ? (
+                          <p className="mt-1 text-xs text-[var(--portal-muted)]">
+                            <span className="font-medium">Call Office</span>
+                            {" · "}
+                            <span>{call.callOfficeLabel}</span>
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex gap-2">
                         <Button
-                          disabled={!session || !match || Boolean(activeCall)}
-                          onClick={() => declineCall(call)}
+                          aria-label={`Copy ${
+                            call.direction === "OUTBOUND" ? "recipient" : "caller"
+                          } phone number`}
+                          onClick={() => {
+                            void copyPhone(call.id, rawPhone);
+                          }}
                           size="sm"
+                          type="button"
                           variant="secondary"
                         >
-                          Decline
+                          {copiedCallId === call.id ? (
+                            <Check aria-hidden="true" className="h-4 w-4" />
+                          ) : (
+                            <Copy aria-hidden="true" className="h-4 w-4" />
+                          )}
+                          Copy
                         </Button>
-                        {session && match ? (
-                          <CanonicalOfferAnswerButton
-                            answer={runtime.answer}
-                            answering={answering}
-                            callId={call.id}
-                            connectionState={runtime.media.connection}
-                            disabled={
-                              Boolean(activeReservation) ||
-                              Boolean(runtime.answeringMediaLegId) ||
-                              Boolean(activeCall)
-                            }
-                            legId={match.leg.id}
-                            mediaLegId={match.observation.mediaLegId}
-                            reportTiming={reportAnswerPhaseTiming}
-                            sessionId={session.id}
-                            transferOffer={transferOffer}
-                          />
-                        ) : (
-                          <Button disabled size="sm" variant="primary">
-                            Answer
-                          </Button>
-                        )}
+                        {actionableOffer ? (
+                          <>
+                            <Button
+                              disabled={!session || Boolean(activeCall)}
+                              onClick={() => declineCall(call)}
+                              size="sm"
+                              variant="secondary"
+                            >
+                              Decline
+                            </Button>
+                            {session && match ? (
+                              <CanonicalOfferAnswerButton
+                                answer={runtime.answer}
+                                answering={answering}
+                                callId={call.id}
+                                connectionState={runtime.media.connection}
+                                disabled={
+                                  Boolean(activeReservation) ||
+                                  Boolean(runtime.answeringMediaLegId) ||
+                                  Boolean(activeCall)
+                                }
+                                legId={match.leg.id}
+                                mediaLegId={match.observation.mediaLegId}
+                                reportTiming={reportAnswerPhaseTiming}
+                                sessionId={session.id}
+                                transferOffer={transferOffer}
+                              />
+                            ) : null}
+                          </>
+                        ) : null}
                       </div>
+                      {copiedCallId === call.id ? (
+                        <span className="sr-only" role="status">
+                          Phone number copied
+                        </span>
+                      ) : null}
                     </li>
                   );
                 })}
               </ul>
             ) : (
               <div className="mt-4 rounded-lg border border-dashed border-[var(--portal-border-strong)] px-3 py-4 text-center text-sm text-[var(--portal-muted)]">
-                No callers waiting. You&apos;re ready for calls.
+                No callers waiting.
+                {callingReady ? " You're ready for calls." : null}
               </div>
             )}
           </section>
@@ -915,7 +1115,67 @@ function ConnectedCanonicalActiveWorkspace({
               </div>
             </div>
 
+            <AvailabilityControl
+              error={runtime.availabilityError}
+              occupied={availabilityOccupied}
+              onChange={runtime.setAvailability}
+              onRetry={
+                runtime.availabilityRetryable
+                  ? () => void runtime.retryAvailability().catch(() => {})
+                  : null
+              }
+              pending={runtime.availabilityPending}
+              presence={session?.presence ?? "OFFLINE"}
+              recoveryMessage={availabilityRecovery}
+            />
+
             <div className="space-y-4 p-4">
+              {personalOffer && localOfferMatch && session ? (
+                <section
+                  aria-label="Personal call offer"
+                  className="rounded-lg border border-[var(--portal-border)] bg-[var(--portal-panel-soft)] p-3"
+                  role="region"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--portal-muted)]">
+                    {isCanonicalTransferOffer(personalOffer, session)
+                      ? "Transfer offer"
+                      : "Incoming call"}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--portal-ink)]">
+                    {formatPhone(callPhone(personalOffer))}
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      disabled={Boolean(activeCall)}
+                      onClick={() => declineCall(personalOffer)}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      Decline
+                    </Button>
+                    <CanonicalOfferAnswerButton
+                      answer={runtime.answer}
+                      answering={
+                        Boolean(personalAnswerReservation) ||
+                        localOfferMatch.observation.mediaLegId ===
+                          runtime.answeringMediaLegId
+                      }
+                      callId={personalOffer.id}
+                      connectionState={runtime.media.connection}
+                      disabled={
+                        Boolean(personalAnswerReservation) ||
+                        Boolean(runtime.answeringMediaLegId) ||
+                        Boolean(activeCall)
+                      }
+                      legId={localOfferMatch.leg.id}
+                      mediaLegId={localOfferMatch.observation.mediaLegId}
+                      sessionId={session.id}
+                      transferOffer={isCanonicalTransferOffer(personalOffer, session)}
+                    />
+                  </div>
+                </section>
+              ) : null}
+
               {activeCall ? (
                 <CanonicalActiveCall
                   call={activeCall}

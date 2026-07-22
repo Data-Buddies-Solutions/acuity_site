@@ -38,7 +38,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     presentation: "banner",
   },
   BROWSER_AUDIO_REQUIRED: {
-    message: "Browser audio is blocked. Allow sound, then select Ready again.",
+    message: "Browser audio is blocked. Allow sound, then select Available again.",
     presentation: "inline",
     retryable: true,
   },
@@ -58,7 +58,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     includeReference: false,
   },
   CALL_NOT_READY: {
-    message: "You are not ready for calls. Select Ready, then try again.",
+    message: "You are not ready for calls. Select Available, then try again.",
     presentation: "inline",
     retryable: true,
   },
@@ -73,7 +73,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
   },
   MICROPHONE_REQUIRED: {
     message:
-      "Microphone access is required. Allow microphone access, then select Ready again.",
+      "Microphone access is required. Allow microphone access, then select Available again.",
     presentation: "inline",
     retryable: true,
   },
@@ -106,7 +106,7 @@ const catalog: Partial<Record<CallCenterErrorCode, CatalogEntry>> = {
     retryable: true,
   },
   SESSION_EXPIRED: {
-    message: "Your calling session ended. Select Ready to reconnect.",
+    message: "Your calling session ended. Select Available to reconnect.",
     presentation: "banner",
     retryable: true,
   },
