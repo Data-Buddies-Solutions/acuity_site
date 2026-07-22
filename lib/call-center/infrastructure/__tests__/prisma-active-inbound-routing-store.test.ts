@@ -231,6 +231,7 @@ describe("Prisma canonical active inbound routing", () => {
     expect(fake.commands[2]?.arguments).toEqual({
       agentSessionId: "session-1",
       endpointId: "endpoint-1",
+      timeoutSeconds: 45,
     });
     expect(fake.commands[3]).toMatchObject({
       dependsOnCommandId: "command-2",

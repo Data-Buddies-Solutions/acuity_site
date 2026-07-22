@@ -185,7 +185,7 @@ type SoftphoneRuntimeValue = {
   media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
   ringtone: ReturnType<typeof useIncomingCallRingtone>;
   session: AgentSessionView | null;
-  answer(mediaLegId: string): Promise<void>;
+  answer(mediaLegId: string, expiresAt?: string): Promise<void>;
   answeringMediaLegId: string | null;
   setOutboundOperationActive(
     active: boolean,
@@ -200,7 +200,6 @@ const SoftphoneContext = createContext<SoftphoneRuntimeValue | null>(null);
 export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<CallCenterClientInstance | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
-  const [answeringMediaLegId, setAnsweringMediaLegId] = useState<string | null>(null);
   const [outboundOperationActive, setOutboundOperationActive] = useState(false);
   const [suppressedOfferIds, setSuppressedOfferIds] = useState<readonly string[]>([]);
   const [mediaReadiness, setMediaReadiness] = useState({
@@ -208,7 +207,6 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     connectionState: "CLOSED" as CanonicalAgentConnectionState,
     microphoneReady: false,
   });
-  const answeringRef = useRef<string | null>(null);
   const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
   const outboundCanonicalCallIdRef = useRef<string | null>(null);
@@ -359,11 +357,15 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     };
   }, [clientInstanceId, stopSession]);
 
-  const calls = selectSoftphoneRuntimeCalls(media.observations, answeringMediaLegId, {
-    enabled: session?.presence === "AVAILABLE",
-    outboundOperationActive,
-    suppressedOfferIds,
-  });
+  const calls = selectSoftphoneRuntimeCalls(
+    media.observations,
+    media.answeringMediaLegId,
+    {
+      enabled: session?.presence === "AVAILABLE",
+      outboundOperationActive,
+      suppressedOfferIds,
+    },
+  );
   const ringtone = useIncomingCallRingtone(calls.ringtoneOfferId);
 
   useEffect(() => {
@@ -373,27 +375,10 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     if (active) media.activate(active.mediaLegId);
   }, [media, media.observations]);
 
-  useEffect(() => {
-    if (answeringMediaLegId && !calls.answeringMediaLegId) {
-      answeringRef.current = null;
-      // Provider observations are an external subscription snapshot.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAnsweringMediaLegId(null);
-    }
-  }, [answeringMediaLegId, calls.answeringMediaLegId]);
-
   const answer = useCallback(
-    async (mediaLegId: string) => {
-      if (answeringRef.current || calls.active) return;
-      answeringRef.current = mediaLegId;
-      setAnsweringMediaLegId(mediaLegId);
-      try {
-        await media.answer(mediaLegId);
-      } catch (error) {
-        answeringRef.current = null;
-        setAnsweringMediaLegId(null);
-        throw error;
-      }
+    async (mediaLegId: string, expiresAt?: string) => {
+      if (media.answeringMediaLegId || calls.active) return;
+      await media.answer(mediaLegId, expiresAt);
     },
     [calls.active, media],
   );

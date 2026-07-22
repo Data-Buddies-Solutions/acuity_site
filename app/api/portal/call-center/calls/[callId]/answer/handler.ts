@@ -26,12 +26,15 @@ type Claim = (
 export function createInboundAnswerHandler({
   claim = callCenter.claimInboundAnswer,
   getActor,
+  now = performance.now.bind(performance),
 }: {
   claim?: Claim;
   getActor: () => Promise<QueueAccessActor>;
+  now?: () => number;
 }) {
   return withCallCenterApiHandler(
     async (request: Request, context: Context) => {
+      const startedAt = now();
       const callId = (await context.params).callId.trim();
       const idempotencyKey = request.headers.get("Idempotency-Key")?.trim();
       if (!callId || !idempotencyKey || idempotencyKey.length > 200) {
@@ -44,10 +47,11 @@ export function createInboundAnswerHandler({
         legId: body.legId,
         sessionId: body.sessionId,
       });
-      if (result.status === "REJECTED") {
-        return NextResponse.json(result, { status: 409 });
-      }
-      return NextResponse.json(result, { status: result.replayed ? 200 : 202 });
+      const durationMs = Math.max(0, now() - startedAt);
+      return NextResponse.json(result, {
+        headers: { "Server-Timing": `answer-claim;dur=${durationMs.toFixed(1)}` },
+        status: result.status === "REJECTED" ? 409 : result.replayed ? 200 : 202,
+      });
     },
     {
       errorCode: "TEMPORARY_SERVICE_FAILURE",
