@@ -46,6 +46,7 @@ const originalConsoleError = console.error;
 const originalFetch = globalThis.fetch;
 const originalMediaDevices = navigator.mediaDevices;
 let availabilityPatchAttempts = 0;
+let connectedOccupancy = false;
 let expireSessionOnNextPatch = false;
 let rejectAvailabilityChange = false;
 let reopenSessionOnNextAcquire = false;
@@ -136,6 +137,7 @@ describe("Call Center route failure containment", () => {
   beforeEach(() => {
     clients.length = 0;
     availabilityPatchAttempts = 0;
+    connectedOccupancy = false;
     expireSessionOnNextPatch = false;
     rejectAvailabilityChange = false;
     reopenSessionOnNextAcquire = false;
@@ -235,8 +237,9 @@ describe("Call Center route failure containment", () => {
           connectionState: readiness.connectionState,
           leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
           microphoneReady: readiness.microphoneReady,
-          presence:
-            availabilityIntent === "AVAILABLE" && !effectivelyAvailable
+          presence: connectedOccupancy
+            ? "BUSY"
+            : availabilityIntent === "AVAILABLE" && !effectivelyAvailable
               ? "PAUSED"
               : availabilityIntent,
           stateVersion: session.stateVersion + 1,
@@ -423,5 +426,68 @@ describe("Call Center route failure containment", () => {
     await screen.findByText("Connection: READY", {}, { timeout: 5_000 });
     await screen.findByText("Intent: PAUSED");
     await screen.findByText("Presence: PAUSED");
+  });
+
+  it("keeps a renewed lease Paused through connected occupancy", async () => {
+    render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    fireEvent.click(screen.getByRole("button", { name: "Become available" }));
+    await screen.findByText("Presence: AVAILABLE");
+    connectedOccupancy = true;
+    expireSessionOnNextPatch = true;
+
+    act(() => {
+      clients[0]?.handlers.get("telnyx.error")?.({
+        error: { fatal: true, name: "CONNECTION_FAILED" },
+      });
+    });
+
+    await screen.findByText("Connection: READY", {}, { timeout: 5_000 });
+    await screen.findByText("Presence: BUSY");
+    expect(screen.getByText("Intent: PAUSED")).toBeTruthy();
+
+    connectedOccupancy = false;
+    act(() => {
+      clients.at(-1)?.handlers.get("telnyx.error")?.({
+        error: { fatal: true, name: "CONNECTION_FAILED" },
+      });
+    });
+    await screen.findByText("Presence: PAUSED", {}, { timeout: 5_000 });
+    expect(screen.getByText("Intent: PAUSED")).toBeTruthy();
+  });
+
+  it("restores confirmed availability after temporary canonical occupancy", async () => {
+    render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    fireEvent.click(screen.getByRole("button", { name: "Become available" }));
+    await screen.findByText("Presence: AVAILABLE");
+    connectedOccupancy = true;
+
+    act(() => {
+      clients[0]?.handlers.get("telnyx.error")?.({
+        error: { fatal: true, name: "CONNECTION_FAILED" },
+      });
+    });
+    await screen.findByText("Presence: BUSY");
+    expect(screen.getByText("Intent: AVAILABLE")).toBeTruthy();
+
+    connectedOccupancy = false;
+    act(() => {
+      clients.at(-1)?.handlers.get("telnyx.error")?.({
+        error: { fatal: true, name: "CONNECTION_FAILED" },
+      });
+    });
+    await screen.findByText("Presence: AVAILABLE", {}, { timeout: 5_000 });
+    expect(screen.getByText("Intent: AVAILABLE")).toBeTruthy();
   });
 });

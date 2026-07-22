@@ -423,6 +423,7 @@ describe("canonical agent sessions", () => {
           {
             ...identity,
             audioReady: true,
+            availabilityChange: true,
             availabilityIntent,
             connectionState: "READY",
             expectedStateVersion: acquired.session.stateVersion,
@@ -466,9 +467,7 @@ describe("canonical agent sessions", () => {
     );
     expect(busy.session.presence).toBe("BUSY");
 
-    store.activeCallEndpoints.clear();
-    store.connectedCallEndpoints.clear();
-    const paused = await updateAgentSessionReadiness(
+    const renewedBusy = await updateAgentSessionReadiness(
       store,
       actor,
       {
@@ -481,6 +480,24 @@ describe("canonical agent sessions", () => {
         sessionId: acquired.session.id,
       },
       new Date(start.getTime() + 2_000),
+    );
+    expect(renewedBusy.session.presence).toBe("BUSY");
+
+    store.activeCallEndpoints.clear();
+    store.connectedCallEndpoints.clear();
+    const paused = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        availabilityIntent: "PAUSED",
+        connectionState: "READY",
+        expectedStateVersion: renewedBusy.session.stateVersion,
+        microphoneReady: true,
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 3_000),
     );
     expect(paused.session.presence).toBe("PAUSED");
   });

@@ -392,11 +392,9 @@ export async function updateAgentSessionReadiness(
       availabilityIntent !== resolveAgentAvailabilityIntent(session.presence);
 
     const requiredWrapUp = await transaction.hasRequiredWrapUp(session.endpointId);
-    const activeCall = await transaction.hasActiveCall(session.endpointId);
-    if (
-      (activeCall && availabilityChanged) ||
-      (requiredWrapUp && input.availabilityChange)
-    ) {
+    const occupied =
+      requiredWrapUp || (await transaction.hasActiveCall(session.endpointId));
+    if (occupied && input.availabilityChange) {
       return {
         error: new AgentSessionError(
           "Availability cannot be changed during an active call",

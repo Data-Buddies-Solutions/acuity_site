@@ -354,7 +354,9 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     const next =
       newLease && agentSession.leaseContinuity !== "REPLAYED"
         ? "PAUSED"
-        : resolveAgentAvailabilityIntent(session.presence);
+        : sameLease && session.presence === "BUSY" && availabilityChoiceRef.current
+          ? availabilityChoiceRef.current
+          : resolveAgentAvailabilityIntent(session.presence);
     const confirmedChoice = sameLease
       ? availabilityChoiceRef.current
       : clientInstanceId && agentSession.leaseContinuity === "REPLAYED"
