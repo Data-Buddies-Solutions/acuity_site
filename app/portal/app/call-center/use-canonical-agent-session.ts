@@ -699,7 +699,7 @@ export function useCanonicalAgentSession({
   const retryAvailability = useCallback(async () => {
     const availabilityIntent = availabilityRetryRef.current;
     if (!availabilityIntent) return;
-    await setAvailability(availabilityIntent);
+    return await setAvailability(availabilityIntent);
   }, [setAvailability]);
 
   useEffect(() => {

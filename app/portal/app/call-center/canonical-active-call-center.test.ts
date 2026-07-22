@@ -162,7 +162,7 @@ describe("canonical active call center correlation", () => {
     ).toEqual([]);
   });
 
-  it("keeps a null-winner outbound source active and its transfer target answerable", () => {
+  it("fails closed for connected outbound calls without a bridged winner", () => {
     const outbound = {
       ...call,
       answeredAt: "2026-07-12T12:00:10.000Z",
@@ -186,11 +186,11 @@ describe("canonical active call center correlation", () => {
     const source = { endpointId: "endpoint-1", id: "session-1" };
     const target = { endpointId: "endpoint-2", id: "session-2" };
 
-    expect(selectCanonicalAgentActiveCall([outbound], source)).toEqual(outbound);
+    expect(selectCanonicalAgentActiveCall([outbound], source)).toBeNull();
     expect(selectCanonicalAgentActiveCall([outbound], target)).toBeNull();
     expect(isCanonicalTransferOffer(outbound, source)).toBe(false);
-    expect(isCanonicalTransferOffer(outbound, target)).toBe(true);
-    expect(hasCanonicalPendingTransfer(outbound)).toBe(true);
+    expect(isCanonicalTransferOffer(outbound, target)).toBe(false);
+    expect(hasCanonicalPendingTransfer(outbound)).toBe(false);
   });
 
   it("does not treat a lone null-winner outbound source as a transfer offer", () => {

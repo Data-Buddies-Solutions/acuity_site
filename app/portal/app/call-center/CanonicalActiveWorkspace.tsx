@@ -482,7 +482,8 @@ function ConnectedCanonicalActiveWorkspace({
         );
         return Boolean(
           match &&
-          (call.status !== "CONNECTED" || isCanonicalTransferOffer(call, session)),
+          ((call.direction === "INBOUND" && call.status !== "CONNECTED") ||
+            isCanonicalTransferOffer(call, session)),
         );
       })
     : null;

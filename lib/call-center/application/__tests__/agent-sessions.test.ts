@@ -531,7 +531,7 @@ describe("canonical agent sessions", () => {
     expect(recovered.session.presence).toBe("AVAILABLE");
   });
 
-  it("does not clear required wrap-up from a readiness heartbeat", async () => {
+  it("derives stale wrap-up from the canonical active-call lifecycle", async () => {
     const store = new FakeStore();
     const acquired = await acquireAgentSession(store, actor, identity, start);
     store.sessions[0]!.presence = "WRAP_UP";
@@ -552,7 +552,7 @@ describe("canonical agent sessions", () => {
       new Date(start.getTime() + 1_000),
     );
 
-    expect(heartbeat.session.presence).toBe("WRAP_UP");
+    expect(heartbeat.session.presence).toBe("AVAILABLE");
   });
 
   it("rejects incomplete availability without changing the session", async () => {

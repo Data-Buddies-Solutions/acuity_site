@@ -34,7 +34,7 @@ function outboundSnapshotCall(id: string, locationId: string) {
         providerCallControlId: "control-1",
         providerCallLegId: "provider-leg-1",
         providerCallSessionId: "provider-session-1",
-        status: "ANSWERED" as const,
+        status: "BRIDGED" as const,
       },
     ],
     number: {
@@ -53,7 +53,7 @@ function outboundSnapshotCall(id: string, locationId: string) {
     stateVersion: 3,
     status: "CONNECTED" as const,
     toPhone: "+19542872010",
-    winningLegId: null,
+    winningLegId: `${id}-leg`,
   };
 }
 
@@ -307,14 +307,14 @@ describe("call center snapshot", () => {
           expect.objectContaining({
             endpointLabel: "Front Desk 1",
             id: "call-outbound-authorized-leg",
-            status: "ANSWERED",
+            status: "BRIDGED",
           }),
         ],
         onHold: true,
         queueId: "queue-1",
         status: "CONNECTED",
         toPhone: "+19542872010",
-        winningLegId: null,
+        winningLegId: "call-outbound-authorized-leg",
       }),
     );
     expect(state.selectedQueueCallIds).toEqual(["call-outbound-authorized"]);

@@ -395,9 +395,7 @@ export async function updateAgentSessionReadiness(
 
     const availabilityIntent = input.availabilityIntent ?? input.presence;
 
-    const requiredWrapUp = session.presence === "WRAP_UP";
-    const occupied =
-      requiredWrapUp || (await transaction.hasActiveCall(session.endpointId));
+    const occupied = await transaction.hasActiveCall(session.endpointId);
     if (occupied && (input.availabilityChange || availabilityIntent === "PAUSED")) {
       return {
         error: new AgentSessionError(
@@ -411,9 +409,7 @@ export async function updateAgentSessionReadiness(
       session.endpointId,
     ))
       ? "BUSY"
-      : requiredWrapUp
-        ? "WRAP_UP"
-        : availabilityIntent;
+      : availabilityIntent;
     let nextReadiness = {
       audioReady: input.audioReady,
       connectionState: input.connectionState,

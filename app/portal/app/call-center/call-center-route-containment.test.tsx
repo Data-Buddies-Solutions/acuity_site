@@ -43,6 +43,9 @@ const originalBroadcastChannel = globalThis.BroadcastChannel;
 const originalConsoleError = console.error;
 const originalFetch = globalThis.fetch;
 const originalMediaDevices = navigator.mediaDevices;
+let availabilityPatchAttempts = 0;
+let acquiredSessionId = "session-1";
+let rejectAvailabilityChange = false;
 
 class FakeAudioContext {
   currentTime = 0;
@@ -116,7 +119,10 @@ function AvailabilityProbe() {
       <p>
         Media ready: {String(runtime.media.microphoneReady && runtime.media.soundReady)}
       </p>
-      <button onClick={() => void runtime.setAvailability("AVAILABLE")} type="button">
+      <button
+        onClick={() => void runtime.setAvailability("AVAILABLE").catch(() => {})}
+        type="button"
+      >
         Become available
       </button>
     </div>
@@ -126,6 +132,9 @@ function AvailabilityProbe() {
 describe("Call Center route failure containment", () => {
   beforeEach(() => {
     clients.length = 0;
+    availabilityPatchAttempts = 0;
+    acquiredSessionId = "session-1";
+    rejectAvailabilityChange = false;
     window.sessionStorage.clear();
     Object.defineProperty(globalThis, "Audio", {
       configurable: true,
@@ -163,7 +172,7 @@ describe("Call Center route failure containment", () => {
           clientInstanceId,
           connectionState: "CONNECTING",
           endpointId: "endpoint-1",
-          id: "session-1",
+          id: acquiredSessionId,
           leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
           microphoneReady: false,
           presence: "PAUSED",
@@ -173,6 +182,12 @@ describe("Call Center route failure containment", () => {
       }
       if (method === "PATCH" && session) {
         const readiness = JSON.parse(String(init?.body));
+        if (readiness.availabilityChange) {
+          availabilityPatchAttempts += 1;
+          if (rejectAvailabilityChange) {
+            return Response.json({ error: "Availability rejected" }, { status: 409 });
+          }
+        }
         const effectivelyAvailable =
           readiness.presence === "AVAILABLE" &&
           readiness.connectionState === "READY" &&
@@ -295,5 +310,57 @@ describe("Call Center route failure containment", () => {
     await screen.findByText("Media ready: true");
     await screen.findByText("Intent: AVAILABLE");
     await screen.findByText("Presence: AVAILABLE");
+  });
+
+  it("does not restore a rejected availability choice after refresh", async () => {
+    rejectAvailabilityChange = true;
+    const first = render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    fireEvent.click(screen.getByRole("button", { name: "Become available" }));
+    await waitFor(() => expect(availabilityPatchAttempts).toBe(1));
+    expect(screen.getByText("Intent: PAUSED")).toBeTruthy();
+    first.unmount();
+    rejectAvailabilityChange = false;
+
+    render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    await screen.findByText("Media ready: true");
+    expect(screen.getByText("Intent: PAUSED")).toBeTruthy();
+    expect(screen.getByText("Presence: PAUSED")).toBeTruthy();
+  });
+
+  it("does not carry confirmed availability into a later Agent Session", async () => {
+    const first = render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    fireEvent.click(screen.getByRole("button", { name: "Become available" }));
+    await screen.findByText("Presence: AVAILABLE");
+    first.unmount();
+    acquiredSessionId = "session-2";
+
+    render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    await screen.findByText("Media ready: true");
+    expect(screen.getByText("Intent: PAUSED")).toBeTruthy();
+    expect(screen.getByText("Presence: PAUSED")).toBeTruthy();
   });
 });

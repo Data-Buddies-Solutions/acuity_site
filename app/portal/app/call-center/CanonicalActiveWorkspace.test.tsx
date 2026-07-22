@@ -71,10 +71,10 @@ function connectedOutboundCall(update: Partial<CallView> = {}): CallView {
       {
         ...call.legs[0]!,
         endpointLabel: "Front Desk 1",
-        status: "ANSWERED",
+        status: "BRIDGED",
       },
     ],
-    winningLegId: null,
+    winningLegId: "agent-leg-1",
     ...update,
   };
 }
@@ -340,6 +340,20 @@ describe("call readiness", () => {
     expect(within(row).getByRole("status").textContent).toContain("Phone number copied");
   });
 
+  it("keeps an agent-first outbound leg out of the incoming offer UI", async () => {
+    const outbound = connectedCall("OUTBOUND");
+    outbound.answeredAt = null;
+    outbound.status = "RINGING";
+    outbound.winningLegId = null;
+    outbound.legs[0]!.status = "ANSWERED";
+
+    renderWorkspace(workspaceRuntime({ media: mediaControls("ACTIVE") }), [], [outbound]);
+
+    await screen.findByText("No callers waiting. You're ready for calls.");
+    expect(screen.queryByRole("region", { name: "Personal call offer" })).toBeNull();
+    expect(screen.queryByText("Incoming call")).toBeNull();
+  });
+
   it("keeps held inbound and outbound details and restores both rows on Resume", async () => {
     const inbound = connectedCall("INBOUND");
     inbound.callOfficeLabel = "Hollywood Optical";
@@ -497,6 +511,7 @@ describe("call readiness", () => {
 
   it("fails closed without authorized queue visibility or one owning seat", async () => {
     const missingWinner = connectedOutboundCall();
+    missingWinner.winningLegId = null;
     missingWinner.legs.push({
       ...missingWinner.legs[0]!,
       agentSessionId: "session-2",

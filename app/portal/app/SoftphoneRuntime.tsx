@@ -34,6 +34,46 @@ const PHONE_ACTIVE_ELSEWHERE = "Phone active in another tab";
 const AVAILABILITY_INTENT_STORAGE_PREFIX = "acuity.call-center.availability-intent";
 const OUTBOUND_MEDIA_OBSERVATION_TIMEOUT_MS = 75_000;
 
+function readConfirmedAvailabilityIntent(
+  storage: Storage,
+  clientInstanceId: string,
+  sessionId: string,
+): AgentAvailabilityIntent | null {
+  const key = `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`;
+  try {
+    const stored = JSON.parse(storage.getItem(key) ?? "null") as {
+      intent?: unknown;
+      sessionId?: unknown;
+    } | null;
+    if (
+      stored?.sessionId === sessionId &&
+      (stored.intent === "AVAILABLE" || stored.intent === "PAUSED")
+    ) {
+      return stored.intent;
+    }
+    if (stored) storage.removeItem(key);
+  } catch {
+    storage.removeItem(key);
+  }
+  return null;
+}
+
+function writeConfirmedAvailabilityIntent(
+  storage: Storage,
+  clientInstanceId: string,
+  sessionId: string,
+  intent: AgentAvailabilityIntent,
+) {
+  try {
+    storage.setItem(
+      `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`,
+      JSON.stringify({ intent, sessionId }),
+    );
+  } catch {
+    // Canonical Agent Session state remains authoritative if storage is unavailable.
+  }
+}
+
 export function scheduleOutboundOperationExpiry(
   expire: () => void,
   delayMs = OUTBOUND_MEDIA_OBSERVATION_TIMEOUT_MS,
@@ -223,6 +263,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   });
   const answeringRef = useRef<string | null>(null);
   const availabilityChoiceRef = useRef<AgentAvailabilityIntent | null>(null);
+  const availabilitySessionIdRef = useRef<string | null>(null);
   const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
   const outboundCanonicalCallIdRef = useRef<string | null>(null);
@@ -244,13 +285,6 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
           return;
         }
         claimed = next;
-        const storedAvailability = window.sessionStorage.getItem(
-          `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${next.clientInstanceId}`,
-        );
-        if (storedAvailability === "AVAILABLE" || storedAvailability === "PAUSED") {
-          availabilityChoiceRef.current = storedAvailability;
-          setAvailabilityIntent(storedAvailability);
-        }
         setClient(next);
       })
       .catch(() => {
@@ -336,6 +370,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     if (!session) {
       if (!clientInstanceId) {
         availabilityChoiceRef.current = null;
+        availabilitySessionIdRef.current = null;
         // A new browser identity starts with an explicit unavailable choice.
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setAvailabilityIntent("PAUSED");
@@ -343,16 +378,47 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       return;
     }
     const next = resolveAgentAvailabilityIntent(session.presence);
+    const sameSession = availabilitySessionIdRef.current === session.id;
+    const confirmedChoice = sameSession
+      ? availabilityChoiceRef.current
+      : clientInstanceId
+        ? readConfirmedAvailabilityIntent(
+            window.sessionStorage,
+            clientInstanceId,
+            session.id,
+          )
+        : null;
+    availabilitySessionIdRef.current = session.id;
     if (
-      availabilityChoiceRef.current === "AVAILABLE" &&
+      confirmedChoice === "AVAILABLE" &&
       session.presence === "PAUSED" &&
       (session.connectionState !== "READY" ||
         !session.microphoneReady ||
         !session.audioReady)
     ) {
+      availabilityChoiceRef.current = confirmedChoice;
+      setAvailabilityIntent((current) =>
+        current === confirmedChoice ? current : confirmedChoice,
+      );
       return;
     }
     availabilityChoiceRef.current = next;
+    if (
+      clientInstanceId &&
+      (session.presence === "AVAILABLE" ||
+        session.presence === "BUSY" ||
+        (session.presence === "PAUSED" &&
+          session.connectionState === "READY" &&
+          session.microphoneReady &&
+          session.audioReady))
+    ) {
+      writeConfirmedAvailabilityIntent(
+        window.sessionStorage,
+        clientInstanceId,
+        session.id,
+        next,
+      );
+    }
     // Every canonical projection can supersede an older local availability choice.
     setAvailabilityIntent((current) => (current === next ? current : next));
   }, [clientInstanceId, session]);
@@ -482,24 +548,37 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   );
   const setAvailability = useCallback(
     async (presence: AgentAvailabilityIntent) => {
+      const confirmed = await agentSession.setAvailability(presence);
       availabilityChoiceRef.current = presence;
-      if (clientInstanceId) {
-        window.sessionStorage.setItem(
-          `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`,
+      availabilitySessionIdRef.current = confirmed?.id ?? null;
+      if (clientInstanceId && confirmed) {
+        writeConfirmedAvailabilityIntent(
+          window.sessionStorage,
+          clientInstanceId,
+          confirmed.id,
           presence,
         );
       }
-      await agentSession.setAvailability(presence);
       setAvailabilityIntent(presence);
     },
     [agentSession, clientInstanceId],
   );
   const retryAvailability = useCallback(async () => {
-    const presence = availabilityChoiceRef.current;
-    if (!presence) return;
-    await agentSession.retryAvailability();
+    const confirmed = await agentSession.retryAvailability();
+    if (!confirmed) return;
+    const presence = resolveAgentAvailabilityIntent(confirmed.presence);
+    availabilityChoiceRef.current = presence;
+    availabilitySessionIdRef.current = confirmed.id;
+    if (clientInstanceId) {
+      writeConfirmedAvailabilityIntent(
+        window.sessionStorage,
+        clientInstanceId,
+        confirmed.id,
+        presence,
+      );
+    }
     setAvailabilityIntent(presence);
-  }, [agentSession]);
+  }, [agentSession, clientInstanceId]);
   const takeover = useCallback(async () => {
     if (!clientInstanceId) return;
     const response = await fetch("/api/portal/call-center/agent-sessions", {
