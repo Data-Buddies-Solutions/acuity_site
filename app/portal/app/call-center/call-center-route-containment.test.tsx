@@ -44,6 +44,7 @@ const originalConsoleError = console.error;
 const originalFetch = globalThis.fetch;
 const originalMediaDevices = navigator.mediaDevices;
 let availabilityPatchAttempts = 0;
+let expireSessionOnNextPatch = false;
 let rejectAvailabilityChange = false;
 let reopenSessionOnNextAcquire = false;
 
@@ -133,6 +134,7 @@ describe("Call Center route failure containment", () => {
   beforeEach(() => {
     clients.length = 0;
     availabilityPatchAttempts = 0;
+    expireSessionOnNextPatch = false;
     rejectAvailabilityChange = false;
     reopenSessionOnNextAcquire = false;
     window.sessionStorage.clear();
@@ -194,6 +196,20 @@ describe("Call Center route failure containment", () => {
         });
       }
       if (method === "PATCH" && session) {
+        if (expireSessionOnNextPatch) {
+          expireSessionOnNextPatch = false;
+          reopenSessionOnNextAcquire = true;
+          return Response.json(
+            {
+              error: {
+                code: "SESSION_EXPIRED",
+                referenceId: "ABC123",
+                retryable: true,
+              },
+            },
+            { status: 409 },
+          );
+        }
         const readiness = JSON.parse(String(init?.body));
         if (readiness.availabilityChange) {
           availabilityPatchAttempts += 1;
@@ -375,5 +391,28 @@ describe("Call Center route failure containment", () => {
     await screen.findByText("Media ready: true");
     expect(screen.getByText("Intent: PAUSED")).toBeTruthy();
     expect(screen.getByText("Presence: PAUSED")).toBeTruthy();
+  });
+
+  it("resets confirmed availability during in-place lease reconnection", async () => {
+    render(
+      <SoftphoneRuntime>
+        <AvailabilityProbe />
+      </SoftphoneRuntime>,
+    );
+
+    await screen.findByText("Connection: READY");
+    fireEvent.click(screen.getByRole("button", { name: "Become available" }));
+    await screen.findByText("Presence: AVAILABLE");
+    expireSessionOnNextPatch = true;
+
+    act(() => {
+      clients[0]?.handlers.get("telnyx.error")?.({
+        error: { fatal: true, name: "CONNECTION_FAILED" },
+      });
+    });
+
+    await screen.findByText("Connection: READY", {}, { timeout: 5_000 });
+    await screen.findByText("Intent: PAUSED");
+    await screen.findByText("Presence: PAUSED");
   });
 });

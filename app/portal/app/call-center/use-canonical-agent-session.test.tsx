@@ -638,7 +638,7 @@ describe("useCanonicalAgentSession", () => {
     });
   });
 
-  it("restores availability after recovering an expired paused lease", async () => {
+  it("resets availability after reconnecting an expired paused lease", async () => {
     const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
     let postCount = 0;
     let patchCount = 0;
@@ -654,16 +654,14 @@ describe("useCanonicalAgentSession", () => {
       if (method === "POST") {
         postCount += 1;
         return Response.json({
+          leaseContinuity: postCount === 1 ? "ACQUIRED" : "RECONNECTED",
           leaseDurationMs: 60_000,
           session: postCount === 1 ? agentSession() : pausedSession(3),
         });
       }
       patchCount += 1;
       return Response.json({
-        session:
-          patchCount === 1
-            ? agentSession(1)
-            : { ...pausedSession(4), presence: "AVAILABLE" },
+        session: patchCount === 1 ? agentSession(1) : pausedSession(4),
       });
     }) as unknown as typeof fetch;
 
@@ -685,10 +683,10 @@ describe("useCanonicalAgentSession", () => {
     rerender({ projectedSession: pausedSession(2, true) });
 
     await waitFor(() => expect(result.current.session?.stateVersion).toBe(4));
-    expect(result.current.session?.presence).toBe("AVAILABLE");
+    expect(result.current.session?.presence).toBe("PAUSED");
     expect(requests.at(-1)).toMatchObject({
       method: "PATCH",
-      body: { presence: "AVAILABLE" },
+      body: { presence: "PAUSED" },
     });
   });
 

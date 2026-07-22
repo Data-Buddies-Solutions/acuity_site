@@ -431,6 +431,49 @@ describe("canonical agent sessions", () => {
     });
   });
 
+  it("keeps a reconnected paused intent underneath connected occupancy", async () => {
+    const store = new FakeStore();
+    const acquired = await acquireAgentSession(store, actor, identity, start);
+    store.activeCallEndpoints.add(acquired.session.endpointId);
+    store.connectedCallEndpoints.add(acquired.session.endpointId);
+
+    const busy = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        availabilityIntent: "PAUSED",
+        connectionState: "READY",
+        expectedStateVersion: acquired.session.stateVersion,
+        microphoneReady: true,
+        presence: "PAUSED",
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 1_000),
+    );
+    expect(busy.session.presence).toBe("BUSY");
+
+    store.activeCallEndpoints.clear();
+    store.connectedCallEndpoints.clear();
+    const paused = await updateAgentSessionReadiness(
+      store,
+      actor,
+      {
+        ...identity,
+        audioReady: true,
+        availabilityIntent: "PAUSED",
+        connectionState: "READY",
+        expectedStateVersion: busy.session.stateVersion,
+        microphoneReady: true,
+        presence: "PAUSED",
+        sessionId: acquired.session.id,
+      },
+      new Date(start.getTime() + 2_000),
+    );
+    expect(paused.session.presence).toBe("PAUSED");
+  });
+
   it("preserves explicit unavailability when media readiness improves", async () => {
     const store = new FakeStore();
     const acquired = await acquireAgentSession(store, actor, identity, start);

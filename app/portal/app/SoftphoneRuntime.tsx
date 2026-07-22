@@ -263,6 +263,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
   });
   const answeringRef = useRef<string | null>(null);
   const availabilityChoiceRef = useRef<AgentAvailabilityIntent | null>(null);
+  const availabilityLeaseGenerationRef = useRef<number | null>(null);
   const availabilitySessionIdRef = useRef<string | null>(null);
   const mediaObservationsRef = useRef<readonly MediaObservation[]>([]);
   const ownerChannelRef = useRef<BroadcastChannel | null>(null);
@@ -370,6 +371,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     if (!session) {
       if (!clientInstanceId) {
         availabilityChoiceRef.current = null;
+        availabilityLeaseGenerationRef.current = null;
         availabilitySessionIdRef.current = null;
         // A new browser identity starts with an explicit unavailable choice.
         // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -377,9 +379,15 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
       }
       return;
     }
-    const next = resolveAgentAvailabilityIntent(session.presence);
-    const sameSession = availabilitySessionIdRef.current === session.id;
-    const confirmedChoice = sameSession
+    const newLease =
+      agentSession.leaseGeneration !== null &&
+      availabilityLeaseGenerationRef.current !== agentSession.leaseGeneration;
+    const sameLease = !newLease && availabilitySessionIdRef.current === session.id;
+    const next =
+      newLease && agentSession.leaseContinuity !== "REPLAYED"
+        ? "PAUSED"
+        : resolveAgentAvailabilityIntent(session.presence);
+    const confirmedChoice = sameLease
       ? availabilityChoiceRef.current
       : clientInstanceId && agentSession.leaseContinuity === "REPLAYED"
         ? readConfirmedAvailabilityIntent(
@@ -388,7 +396,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
             session.id,
           )
         : null;
-    if (!sameSession && clientInstanceId && agentSession.leaseContinuity !== "REPLAYED") {
+    if (!sameLease && clientInstanceId && agentSession.leaseContinuity !== "REPLAYED") {
       try {
         window.sessionStorage.removeItem(
           `${AVAILABILITY_INTENT_STORAGE_PREFIX}.${clientInstanceId}`,
@@ -397,6 +405,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
         // Canonical Agent Session state remains authoritative without storage.
       }
     }
+    availabilityLeaseGenerationRef.current = agentSession.leaseGeneration;
     availabilitySessionIdRef.current = session.id;
     if (
       confirmedChoice === "AVAILABLE" &&
@@ -438,7 +447,12 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     }
     // Every canonical projection can supersede an older local availability choice.
     setAvailabilityIntent((current) => (current === next ? current : next));
-  }, [agentSession.leaseContinuity, clientInstanceId, session]);
+  }, [
+    agentSession.leaseContinuity,
+    agentSession.leaseGeneration,
+    clientInstanceId,
+    session,
+  ]);
 
   useEffect(() => {
     const next = {

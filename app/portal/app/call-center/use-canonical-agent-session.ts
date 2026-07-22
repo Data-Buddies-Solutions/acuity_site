@@ -145,6 +145,7 @@ export function useCanonicalAgentSession({
   const [error, setError] = useState<string | null>(null);
   const [leaseContinuity, setLeaseContinuity] =
     useState<AgentSessionLeaseContinuity | null>(null);
+  const [leaseGeneration, setLeaseGeneration] = useState<number | null>(null);
   const [session, setSession] = useState<AgentSessionView | null>(null);
   const activeRef = useRef<ActiveSession | null>(null);
   const availabilityConfirmationRef = useRef<Readiness | null>(null);
@@ -152,6 +153,7 @@ export function useCanonicalAgentSession({
   const availabilityRetryRef = useRef<AgentAvailabilityIntent | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const identityRef = useRef({ clientInstanceId });
+  const leaseGenerationRef = useRef(0);
   const lifecycleRef = useRef(0);
   const mountedRef = useRef(true);
   const patchPromiseRef = useRef<Promise<void> | null>(null);
@@ -390,6 +392,7 @@ export function useCanonicalAgentSession({
     patchRequestedRef.current = false;
     if (mountedRef.current) {
       setLeaseContinuity(null);
+      setLeaseGeneration(null);
       setSession(null);
     }
 
@@ -453,7 +456,12 @@ export function useCanonicalAgentSession({
           ) {
             active.session = current.session;
           }
-          if (
+          if (active.leaseContinuity === "RECONNECTED") {
+            readinessRef.current = {
+              ...readinessRef.current,
+              presence: "PAUSED",
+            };
+          } else if (
             !current &&
             (active.session.presence === "AVAILABLE" ||
               active.session.presence === "BUSY")
@@ -465,6 +473,8 @@ export function useCanonicalAgentSession({
           }
           activeRef.current = active;
           setLeaseContinuity(active.leaseContinuity);
+          leaseGenerationRef.current += 1;
+          setLeaseGeneration(leaseGenerationRef.current);
           setSession(active.session);
           if (!force) void patchReadiness().catch(() => {});
           return active;
@@ -771,6 +781,7 @@ export function useCanonicalAgentSession({
     availabilityRetryable,
     error,
     leaseContinuity,
+    leaseGeneration,
     refresh,
     retryAvailability,
     session: effectiveSession,
