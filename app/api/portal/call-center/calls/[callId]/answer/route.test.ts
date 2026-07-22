@@ -31,6 +31,10 @@ describe("canonical inbound Answer route", () => {
         };
       },
       getActor: async () => actor,
+      now: (() => {
+        const values = [10, 22];
+        return () => values.shift() ?? 22;
+      })(),
     });
 
     const response = await POST(
@@ -46,6 +50,7 @@ describe("canonical inbound Answer route", () => {
     );
 
     expect(response.status).toBe(202);
+    expect(response.headers.get("Server-Timing")).toBe("answer-claim;dur=12.0");
     expect(captured).toEqual({
       actor,
       input: {

@@ -1120,6 +1120,97 @@ function withMediaState(
 }
 
 describe("canonical offer Answer", () => {
+  it("shows Connecting immediately, keeps context visible, and blocks duplicate clicks", async () => {
+    let finishClaim!: (response: Response) => void;
+    let finishAnswer!: () => void;
+    globalThis.fetch = mock(
+      async () =>
+        new Promise<Response>((resolve) => {
+          finishClaim = resolve;
+        }),
+    ) as unknown as typeof fetch;
+    const answer = mock(
+      async () =>
+        new Promise<void>((resolve) => {
+          finishAnswer = resolve;
+        }),
+    );
+    const timings: Array<{ phase: string; serverDurationMs?: number }> = [];
+    const times = [100, 125, 180];
+
+    render(
+      <div>
+        <span>Patient call · (954) 609-7250</span>
+        <CanonicalOfferAnswerButton
+          answer={answer}
+          answering={false}
+          callId="call-1"
+          connectionState="READY"
+          disabled={false}
+          legId="leg-1"
+          mediaLegId="media-leg-1"
+          now={() => times.shift() ?? 180}
+          reportTiming={(timing) =>
+            timings.push({
+              phase: timing.phase,
+              ...(timing.serverDurationMs === undefined
+                ? {}
+                : { serverDurationMs: timing.serverDurationMs }),
+            })
+          }
+          sessionId="session-1"
+        />
+      </div>,
+    );
+
+    const answerButton = screen.getByRole("button", { name: "Answer" });
+    fireEvent.click(answerButton);
+
+    expect(screen.getByText("Patient call · (954) 609-7250")).toBeTruthy();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Connecting…" }).disabled,
+    ).toBe(true);
+    expect(screen.getByRole("status").textContent).toBe("Connecting…");
+    expect(document.querySelector(".animate-spin")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Connecting…" }));
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishClaim(
+        Response.json(
+          {
+            replayed: false,
+            reservation: {
+              expiresAt: "2026-07-21T12:00:05.000Z",
+              id: "reservation-1",
+            },
+            status: "ACCEPTED",
+          },
+          {
+            headers: { "Server-Timing": "answer-claim;dur=8.5" },
+            status: 202,
+          },
+        ),
+      );
+      await Promise.resolve();
+    });
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Connecting…" }).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      finishAnswer();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(timings).toEqual([
+        { phase: "CLICKED" },
+        { phase: "CLAIM_COMPLETED", serverDurationMs: 8.5 },
+        { phase: "SDK_ACTIVE" },
+      ]),
+    );
+  });
+
   it("answers a transfer offer without claiming the connected call as inbound", async () => {
     globalThis.fetch = mock(async () => {
       throw new Error("transfer offers must not use the inbound Answer claim");
@@ -1135,6 +1226,9 @@ describe("canonical offer Answer", () => {
         disabled={false}
         legId="leg-1"
         mediaLegId="media-leg-1"
+        reportTiming={() => {
+          throw new Error("timing delivery failed");
+        }}
         sessionId="session-1"
         transferOffer
       />,
@@ -1154,7 +1248,10 @@ describe("canonical offer Answer", () => {
       return Response.json(
         {
           replayed: false,
-          reservation: { id: "reservation-1" },
+          reservation: {
+            expiresAt: "2026-07-21T12:00:05.000Z",
+            id: "reservation-1",
+          },
           status: "ACCEPTED",
         },
         { status: 202 },
@@ -1181,7 +1278,7 @@ describe("canonical offer Answer", () => {
     });
 
     expect(order).toEqual(["claim", "provider-answer"]);
-    expect(answer).toHaveBeenCalledWith("media-leg-1");
+    expect(answer).toHaveBeenCalledWith("media-leg-1", "2026-07-21T12:00:05.000Z");
   });
 
   it("allows a fresh claim after a rejected attempt", async () => {
@@ -1238,7 +1335,10 @@ describe("canonical offer Answer", () => {
       return Response.json(
         {
           replayed: false,
-          reservation: { id: "reservation-1" },
+          reservation: {
+            expiresAt: "2026-07-21T12:00:05.000Z",
+            id: "reservation-1",
+          },
           status: "ACCEPTED",
         },
         { status: 202 },
@@ -1291,7 +1391,10 @@ describe("canonical offer Answer", () => {
         : Response.json(
             {
               replayed: false,
-              reservation: { id: "reservation-1" },
+              reservation: {
+                expiresAt: "2026-07-21T12:00:05.000Z",
+                id: "reservation-1",
+              },
               status: "ACCEPTED",
             },
             { status: 202 },
@@ -1335,7 +1438,10 @@ describe("canonical offer Answer", () => {
         : Response.json(
             {
               replayed: false,
-              reservation: { id: "reservation-1" },
+              reservation: {
+                expiresAt: "2026-07-21T12:00:05.000Z",
+                id: "reservation-1",
+              },
               status: "ACCEPTED",
             },
             { status: 202 },

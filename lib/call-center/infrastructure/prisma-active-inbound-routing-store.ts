@@ -15,6 +15,7 @@ import {
   INBOUND_HARD_QUEUE_WINDOW_SECONDS,
   INBOUND_OFFER_WINDOW_SECONDS,
 } from "@/lib/call-center/domain/active-inbound-lifecycle";
+import { INBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS } from "@/lib/call-center/domain/provider-command";
 import { normalizeAgentPresence } from "@/lib/call-center/domain/agent-session-wire";
 import { normalizeCanonicalCallStatus } from "@/lib/call-center/domain/canonical-call-state";
 import type { RoutingDecision } from "@/lib/call-center/domain/routing-decision";
@@ -361,6 +362,7 @@ class PrismaActiveRoutingTransaction implements ActiveRoutingTransaction {
           arguments: {
             agentSessionId: selection.agentSessionId,
             endpointId: selection.endpointId,
+            timeoutSeconds: INBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS,
           },
           callId: context.callId,
           dependsOnCommandId: startRingbackCommandId,
