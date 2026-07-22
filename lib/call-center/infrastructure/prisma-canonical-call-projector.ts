@@ -134,7 +134,7 @@ export type CanonicalCallProjector = {
 
 type Transaction = Prisma.TransactionClient;
 
-async function pendingDialAgentCommandIdsForCustomerCallback(
+async function pendingDialCommandIdsForCallback(
   tx: Transaction,
   input: {
     callDirection: "INBOUND" | "OUTBOUND";
@@ -144,15 +144,17 @@ async function pendingDialAgentCommandIdsForCustomerCallback(
     practiceId: string;
   },
 ) {
-  if (
-    input.legKind !== "CUSTOMER" ||
-    !(
-      input.eventType === "call.answered" ||
-      (input.callDirection === "INBOUND" && input.eventType === "call.playback.started")
-    )
+  let commandType: "DIAL_AGENT" | "DIAL_CUSTOMER" | null = null;
+  if (input.callDirection === "OUTBOUND" && input.eventType === "call.answered") {
+    commandType = input.legKind === "AGENT" ? "DIAL_CUSTOMER" : "DIAL_AGENT";
+  } else if (
+    input.callDirection === "INBOUND" &&
+    input.legKind === "CUSTOMER" &&
+    (input.eventType === "call.answered" || input.eventType === "call.playback.started")
   ) {
-    return [];
+    commandType = "DIAL_AGENT";
   }
+  if (!commandType) return [];
   const commands = await tx.callCenterCommand.findMany({
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { id: true },
@@ -160,7 +162,7 @@ async function pendingDialAgentCommandIdsForCustomerCallback(
       callId: input.callId,
       practiceId: input.practiceId,
       status: "PENDING",
-      type: "DIAL_AGENT",
+      type: commandType,
     },
   });
   return commands.map(({ id }) => id);
@@ -848,19 +850,9 @@ function canonicalCallObservation(
   processedLegId: string,
   { deferTransferSourceHangup = false }: { deferTransferSourceHangup?: boolean } = {},
 ) {
-  if (
-    call.direction === "INBOUND" &&
-    fact.eventType === "call.bridged" &&
-    fact.legKind === "CUSTOMER"
-  ) {
-    return null;
-  }
   if (fact.legKind === "AGENT") {
     if (fact.eventType === "call.hangup" && deferTransferSourceHangup) {
       return null;
-    }
-    if (call.direction === "OUTBOUND" && fact.eventType === "call.answered") {
-      return "CONNECTED" as const;
     }
     if (fact.eventType === "call.hangup") {
       if (call.winningLegId === processedLegId) {
@@ -1113,13 +1105,16 @@ async function resolveCanonicalTransferContext(
 
 function projectedCallDeadline(
   call: { deadlineAt: Date | null; direction: "INBOUND" | "OUTBOUND" },
-  fact: Pick<ResolvedCanonicalTelnyxCallFact, "eventType" | "occurredAt">,
+  fact: Pick<ResolvedCanonicalTelnyxCallFact, "eventType" | "legKind" | "occurredAt">,
 ) {
   if (call.direction === "OUTBOUND") {
     if (fact.eventType === "call.initiated") {
       return new Date(fact.occurredAt.getTime() + OUTBOUND_RING_TIMEOUT_MS);
     }
-    if (fact.eventType === "call.answered" || fact.eventType === "call.hangup") {
+    if (
+      (fact.eventType === "call.answered" && fact.legKind === "CUSTOMER") ||
+      fact.eventType === "call.hangup"
+    ) {
       return null;
     }
   }
@@ -1563,7 +1558,7 @@ function createProjectAndComplete(
 
       const commandIds: string[] = [
         ...preemptedCommandIds,
-        ...(await pendingDialAgentCommandIdsForCustomerCallback(tx, {
+        ...(await pendingDialCommandIdsForCallback(tx, {
           callDirection: call.direction,
           callId: call.id,
           eventType: resolvedFact.eventType,

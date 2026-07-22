@@ -389,28 +389,28 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     });
     await this.transaction.callCenterCommand.create({
       data: {
-        arguments: {},
-        callId: call.id,
-        id: customerCommandId,
-        idempotencyKey: `outbound:${input.idempotencyKey}:customer`,
-        legId: customerLegId,
-        practiceId: actor.practiceId,
-        type: "DIAL_CUSTOMER",
-      },
-    });
-    await this.transaction.callCenterCommand.create({
-      data: {
         arguments: {
           agentSessionId: session.id,
           endpointId: session.endpointId,
         },
         callId: call.id,
-        dependsOnCommandId: customerCommandId,
         id: agentCommandId,
         idempotencyKey: `outbound:${input.idempotencyKey}:agent`,
         legId,
         practiceId: actor.practiceId,
         type: "DIAL_AGENT",
+      },
+    });
+    await this.transaction.callCenterCommand.create({
+      data: {
+        arguments: {},
+        callId: call.id,
+        dependsOnCommandId: agentCommandId,
+        id: customerCommandId,
+        idempotencyKey: `outbound:${input.idempotencyKey}:customer`,
+        legId: customerLegId,
+        practiceId: actor.practiceId,
+        type: "DIAL_CUSTOMER",
       },
     });
     await this.transaction.callCenterEvent.create({
@@ -437,7 +437,7 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
       data: {
         agentSessionId: session.id,
         callId: call.id,
-        commandId: customerCommandId,
+        commandId: agentCommandId,
         customerLegId,
         endpointId: session.endpointId,
         legId,
