@@ -820,6 +820,113 @@ function processedWinningAgentLegId(
     : null;
 }
 
+export function impliedOutboundAgentBridgeLegId(input: {
+  agentLegs: ReadonlyArray<{
+    id: string;
+    providerCallSessionId: string | null;
+    status: string;
+  }>;
+  callDirection: "INBOUND" | "OUTBOUND";
+  currentWinningLegId: string | null;
+  eventType: string;
+  processedLegKind: "AGENT" | "CUSTOMER";
+  processedLegProviderCallSessionId: string | null;
+  processedLegStatus: string;
+}) {
+  if (
+    input.callDirection !== "OUTBOUND" ||
+    input.currentWinningLegId ||
+    input.eventType !== "call.bridged" ||
+    input.processedLegKind !== "CUSTOMER" ||
+    input.processedLegStatus !== "BRIDGED" ||
+    !input.processedLegProviderCallSessionId
+  ) {
+    return null;
+  }
+
+  const matches = input.agentLegs.filter(
+    (agentLeg) =>
+      agentLeg.status === "ANSWERED" &&
+      agentLeg.providerCallSessionId === input.processedLegProviderCallSessionId,
+  );
+  return matches.length === 1 ? matches[0]!.id : null;
+}
+
+async function findImpliedOutboundAgentBridge(
+  tx: Transaction,
+  input: {
+    callDirection: "INBOUND" | "OUTBOUND";
+    callId: string;
+    currentWinningLegId: string | null;
+    eventType: string;
+    processedLegKind: "AGENT" | "CUSTOMER";
+    processedLegProviderCallSessionId: string | null;
+  },
+) {
+  if (
+    input.callDirection !== "OUTBOUND" ||
+    input.currentWinningLegId ||
+    input.eventType !== "call.bridged" ||
+    input.processedLegKind !== "CUSTOMER" ||
+    !input.processedLegProviderCallSessionId
+  ) {
+    return null;
+  }
+
+  const agentLegs = await tx.callCenterCallLeg.findMany({
+    select: {
+      endpointId: true,
+      id: true,
+      providerCallSessionId: true,
+      status: true,
+    },
+    where: {
+      callId: input.callId,
+      kind: "AGENT",
+      status: "ANSWERED",
+    },
+  });
+  const agentLegId = impliedOutboundAgentBridgeLegId({
+    agentLegs,
+    callDirection: input.callDirection,
+    currentWinningLegId: input.currentWinningLegId,
+    eventType: input.eventType,
+    processedLegKind: input.processedLegKind,
+    processedLegProviderCallSessionId: input.processedLegProviderCallSessionId,
+    processedLegStatus: "BRIDGED",
+  });
+  if (!agentLegId) return null;
+
+  const agentLeg = agentLegs.find(({ id }) => id === agentLegId);
+  return agentLeg?.endpointId
+    ? { endpointId: agentLeg.endpointId, id: agentLegId }
+    : null;
+}
+
+async function projectImpliedOutboundAgentBridge(
+  tx: Transaction,
+  input: {
+    agentLegId: string | null;
+    callId: string;
+    occurredAt: Date;
+  },
+) {
+  if (!input.agentLegId) return null;
+
+  const promoted = await tx.callCenterCallLeg.updateMany({
+    data: {
+      bridgedAt: input.occurredAt,
+      status: "BRIDGED",
+    },
+    where: {
+      callId: input.callId,
+      id: input.agentLegId,
+      status: "ANSWERED",
+    },
+  });
+  return promoted.count === 1 ? input.agentLegId : null;
+}
+
 function enrichCanonicalCallIdentity(
   call: {
     callerName: string | null;
@@ -1317,10 +1424,24 @@ function createProjectAndComplete(
         throw new CanonicalProjectionError("CANONICAL_CUSTOMER_LEG_NOT_FOUND");
       }
       const resolved = await resolveProjectionCall(tx, resolvedFact, leg);
-      const settlementEndpointId = leg?.endpointId ?? resolved.endpointId;
+      const impliedOutboundAgentBridge = await findImpliedOutboundAgentBridge(tx, {
+        callDirection: resolved.call.direction,
+        callId: resolved.call.id,
+        currentWinningLegId: resolved.call.winningLegId,
+        eventType: resolvedFact.eventType,
+        processedLegKind: resolvedFact.legKind,
+        processedLegProviderCallSessionId:
+          leg?.providerCallSessionId ?? resolvedFact.providerCallSessionId,
+      });
+      const settlementEndpointId =
+        leg?.endpointId ??
+        resolved.endpointId ??
+        impliedOutboundAgentBridge?.endpointId ??
+        null;
       const settlementInput =
-        resolvedFact.legKind === "AGENT" &&
-        ["call.answered", "call.bridged"].includes(resolvedFact.eventType) &&
+        ((resolvedFact.legKind === "AGENT" &&
+          ["call.answered", "call.bridged"].includes(resolvedFact.eventType)) ||
+          Boolean(impliedOutboundAgentBridge)) &&
         settlementEndpointId
           ? {
               endpointId: settlementEndpointId,
@@ -1525,11 +1646,16 @@ function createProjectAndComplete(
         }
       }
 
+      const previousWinningLegId = call.winningLegId;
+      const impliedAgentBridgeLegId = await projectImpliedOutboundAgentBridge(tx, {
+        agentLegId: impliedOutboundAgentBridge?.id ?? null,
+        callId: call.id,
+        occurredAt: resolvedFact.occurredAt,
+      });
       const bridgedLegs = await tx.callCenterCallLeg.findMany({
         select: { bridgedAt: true, id: true, kind: true },
         where: { bridgedAt: { not: null }, callId: call.id },
       });
-      const previousWinningLegId = call.winningLegId;
       const transferReady = Boolean(
         transfer &&
         resolvedFact.internalTransferTarget &&
@@ -1548,7 +1674,9 @@ function createProjectAndComplete(
       );
       const winningLegId = processedWinningAgentLegId(
         previousWinningLegId,
-        leg,
+        impliedAgentBridgeLegId
+          ? { id: impliedAgentBridgeLegId, kind: "AGENT", status: "BRIDGED" }
+          : leg,
         transferCompleted ? (transfer?.sourceLegId ?? null) : null,
       );
       const hasBridgeEvidence = hasCanonicalConnectionBridgeEvidence(
@@ -1841,8 +1969,10 @@ function createProjectAndComplete(
         );
       }
       if (
-        ((!previousWinningLegId && winningLegId === leg.id) || transferCompleted) &&
-        leg.endpointId
+        ((!previousWinningLegId &&
+          (winningLegId === leg.id || winningLegId === impliedOutboundAgentBridge?.id)) ||
+          transferCompleted) &&
+        settlementEndpointId
       ) {
         if (!settlementInput || !settlementResources) {
           throw new CanonicalProjectionError("CANONICAL_ENDPOINT_NOT_FOUND");
