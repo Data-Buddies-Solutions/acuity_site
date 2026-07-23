@@ -572,7 +572,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
     }
   });
 
-  it("requires both outbound bridge callbacks in either delivery order", async () => {
+  it("connects outbound from the exact answered agent peer and customer bridge", async () => {
     for (const firstKind of ["CUSTOMER", "AGENT"] as const) {
       const fixture = await createFixture(prisma);
       const key = firstKind.toLowerCase();
@@ -642,21 +642,40 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           );
         };
 
-        const secondKind = firstKind === "AGENT" ? "CUSTOMER" : "AGENT";
         const firstProjection = await projectBridge(firstKind, "first", projectedAt);
-        expect(firstProjection).toMatchObject({
-          callStatus: "RINGING",
-          legStatus: "BRIDGED",
-        });
-        await expect(
-          projectBridge(secondKind, "second", new Date("2026-07-20T10:00:02.000Z")),
-        ).resolves.toMatchObject({
-          callStatus: "CONNECTED",
-          legStatus: "BRIDGED",
-        });
+        if (firstKind === "CUSTOMER") {
+          expect(firstProjection).toMatchObject({
+            callStatus: "CONNECTED",
+            legStatus: "BRIDGED",
+          });
+        } else {
+          expect(firstProjection).toMatchObject({
+            callStatus: "RINGING",
+            legStatus: "BRIDGED",
+          });
+          await expect(
+            projectBridge("CUSTOMER", "second", new Date("2026-07-20T10:00:02.000Z")),
+          ).resolves.toMatchObject({
+            callStatus: "CONNECTED",
+            legStatus: "BRIDGED",
+          });
+        }
         expect(
-          await prisma.callCenterCall.findUniqueOrThrow({ where: { id: callId } }),
-        ).toMatchObject({ status: "CONNECTED", winningLegId: legId });
+          await prisma.callCenterCall.findUniqueOrThrow({
+            include: { legs: true },
+            where: { id: callId },
+          }),
+        ).toMatchObject({
+          status: "CONNECTED",
+          winningLegId: legId,
+          legs: expect.arrayContaining([
+            expect.objectContaining({
+              bridgedAt: expect.any(Date),
+              id: legId,
+              status: "BRIDGED",
+            }),
+          ]),
+        });
       } finally {
         await fixture.cleanup();
       }
