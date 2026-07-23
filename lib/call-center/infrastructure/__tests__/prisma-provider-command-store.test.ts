@@ -572,6 +572,38 @@ describe("Prisma provider command store", () => {
     });
   });
 
+  it("plays outbound ringback on the answered browser agent leg", async () => {
+    for (const [commandType, args] of [
+      ["START_RINGBACK", { timeoutSeconds: 60 }],
+      ["STOP_PLAYBACK", {}],
+    ] as const) {
+      const fake = transaction({
+        arguments: args,
+        callDirection: "OUTBOUND",
+        callStatus: "RINGING",
+        commandType,
+        legKind: "AGENT",
+        legStatus: "ANSWERED",
+      });
+      const store = new PrismaProviderCommandStore((operation) =>
+        operation(fake.tx as never),
+      );
+
+      await expect(
+        store.claim({
+          commandId: "command-1",
+          now,
+          staleBefore: new Date(now.getTime() - 60_000),
+        }),
+      ).resolves.toMatchObject({
+        command: {
+          provider: { callControlId: "customer-control-1" },
+          type: commandType,
+        },
+      });
+    }
+  });
+
   it("claims one cold transfer against the current source leg", async () => {
     const fake = transaction({
       arguments: {

@@ -171,6 +171,108 @@ async function pendingDialCommandIdsForCallback(
   return commands.map(({ id }) => id);
 }
 
+async function outboundRingbackCommandIdsForCallback(
+  tx: Transaction,
+  input: {
+    callDirection: "INBOUND" | "OUTBOUND";
+    callId: string;
+    eventType: string;
+    legId: string;
+    legKind: "AGENT" | "CUSTOMER";
+    practiceId: string;
+  },
+) {
+  if (input.callDirection !== "OUTBOUND") return [];
+
+  if (input.eventType === "call.answered" && input.legKind === "AGENT") {
+    const dialAgent = await tx.callCenterCommand.findFirst({
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+      where: {
+        callId: input.callId,
+        legId: input.legId,
+        practiceId: input.practiceId,
+        status: { not: "FAILED" },
+        type: "DIAL_AGENT",
+      },
+    });
+    if (!dialAgent) return [];
+
+    const identity = {
+      idempotencyKey: `outbound:${input.callId}:ringback`,
+      practiceId: input.practiceId,
+      type: "START_RINGBACK" as const,
+    };
+    const command = await tx.callCenterCommand.upsert({
+      create: {
+        arguments: { timeoutSeconds: 60 },
+        callId: input.callId,
+        dependsOnCommandId: dialAgent.id,
+        idempotencyKey: identity.idempotencyKey,
+        legId: input.legId,
+        practiceId: input.practiceId,
+        type: identity.type,
+      },
+      select: { id: true },
+      update: {},
+      where: { practiceId_type_idempotencyKey: identity },
+    });
+    return [command.id];
+  }
+
+  if (
+    input.legKind !== "CUSTOMER" ||
+    !["call.answered", "call.bridged"].includes(input.eventType)
+  ) {
+    return [];
+  }
+
+  const ringback = await tx.callCenterCommand.findUnique({
+    select: { id: true, status: true },
+    where: {
+      practiceId_type_idempotencyKey: {
+        idempotencyKey: `outbound:${input.callId}:ringback`,
+        practiceId: input.practiceId,
+        type: "START_RINGBACK",
+      },
+    },
+  });
+  if (!ringback || ringback.status === "FAILED") return [];
+
+  const agentLeg = await tx.callCenterCallLeg.findFirst({
+    orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+    where: {
+      callId: input.callId,
+      kind: "AGENT",
+      providerCallControlId: { not: null },
+      status: { in: ["ANSWERED", "BRIDGED"] },
+    },
+  });
+  if (!agentLeg) return [];
+
+  const identity = {
+    idempotencyKey: `outbound:${input.callId}:stop-ringback`,
+    practiceId: input.practiceId,
+    type: "STOP_PLAYBACK" as const,
+  };
+  const command = await tx.callCenterCommand.upsert({
+    create: {
+      arguments: {},
+      callId: input.callId,
+      dependsOnCommandId: ringback.id,
+      idempotencyKey: identity.idempotencyKey,
+      legId: agentLeg.id,
+      practiceId: input.practiceId,
+      type: identity.type,
+    },
+    select: { id: true },
+    update: {},
+    where: { practiceId_type_idempotencyKey: identity },
+  });
+  return [command.id];
+}
+
 function sipEndpointIdentityCandidates(address: string) {
   const value = address.trim().replace(/^<|>$/g, "");
   if (!value || /^\+?[\d\s().-]+$/.test(value)) return [];
@@ -1580,6 +1682,14 @@ function createProjectAndComplete(
 
       const commandIds: string[] = [
         ...preemptedCommandIds,
+        ...(await outboundRingbackCommandIdsForCallback(tx, {
+          callDirection: call.direction,
+          callId: call.id,
+          eventType: resolvedFact.eventType,
+          legId: leg.id,
+          legKind: resolvedFact.legKind,
+          practiceId: call.practiceId,
+        })),
         ...(await pendingDialCommandIdsForCallback(tx, {
           callDirection: call.direction,
           callId: call.id,
