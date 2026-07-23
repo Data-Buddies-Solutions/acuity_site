@@ -45,15 +45,13 @@ Inbound calls ring every eligible ready browser in deterministic order. A user
 remains `AVAILABLE` while a call is only offered. `Answer` accepts the exact
 browser media leg and waits for the SDK to report connected media. For inbound
 calls, the user becomes `BUSY` only after a provider-confirmed bridge. An
-outbound call becomes connected only when bridge evidence elects the exact
-agent leg linked to the customer. Hangup releases the user.
+outbound call becomes connected when the remote party answers. Hangup releases
+the user.
 
 Starting an outbound call first ends this agent's waiting inbound offers through
 durable provider commands. Only after those commands are accepted does the
-server create the canonical outbound call and connect its agent leg. The browser
-auto-answers that exact server-owned offer. A provider-confirmed agent answer
-then releases the linked customer dial, which bridges on answer without a
-separate bridge race.
+server create the canonical outbound call and agent leg. The browser then dials
+with opaque, server-issued correlation state.
 
 Direct handoff uses:
 
@@ -91,8 +89,7 @@ durable lifecycle.
 2. `AVAILABLE` requires a fresh lease, ready provider connection, microphone,
    and browser audio.
 3. An inbound ring or answer does not make a user `BUSY`; a confirmed bridge
-   does. An outbound customer bridge alone cannot elect the winner; the exact
-   agent leg needs provider-confirmed bridge evidence.
+   does. An outbound remote answer is already a connected call.
 4. One call has at most one winning agent leg. A cold transfer may replace that
    winner only after the same-location target explicitly answers and bridge
    evidence exists; failure leaves the source winner connected.

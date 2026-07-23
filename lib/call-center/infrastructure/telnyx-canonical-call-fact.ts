@@ -163,10 +163,7 @@ export function resolveCanonicalTelnyxCallObservations(
         legObservation: "ANSWERED",
       } as const;
     case "call.bridged":
-      return {
-        callObservation: legKind === "AGENT" ? "CONNECTED" : null,
-        legObservation: "BRIDGED",
-      } as const;
+      return { callObservation: "CONNECTED", legObservation: "BRIDGED" } as const;
     case "call.hangup":
       return {
         callObservation: legKind === "CUSTOMER" ? "HANGUP" : null,

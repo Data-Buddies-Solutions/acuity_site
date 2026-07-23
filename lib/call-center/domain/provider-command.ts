@@ -69,7 +69,7 @@ type DialAgentDispatchData = ProviderCommandDispatchBase & {
   provider: {
     connectionId: string;
     from: string;
-    linkTo?: string;
+    linkTo: string;
     sipUri: string;
     timeoutSeconds: number;
   };
@@ -81,7 +81,6 @@ type DialCustomerDispatchData = ProviderCommandDispatchBase & {
   provider: {
     connectionId: string;
     from: string;
-    linkTo?: string;
     timeoutSeconds: number;
     to: string;
   };

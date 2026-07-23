@@ -479,7 +479,7 @@ describe("canonical offer Answer", () => {
 });
 
 describe("CanonicalActiveCall", () => {
-  it("answers the initiating outbound agent leg before the customer dial", async () => {
+  it("answers the initiating agent leg when the outbound customer connects", async () => {
     const call = connectedCall("OUTBOUND");
     call.answeredAt = null;
     call.status = "RINGING";

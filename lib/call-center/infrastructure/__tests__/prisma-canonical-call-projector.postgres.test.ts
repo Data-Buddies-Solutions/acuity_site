@@ -342,23 +342,12 @@ describePostgres("canonical call projector on PostgreSQL", () => {
     }
   });
 
-  it("releases the customer dial only after the outbound agent answers", async () => {
+  it("correlates one outbound leg from answer through terminal hangup", async () => {
     const fixture = await createFixture(prisma);
     const { callId, legId } = await fixture.createOutboundCall("lifecycle");
     const commandId = fixture.id("dial-command");
-    const customerLegId = fixture.id("customer-leg");
-    const customerCommandId = fixture.id("customer-command");
 
     try {
-      await prisma.callCenterCallLeg.create({
-        data: {
-          callId,
-          id: customerLegId,
-          kind: "CUSTOMER",
-          startedAt: occurredAt,
-          status: "CREATED",
-        },
-      });
       await prisma.callCenterCommand.create({
         data: {
           attemptCount: 1,
@@ -369,17 +358,6 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           practiceId: fixture.practiceId,
           status: "SENT",
           type: "DIAL_AGENT",
-        },
-      });
-      await prisma.callCenterCommand.create({
-        data: {
-          callId,
-          dependsOnCommandId: commandId,
-          id: customerCommandId,
-          idempotencyKey: fixture.id("customer-command-key"),
-          legId: customerLegId,
-          practiceId: fixture.practiceId,
-          type: "DIAL_CUSTOMER",
         },
       });
       const answered = await fixture.processingEvent("call.answered", "outbound-answer");
@@ -398,8 +376,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           projectedAt,
         ),
       ).resolves.toMatchObject({
-        callStatus: "RINGING",
-        commandIds: [customerCommandId],
+        callStatus: "CONNECTED",
         legStatus: "ANSWERED",
       });
       expect(
@@ -425,7 +402,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           new Date("2026-07-20T10:00:02.000Z"),
         ),
       ).resolves.toMatchObject({
-        callStatus: "ABANDONED",
+        callStatus: "COMPLETED",
         legStatus: "ENDED",
       });
       expect(
@@ -434,109 +411,9 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           where: { id: callId },
         }),
       ).toMatchObject({
-        status: "ABANDONED",
-        legs: expect.arrayContaining([
-          expect.objectContaining({ id: legId, status: "ENDED" }),
-          expect.objectContaining({ id: customerLegId, status: "ENDED" }),
-        ]),
+        status: "COMPLETED",
+        legs: [{ id: legId, status: "ENDED" }],
       });
-    } finally {
-      await fixture.cleanup();
-    }
-  });
-
-  it("waits for the exact outbound agent bridge when customer bridge arrives first", async () => {
-    const fixture = await createFixture(prisma);
-    const { callId, legId } = await fixture.createOutboundCall("bridge-order");
-    const customerLegId = fixture.id("bridge-order-customer-leg");
-    const agentControlId = fixture.id("bridge-order-agent-control");
-    const agentProviderLegId = fixture.id("bridge-order-agent-provider-leg");
-    const customerControlId = fixture.id("bridge-order-customer-control");
-    const customerProviderLegId = fixture.id("bridge-order-customer-provider-leg");
-
-    try {
-      await prisma.callCenterCall.update({
-        data: { status: "RINGING" },
-        where: { id: callId },
-      });
-      await prisma.callCenterCallLeg.update({
-        data: {
-          answeredAt: occurredAt,
-          providerCallControlId: agentControlId,
-          providerCallLegId: agentProviderLegId,
-          providerCallSessionId: fixture.id("session"),
-          status: "ANSWERED",
-        },
-        where: { id: legId },
-      });
-      await prisma.callCenterCallLeg.create({
-        data: {
-          answeredAt: occurredAt,
-          callId,
-          id: customerLegId,
-          kind: "CUSTOMER",
-          providerCallControlId: customerControlId,
-          providerCallLegId: customerProviderLegId,
-          providerCallSessionId: fixture.id("session"),
-          startedAt: occurredAt,
-          status: "ANSWERED",
-        },
-      });
-
-      const customerBridge = await fixture.processingEvent(
-        "call.bridged",
-        "bridge-order-customer",
-      );
-      await expect(
-        projector.projectAndComplete(
-          customerBridge,
-          fixture.fact({
-            canonicalCallId: callId,
-            canonicalLegId: customerLegId,
-            direction: "OUTBOUND",
-            eventType: "call.bridged",
-            legKind: "CUSTOMER",
-            providerCallControlId: customerControlId,
-            providerCallLegId: customerProviderLegId,
-            providerEventId: customerBridge.providerEventId,
-          }),
-          projectedAt,
-        ),
-      ).resolves.toMatchObject({
-        callStatus: "RINGING",
-        legStatus: "BRIDGED",
-      });
-      expect(
-        await prisma.callCenterCall.findUniqueOrThrow({ where: { id: callId } }),
-      ).toMatchObject({ status: "RINGING", winningLegId: null });
-
-      const agentBridge = await fixture.processingEvent(
-        "call.bridged",
-        "bridge-order-agent",
-      );
-      await expect(
-        projector.projectAndComplete(
-          agentBridge,
-          fixture.fact({
-            canonicalCallId: callId,
-            canonicalLegId: legId,
-            direction: "OUTBOUND",
-            endpointId: fixture.endpointId,
-            eventType: "call.bridged",
-            legKind: "AGENT",
-            providerCallControlId: agentControlId,
-            providerCallLegId: agentProviderLegId,
-            providerEventId: agentBridge.providerEventId,
-          }),
-          new Date("2026-07-20T10:00:02.000Z"),
-        ),
-      ).resolves.toMatchObject({
-        callStatus: "CONNECTED",
-        legStatus: "BRIDGED",
-      });
-      expect(
-        await prisma.callCenterCall.findUniqueOrThrow({ where: { id: callId } }),
-      ).toMatchObject({ status: "CONNECTED", winningLegId: legId });
     } finally {
       await fixture.cleanup();
     }

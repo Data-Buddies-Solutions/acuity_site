@@ -30,15 +30,6 @@ describe("canonical Telnyx call facts", () => {
     });
   });
 
-  it("does not connect an outbound call from the customer bridge callback", () => {
-    expect(
-      resolveCanonicalTelnyxCallObservations("call.bridged", "CUSTOMER", "OUTBOUND"),
-    ).toEqual({
-      callObservation: null,
-      legObservation: "BRIDGED",
-    });
-  });
-
   it("classifies an inbound customer leg without retaining the raw envelope", () => {
     expect(
       parseCanonicalTelnyxCallFact(

@@ -217,15 +217,7 @@ async function settleTerminalProviderCommand(
     });
     return commandIds;
   }
-  if (command.type === "DIAL_CUSTOMER") {
-    return settleCanonicalCallLegs(transaction, {
-      callId: command.callId,
-      includeCustomerLegs: true,
-      now,
-      reason: "OUTBOUND_CUSTOMER_DIAL_FAILED",
-      terminalLegStatus: "FAILED",
-    });
-  }
+  if (command.type === "DIAL_CUSTOMER") return [];
   const lifecycle = await reconcileActiveInbound(
     transaction,
     {
@@ -478,20 +470,6 @@ async function loadProviderCommandClaim(
     if (!connectionId || !from || !to) {
       return reject("COMMAND_PROVIDER_CONFIGURATION_INVALID");
     }
-    const linkedAgent = dependency
-      ? await tx.callCenterCallLeg.findFirst({
-          orderBy: [{ startedAt: "asc" }, { id: "asc" }],
-          select: { providerCallControlId: true },
-          where: {
-            callId: command.callId,
-            kind: "AGENT",
-            providerCallControlId: { not: null },
-            status: { in: ["ANSWERED", "BRIDGED"] },
-          },
-        })
-      : null;
-    const linkTo = linkedAgent?.providerCallControlId;
-    if (dependency && !linkTo) return null;
     const claimed = await claimProviderCommand(tx, command.id);
     return {
       attemptCount: claimed.attemptCount,
@@ -505,7 +483,6 @@ async function loadProviderCommandClaim(
         provider: {
           connectionId,
           from,
-          ...(linkTo ? { linkTo } : {}),
           timeoutSeconds: 60,
           to,
         },
@@ -811,7 +788,7 @@ async function loadProviderCommandClaim(
       },
     });
     const linkTo = linkedLeg?.providerCallControlId;
-    if (!linkTo && (command.call.direction !== "OUTBOUND" || dependency)) return null;
+    if (!linkTo) return null;
 
     const claimed = await claimProviderCommand(tx, command.id);
     return {
@@ -826,7 +803,7 @@ async function loadProviderCommandClaim(
         provider: {
           connectionId,
           from,
-          ...(linkTo ? { linkTo } : {}),
+          linkTo,
           sipUri: sipUri(endpoint.sipUsername.trim()),
           timeoutSeconds: 20,
         },

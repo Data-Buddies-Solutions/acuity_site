@@ -22,7 +22,6 @@ function rejectingStore(tx: unknown) {
 
 function transaction({
   accessLocationIds = ["location-1"],
-  agentLegs = [],
   arguments: commandArguments = {
     agentSessionId: "session-1",
     endpointId: "endpoint-1",
@@ -55,12 +54,6 @@ function transaction({
   winningLegId,
 }: {
   accessLocationIds?: string[];
-  agentLegs?: Array<{
-    id: string;
-    kind: "AGENT";
-    providerCallControlId: string;
-    status: string;
-  }>;
   arguments?: Record<string, unknown>;
   commandErrorCode?: string | null;
   commandStatus?: "PENDING" | "SENDING" | "SENT" | "CONFIRMED" | "FAILED";
@@ -162,7 +155,6 @@ function transaction({
       }: {
         where: {
           id?: string | Record<string, unknown>;
-          kind?: "AGENT" | "CUSTOMER";
           status?: { in: string[] };
         };
       }) =>
@@ -182,9 +174,7 @@ function transaction({
                 ? { id: "leg-1" }
                 : null
               : (customerLegs.find(({ id }) => id === where.id) ?? null)
-          : where.kind === "AGENT"
-            ? (agentLegs[0] ?? null)
-            : (customerLegs[0] ?? null),
+          : (customerLegs[0] ?? null),
       findMany: async () => customerLegs,
       update: async ({ data }: { data: { agentSessionId: string } }) => {
         currentAgentSessionId = data.agentSessionId;
@@ -397,39 +387,6 @@ describe("Prisma provider command store", () => {
     expect(fake.updates()).toBe(1);
   });
 
-  it("starts the outbound agent leg before a customer call exists", async () => {
-    const fake = transaction({
-      callDirection: "OUTBOUND",
-      callStatus: "RECEIVED",
-      customerLegs: [],
-      sessionState: "OFFERED",
-    });
-    const store = new PrismaProviderCommandStore((operation) =>
-      operation(fake.tx as never),
-    );
-
-    const claim = await store.claim({
-      commandId: "command-1",
-      now,
-      staleBefore: new Date(now.getTime() - 60_000),
-    });
-
-    expect(claim).toMatchObject({
-      command: {
-        provider: {
-          connectionId: "connection-1",
-          from: "+17865550101",
-          sipUri: "sip:agent-1@example.test",
-          timeoutSeconds: 20,
-        },
-        type: "DIAL_AGENT",
-      },
-    });
-    expect(
-      (claim as { command: { provider: object } }).command.provider,
-    ).not.toHaveProperty("linkTo");
-  });
-
   it("rebinds a stale dial to the freshest ready session for the same endpoint user", async () => {
     const fake = transaction({
       replacementSessionId: "session-2",
@@ -524,47 +481,6 @@ describe("Prisma provider command store", () => {
         provider: {
           connectionId: "connection-1",
           from: "+17865550101",
-          to: expect.any(String),
-        },
-        type: "DIAL_CUSTOMER",
-      },
-    });
-  });
-
-  it("links the outbound customer dial to the answered agent leg", async () => {
-    const fake = transaction({
-      agentLegs: [
-        {
-          id: "agent-leg",
-          kind: "AGENT",
-          providerCallControlId: "agent-control-1",
-          status: "ANSWERED",
-        },
-      ],
-      arguments: {},
-      callDirection: "OUTBOUND",
-      callStatus: "RINGING",
-      commandType: "DIAL_CUSTOMER",
-      dependencyStatus: "CONFIRMED",
-      legKind: "CUSTOMER",
-    });
-    const store = new PrismaProviderCommandStore((operation) =>
-      operation(fake.tx as never),
-    );
-
-    await expect(
-      store.claim({
-        commandId: "command-1",
-        now,
-        staleBefore: new Date(now.getTime() - 60_000),
-      }),
-    ).resolves.toMatchObject({
-      command: {
-        provider: {
-          connectionId: "connection-1",
-          from: "+17865550101",
-          linkTo: "agent-control-1",
-          timeoutSeconds: 60,
           to: expect.any(String),
         },
         type: "DIAL_CUSTOMER",
@@ -1179,7 +1095,6 @@ describe("Prisma provider command store", () => {
         },
       },
       callCenterCallLeg: {
-        findMany: async () => [],
         updateMany: async () => {
           operations.push("leg.fail");
           return { count: 1 };
@@ -1360,72 +1275,6 @@ describe("Prisma provider command store", () => {
       expect.objectContaining({
         endedAt: now,
         status: "FAILED",
-      }),
-    );
-  });
-
-  it("hangs up the ready outbound agent when the customer dial fails", async () => {
-    const createdCommands: Array<Record<string, unknown>> = [];
-    const tx = {
-      $queryRaw: async () => [],
-      callCenterCall: {
-        findUnique: async () => ({ practiceId: "practice-1" }),
-        update: async () => ({}),
-      },
-      callCenterCallLeg: {
-        findMany: async () => [
-          {
-            id: "agent-leg",
-            providerCallControlId: "agent-control",
-            status: "ANSWERED",
-          },
-          {
-            id: "customer-leg",
-            providerCallControlId: null,
-            status: "FAILED",
-          },
-        ],
-        updateMany: async () => ({ count: 1 }),
-      },
-      callCenterCommand: {
-        findFirst: async () => null,
-        findMany: async () => [],
-        findUnique: async () => ({
-          call: { direction: "OUTBOUND" },
-          callId: "call-1",
-          leg: { id: "customer-leg", kind: "CUSTOMER" },
-          practiceId: "practice-1",
-          type: "DIAL_CUSTOMER",
-        }),
-        updateMany: async () => ({ count: 1 }),
-        upsert: async ({ create }: { create: Record<string, unknown> }) => {
-          createdCommands.push(create);
-          return { id: "hangup-agent" };
-        },
-      },
-      callCenterEvent: {
-        create: async () => ({ revision: BigInt(2) }),
-      },
-    };
-    const store = new PrismaProviderCommandStore(
-      (operation) => operation(tx as never),
-      noFollowUpReconciliation,
-    );
-
-    await expect(
-      store.fail({
-        attemptCount: 1,
-        commandId: "dial-customer",
-        errorCode: "PROVIDER_VALIDATION_FAILED",
-        now,
-      }),
-    ).resolves.toEqual({ commandIds: ["hangup-agent"] });
-
-    expect(createdCommands).toContainEqual(
-      expect.objectContaining({
-        callId: "call-1",
-        legId: "agent-leg",
-        type: "HANGUP_LEG",
       }),
     );
   });
