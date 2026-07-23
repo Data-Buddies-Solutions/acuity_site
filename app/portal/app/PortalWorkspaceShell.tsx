@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType, type MouseEvent } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   BookOpenCheck,
   CalendarCheck,
@@ -20,7 +21,9 @@ import {
 
 import Logo from "@/app/components/VisionOpsLogo";
 import { PracticeBrandLogo } from "@/app/portal/app/PracticeBrandLogo";
+import { useCallCenterCurrentCallGuard } from "@/app/portal/app/call-center/call-center-current-call-guard";
 import { PortalSignOutButton } from "@/app/portal/PortalSignOutButton";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetClose,
@@ -64,6 +67,8 @@ const liveDocumentNavItems = [
     label: "Insurance Rules",
   },
 ] satisfies NavItem[];
+
+const ACTIVE_CALL_HISTORY_GUARD = "acuityActiveCallGuard";
 
 function isCurrentPath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -114,6 +119,53 @@ function SidebarLink({
   );
 }
 
+function ActiveCallNavigationDialog({
+  onLeave,
+  onStay,
+  open,
+}: {
+  onLeave: () => void;
+  onStay: () => void;
+  open: boolean;
+}) {
+  const stayButtonRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <DialogPrimitive.Root open={open}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[#151a24]/35 backdrop-blur-[1px]" />
+        <DialogPrimitive.Content
+          aria-describedby="active-call-navigation-description"
+          className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[var(--portal-border)] bg-white p-5 shadow-[0_24px_80px_rgba(16,24,40,0.18)]"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            stayButtonRef.current?.focus();
+          }}
+          role="alertdialog"
+        >
+          <DialogPrimitive.Title className="text-base font-semibold text-[var(--portal-ink)]">
+            Call in progress
+          </DialogPrimitive.Title>
+          <DialogPrimitive.Description
+            className="mt-2 text-sm leading-6 text-[var(--portal-muted)]"
+            id="active-call-navigation-description"
+          >
+            Stay in the Call Center to keep Mute, Hold, Transfer, and End available.
+          </DialogPrimitive.Description>
+          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button onClick={onLeave} type="button" variant="secondary">
+              Leave Call Center
+            </Button>
+            <Button onClick={onStay} ref={stayButtonRef} type="button" variant="primary">
+              Stay in Call Center
+            </Button>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
 function MobileDockLink({
   disablePrefetch = false,
   href,
@@ -144,12 +196,14 @@ function MobileDockLink({
 function MobileMoreMenu({
   accountName,
   disablePrefetch,
+  onSignOutRequest,
   pathname,
   practiceBranding,
   userEmail,
 }: {
   accountName: string;
   disablePrefetch: boolean;
+  onSignOutRequest: (signOut: () => void) => void;
   pathname: string;
   practiceBranding: PracticeBranding;
   userEmail?: string;
@@ -211,7 +265,10 @@ function MobileMoreMenu({
           </nav>
         </div>
         <SheetFooter>
-          <PortalSignOutButton className="w-full justify-center border-[var(--portal-border)] bg-white text-[var(--portal-ink-soft)] shadow-none hover:bg-[var(--portal-panel)]" />
+          <PortalSignOutButton
+            className="w-full justify-center border-[var(--portal-border)] bg-white text-[var(--portal-ink-soft)] shadow-none hover:bg-[var(--portal-panel)]"
+            onRequest={onSignOutRequest}
+          />
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -232,6 +289,8 @@ export default function PortalWorkspaceShell({
   userEmail?: string;
 }>) {
   const pathname = usePathname();
+  const router = useRouter();
+  const hasCurrentCall = useCallCenterCurrentCallGuard();
   const navItems = isLive ? livePrimaryNavItems : setupNavItems;
   const accountName = practiceName?.trim() || "Practice account";
   const hasActiveDocument = liveDocumentNavItems.some(({ href }) =>
@@ -239,11 +298,86 @@ export default function PortalWorkspaceShell({
   );
   const [documentsOpen, setDocumentsOpen] = useState(hasActiveDocument);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const allowNextPopState = useRef(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
   const isDocumentsOpen = documentsOpen;
   const isSidebarCollapsed = !isSidebarExpanded;
   const isPreparing = pathname.startsWith("/portal/app/preparing");
   const isFocusedSetup = pathname.startsWith("/portal/app/onboarding") || isPreparing;
   const disablePrefetch = pathname === "/portal/app/call-center";
+  const guardNavigation = (event: MouseEvent<HTMLElement>) => {
+    if (!hasCurrentCall || event.defaultPrevented || event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+    const anchor = (event.target as Element).closest?.(
+      "a[href]",
+    ) as HTMLAnchorElement | null;
+    if (!anchor) return;
+    if (anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+
+    const destination = new URL(anchor.href, window.location.href);
+    if (
+      destination.origin !== window.location.origin ||
+      destination.pathname === pathname
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    const href = `${destination.pathname}${destination.search}${destination.hash}`;
+    setPendingNavigation(() => () => router.push(href));
+  };
+  const guardAction = (action: () => void) => {
+    if (!hasCurrentCall) {
+      action();
+      return;
+    }
+    setPendingNavigation(() => action);
+  };
+
+  useEffect(() => {
+    if (!hasCurrentCall) return;
+
+    const armHistoryGuard = () => {
+      const currentState = window.history.state;
+      const nextState =
+        typeof currentState === "object" && currentState !== null
+          ? { ...currentState, [ACTIVE_CALL_HISTORY_GUARD]: true }
+          : { [ACTIVE_CALL_HISTORY_GUARD]: true };
+      window.history.pushState(nextState, "", window.location.href);
+    };
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const warnBeforeHistoryNavigation = () => {
+      if (allowNextPopState.current) {
+        allowNextPopState.current = false;
+        return;
+      }
+
+      armHistoryGuard();
+      setPendingNavigation(() => () => {
+        allowNextPopState.current = true;
+        window.history.go(-2);
+      });
+    };
+
+    armHistoryGuard();
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    window.addEventListener("popstate", warnBeforeHistoryNavigation);
+    return () => {
+      window.removeEventListener("beforeunload", warnBeforeUnload);
+      window.removeEventListener("popstate", warnBeforeHistoryNavigation);
+
+      const currentState = window.history.state;
+      if (typeof currentState === "object" && currentState !== null) {
+        const nextState = { ...currentState };
+        delete nextState[ACTIVE_CALL_HISTORY_GUARD];
+        window.history.replaceState(nextState, "", window.location.href);
+      }
+    };
+  }, [hasCurrentCall]);
 
   if (isPreparing) {
     return <>{children}</>;
@@ -280,7 +414,10 @@ export default function PortalWorkspaceShell({
   }
 
   return (
-    <section className="portal-platform min-h-screen bg-[#fbfbfd] text-[#171a22]">
+    <section
+      className="portal-platform min-h-screen bg-[#fbfbfd] text-[#171a22]"
+      onClickCapture={guardNavigation}
+    >
       <header className="sticky top-0 z-40 border-b border-[#e6e9f0] bg-white/95 backdrop-blur">
         <div className="flex h-[68px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 xl:pl-0">
           <div className="flex min-w-0 items-center">
@@ -334,13 +471,17 @@ export default function PortalWorkspaceShell({
               <MobileMoreMenu
                 accountName={accountName}
                 disablePrefetch={disablePrefetch}
+                onSignOutRequest={guardAction}
                 pathname={pathname}
                 practiceBranding={practiceBranding}
                 userEmail={userEmail}
               />
             ) : null}
             <div className="hidden md:block">
-              <PortalSignOutButton className="border-[#d8dde8] bg-white text-[#344054] shadow-none hover:bg-[#f5f7fb]" />
+              <PortalSignOutButton
+                className="border-[#d8dde8] bg-white text-[#344054] shadow-none hover:bg-[#f5f7fb]"
+                onRequest={guardAction}
+              />
             </div>
           </div>
         </div>
@@ -511,6 +652,16 @@ export default function PortalWorkspaceShell({
           ))}
         </nav>
       ) : null}
+
+      <ActiveCallNavigationDialog
+        onLeave={() => {
+          const navigate = pendingNavigation;
+          setPendingNavigation(null);
+          navigate?.();
+        }}
+        onStay={() => setPendingNavigation(null)}
+        open={pendingNavigation !== null}
+      />
     </section>
   );
 }
