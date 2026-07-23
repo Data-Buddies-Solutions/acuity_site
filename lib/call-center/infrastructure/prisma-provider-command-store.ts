@@ -422,13 +422,22 @@ async function loadProviderCommandClaim(
   const customerLegCommand = [
     "DIAL_CUSTOMER",
     "ANSWER_CUSTOMER",
-    "START_RINGBACK",
-    "STOP_PLAYBACK",
     "PLAY_VOICEMAIL_GREETING",
     "START_RECORDING",
   ].includes(command.type);
   if (customerLegCommand && leg.kind !== "CUSTOMER") {
     return reject("COMMAND_CUSTOMER_LEG_INVALID");
+  }
+  const playbackCommand = ["START_RINGBACK", "STOP_PLAYBACK"].includes(command.type);
+  const outboundAgentRingback =
+    playbackCommand &&
+    command.call.direction === "OUTBOUND" &&
+    leg.kind === "AGENT" &&
+    ["ANSWERED", "BRIDGED"].includes(leg.status);
+  if (playbackCommand && leg.kind !== "CUSTOMER" && !outboundAgentRingback) {
+    return reject(
+      leg.kind === "AGENT" ? "COMMAND_AGENT_LEG_INVALID" : "COMMAND_CUSTOMER_LEG_INVALID",
+    );
   }
   const holdMusicCommand = ["START_HOLD_MUSIC", "STOP_HOLD_MUSIC"].includes(command.type);
   if (

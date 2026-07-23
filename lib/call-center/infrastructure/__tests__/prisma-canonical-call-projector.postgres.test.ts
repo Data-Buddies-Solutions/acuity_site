@@ -342,7 +342,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
     }
   });
 
-  it("releases the customer dial only after the outbound agent answers", async () => {
+  it("starts browser ringback and releases the customer dial after the outbound agent answers", async () => {
     const fixture = await createFixture(prisma);
     const { callId, legId } = await fixture.createOutboundCall("lifecycle");
     const commandId = fixture.id("dial-command");
@@ -383,25 +383,40 @@ describePostgres("canonical call projector on PostgreSQL", () => {
         },
       });
       const answered = await fixture.processingEvent("call.answered", "outbound-answer");
-      await expect(
-        projector.projectAndComplete(
-          answered,
-          fixture.fact({
-            canonicalCallId: callId,
-            canonicalLegId: legId,
-            direction: "OUTBOUND",
-            endpointId: fixture.endpointId,
-            eventType: "call.answered",
-            legKind: "AGENT",
-            providerEventId: answered.providerEventId,
-          }),
-          projectedAt,
-        ),
-      ).resolves.toMatchObject({
+      const projection = await projector.projectAndComplete(
+        answered,
+        fixture.fact({
+          canonicalCallId: callId,
+          canonicalLegId: legId,
+          direction: "OUTBOUND",
+          endpointId: fixture.endpointId,
+          eventType: "call.answered",
+          legKind: "AGENT",
+          providerEventId: answered.providerEventId,
+        }),
+        projectedAt,
+      );
+      expect(projection).toMatchObject({
         callStatus: "RINGING",
-        commandIds: [customerCommandId],
         legStatus: "ANSWERED",
       });
+      const projectedCommands = await prisma.callCenterCommand.findMany({
+        where: { id: { in: projection.commandIds } },
+      });
+      expect(
+        projection.commandIds.map(
+          (id) => projectedCommands.find((command) => command.id === id)?.type,
+        ),
+      ).toEqual(["START_RINGBACK", "DIAL_CUSTOMER"]);
+      expect(projectedCommands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            arguments: { timeoutSeconds: 60 },
+            legId,
+            type: "START_RINGBACK",
+          }),
+        ]),
+      );
       expect(
         await prisma.callCenterCommand.findUniqueOrThrow({
           where: { id: commandId },
@@ -439,6 +454,118 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           expect.objectContaining({ id: legId, status: "ENDED" }),
           expect.objectContaining({ id: customerLegId, status: "ENDED" }),
         ]),
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("stops outbound browser ringback when the customer answers", async () => {
+    const fixture = await createFixture(prisma);
+    const { callId, legId } = await fixture.createOutboundCall("ringback-stop");
+    const agentCommandId = fixture.id("ringback-stop-agent-command");
+    const customerLegId = fixture.id("ringback-stop-customer-leg");
+    const customerCommandId = fixture.id("ringback-stop-customer-command");
+    const ringbackCommandId = fixture.id("ringback-stop-command");
+
+    try {
+      await prisma.callCenterCall.update({
+        data: { status: "RINGING" },
+        where: { id: callId },
+      });
+      await prisma.callCenterCallLeg.update({
+        data: {
+          answeredAt: occurredAt,
+          providerCallControlId: fixture.id("ringback-stop-agent-control"),
+          providerCallLegId: fixture.id("ringback-stop-agent-provider-leg"),
+          status: "ANSWERED",
+        },
+        where: { id: legId },
+      });
+      await prisma.callCenterCallLeg.create({
+        data: {
+          callId,
+          id: customerLegId,
+          kind: "CUSTOMER",
+          startedAt: occurredAt,
+          status: "CREATED",
+        },
+      });
+      await prisma.callCenterCommand.create({
+        data: {
+          attemptCount: 1,
+          callId,
+          id: agentCommandId,
+          idempotencyKey: fixture.id("ringback-stop-agent-key"),
+          legId,
+          practiceId: fixture.practiceId,
+          status: "CONFIRMED",
+          type: "DIAL_AGENT",
+        },
+      });
+      await prisma.callCenterCommand.create({
+        data: {
+          attemptCount: 1,
+          callId,
+          dependsOnCommandId: agentCommandId,
+          id: customerCommandId,
+          idempotencyKey: fixture.id("ringback-stop-customer-key"),
+          legId: customerLegId,
+          practiceId: fixture.practiceId,
+          status: "SENT",
+          type: "DIAL_CUSTOMER",
+        },
+      });
+      await prisma.callCenterCommand.create({
+        data: {
+          arguments: { timeoutSeconds: 60 },
+          attemptCount: 1,
+          callId,
+          dependsOnCommandId: agentCommandId,
+          id: ringbackCommandId,
+          idempotencyKey: `outbound:${callId}:ringback`,
+          legId,
+          practiceId: fixture.practiceId,
+          status: "SENT",
+          type: "START_RINGBACK",
+        },
+      });
+
+      const answered = await fixture.processingEvent(
+        "call.answered",
+        "ringback-stop-customer-answered",
+      );
+      const projection = await projector.projectAndComplete(
+        answered,
+        fixture.fact({
+          canonicalCallId: callId,
+          canonicalLegId: customerLegId,
+          direction: "OUTBOUND",
+          eventType: "call.answered",
+          legKind: "CUSTOMER",
+          providerCallControlId: fixture.id("ringback-stop-customer-control"),
+          providerCallLegId: fixture.id("ringback-stop-customer-provider-leg"),
+          providerCommandId: customerCommandId,
+          providerCommandIdSource: "CLIENT_STATE",
+          providerEventId: answered.providerEventId,
+        }),
+        projectedAt,
+      );
+
+      expect(projection).toMatchObject({
+        callStatus: "RINGING",
+        legStatus: "ANSWERED",
+      });
+      expect(projection.commandIds).toHaveLength(1);
+      expect(
+        await prisma.callCenterCommand.findUniqueOrThrow({
+          where: { id: projection.commandIds[0] },
+        }),
+      ).toMatchObject({
+        arguments: {},
+        dependsOnCommandId: ringbackCommandId,
+        legId,
+        type: "STOP_PLAYBACK",
       });
     } finally {
       await fixture.cleanup();
