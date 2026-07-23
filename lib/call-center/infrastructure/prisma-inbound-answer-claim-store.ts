@@ -108,7 +108,6 @@ class PrismaInboundAnswerClaimTransaction implements InboundAnswerClaimTransacti
     private readonly transaction: Transaction,
     private readonly actor: QueueAccessActor,
     private readonly callId: string,
-    private readonly lockedEndpointId: string | null,
   ) {}
 
   async load(
@@ -164,7 +163,11 @@ class PrismaInboundAnswerClaimTransaction implements InboundAnswerClaimTransacti
       },
       where: { callId: call.id, id: input.legId },
     });
-    if (leg?.endpointId !== this.lockedEndpointId) return null;
+    if (leg?.endpointId) {
+      await this.transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${leg.endpointId} FOR UPDATE`,
+      );
+    }
     await this.transaction.$queryRaw(
       Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "id" = ${input.sessionId} FOR UPDATE`,
     );
@@ -419,39 +422,19 @@ export class PrismaInboundAnswerClaimStore implements InboundAnswerClaimStore {
 
   withCallLock<T>(
     actor: QueueAccessActor,
-    input: Pick<InboundAnswerClaimInput, "callId" | "legId">,
+    callId: string,
     work: (transaction: InboundAnswerClaimTransaction) => Promise<T>,
   ) {
     return this.runTransaction(async (transaction) => {
-      const target = await transaction.callCenterCallLeg.findFirst({
-        select: { endpointId: true },
-        where: {
-          call: { practiceId: actor.practiceId },
-          callId: input.callId,
-          id: input.legId,
-        },
-      });
-      if (target?.endpointId) {
-        await transaction.$queryRaw(
-          Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${target.endpointId} FOR UPDATE`,
-        );
-      }
       const startedAt = performance.now();
       await transaction.$queryRaw(
-        Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.callId} FOR UPDATE`,
+        Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${callId} FOR UPDATE`,
       );
       logger.info("inbound Answer call lock acquired", {
-        callId: input.callId,
+        callId,
         lockWaitMs: performance.now() - startedAt,
       });
-      return work(
-        new PrismaInboundAnswerClaimTransaction(
-          transaction,
-          actor,
-          input.callId,
-          target?.endpointId ?? null,
-        ),
-      );
+      return work(new PrismaInboundAnswerClaimTransaction(transaction, actor, callId));
     });
   }
 }

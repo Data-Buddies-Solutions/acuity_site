@@ -19,7 +19,6 @@ import type {
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { resolveQueueAccess } from "@/lib/call-center/auth/queue-access";
 import { isAgentSessionReady } from "@/lib/call-center/domain/agent-session-readiness";
-import { OUTBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS } from "@/lib/call-center/domain/provider-command";
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { PrismaOperationReceiptTransaction } from "@/lib/call-center/infrastructure/prisma-operation-receipts";
 import { settleCanonicalCallLegs } from "@/lib/call-center/infrastructure/prisma-call-resource-settlement";
@@ -393,7 +392,6 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
         arguments: {
           agentSessionId: session.id,
           endpointId: session.endpointId,
-          timeoutSeconds: OUTBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS,
         },
         callId: call.id,
         id: agentCommandId,

@@ -182,36 +182,6 @@ describe("inbound lifecycle", () => {
     });
   });
 
-  it("accepts provider bridge after the offer deadline within the 5-second grace", () => {
-    const offerStartedAt = new Date("2026-07-12T11:59:40.000Z");
-    const acceptedAt = new Date(offerStartedAt.getTime() + 19_900);
-    const result = decideActiveInboundLifecycle(
-      input({
-        agentLegs: [
-          {
-            answeredAt: acceptedAt,
-            id: "agent-1",
-            status: "BRIDGED",
-          },
-        ],
-        answerReservation: {
-          expiresAt: new Date(acceptedAt.getTime() + 5_000),
-          legId: "agent-1",
-          status: "ANSWERED",
-        },
-        deadlineAt: new Date(offerStartedAt.getTime() + 20_000),
-        now: new Date(offerStartedAt.getTime() + 21_000),
-        processedBridgeLegId: "agent-1",
-      }),
-    );
-
-    expect(result).toMatchObject({
-      disposition: "CONNECTED",
-      winningLegId: "agent-1",
-    });
-    expect(result.intents.map(({ type }) => type)).not.toContain("START_VOICEMAIL");
-  });
-
   it("protects provider answer for the bounded answer-to-bridge grace", () => {
     expect(
       decideActiveInboundLifecycle(

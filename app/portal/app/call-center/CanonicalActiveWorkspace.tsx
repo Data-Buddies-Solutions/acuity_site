@@ -6,7 +6,6 @@ import {
   Delete,
   Grip,
   Headphones,
-  LoaderCircle,
   Mic,
   MicOff,
   Pause,
@@ -104,51 +103,8 @@ function formatCallDuration(seconds: number) {
 }
 
 type InboundAnswerClaimWire =
-  | {
-      replayed: boolean;
-      reservation: { expiresAt: string; id: string };
-      status: "ACCEPTED";
-    }
+  | { replayed: boolean; reservation: { id: string }; status: "ACCEPTED" }
   | { reason: string; status: "REJECTED" };
-
-type AnswerPhaseTiming = {
-  agentSessionId: string;
-  callId: string;
-  callLegId: string;
-  elapsedMs: number;
-  phase: "CLAIM_COMPLETED" | "CLICKED" | "FAILED" | "SDK_ACTIVE";
-  serverDurationMs?: number;
-};
-
-function answerClaimServerDuration(value: string | null) {
-  const match = value?.match(/(?:^|,)\s*answer-claim;dur=([0-9]+(?:\.[0-9]+)?)/);
-  const durationMs = match ? Number(match[1]) : Number.NaN;
-  return Number.isFinite(durationMs) ? durationMs : undefined;
-}
-
-function reportAnswerPhaseTiming(timing: AnswerPhaseTiming) {
-  if (typeof navigator.sendBeacon !== "function") return;
-  try {
-    const delivery = navigator.sendBeacon(
-      "/api/portal/call-center/answer-timings",
-      new Blob([JSON.stringify(timing)], { type: "application/json" }),
-    );
-    if (
-      delivery &&
-      typeof (delivery as unknown as Promise<boolean>).catch === "function"
-    ) {
-      void (delivery as unknown as Promise<boolean>).catch(() => false);
-    }
-  } catch {
-    // Reliability telemetry never participates in Answer success.
-  }
-}
-
-const ignoreAnswerPhaseTiming = (_timing: AnswerPhaseTiming) => undefined;
-
-function boundedDuration(durationMs: number) {
-  return Math.min(120_000, Math.max(0, Math.round(durationMs * 10) / 10));
-}
 
 export function CanonicalOfferAnswerButton({
   answer,
@@ -158,20 +114,16 @@ export function CanonicalOfferAnswerButton({
   disabled,
   legId,
   mediaLegId,
-  now = performance.now.bind(performance),
-  reportTiming = ignoreAnswerPhaseTiming,
   sessionId,
   transferOffer = false,
 }: {
-  answer(mediaLegId: string, expiresAt?: string): Promise<void>;
+  answer(mediaLegId: string): Promise<void>;
   answering: boolean;
   callId: string;
   connectionState: MediaConnectionState;
   disabled: boolean;
   legId: string;
   mediaLegId: string;
-  now?: () => number;
-  reportTiming?: (timing: AnswerPhaseTiming) => void;
   sessionId: string;
   transferOffer?: boolean;
 }) {
@@ -182,26 +134,6 @@ export function CanonicalOfferAnswerButton({
     body: { legId: string; sessionId: string };
     idempotencyKey: string;
   } | null>(null);
-  const emitTiming = useCallback(
-    (phase: AnswerPhaseTiming["phase"], elapsedMs: number, serverDurationMs?: number) => {
-      const timing: AnswerPhaseTiming = {
-        agentSessionId: sessionId,
-        callId,
-        callLegId: legId,
-        elapsedMs: boundedDuration(elapsedMs),
-        phase,
-        ...(serverDurationMs === undefined ? {} : { serverDurationMs }),
-      };
-      queueMicrotask(() => {
-        try {
-          reportTiming(timing);
-        } catch {
-          // Reliability telemetry never participates in Answer success.
-        }
-      });
-    },
-    [callId, legId, reportTiming, sessionId],
-  );
 
   const releaseClaim = useCallback(
     (failureCode: "BROWSER_ANSWER_FAILED" | "BROWSER_DISCONNECTED") => {
@@ -241,16 +173,12 @@ export function CanonicalOfferAnswerButton({
 
   const answerOffer = useCallback(async () => {
     if (answerPending) return;
-    const startedAt = now();
     setAnswerPending(true);
     setFailure(null);
-    emitTiming("CLICKED", 0);
     if (transferOffer) {
       try {
         await answer(mediaLegId);
-        emitTiming("SDK_ACTIVE", now() - startedAt);
       } catch (error) {
-        emitTiming("FAILED", now() - startedAt);
         setFailure(errorMessage(error, "answer"));
       } finally {
         setAnswerPending(false);
@@ -282,24 +210,11 @@ export function CanonicalOfferAnswerButton({
         if (keyRef.current?.key === idempotencyKey) keyRef.current = null;
         throw localCallCenterError("CALL_NOT_CONNECTED", false);
       }
-      const claim = await callCenterResponse<InboundAnswerClaimWire>(response);
-      if (
-        claim.status !== "ACCEPTED" ||
-        !Number.isFinite(Date.parse(claim.reservation.expiresAt))
-      ) {
-        throw localCallCenterError("CALL_NOT_CONNECTED", false);
-      }
+      await callCenterResponse<InboundAnswerClaimWire>(response);
       accepted = true;
       reservationRef.current = { body, idempotencyKey };
-      emitTiming(
-        "CLAIM_COMPLETED",
-        now() - startedAt,
-        answerClaimServerDuration(response.headers.get("Server-Timing")),
-      );
-      await answer(mediaLegId, claim.reservation.expiresAt);
-      emitTiming("SDK_ACTIVE", now() - startedAt);
+      await answer(mediaLegId);
     } catch (error) {
-      emitTiming("FAILED", now() - startedAt);
       if (accepted) {
         await releaseClaim("BROWSER_ANSWER_FAILED").catch(() => undefined);
       }
@@ -311,10 +226,8 @@ export function CanonicalOfferAnswerButton({
     answer,
     answerPending,
     callId,
-    emitTiming,
     legId,
     mediaLegId,
-    now,
     releaseClaim,
     sessionId,
     transferOffer,
@@ -328,16 +241,7 @@ export function CanonicalOfferAnswerButton({
         size="sm"
         variant="primary"
       >
-        {answering || answerPending ? (
-          <>
-            <LoaderCircle aria-hidden="true" className="animate-spin" />
-            <span aria-live="polite" role="status">
-              Connecting…
-            </span>
-          </>
-        ) : (
-          "Answer"
-        )}
+        {answering || answerPending ? "Answering" : "Answer"}
       </Button>
       {failure ? (
         <span className="max-w-48 text-right text-xs text-red-700" role="alert">
@@ -806,7 +710,6 @@ function ConnectedCanonicalActiveWorkspace({
                             }
                             legId={match.leg.id}
                             mediaLegId={match.observation.mediaLegId}
-                            reportTiming={reportAnswerPhaseTiming}
                             sessionId={session.id}
                             transferOffer={transferOffer}
                           />

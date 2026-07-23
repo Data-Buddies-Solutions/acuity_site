@@ -153,18 +153,11 @@ export function createTelnyxVoiceEventProcessor({
       }
 
       const projectionStartedAt = performance.now();
-      const projectedAt = clock();
-      const projection = await projector.projectAndComplete(event, fact, projectedAt);
+      const projection = await projector.projectAndComplete(event, fact, clock());
       logger.info("provider event projected", {
         attemptCount: event.attemptCount,
-        callId: projection.callId,
-        callLegId: projection.legId,
         eventType: event.eventType,
         projectionDurationMs: performance.now() - projectionStartedAt,
-        providerEventAgeMs: Math.max(
-          0,
-          projectedAt.getTime() - fact.occurredAt.getTime(),
-        ),
         providerEventId: event.providerEventId,
       });
       await dispatchCommittedCommands(projection, dispatchCommand);

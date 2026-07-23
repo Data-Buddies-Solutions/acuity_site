@@ -74,7 +74,6 @@ function mediaState(value: unknown): MediaLegState {
   if (["answering", "early", "recovering"].includes(state)) return "CONNECTING";
   if (state === "active") return "ACTIVE";
   if (state === "held") return "HELD";
-  if (["fail", "failed"].includes(state)) return "FAILED";
   if (["destroy", "hangup", "purge"].includes(state)) return "ENDED";
   return "UNKNOWN";
 }

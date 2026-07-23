@@ -26,7 +26,6 @@ function transaction({
   arguments: commandArguments = {
     agentSessionId: "session-1",
     endpointId: "endpoint-1",
-    timeoutSeconds: 45,
   },
   commandErrorCode = null,
   commandStatus = "PENDING",
@@ -135,16 +134,9 @@ function transaction({
   let currentAgentSessionId = "session-1";
   let currentCommandArguments = commandArguments;
   const tx = {
-    $queryRaw: async (query: { strings?: readonly string[]; values?: unknown[] }) => {
-      const sql = query.strings?.join("") ?? "";
+    $queryRaw: async (query: { values?: unknown[] }) => {
       operations.push(
-        query.values?.includes("CALL_CENTER:practice-1")
-          ? "practice.lock"
-          : sql.includes("call_center_endpoint")
-            ? "endpoint.lock"
-            : sql.includes('call_center_call"')
-              ? "call.lock"
-              : "row.lock",
+        query.values?.includes("CALL_CENTER:practice-1") ? "practice.lock" : "row.lock",
       );
       return [{ id: "command-1" }];
     },
@@ -323,7 +315,7 @@ function transaction({
 }
 
 describe("Prisma provider command store", () => {
-  it("locks the practice and endpoint before the participating Call", async () => {
+  it("locks the practice before claiming call, queue, command, or endpoint rows", async () => {
     const fake = transaction({ commandStatus: "SENT" });
     const store = new PrismaProviderCommandStore((operation) =>
       operation(fake.tx as never),
@@ -335,11 +327,7 @@ describe("Prisma provider command store", () => {
       staleBefore: new Date(now.getTime() - 60_000),
     });
 
-    expect(fake.operations.slice(0, 3)).toEqual([
-      "practice.lock",
-      "endpoint.lock",
-      "call.lock",
-    ]);
+    expect(fake.operations.slice(0, 2)).toEqual(["practice.lock", "row.lock"]);
   });
 
   it("reports settled and failed commands without sending them again", async () => {
@@ -395,18 +383,14 @@ describe("Prisma provider command store", () => {
     ).resolves.toMatchObject({
       attemptCount: 1,
       command: {
-        arguments: {
-          agentSessionId: "session-1",
-          endpointId: "endpoint-1",
-          timeoutSeconds: 45,
-        },
+        arguments: { agentSessionId: "session-1", endpointId: "endpoint-1" },
         commandId: "command-1",
         provider: {
           connectionId: "connection-1",
           from: "+17865550101",
           linkTo: "customer-control-1",
           sipUri: "sip:agent-1@example.test",
-          timeoutSeconds: 45,
+          timeoutSeconds: 20,
         },
       },
     });
@@ -415,11 +399,6 @@ describe("Prisma provider command store", () => {
 
   it("starts the outbound agent leg before a customer call exists", async () => {
     const fake = transaction({
-      arguments: {
-        agentSessionId: "session-1",
-        endpointId: "endpoint-1",
-        timeoutSeconds: 20,
-      },
       callDirection: "OUTBOUND",
       callStatus: "RECEIVED",
       customerLegs: [],
@@ -437,11 +416,6 @@ describe("Prisma provider command store", () => {
 
     expect(claim).toMatchObject({
       command: {
-        arguments: {
-          agentSessionId: "session-1",
-          endpointId: "endpoint-1",
-          timeoutSeconds: 20,
-        },
         provider: {
           connectionId: "connection-1",
           from: "+17865550101",
@@ -454,40 +428,6 @@ describe("Prisma provider command store", () => {
     expect(
       (claim as { command: { provider: object } }).command.provider,
     ).not.toHaveProperty("linkTo");
-  });
-
-  it("recovers legacy agent dials with their direction-specific timeout", async () => {
-    for (const [callDirection, timeoutSeconds] of [
-      ["INBOUND", 45],
-      ["OUTBOUND", 20],
-    ] as const) {
-      const fake = transaction({
-        arguments: {
-          agentSessionId: "session-1",
-          endpointId: "endpoint-1",
-        },
-        callDirection,
-        callStatus: callDirection === "INBOUND" ? "RINGING" : "RECEIVED",
-        customerLegs: callDirection === "INBOUND" ? undefined : [],
-        sessionState: "OFFERED",
-      });
-      const store = new PrismaProviderCommandStore((operation) =>
-        operation(fake.tx as never),
-      );
-
-      await expect(
-        store.claim({
-          commandId: "command-1",
-          now,
-          staleBefore: new Date(now.getTime() - 60_000),
-        }),
-      ).resolves.toMatchObject({
-        command: {
-          arguments: { timeoutSeconds },
-          provider: { timeoutSeconds },
-        },
-      });
-    }
   });
 
   it("rebinds a stale dial to the freshest ready session for the same endpoint user", async () => {
@@ -508,11 +448,7 @@ describe("Prisma provider command store", () => {
       }),
     ).resolves.toMatchObject({
       command: {
-        arguments: {
-          agentSessionId: "session-2",
-          endpointId: "endpoint-1",
-          timeoutSeconds: 45,
-        },
+        arguments: { agentSessionId: "session-2", endpointId: "endpoint-1" },
       },
     });
     expect(fake.operations).toContain("leg.rebind");
@@ -1086,7 +1022,6 @@ describe("Prisma provider command store", () => {
       arguments: {
         agentSessionId: "session-1",
         endpointId: "different-endpoint",
-        timeoutSeconds: 45,
       },
     });
     const store = rejectingStore(fake.tx);

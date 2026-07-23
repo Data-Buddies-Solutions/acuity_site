@@ -22,10 +22,7 @@ import {
 } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
-import {
-  lockAgentOfferSettlementResources,
-  settleCompetingAgentOffers,
-} from "@/lib/call-center/infrastructure/prisma-agent-offer-settlement";
+import { settleCompetingAgentOffers } from "@/lib/call-center/infrastructure/prisma-agent-offer-settlement";
 import {
   projectActiveInboundAnswerReservation,
   reconcileActiveInboundCallInTransaction,
@@ -1210,21 +1207,6 @@ function createProjectAndComplete(
         throw new CanonicalProjectionError("CANONICAL_CUSTOMER_LEG_NOT_FOUND");
       }
       const resolved = await resolveProjectionCall(tx, resolvedFact, leg);
-      const settlementEndpointId = leg?.endpointId ?? resolved.endpointId;
-      const settlementInput =
-        resolvedFact.legKind === "AGENT" &&
-        ["call.answered", "call.bridged"].includes(resolvedFact.eventType) &&
-        settlementEndpointId
-          ? {
-              endpointId: settlementEndpointId,
-              now: resolvedFact.occurredAt,
-              practiceId: resolved.call.practiceId,
-              winningCallId: resolved.call.id,
-            }
-          : null;
-      const settlementResources = settlementInput
-        ? await lockAgentOfferSettlementResources(tx, settlementInput)
-        : null;
       let call = normalizeCanonicalCallState(await lockCall(tx, resolved.call.id));
 
       if (call.practiceId !== resolved.call.practiceId) {
@@ -1290,11 +1272,13 @@ function createProjectAndComplete(
       };
       let preemptedCommandIds: string[] = [];
       if (
-        settlementResources &&
         leg.kind === "AGENT" &&
         leg.endpointId &&
         (nextLeg.status === "ANSWERED" || nextLeg.status === "BRIDGED")
       ) {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${leg.endpointId} FOR UPDATE`,
+        );
         const occupied = await tx.callCenterCallLeg.findFirst({
           select: { id: true },
           where: {
@@ -1728,11 +1712,13 @@ function createProjectAndComplete(
         ((!previousWinningLegId && winningLegId === leg.id) || transferCompleted) &&
         leg.endpointId
       ) {
-        if (!settlementInput || !settlementResources) {
-          throw new CanonicalProjectionError("CANONICAL_ENDPOINT_NOT_FOUND");
-        }
         commandIds.push(
-          ...(await settleCompetingAgentOffers(tx, settlementInput, settlementResources)),
+          ...(await settleCompetingAgentOffers(tx, {
+            endpointId: leg.endpointId,
+            now: resolvedFact.occurredAt,
+            practiceId: call.practiceId,
+            winningCallId: call.id,
+          })),
         );
       }
       if (["ABANDONED", "COMPLETED", "FAILED", "VOICEMAIL"].includes(call.status)) {

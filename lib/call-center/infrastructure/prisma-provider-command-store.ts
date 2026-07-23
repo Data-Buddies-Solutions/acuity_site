@@ -7,8 +7,6 @@ import type {
 import { UNBRIDGED_LIVE_CANONICAL_LEG_STATUSES } from "@/lib/call-center/domain/canonical-call-state";
 import {
   decideProviderCommandMarkSent,
-  INBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS,
-  OUTBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS,
   type ProviderCommandClaim,
 } from "@/lib/call-center/domain/provider-command";
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
@@ -41,20 +39,15 @@ function recordArguments(value: Prisma.JsonValue) {
     : null;
 }
 
-function dialAgentArguments(value: Prisma.JsonValue, legacyTimeoutSeconds: number) {
+function dialAgentArguments(value: Prisma.JsonValue) {
   const record = recordArguments(value);
   if (!record) return null;
-  const { agentSessionId, endpointId, timeoutSeconds } = record;
-  const resolvedTimeoutSeconds = timeoutSeconds ?? legacyTimeoutSeconds;
+  const { agentSessionId, endpointId } = record;
   return typeof agentSessionId === "string" &&
     agentSessionId.length > 0 &&
     typeof endpointId === "string" &&
-    endpointId.length > 0 &&
-    typeof resolvedTimeoutSeconds === "number" &&
-    Number.isInteger(resolvedTimeoutSeconds) &&
-    resolvedTimeoutSeconds >= 1 &&
-    resolvedTimeoutSeconds <= 120
-    ? { agentSessionId, endpointId, timeoutSeconds: resolvedTimeoutSeconds }
+    endpointId.length > 0
+    ? { agentSessionId, endpointId }
     : null;
 }
 
@@ -299,21 +292,11 @@ async function loadProviderCommandClaim(
   ProviderCommandClaim | ProviderCommandRejectedClaim | ProviderCommandSettledClaim | null
 > {
   const target = await tx.callCenterCommand.findUnique({
-    select: {
-      callId: true,
-      leg: { select: { endpointId: true } },
-      practiceId: true,
-      type: true,
-    },
+    select: { callId: true, practiceId: true },
     where: { id: commandId },
   });
   if (!target) return null;
   await lockCallCenterPractice(tx, target.practiceId);
-  if (["DIAL_AGENT", "TRANSFER_AGENT"].includes(target.type) && target.leg?.endpointId) {
-    await tx.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${target.leg.endpointId} FOR UPDATE`,
-    );
-  }
   await tx.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${target.callId} FOR UPDATE`,
   );
@@ -452,7 +435,7 @@ async function loadProviderCommandClaim(
     | Record<string, never>
     | { timeoutSeconds: number }
     | { greeting: string }
-    | { agentSessionId: string; endpointId: string; timeoutSeconds: number }
+    | { agentSessionId: string; endpointId: string }
     | {
         agentSessionId: string;
         endpointId: string;
@@ -468,12 +451,7 @@ async function loadProviderCommandClaim(
       dispatchArguments = voicemailGreetingArguments(command.arguments);
       break;
     case "DIAL_AGENT":
-      dispatchArguments = dialAgentArguments(
-        command.arguments,
-        command.call.direction === "INBOUND"
-          ? INBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS
-          : OUTBOUND_AGENT_PROVIDER_TIMEOUT_SECONDS,
-      );
+      dispatchArguments = dialAgentArguments(command.arguments);
       break;
     case "TRANSFER_AGENT":
       dispatchArguments = transferAgentArguments(command.arguments);
@@ -559,6 +537,9 @@ async function loadProviderCommandClaim(
     if (!endpoint?.enabled || !endpoint.sipUsername) {
       return reject("COMMAND_PROVIDER_TARGET_INVALID");
     }
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${args.endpointId} FOR UPDATE`,
+    );
     const source = await tx.callCenterCallLeg.findFirst({
       include: { endpoint: { select: { userId: true } } },
       where: {
@@ -685,7 +666,6 @@ async function loadProviderCommandClaim(
     let args = dispatchArguments as {
       agentSessionId: string;
       endpointId: string;
-      timeoutSeconds: number;
     };
     if (
       leg.kind !== "AGENT" ||
@@ -710,6 +690,9 @@ async function loadProviderCommandClaim(
     ) {
       return reject("COMMAND_PROVIDER_TARGET_INVALID");
     }
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${args.endpointId} FOR UPDATE`,
+    );
     const liveTarget = await tx.callCenterCallLeg.findFirst({
       select: { id: true },
       where: {
@@ -845,7 +828,7 @@ async function loadProviderCommandClaim(
           from,
           ...(linkTo ? { linkTo } : {}),
           sipUri: sipUri(endpoint.sipUsername.trim()),
-          timeoutSeconds: args.timeoutSeconds,
+          timeoutSeconds: 20,
         },
         type: "DIAL_AGENT",
       },

@@ -21,7 +21,6 @@ const claim: ProviderCommandClaim = {
     arguments: {
       agentSessionId: "session-1",
       endpointId: "endpoint-1",
-      timeoutSeconds: 20,
     },
     callId: "call-1",
     commandId: "command-1",

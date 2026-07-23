@@ -56,7 +56,7 @@ function store(initial = context()) {
   const accepted: unknown[] = [];
   const rejected: unknown[] = [];
   const fake: InboundAnswerClaimStore = {
-    withCallLock: async (_actor, _input, work) =>
+    withCallLock: async (_actor, _callId, work) =>
       work({
         accept: async (input) => {
           accepted.push(input);
@@ -94,18 +94,8 @@ function store(initial = context()) {
 }
 
 describe("inbound Answer authority", () => {
-  it("accepts one exact offered leg at 19.9 seconds with its five-second grace", async () => {
-    const offerStartedAt = new Date("2026-07-21T12:00:00.000Z");
-    const acceptedAt = new Date(offerStartedAt.getTime() + 19_900);
-    const initial = context();
-    const state = store(
-      context({
-        call: {
-          ...initial.call,
-          deadlineAt: new Date(offerStartedAt.getTime() + 20_000),
-        },
-      }),
-    );
+  it("accepts one exact offered leg and caps its grace at the hard deadline", async () => {
+    const state = store();
 
     await expect(
       claimInboundAnswer(
@@ -117,12 +107,12 @@ describe("inbound Answer authority", () => {
           legId: "leg-1",
           sessionId: "session-1",
         },
-        acceptedAt,
+        now,
       ),
     ).resolves.toMatchObject({
       replayed: false,
       reservation: {
-        expiresAt: new Date("2026-07-21T12:00:24.900Z"),
+        expiresAt: new Date("2026-07-21T12:00:05.000Z"),
         id: "reservation-1",
       },
       status: "ACCEPTED",

@@ -33,7 +33,6 @@ type SoftphoneMediaOptions = {
   autoPrepare?: boolean;
   browserSessionId: string;
   enabled: boolean;
-  now?: () => number;
   onDebug?: (event: string, details?: Record<string, unknown>) => void;
   onObservation?: (observation: MediaObservation) => void;
   retryBaseMs?: number;
@@ -80,60 +79,6 @@ function connectionId() {
   );
 }
 
-function callProviderIdentity(call: Call) {
-  return {
-    callControlId: call.telnyxIDs?.telnyxCallControlId?.trim() || null,
-    callLegId: call.telnyxIDs?.telnyxLegId?.trim() || null,
-    callSessionId: call.telnyxIDs?.telnyxSessionId?.trim() || null,
-  };
-}
-
-function recoveredPredecessor(
-  call: Call,
-  calls: ReadonlyMap<string, Call>,
-): { ambiguous: boolean; mediaLegId: string | null } {
-  const explicit = call.recoveredCallId?.trim() || null;
-  if (explicit) return { ambiguous: false, mediaLegId: explicit };
-
-  const identity = callProviderIdentity(call);
-  if (!identity.callControlId || !identity.callLegId || !identity.callSessionId) {
-    return { ambiguous: false, mediaLegId: null };
-  }
-  const candidates = [...calls.values()].filter((candidate) => {
-    if (candidate.id === call.id) return false;
-    const current = callProviderIdentity(candidate);
-    return (
-      current.callControlId === identity.callControlId &&
-      current.callLegId === identity.callLegId &&
-      current.callSessionId === identity.callSessionId
-    );
-  });
-  return {
-    ambiguous: candidates.length > 1,
-    mediaLegId: candidates.length === 1 ? candidates[0]!.id : null,
-  };
-}
-
-type RecoveredCanonicalIdentity = {
-  canonicalCallId: string;
-  canonicalLegId: string;
-};
-
-function applyRecoveredCanonicalIdentity(
-  observation: MediaObservation,
-  identity: RecoveredCanonicalIdentity | undefined,
-) {
-  if (!identity) return observation;
-  if (
-    (observation.canonicalCallId &&
-      observation.canonicalCallId !== identity.canonicalCallId) ||
-    (observation.canonicalLegId && observation.canonicalLegId !== identity.canonicalLegId)
-  ) {
-    return null;
-  }
-  return { ...observation, ...identity };
-}
-
 function mediaErrorMessage(event: unknown) {
   if (event && typeof event === "object") {
     const value = event as {
@@ -178,21 +123,15 @@ function useSoftphoneMediaEngine({
   autoPrepare = false,
   browserSessionId,
   enabled,
-  now = Date.now,
   onDebug,
   onObservation,
   retryBaseMs = 1_000,
 }: SoftphoneMediaOptions) {
   const clientRef = useRef<TelnyxRTC | null>(null);
   const callsRef = useRef(new Map<string, Call>());
-  const recoveredCanonicalIdentityRef = useRef(
-    new Map<string, RecoveredCanonicalIdentity>(),
-  );
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
   const attachedMediaLegRef = useRef<string | null>(null);
   const pendingAnswerRef = useRef<{
-    deadlineAtMs: number | null;
-    invokedMediaLegIds: Set<string>;
     mediaLegId: string;
     reject(error: Error): void;
     resolve(): void;
@@ -205,7 +144,6 @@ function useSoftphoneMediaEngine({
   const [connection, setConnection] = useState<MediaConnectionState>(
     enabled ? "CONNECTING" : "OFFLINE",
   );
-  const [answeringMediaLegId, setAnsweringMediaLegId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [microphoneError, setMicrophoneError] = useState<string | null>(null);
   const [microphoneReady, setMicrophoneReady] = useState(false);
@@ -376,7 +314,6 @@ function useSoftphoneMediaEngine({
 
     const adapterConnectionId = connectionId();
     const calls = callsRef.current;
-    const recoveredCanonicalIdentities = recoveredCanonicalIdentityRef.current;
     let cancelled = false;
     let connecting = false;
     let retryAttempt = 0;
@@ -515,7 +452,8 @@ function useSoftphoneMediaEngine({
           }
 
           const call = notification.call;
-          const normalizedObservation = normalizeMediaObservation({
+          calls.set(call.id, call);
+          const observation = normalizeMediaObservation({
             clientState: call.options?.clientState,
             connectionId: adapterConnectionId,
             direction: call.direction,
@@ -526,108 +464,6 @@ function useSoftphoneMediaEngine({
             remoteAudioReady: Boolean(call.remoteStream),
             state: call.state,
           });
-          let observation = applyRecoveredCanonicalIdentity(
-            normalizedObservation,
-            recoveredCanonicalIdentities.get(call.id),
-          );
-          if (!observation) {
-            debug("telnyx-recovery-correlation-failed", { mediaLegId: call.id });
-            return;
-          }
-          const recovery = recoveredPredecessor(call, calls);
-          if (recovery.ambiguous) {
-            debug("telnyx-recovery-correlation-failed", { mediaLegId: call.id });
-            return;
-          }
-          const recoveredCallId = recovery.mediaLegId;
-          if (recoveredCallId && recoveredCallId !== call.id && !calls.has(call.id)) {
-            const predecessor = calls.get(recoveredCallId);
-            if (!predecessor) {
-              debug("telnyx-recovery-correlation-failed", {
-                mediaLegId: call.id,
-                recoveredMediaLegId: recoveredCallId,
-              });
-              return;
-            }
-            const predecessorObservation = applyRecoveredCanonicalIdentity(
-              normalizeMediaObservation({
-                clientState: predecessor.options?.clientState,
-                connectionId: adapterConnectionId,
-                direction: predecessor.direction,
-                mediaLegId: predecessor.id,
-                providerCallControlId: predecessor.telnyxIDs?.telnyxCallControlId,
-                providerCallLegId: predecessor.telnyxIDs?.telnyxLegId,
-                providerCallSessionId: predecessor.telnyxIDs?.telnyxSessionId,
-                remoteAudioReady: Boolean(predecessor.remoteStream),
-                state: predecessor.state,
-              }),
-              recoveredCanonicalIdentities.get(predecessor.id),
-            );
-            if (
-              !predecessorObservation ||
-              !predecessorObservation.canonicalCallId ||
-              !predecessorObservation.canonicalLegId ||
-              predecessorObservation.direction !== "INBOUND" ||
-              observation.direction !== "INBOUND" ||
-              (observation.canonicalCallId &&
-                observation.canonicalCallId !== predecessorObservation.canonicalCallId) ||
-              (observation.canonicalLegId &&
-                observation.canonicalLegId !== predecessorObservation.canonicalLegId) ||
-              (["ACTIVE", "HELD"].includes(predecessorObservation.state) &&
-                !["ACTIVE", "HELD"].includes(observation.state))
-            ) {
-              debug("telnyx-recovery-correlation-failed", {
-                mediaLegId: call.id,
-                recoveredMediaLegId: recoveredCallId,
-              });
-              return;
-            }
-            observation = {
-              ...observation,
-              canonicalCallId: predecessorObservation.canonicalCallId,
-              canonicalLegId: predecessorObservation.canonicalLegId,
-            };
-            recoveredCanonicalIdentities.delete(recoveredCallId);
-            recoveredCanonicalIdentities.set(call.id, {
-              canonicalCallId: predecessorObservation.canonicalCallId,
-              canonicalLegId: predecessorObservation.canonicalLegId,
-            });
-            calls.delete(recoveredCallId);
-            setObservations((current) =>
-              current.filter(({ mediaLegId }) => mediaLegId !== recoveredCallId),
-            );
-
-            const pendingAnswer = pendingAnswerRef.current;
-            if (pendingAnswer?.mediaLegId === recoveredCallId) {
-              pendingAnswer.mediaLegId = call.id;
-              setAnsweringMediaLegId(call.id);
-              if (
-                pendingAnswer.deadlineAtMs !== null &&
-                now() >= pendingAnswer.deadlineAtMs
-              ) {
-                pendingAnswer.reject(localCallCenterError("CALL_NOT_CONNECTED", false));
-              } else if (["ACTIVE", "HELD"].includes(observation.state)) {
-                pendingAnswer.resolve();
-              } else if (["ENDED", "FAILED"].includes(observation.state)) {
-                pendingAnswer.reject(localCallCenterError("CALL_NOT_CONNECTED", false));
-              } else if (
-                ["CONNECTING", "RINGING"].includes(observation.state) &&
-                !pendingAnswer.invokedMediaLegIds.has(call.id)
-              ) {
-                pendingAnswer.invokedMediaLegIds.add(call.id);
-                void Promise.resolve(call.answer({ video: false })).catch(() => {
-                  if (pendingAnswerRef.current === pendingAnswer) {
-                    pendingAnswer.reject(
-                      localCallCenterError("CALL_NOT_CONNECTED", false),
-                    );
-                  }
-                });
-              } else {
-                pendingAnswer.reject(localCallCenterError("CALL_NOT_CONNECTED", false));
-              }
-            }
-          }
-          calls.set(call.id, call);
           const pendingAnswer = pendingAnswerRef.current;
           if (pendingAnswer?.mediaLegId === observation.mediaLegId) {
             if (["ACTIVE", "HELD"].includes(observation.state)) {
@@ -650,7 +486,6 @@ function useSoftphoneMediaEngine({
 
           if (terminal) {
             calls.delete(call.id);
-            recoveredCanonicalIdentities.delete(call.id);
             if (attachedMediaLegRef.current === call.id) detachAudio();
           }
         });
@@ -677,20 +512,18 @@ function useSoftphoneMediaEngine({
       if (retryTimer) clearTimeout(retryTimer);
       debug("softphone-cleanup", { connectionId: adapterConnectionId });
       calls.clear();
-      recoveredCanonicalIdentities.clear();
       if (pendingAnswerRef.current) {
         clearTimeout(pendingAnswerRef.current.timeout);
         pendingAnswerRef.current.reject(localCallCenterError("NETWORK_LOST"));
       }
       pendingAnswerRef.current = null;
-      setAnsweringMediaLegId(null);
       setObservations((current) =>
         current.filter(({ connectionId: id }) => id !== adapterConnectionId),
       );
       detachAudio();
       retireClient(clientRef.current);
     };
-  }, [agentSessionId, browserSessionId, debug, detachAudio, enabled, now, retryBaseMs]);
+  }, [agentSessionId, browserSessionId, debug, detachAudio, enabled, retryBaseMs]);
 
   const callFor = useCallback((mediaLegId: string) => {
     const call = callsRef.current.get(mediaLegId);
@@ -699,16 +532,8 @@ function useSoftphoneMediaEngine({
   }, []);
 
   const answer = useCallback(
-    async (mediaLegId: string, expiresAt?: string) => {
+    async (mediaLegId: string) => {
       const call = callFor(mediaLegId);
-      const deadlineAtMs = expiresAt ? Date.parse(expiresAt) : null;
-      const startedAt = now();
-      if (
-        (expiresAt && !Number.isFinite(deadlineAtMs)) ||
-        (deadlineAtMs !== null && startedAt >= deadlineAtMs)
-      ) {
-        throw localCallCenterError("CALL_NOT_CONNECTED", false);
-      }
       let resolveConfirmation!: () => void;
       let rejectConfirmation!: (error: Error) => void;
       const confirmation = new Promise<void>((resolve, reject) => {
@@ -717,20 +542,14 @@ function useSoftphoneMediaEngine({
       });
       const timeout = setTimeout(
         () => rejectConfirmation(localCallCenterError("CALL_NOT_CONNECTED", false)),
-        deadlineAtMs === null
-          ? ANSWER_CONFIRMATION_TIMEOUT_MS
-          : Math.min(ANSWER_CONFIRMATION_TIMEOUT_MS, deadlineAtMs - startedAt),
+        ANSWER_CONFIRMATION_TIMEOUT_MS,
       );
-      const pendingAnswer = {
-        deadlineAtMs,
-        invokedMediaLegIds: new Set([mediaLegId]),
+      pendingAnswerRef.current = {
         mediaLegId,
         reject: rejectConfirmation,
         resolve: resolveConfirmation,
         timeout,
       };
-      pendingAnswerRef.current = pendingAnswer;
-      setAnsweringMediaLegId(mediaLegId);
       try {
         void Promise.resolve(call.answer({ video: false })).catch(() => {
           if (pendingAnswerRef.current?.mediaLegId === mediaLegId) {
@@ -741,14 +560,13 @@ function useSoftphoneMediaEngine({
       } catch {
         throw localCallCenterError("CALL_NOT_CONNECTED", false);
       } finally {
-        if (pendingAnswerRef.current === pendingAnswer) {
-          clearTimeout(pendingAnswer.timeout);
+        if (pendingAnswerRef.current?.mediaLegId === mediaLegId) {
+          clearTimeout(pendingAnswerRef.current.timeout);
           pendingAnswerRef.current = null;
-          setAnsweringMediaLegId(null);
         }
       }
     },
-    [callFor, now],
+    [callFor],
   );
   const activate = useCallback(
     (mediaLegId: string) => attachAudio(callFor(mediaLegId)),
@@ -795,7 +613,6 @@ function useSoftphoneMediaEngine({
   return {
     activate,
     answer,
-    answeringMediaLegId,
     connection: enabled ? connection : "OFFLINE",
     dial,
     dtmf,

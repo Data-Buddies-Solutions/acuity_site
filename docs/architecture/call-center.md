@@ -43,22 +43,10 @@ flowchart LR
 
 Inbound calls ring every eligible ready browser in deterministic order. A user
 remains `AVAILABLE` while a call is only offered. `Answer` accepts the exact
-browser media leg and immediately renders a disabled `Connecting...` action
-while it waits for the SDK to report connected media. The canonical offer lasts
-20 seconds with a 5-second late-claim grace; the Telnyx agent dial lasts 45
-seconds so provider cleanup cannot erase an accepted Answer inside that window.
-The call's hard deadline is unchanged. For inbound calls, the user becomes
-`BUSY` only after a provider-confirmed bridge. An outbound call becomes
-connected only when bridge evidence elects the exact agent leg linked to the
-customer. Hangup releases the user.
-
-The browser keeps its Telnyx client registered and completes microphone and
-audio preflight while the agent is `AVAILABLE`; clicking Answer does not fetch a
-fresh token or create a new client. During one pending Answer, the SDK may
-replace its Call object only when `recoveredCallId` points to the exact
-predecessor, or when all three provider IDs identify one predecessor and no
-explicit recovery ID is present. The replacement must keep the same canonical
-call and leg. Ambiguous, unrelated, or cross-call replacements fail closed.
+browser media leg and waits for the SDK to report connected media. For inbound
+calls, the user becomes `BUSY` only after a provider-confirmed bridge. An
+outbound call becomes connected only when bridge evidence elects the exact
+agent leg linked to the customer. Hangup releases the user.
 
 Starting an outbound call first ends this agent's waiting inbound offers through
 durable provider commands. Only after those commands are accepted does the
@@ -121,19 +109,13 @@ durable lifecycle.
 12. Provider commands dispatch immediately and a bounded outbox drain recovers
     interrupted sends; terminal failures remain visible for operator diagnosis.
 13. Provider callbacks first serialize by provider session. Direct-handoff
-    correlation, when required to resolve the practice, follows. Configuration,
-    admission, outbound creation, and provider-command transitions acquire the
-    shared transaction-scoped practice lock before row locks. Projection of an
-    existing agent offer does not take that practice-wide lock: Answer
-    arbitration locks the endpoint first and every participating call in stable
-    ID order, including the winner. Provider I/O occurs only after the database
-    transaction releases its locks.
+    correlation, when required to resolve the practice, follows; then every
+    configuration write, admission, webhook projection, outbound creation, and
+    provider-command transition acquires the shared transaction-scoped practice
+    lock before row locks. Provider I/O occurs only after the database
+    transaction releases that lock.
 14. A provider event has one claim lease, attempt count, retry time, categorical
     error, processed time, and status from receipt through terminal outcome.
-15. Answer timing reports are bounded and asynchronous. They contain tenant,
-    user, session, canonical call and leg IDs, categorical phases, and durations;
-    they contain no patient fields or raw provider payloads and never determine
-    whether Answer succeeds.
 
 ## Schema cleanup
 
