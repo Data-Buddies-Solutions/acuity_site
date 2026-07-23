@@ -455,6 +455,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
       const agentProviderLegId = fixture.id(`bridge-${key}-agent-provider-leg`);
       const customerControlId = fixture.id(`bridge-${key}-customer-control`);
       const customerProviderLegId = fixture.id(`bridge-${key}-customer-provider-leg`);
+      const providerCallSessionId = fixture.id(`bridge-${key}-session`);
 
       try {
         await prisma.callCenterCall.update({
@@ -466,7 +467,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
             answeredAt: occurredAt,
             providerCallControlId: agentControlId,
             providerCallLegId: agentProviderLegId,
-            providerCallSessionId: fixture.id(`bridge-${key}-session`),
+            providerCallSessionId,
             status: "ANSWERED",
           },
           where: { id: legId },
@@ -479,7 +480,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
             kind: "CUSTOMER",
             providerCallControlId: customerControlId,
             providerCallLegId: customerProviderLegId,
-            providerCallSessionId: fixture.id(`bridge-${key}-session`),
+            providerCallSessionId,
             startedAt: occurredAt,
             status: "ANSWERED",
           },
@@ -507,6 +508,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
                 kind === "AGENT" ? agentControlId : customerControlId,
               providerCallLegId:
                 kind === "AGENT" ? agentProviderLegId : customerProviderLegId,
+              providerCallSessionId,
               providerEventId: event.providerEventId,
             }),
             at,
@@ -514,9 +516,8 @@ describePostgres("canonical call projector on PostgreSQL", () => {
         };
 
         const secondKind = firstKind === "AGENT" ? "CUSTOMER" : "AGENT";
-        await expect(
-          projectBridge(firstKind, "first", projectedAt),
-        ).resolves.toMatchObject({
+        const firstProjection = await projectBridge(firstKind, "first", projectedAt);
+        expect(firstProjection).toMatchObject({
           callStatus: "RINGING",
           legStatus: "BRIDGED",
         });

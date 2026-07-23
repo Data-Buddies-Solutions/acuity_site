@@ -1,7 +1,5 @@
-import { PrismaPg } from "@prisma/adapter-pg";
-import { Pool } from "pg";
-
 import { PrismaClient } from "@/generated/prisma/client";
+import { createPrismaAdapter } from "@/lib/prisma-adapter";
 
 const connectionString =
   process.env.DATABASE_URL ||
@@ -14,25 +12,16 @@ function positiveInteger(value: string | undefined, fallback: number) {
 
 const globalForPrisma = globalThis as typeof globalThis & {
   prisma?: PrismaClient;
-  prismaPool?: Pool;
 };
-
-const prismaPool =
-  globalForPrisma.prismaPool ??
-  new Pool({
-    allowExitOnIdle: true,
-    connectionString,
-    connectionTimeoutMillis: 5_000,
-    idleTimeoutMillis: 10_000,
-    max: positiveInteger(process.env.DATABASE_POOL_MAX, process.env.VERCEL ? 2 : 10),
-  });
 
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    adapter: new PrismaPg(prismaPool),
+    adapter: createPrismaAdapter(
+      connectionString,
+      positiveInteger(process.env.DATABASE_POOL_MAX, process.env.VERCEL ? 2 : 10),
+    ),
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
 
 globalForPrisma.prisma = prisma;
-globalForPrisma.prismaPool = prismaPool;
