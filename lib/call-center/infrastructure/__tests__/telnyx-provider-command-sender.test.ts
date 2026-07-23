@@ -141,6 +141,85 @@ describe("Telnyx provider command sender", () => {
     });
   });
 
+  it("connects the outbound agent without a premature bridge target", async () => {
+    const dials: Record<string, unknown>[] = [];
+    const sender = createTelnyxProviderCommandSender({
+      dial: async (input) => {
+        dials.push(input as unknown as Record<string, unknown>);
+        return {};
+      },
+    });
+
+    await sender.send({
+      arguments: { agentSessionId: "session-1", endpointId: "endpoint-1" },
+      callId: "call-1",
+      commandId: "dial-agent-1",
+      idempotencyKey: "outbound:agent",
+      legId: "agent-leg-1",
+      practiceId: "practice-1",
+      provider: {
+        connectionId: "connection-1",
+        from: "+17865550101",
+        sipUri: "sip:agent-1@example.test",
+        timeoutSeconds: 20,
+      },
+      type: "DIAL_AGENT",
+    });
+
+    expect(dials).toEqual([
+      {
+        clientState: expect.any(String),
+        commandId: "dial-agent-1",
+        connectionId: "connection-1",
+        from: "+17865550101",
+        timeoutSecs: 20,
+        to: "sip:agent-1@example.test",
+      },
+    ]);
+  });
+
+  it("bridges the customer dial to the ready outbound agent", async () => {
+    const dials: Record<string, unknown>[] = [];
+    const sender = createTelnyxProviderCommandSender({
+      dial: async (input) => {
+        dials.push(input as unknown as Record<string, unknown>);
+        return {};
+      },
+    });
+
+    await sender.send({
+      arguments: {},
+      callId: "call-1",
+      commandId: "dial-customer-1",
+      idempotencyKey: "outbound:customer",
+      legId: "customer-leg-1",
+      practiceId: "practice-1",
+      provider: {
+        connectionId: "connection-1",
+        from: "+17865550101",
+        linkTo: "agent-control-1",
+        timeoutSeconds: 60,
+        to: "+17865550102",
+      },
+      type: "DIAL_CUSTOMER",
+    });
+
+    expect(dials).toEqual([
+      {
+        bridgeIntent: true,
+        bridgeOnAnswer: true,
+        clientState: expect.any(String),
+        commandId: "dial-customer-1",
+        connectionId: "connection-1",
+        from: "+17865550101",
+        linkTo: "agent-control-1",
+        preventDoubleBridge: true,
+        timeoutSecs: 60,
+        to: "+17865550102",
+      },
+    ]);
+  });
+
   it("maps every initial lifecycle command to one idempotent Telnyx action", async () => {
     const calls: Array<[string, unknown]> = [];
     const response = () => new Response(null, { status: 204 });

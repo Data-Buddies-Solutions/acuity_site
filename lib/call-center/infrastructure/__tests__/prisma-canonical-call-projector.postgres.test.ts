@@ -342,12 +342,23 @@ describePostgres("canonical call projector on PostgreSQL", () => {
     }
   });
 
-  it("correlates one outbound leg from answer through terminal hangup", async () => {
+  it("releases the customer dial only after the outbound agent answers", async () => {
     const fixture = await createFixture(prisma);
     const { callId, legId } = await fixture.createOutboundCall("lifecycle");
     const commandId = fixture.id("dial-command");
+    const customerLegId = fixture.id("customer-leg");
+    const customerCommandId = fixture.id("customer-command");
 
     try {
+      await prisma.callCenterCallLeg.create({
+        data: {
+          callId,
+          id: customerLegId,
+          kind: "CUSTOMER",
+          startedAt: occurredAt,
+          status: "CREATED",
+        },
+      });
       await prisma.callCenterCommand.create({
         data: {
           attemptCount: 1,
@@ -358,6 +369,17 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           practiceId: fixture.practiceId,
           status: "SENT",
           type: "DIAL_AGENT",
+        },
+      });
+      await prisma.callCenterCommand.create({
+        data: {
+          callId,
+          dependsOnCommandId: commandId,
+          id: customerCommandId,
+          idempotencyKey: fixture.id("customer-command-key"),
+          legId: customerLegId,
+          practiceId: fixture.practiceId,
+          type: "DIAL_CUSTOMER",
         },
       });
       const answered = await fixture.processingEvent("call.answered", "outbound-answer");
@@ -376,7 +398,8 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           projectedAt,
         ),
       ).resolves.toMatchObject({
-        callStatus: "CONNECTED",
+        callStatus: "RINGING",
+        commandIds: [customerCommandId],
         legStatus: "ANSWERED",
       });
       expect(
@@ -402,7 +425,7 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           new Date("2026-07-20T10:00:02.000Z"),
         ),
       ).resolves.toMatchObject({
-        callStatus: "COMPLETED",
+        callStatus: "ABANDONED",
         legStatus: "ENDED",
       });
       expect(
@@ -411,11 +434,104 @@ describePostgres("canonical call projector on PostgreSQL", () => {
           where: { id: callId },
         }),
       ).toMatchObject({
-        status: "COMPLETED",
-        legs: [{ id: legId, status: "ENDED" }],
+        status: "ABANDONED",
+        legs: expect.arrayContaining([
+          expect.objectContaining({ id: legId, status: "ENDED" }),
+          expect.objectContaining({ id: customerLegId, status: "ENDED" }),
+        ]),
       });
     } finally {
       await fixture.cleanup();
+    }
+  });
+
+  it("requires both outbound bridge callbacks in either delivery order", async () => {
+    for (const firstKind of ["CUSTOMER", "AGENT"] as const) {
+      const fixture = await createFixture(prisma);
+      const key = firstKind.toLowerCase();
+      const { callId, legId } = await fixture.createOutboundCall(`bridge-${key}`);
+      const customerLegId = fixture.id(`bridge-${key}-customer-leg`);
+      const agentControlId = fixture.id(`bridge-${key}-agent-control`);
+      const agentProviderLegId = fixture.id(`bridge-${key}-agent-provider-leg`);
+      const customerControlId = fixture.id(`bridge-${key}-customer-control`);
+      const customerProviderLegId = fixture.id(`bridge-${key}-customer-provider-leg`);
+
+      try {
+        await prisma.callCenterCall.update({
+          data: { status: "RINGING" },
+          where: { id: callId },
+        });
+        await prisma.callCenterCallLeg.update({
+          data: {
+            answeredAt: occurredAt,
+            providerCallControlId: agentControlId,
+            providerCallLegId: agentProviderLegId,
+            providerCallSessionId: fixture.id(`bridge-${key}-session`),
+            status: "ANSWERED",
+          },
+          where: { id: legId },
+        });
+        await prisma.callCenterCallLeg.create({
+          data: {
+            answeredAt: occurredAt,
+            callId,
+            id: customerLegId,
+            kind: "CUSTOMER",
+            providerCallControlId: customerControlId,
+            providerCallLegId: customerProviderLegId,
+            providerCallSessionId: fixture.id(`bridge-${key}-session`),
+            startedAt: occurredAt,
+            status: "ANSWERED",
+          },
+        });
+
+        const projectBridge = async (
+          kind: "AGENT" | "CUSTOMER",
+          suffix: string,
+          at: Date,
+        ) => {
+          const event = await fixture.processingEvent(
+            "call.bridged",
+            `bridge-${key}-${suffix}`,
+          );
+          return projector.projectAndComplete(
+            event,
+            fixture.fact({
+              canonicalCallId: callId,
+              canonicalLegId: kind === "AGENT" ? legId : customerLegId,
+              direction: "OUTBOUND",
+              ...(kind === "AGENT" ? { endpointId: fixture.endpointId } : {}),
+              eventType: "call.bridged",
+              legKind: kind,
+              providerCallControlId:
+                kind === "AGENT" ? agentControlId : customerControlId,
+              providerCallLegId:
+                kind === "AGENT" ? agentProviderLegId : customerProviderLegId,
+              providerEventId: event.providerEventId,
+            }),
+            at,
+          );
+        };
+
+        const secondKind = firstKind === "AGENT" ? "CUSTOMER" : "AGENT";
+        await expect(
+          projectBridge(firstKind, "first", projectedAt),
+        ).resolves.toMatchObject({
+          callStatus: "RINGING",
+          legStatus: "BRIDGED",
+        });
+        await expect(
+          projectBridge(secondKind, "second", new Date("2026-07-20T10:00:02.000Z")),
+        ).resolves.toMatchObject({
+          callStatus: "CONNECTED",
+          legStatus: "BRIDGED",
+        });
+        expect(
+          await prisma.callCenterCall.findUniqueOrThrow({ where: { id: callId } }),
+        ).toMatchObject({ status: "CONNECTED", winningLegId: legId });
+      } finally {
+        await fixture.cleanup();
+      }
     }
   });
 

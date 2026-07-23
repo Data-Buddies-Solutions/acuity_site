@@ -22,7 +22,10 @@ import {
 } from "@/lib/call-center/infrastructure/prisma-canonical-voicemail";
 import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { routeActiveInboundCallInTransaction } from "@/lib/call-center/infrastructure/prisma-active-inbound-routing-store";
-import { settleCompetingAgentOffers } from "@/lib/call-center/infrastructure/prisma-agent-offer-settlement";
+import {
+  lockAgentOfferSettlementResources,
+  settleCompetingAgentOffers,
+} from "@/lib/call-center/infrastructure/prisma-agent-offer-settlement";
 import {
   projectActiveInboundAnswerReservation,
   reconcileActiveInboundCallInTransaction,
@@ -134,7 +137,7 @@ export type CanonicalCallProjector = {
 
 type Transaction = Prisma.TransactionClient;
 
-async function pendingDialAgentCommandIdsForCustomerCallback(
+async function pendingDialCommandIdsForCallback(
   tx: Transaction,
   input: {
     callDirection: "INBOUND" | "OUTBOUND";
@@ -144,15 +147,17 @@ async function pendingDialAgentCommandIdsForCustomerCallback(
     practiceId: string;
   },
 ) {
-  if (
-    input.legKind !== "CUSTOMER" ||
-    !(
-      input.eventType === "call.answered" ||
-      (input.callDirection === "INBOUND" && input.eventType === "call.playback.started")
-    )
+  let commandType: "DIAL_AGENT" | "DIAL_CUSTOMER" | null = null;
+  if (input.callDirection === "OUTBOUND" && input.eventType === "call.answered") {
+    commandType = input.legKind === "AGENT" ? "DIAL_CUSTOMER" : "DIAL_AGENT";
+  } else if (
+    input.callDirection === "INBOUND" &&
+    input.legKind === "CUSTOMER" &&
+    (input.eventType === "call.answered" || input.eventType === "call.playback.started")
   ) {
-    return [];
+    commandType = "DIAL_AGENT";
   }
+  if (!commandType) return [];
   const commands = await tx.callCenterCommand.findMany({
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { id: true },
@@ -160,7 +165,7 @@ async function pendingDialAgentCommandIdsForCustomerCallback(
       callId: input.callId,
       practiceId: input.practiceId,
       status: "PENDING",
-      type: "DIAL_AGENT",
+      type: commandType,
     },
   });
   return commands.map(({ id }) => id);
@@ -848,19 +853,9 @@ function canonicalCallObservation(
   processedLegId: string,
   { deferTransferSourceHangup = false }: { deferTransferSourceHangup?: boolean } = {},
 ) {
-  if (
-    call.direction === "INBOUND" &&
-    fact.eventType === "call.bridged" &&
-    fact.legKind === "CUSTOMER"
-  ) {
-    return null;
-  }
   if (fact.legKind === "AGENT") {
     if (fact.eventType === "call.hangup" && deferTransferSourceHangup) {
       return null;
-    }
-    if (call.direction === "OUTBOUND" && fact.eventType === "call.answered") {
-      return "CONNECTED" as const;
     }
     if (fact.eventType === "call.hangup") {
       if (call.winningLegId === processedLegId) {
@@ -1113,13 +1108,16 @@ async function resolveCanonicalTransferContext(
 
 function projectedCallDeadline(
   call: { deadlineAt: Date | null; direction: "INBOUND" | "OUTBOUND" },
-  fact: Pick<ResolvedCanonicalTelnyxCallFact, "eventType" | "occurredAt">,
+  fact: Pick<ResolvedCanonicalTelnyxCallFact, "eventType" | "legKind" | "occurredAt">,
 ) {
   if (call.direction === "OUTBOUND") {
     if (fact.eventType === "call.initiated") {
       return new Date(fact.occurredAt.getTime() + OUTBOUND_RING_TIMEOUT_MS);
     }
-    if (fact.eventType === "call.answered" || fact.eventType === "call.hangup") {
+    if (
+      (fact.eventType === "call.answered" && fact.legKind === "CUSTOMER") ||
+      fact.eventType === "call.hangup"
+    ) {
       return null;
     }
   }
@@ -1133,16 +1131,21 @@ function projectedCallDeadline(
   return call.deadlineAt;
 }
 
-function hasCanonicalAgentBridgeEvidence(
+function hasCanonicalConnectionBridgeEvidence(
+  direction: "INBOUND" | "OUTBOUND",
   winningLegId: string | null,
   bridgedLegs: ReadonlyArray<{
     id: string;
     kind: "AGENT" | "CUSTOMER";
   }>,
 ) {
-  return Boolean(
+  const agentBridged = Boolean(
     winningLegId &&
     bridgedLegs.some((leg) => leg.id === winningLegId && leg.kind === "AGENT"),
+  );
+  return (
+    agentBridged &&
+    (direction === "INBOUND" || bridgedLegs.some((leg) => leg.kind === "CUSTOMER"))
   );
 }
 
@@ -1212,6 +1215,21 @@ function createProjectAndComplete(
         throw new CanonicalProjectionError("CANONICAL_CUSTOMER_LEG_NOT_FOUND");
       }
       const resolved = await resolveProjectionCall(tx, resolvedFact, leg);
+      const settlementEndpointId = leg?.endpointId ?? resolved.endpointId;
+      const settlementInput =
+        resolvedFact.legKind === "AGENT" &&
+        ["call.answered", "call.bridged"].includes(resolvedFact.eventType) &&
+        settlementEndpointId
+          ? {
+              endpointId: settlementEndpointId,
+              now: resolvedFact.occurredAt,
+              practiceId: resolved.call.practiceId,
+              winningCallId: resolved.call.id,
+            }
+          : null;
+      const settlementResources = settlementInput
+        ? await lockAgentOfferSettlementResources(tx, settlementInput)
+        : null;
       let call = normalizeCanonicalCallState(await lockCall(tx, resolved.call.id));
 
       if (call.practiceId !== resolved.call.practiceId) {
@@ -1277,13 +1295,11 @@ function createProjectAndComplete(
       };
       let preemptedCommandIds: string[] = [];
       if (
+        settlementResources &&
         leg.kind === "AGENT" &&
         leg.endpointId &&
         (nextLeg.status === "ANSWERED" || nextLeg.status === "BRIDGED")
       ) {
-        await tx.$queryRaw(
-          Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${leg.endpointId} FOR UPDATE`,
-        );
         const occupied = await tx.callCenterCallLeg.findFirst({
           select: { id: true },
           where: {
@@ -1433,7 +1449,8 @@ function createProjectAndComplete(
         leg,
         transferCompleted ? (transfer?.sourceLegId ?? null) : null,
       );
-      const hasBridgeEvidence = hasCanonicalAgentBridgeEvidence(
+      const hasBridgeEvidence = hasCanonicalConnectionBridgeEvidence(
+        call.direction,
         winningLegId,
         bridgedLegs,
       );
@@ -1563,7 +1580,7 @@ function createProjectAndComplete(
 
       const commandIds: string[] = [
         ...preemptedCommandIds,
-        ...(await pendingDialAgentCommandIdsForCustomerCallback(tx, {
+        ...(await pendingDialCommandIdsForCallback(tx, {
           callDirection: call.direction,
           callId: call.id,
           eventType: resolvedFact.eventType,
@@ -1717,13 +1734,11 @@ function createProjectAndComplete(
         ((!previousWinningLegId && winningLegId === leg.id) || transferCompleted) &&
         leg.endpointId
       ) {
+        if (!settlementInput || !settlementResources) {
+          throw new CanonicalProjectionError("CANONICAL_ENDPOINT_NOT_FOUND");
+        }
         commandIds.push(
-          ...(await settleCompetingAgentOffers(tx, {
-            endpointId: leg.endpointId,
-            now: resolvedFact.occurredAt,
-            practiceId: call.practiceId,
-            winningCallId: call.id,
-          })),
+          ...(await settleCompetingAgentOffers(tx, settlementInput, settlementResources)),
         );
       }
       if (["ABANDONED", "COMPLETED", "FAILED", "VOICEMAIL"].includes(call.status)) {

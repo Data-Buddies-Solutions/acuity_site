@@ -17,6 +17,12 @@ preflight approval, shadow stage, queue mode, or global enable switch.
    complete test suite, and the production build.
 5. Prove new migrations on an empty database and replay the complete migration
    history. Never use `prisma db push` in production.
+6. Confirm production application traffic uses the database provider's pooled
+   runtime URL in `DATABASE_URL`. Keep the direct URL in `DIRECT_URL` or
+   `PRISMA_DATABASE_URL` for Prisma migrations and administrative tools.
+   Vercel defaults to two application connections per function instance;
+   `DATABASE_POOL_MAX` may override that only within the database connection
+   budget.
 
 ## Deploy
 

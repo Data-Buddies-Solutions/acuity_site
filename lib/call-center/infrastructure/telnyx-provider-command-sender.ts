@@ -101,6 +101,17 @@ function requireSuccessfulResponse(response: Response, action: string) {
   }
 }
 
+function linkedBridge(linkTo: string | undefined) {
+  return linkTo
+    ? {
+        bridgeIntent: true,
+        bridgeOnAnswer: true,
+        linkTo,
+        preventDoubleBridge: true,
+      }
+    : {};
+}
+
 export function createTelnyxProviderCommandSender(
   overrides: Partial<TelnyxCommandOperations> = {},
 ): ProviderCommandSender {
@@ -135,6 +146,7 @@ export function createTelnyxProviderCommandSender(
           return;
         case "DIAL_CUSTOMER":
           await operations.dial({
+            ...linkedBridge(command.provider.linkTo),
             clientState: canonicalCommandClientState(command),
             commandId: command.commandId,
             connectionId: command.provider.connectionId,
@@ -145,14 +157,11 @@ export function createTelnyxProviderCommandSender(
           return;
         case "DIAL_AGENT":
           await operations.dial({
-            bridgeIntent: true,
-            bridgeOnAnswer: true,
+            ...linkedBridge(command.provider.linkTo),
             clientState: canonicalCommandClientState(command),
             commandId: command.commandId,
             connectionId: command.provider.connectionId,
             from: command.provider.from,
-            linkTo: command.provider.linkTo,
-            preventDoubleBridge: true,
             timeoutSecs: command.provider.timeoutSeconds,
             to: command.provider.sipUri,
           });
