@@ -106,7 +106,7 @@ export interface InboundAnswerClaimTransaction {
 export interface InboundAnswerClaimStore {
   withCallLock<T>(
     actor: QueueAccessActor,
-    callId: string,
+    input: Pick<InboundAnswerClaimInput, "callId" | "legId">,
     work: (transaction: InboundAnswerClaimTransaction) => Promise<T>,
   ): Promise<T>;
 }
@@ -221,7 +221,7 @@ export function claimInboundAnswer(
   input: InboundAnswerClaimInput,
   now = new Date(),
 ) {
-  return store.withCallLock(actor, input.callId, async (transaction) => {
+  return store.withCallLock(actor, input, async (transaction) => {
     const context = await transaction.load(input, now);
     const prior = context?.priorClaim;
     if (prior) {
@@ -295,7 +295,7 @@ export function releaseInboundAnswer(
   input: InboundAnswerReleaseInput,
   now = new Date(),
 ) {
-  return store.withCallLock(actor, input.callId, async (transaction) => {
+  return store.withCallLock(actor, input, async (transaction) => {
     const context = await transaction.load(input, now);
     const reservation = context?.reservation;
     if (

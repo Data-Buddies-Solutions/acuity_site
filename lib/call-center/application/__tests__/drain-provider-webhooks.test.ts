@@ -22,6 +22,60 @@ const record = (id: string): ProviderWebhookRecord => ({
 });
 
 describe("provider webhook recovery", () => {
+  it("bounds concurrent recovery work and serializes one provider call session", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const processed: string[] = [];
+    const releaseFirst = Promise.withResolvers<void>();
+    const firstStarted = Promise.withResolvers<void>();
+    const first = {
+      ...record("first"),
+      providerCallSessionId: "shared-session",
+    };
+    const second = {
+      ...record("second"),
+      providerCallSessionId: "shared-session",
+    };
+    const other = {
+      ...record("other"),
+      providerCallSessionId: "other-session",
+    };
+    const drain = createProviderWebhookDrainer({
+      backlog: { listDue: async () => [first, second, other] },
+      concurrency: 2,
+      processRecord: async (event) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        processed.push(`start:${event.id}`);
+        if (event.id === "first") {
+          firstStarted.resolve();
+          await releaseFirst.promise;
+        }
+        processed.push(`end:${event.id}`);
+        active -= 1;
+        return { outcome: "PROCESSED" as const };
+      },
+    });
+
+    const result = drain();
+    await firstStarted.promise;
+    await Promise.resolve();
+
+    expect(processed).toContain("start:other");
+    expect(processed).not.toContain("start:second");
+    releaseFirst.resolve();
+
+    await expect(result).resolves.toEqual({
+      attempted: 3,
+      failed: 0,
+      processed: 3,
+    });
+    expect(maxActive).toBe(2);
+    expect(processed.indexOf("end:first")).toBeLessThan(
+      processed.indexOf("start:second"),
+    );
+  });
+
   it("processes one bounded durable batch without replaying HTTP", async () => {
     const processed: string[] = [];
     const drain = createProviderWebhookDrainer({

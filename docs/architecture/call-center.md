@@ -45,13 +45,15 @@ Inbound calls ring every eligible ready browser in deterministic order. A user
 remains `AVAILABLE` while a call is only offered. `Answer` accepts the exact
 browser media leg and waits for the SDK to report connected media. For inbound
 calls, the user becomes `BUSY` only after a provider-confirmed bridge. An
-outbound call becomes connected when the remote party answers. Hangup releases
-the user.
+outbound call becomes connected only when bridge evidence elects the exact
+agent leg linked to the customer. Hangup releases the user.
 
 Starting an outbound call first ends this agent's waiting inbound offers through
 durable provider commands. Only after those commands are accepted does the
-server create the canonical outbound call and agent leg. The browser then dials
-with opaque, server-issued correlation state.
+server create the canonical outbound call and connect its agent leg. The browser
+auto-answers that exact server-owned offer. A provider-confirmed agent answer
+then releases the linked customer dial, which bridges on answer without a
+separate bridge race.
 
 Direct handoff uses:
 
@@ -78,9 +80,12 @@ not a browser endpoint.
 
 The provider-event module owns durable receipt, deduplication, admission,
 projection, categorical failure, and committed-command dispatch. Its HTTP
-adapter owns signature verification only. Out-of-scope callbacks end as one
-auditable `IGNORED` outcome; provider-command delivery remains a separate
-durable lifecycle.
+adapter verifies the signature, stores the callback, and acknowledges only
+after that receipt is durable. Projection wakes immediately after the response;
+the scheduled recovery loop processes at most four provider sessions at once
+and keeps one session serial. A receipt failure remains an HTTP failure so
+Telnyx retries it. Out-of-scope callbacks end as one auditable `IGNORED`
+outcome; provider-command delivery remains a separate durable lifecycle.
 
 ## Invariants
 
@@ -89,7 +94,8 @@ durable lifecycle.
 2. `AVAILABLE` requires a fresh lease, ready provider connection, microphone,
    and browser audio.
 3. An inbound ring or answer does not make a user `BUSY`; a confirmed bridge
-   does. An outbound remote answer is already a connected call.
+   does. An outbound call needs bridge evidence on both the customer leg and
+   the exact winning agent leg before it becomes connected.
 4. One call has at most one winning agent leg. A cold transfer may replace that
    winner only after the same-location target explicitly answers and bridge
    evidence exists; failure leaves the source winner connected.
@@ -105,12 +111,13 @@ durable lifecycle.
     raw provider payloads.
 12. Provider commands dispatch immediately and a bounded outbox drain recovers
     interrupted sends; terminal failures remain visible for operator diagnosis.
-13. Provider callbacks first serialize by provider session. Direct-handoff
-    correlation, when required to resolve the practice, follows; then every
-    configuration write, admission, webhook projection, outbound creation, and
-    provider-command transition acquires the shared transaction-scoped practice
-    lock before row locks. Provider I/O occurs only after the database
-    transaction releases that lock.
+13. Provider callbacks are idempotent and monotonic under duplicate,
+    simultaneous, and out-of-order delivery. One recovery batch keeps events
+    for the same provider session serial. Configuration writes, admission,
+    outbound creation, and provider-command transitions acquire the shared
+    transaction-scoped practice lock before row locks. Existing-call projection
+    locks the endpoint first and then call rows in deterministic ID order.
+    Provider I/O occurs only after the database transaction releases its locks.
 14. A provider event has one claim lease, attempt count, retry time, categorical
     error, processed time, and status from receipt through terminal outcome.
 

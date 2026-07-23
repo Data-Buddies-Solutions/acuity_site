@@ -30,6 +30,21 @@ describe("canonical Telnyx call facts", () => {
     });
   });
 
+  it("records bridge evidence without directly connecting the call", () => {
+    for (const [legKind, callDirection] of [
+      ["CUSTOMER", "OUTBOUND"],
+      ["AGENT", "OUTBOUND"],
+      ["AGENT", null],
+    ] as const) {
+      expect(
+        resolveCanonicalTelnyxCallObservations("call.bridged", legKind, callDirection),
+      ).toEqual({
+        callObservation: null,
+        legObservation: "BRIDGED",
+      });
+    }
+  });
+
   it("classifies an inbound customer leg without retaining the raw envelope", () => {
     expect(
       parseCanonicalTelnyxCallFact(
@@ -341,7 +356,7 @@ describe("canonical Telnyx call facts", () => {
     expect(legKind).toBe("AGENT");
     expect(
       resolveCanonicalTelnyxCallObservations(fact!.eventType, legKind, fact!.direction),
-    ).toEqual({ callObservation: "CONNECTED", legObservation: "BRIDGED" });
+    ).toEqual({ callObservation: null, legObservation: "BRIDGED" });
     expect(() => resolveCanonicalTelnyxLegKind(null, fact!.legKind)).toThrow(
       "CANONICAL_LEG_CONTEXT_MISSING",
     );

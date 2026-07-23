@@ -1,16 +1,19 @@
 import { describe, expect, it } from "bun:test";
 
-import { settleCompetingAgentOffers } from "../prisma-agent-offer-settlement";
+import {
+  lockAgentOfferSettlementResources,
+  settleCompetingAgentOffers,
+} from "../prisma-agent-offer-settlement";
 
 describe("competing agent offers", () => {
   it("ends the winning agent's other ringing legs in the winner transaction", async () => {
     const operations: string[] = [];
     const offer = { callId: "call-2", id: "leg-2", status: "RINGING" };
     const transaction = {
-      $queryRaw: async (query: { strings: readonly string[] }) => {
+      $queryRaw: async (query: { strings: readonly string[]; values: unknown[] }) => {
         const sql = query.strings.join("");
         operations.push(
-          sql.includes("call_center_endpoint") ? "endpoint.lock" : "call.lock",
+          `${sql.includes("call_center_endpoint") ? "endpoint" : "call"}.lock:${query.values[0]}`,
         );
         return [];
       },
@@ -53,19 +56,26 @@ describe("competing agent offers", () => {
       },
     };
 
+    const input = {
+      endpointId: "endpoint-1",
+      now: new Date("2026-07-18T12:00:00.000Z"),
+      practiceId: "practice-1",
+      winningCallId: "call-1",
+    };
+    const resources = await lockAgentOfferSettlementResources(
+      transaction as never,
+      input,
+    );
+
     await expect(
-      settleCompetingAgentOffers(transaction as never, {
-        endpointId: "endpoint-1",
-        now: new Date("2026-07-18T12:00:00.000Z"),
-        practiceId: "practice-1",
-        winningCallId: "call-1",
-      }),
+      settleCompetingAgentOffers(transaction as never, input, resources),
     ).resolves.toEqual([]);
 
     expect(offer.status).toBe("ENDED");
     expect(operations).toEqual([
-      "endpoint.lock",
-      "call.lock",
+      "endpoint.lock:endpoint-1",
+      "call.lock:call-1",
+      "call.lock:call-2",
       "leg.end",
       "call.bump",
       "event.create",

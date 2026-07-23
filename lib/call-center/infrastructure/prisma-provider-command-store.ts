@@ -217,7 +217,15 @@ async function settleTerminalProviderCommand(
     });
     return commandIds;
   }
-  if (command.type === "DIAL_CUSTOMER") return [];
+  if (command.type === "DIAL_CUSTOMER") {
+    return settleCanonicalCallLegs(transaction, {
+      callId: command.callId,
+      includeCustomerLegs: true,
+      now,
+      reason: "OUTBOUND_CUSTOMER_DIAL_FAILED",
+      terminalLegStatus: "FAILED",
+    });
+  }
   const lifecycle = await reconcileActiveInbound(
     transaction,
     {
@@ -284,11 +292,21 @@ async function loadProviderCommandClaim(
   ProviderCommandClaim | ProviderCommandRejectedClaim | ProviderCommandSettledClaim | null
 > {
   const target = await tx.callCenterCommand.findUnique({
-    select: { callId: true, practiceId: true },
+    select: {
+      callId: true,
+      leg: { select: { endpointId: true } },
+      practiceId: true,
+      type: true,
+    },
     where: { id: commandId },
   });
   if (!target) return null;
   await lockCallCenterPractice(tx, target.practiceId);
+  if (["DIAL_AGENT", "TRANSFER_AGENT"].includes(target.type) && target.leg?.endpointId) {
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${target.leg.endpointId} FOR UPDATE`,
+    );
+  }
   await tx.$queryRaw(
     Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "id" = ${target.callId} FOR UPDATE`,
   );
@@ -470,6 +488,20 @@ async function loadProviderCommandClaim(
     if (!connectionId || !from || !to) {
       return reject("COMMAND_PROVIDER_CONFIGURATION_INVALID");
     }
+    const linkedAgent = dependency
+      ? await tx.callCenterCallLeg.findFirst({
+          orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+          select: { providerCallControlId: true },
+          where: {
+            callId: command.callId,
+            kind: "AGENT",
+            providerCallControlId: { not: null },
+            status: { in: ["ANSWERED", "BRIDGED"] },
+          },
+        })
+      : null;
+    const linkTo = linkedAgent?.providerCallControlId;
+    if (dependency && !linkTo) return null;
     const claimed = await claimProviderCommand(tx, command.id);
     return {
       attemptCount: claimed.attemptCount,
@@ -483,6 +515,7 @@ async function loadProviderCommandClaim(
         provider: {
           connectionId,
           from,
+          ...(linkTo ? { linkTo } : {}),
           timeoutSeconds: 60,
           to,
         },
@@ -514,9 +547,6 @@ async function loadProviderCommandClaim(
     if (!endpoint?.enabled || !endpoint.sipUsername) {
       return reject("COMMAND_PROVIDER_TARGET_INVALID");
     }
-    await tx.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${args.endpointId} FOR UPDATE`,
-    );
     const source = await tx.callCenterCallLeg.findFirst({
       include: { endpoint: { select: { userId: true } } },
       where: {
@@ -667,9 +697,6 @@ async function loadProviderCommandClaim(
     ) {
       return reject("COMMAND_PROVIDER_TARGET_INVALID");
     }
-    await tx.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${args.endpointId} FOR UPDATE`,
-    );
     const liveTarget = await tx.callCenterCallLeg.findFirst({
       select: { id: true },
       where: {
@@ -788,7 +815,7 @@ async function loadProviderCommandClaim(
       },
     });
     const linkTo = linkedLeg?.providerCallControlId;
-    if (!linkTo) return null;
+    if (!linkTo && (command.call.direction !== "OUTBOUND" || dependency)) return null;
 
     const claimed = await claimProviderCommand(tx, command.id);
     return {
@@ -803,7 +830,7 @@ async function loadProviderCommandClaim(
         provider: {
           connectionId,
           from,
-          linkTo,
+          ...(linkTo ? { linkTo } : {}),
           sipUri: sipUri(endpoint.sipUsername.trim()),
           timeoutSeconds: 20,
         },

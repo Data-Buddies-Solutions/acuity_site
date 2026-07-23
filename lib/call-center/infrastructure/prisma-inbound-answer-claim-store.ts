@@ -108,6 +108,7 @@ class PrismaInboundAnswerClaimTransaction implements InboundAnswerClaimTransacti
     private readonly transaction: Transaction,
     private readonly actor: QueueAccessActor,
     private readonly callId: string,
+    private readonly lockedEndpointId: string | null,
   ) {}
 
   async load(
@@ -163,11 +164,7 @@ class PrismaInboundAnswerClaimTransaction implements InboundAnswerClaimTransacti
       },
       where: { callId: call.id, id: input.legId },
     });
-    if (leg?.endpointId) {
-      await this.transaction.$queryRaw(
-        Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${leg.endpointId} FOR UPDATE`,
-      );
-    }
+    if (leg?.endpointId !== this.lockedEndpointId) return null;
     await this.transaction.$queryRaw(
       Prisma.sql`SELECT "id" FROM "call_center_agent_session" WHERE "id" = ${input.sessionId} FOR UPDATE`,
     );
@@ -188,58 +185,56 @@ class PrismaInboundAnswerClaimTransaction implements InboundAnswerClaimTransacti
         userId: this.actor.userId,
       },
     });
-    const [activeReservation, activeLeg] = leg?.endpointId
-      ? await Promise.all([
-          this.transaction.callCenterAnswerReservation.findFirst({
-            select: { id: true },
-            where: {
-              callId: { not: call.id },
-              OR: [
-                {
-                  leg: { endpointId: leg.endpointId, status: "BRIDGED" },
-                  status: "BRIDGED",
-                },
-                {
-                  expiresAt: { gt: now },
-                  leg: { endpointId: leg.endpointId },
-                  status: { in: ["ACCEPTED", "ANSWERED"] },
-                },
-              ],
-            },
-          }),
-          this.transaction.callCenterCallLeg.findFirst({
-            select: { id: true },
-            where: {
-              callId: { not: call.id },
-              endpointId: leg.endpointId,
-              status: { in: ["ANSWERED", "BRIDGED"] },
-            },
-          }),
-        ])
-      : [null, null];
+    const activeReservation = leg?.endpointId
+      ? await this.transaction.callCenterAnswerReservation.findFirst({
+          select: { id: true },
+          where: {
+            callId: { not: call.id },
+            OR: [
+              {
+                leg: { endpointId: leg.endpointId, status: "BRIDGED" },
+                status: "BRIDGED",
+              },
+              {
+                expiresAt: { gt: now },
+                leg: { endpointId: leg.endpointId },
+                status: { in: ["ACCEPTED", "ANSWERED"] },
+              },
+            ],
+          },
+        })
+      : null;
+    const activeLeg = leg?.endpointId
+      ? await this.transaction.callCenterCallLeg.findFirst({
+          select: { id: true },
+          where: {
+            callId: { not: call.id },
+            endpointId: leg.endpointId,
+            status: { in: ["ANSWERED", "BRIDGED"] },
+          },
+        })
+      : null;
     const eventKey = answerEventKey(call.id, input.idempotencyKey);
-    const [priorAcceptanceEvent, priorRejectionEvent] = await Promise.all([
-      this.transaction.callCenterEvent.findUnique({
-        select: { actorUserId: true, data: true },
-        where: {
-          practiceId_type_idempotencyKey: {
-            idempotencyKey: eventKey,
-            practiceId: this.actor.practiceId,
-            type: "CALL_ANSWER_CLAIM_ACCEPTED",
-          },
+    const priorAcceptanceEvent = await this.transaction.callCenterEvent.findUnique({
+      select: { actorUserId: true, data: true },
+      where: {
+        practiceId_type_idempotencyKey: {
+          idempotencyKey: eventKey,
+          practiceId: this.actor.practiceId,
+          type: "CALL_ANSWER_CLAIM_ACCEPTED",
         },
-      }),
-      this.transaction.callCenterEvent.findUnique({
-        select: { actorUserId: true, data: true },
-        where: {
-          practiceId_type_idempotencyKey: {
-            idempotencyKey: eventKey,
-            practiceId: this.actor.practiceId,
-            type: "CALL_ANSWER_CLAIM_REJECTED",
-          },
+      },
+    });
+    const priorRejectionEvent = await this.transaction.callCenterEvent.findUnique({
+      select: { actorUserId: true, data: true },
+      where: {
+        practiceId_type_idempotencyKey: {
+          idempotencyKey: eventKey,
+          practiceId: this.actor.practiceId,
+          type: "CALL_ANSWER_CLAIM_REJECTED",
         },
-      }),
-    ]);
+      },
+    });
     const priorAcceptance =
       priorAcceptanceEvent?.actorUserId === this.actor.userId
         ? priorAcceptedClaim(priorAcceptanceEvent.data, input.idempotencyKey)
@@ -422,19 +417,39 @@ export class PrismaInboundAnswerClaimStore implements InboundAnswerClaimStore {
 
   withCallLock<T>(
     actor: QueueAccessActor,
-    callId: string,
+    input: Pick<InboundAnswerClaimInput, "callId" | "legId">,
     work: (transaction: InboundAnswerClaimTransaction) => Promise<T>,
   ) {
     return this.runTransaction(async (transaction) => {
+      const target = await transaction.callCenterCallLeg.findFirst({
+        select: { endpointId: true },
+        where: {
+          call: { practiceId: actor.practiceId },
+          callId: input.callId,
+          id: input.legId,
+        },
+      });
+      if (target?.endpointId) {
+        await transaction.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "call_center_endpoint" WHERE "id" = ${target.endpointId} FOR UPDATE`,
+        );
+      }
       const startedAt = performance.now();
       await transaction.$queryRaw(
-        Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${callId} FOR UPDATE`,
+        Prisma.sql`SELECT "id" FROM "call_center_call" WHERE "practiceId" = ${actor.practiceId} AND "id" = ${input.callId} FOR UPDATE`,
       );
       logger.info("inbound Answer call lock acquired", {
-        callId,
+        callId: input.callId,
         lockWaitMs: performance.now() - startedAt,
       });
-      return work(new PrismaInboundAnswerClaimTransaction(transaction, actor, callId));
+      return work(
+        new PrismaInboundAnswerClaimTransaction(
+          transaction,
+          actor,
+          input.callId,
+          target?.endpointId ?? null,
+        ),
+      );
     });
   }
 }
