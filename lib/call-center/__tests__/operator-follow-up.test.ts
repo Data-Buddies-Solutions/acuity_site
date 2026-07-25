@@ -5,6 +5,7 @@ import {
   OperatorFollowUpError,
   type OperatorFollowUpTransaction,
 } from "@/lib/call-center/operator-follow-up";
+import { callerTaskCycleToken } from "@/lib/call-center/infrastructure/prisma-operator-follow-up-store";
 
 const actor = {
   allowedLocationIds: ["location-1"],
@@ -55,9 +56,18 @@ function followUpHarness() {
       receipts.get(idempotencyKey) ?? null,
     lockReceiptKey: async () => {},
     resolveCallerThread: async (_actor, input) => {
-      resolve(input.expectedTaskIds);
+      const taskIds = [...tasks]
+        .filter(([, status]) => status === "OPEN")
+        .map(([taskId]) => taskId);
+      if (
+        input.expectedCycleToken &&
+        callerTaskCycleToken(taskIds) !== input.expectedCycleToken
+      ) {
+        throw new OperatorFollowUpError("One or more follow-up tasks changed", 409);
+      }
+      resolve(input.expectedCycleToken ? taskIds : input.expectedTaskIds);
       return {
-        canonicalTasksResolved: input.expectedTaskIds.length,
+        canonicalTasksResolved: taskIds.length,
         operationType: "CALLER_THREAD_RESOLUTION",
         status: "CONFIRMED",
       };
@@ -171,6 +181,32 @@ describe("operator follow-up module", () => {
     expect(replay).toEqual({ ...first, replayed: true });
     expect([...state.tasks.values()]).toEqual(["RESOLVED", "RESOLVED"]);
     expect(state.receipts.size).toBe(1);
+  });
+
+  it("resolves an exact server-owned caller cycle and rejects a stale cycle", async () => {
+    const { followUp, state } = followUpHarness();
+    const expectedCycleToken = callerTaskCycleToken(["task-1", "task-2"]);
+
+    const result = await followUp.resolveCallerThread(actor, {
+      expectedCycleToken,
+      idempotencyKey: "resolve-token",
+      locationId: "location-1",
+      phone: "+15555550123",
+    });
+
+    expect(result).toMatchObject({ canonicalTasksResolved: 2 });
+    expect([...state.tasks.values()]).toEqual(["RESOLVED", "RESOLVED"]);
+
+    const changed = followUpHarness();
+    changed.state.tasks.set("task-3", "OPEN");
+    await expect(
+      changed.followUp.resolveCallerThread(actor, {
+        expectedCycleToken,
+        idempotencyKey: "resolve-stale-token",
+        locationId: "location-1",
+        phone: "+15555550123",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 
   for (const disposition of ["CALLBACK_NEEDED", "FOLLOW_UP_REQUIRED"] as const) {

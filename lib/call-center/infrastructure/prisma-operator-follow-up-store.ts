@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { Prisma } from "@/generated/prisma/client";
 import { canonicalCallAccessWhere } from "@/lib/call-center/application/portal-canonical-history";
@@ -18,6 +18,7 @@ import { prisma } from "@/lib/prisma";
 
 type Transaction = Prisma.TransactionClient;
 type CanonicalCallerInput = ResolveCallerThreadInput & {
+  expectedTaskIds: string[];
   phoneVariants: string[];
 };
 
@@ -48,6 +49,20 @@ function taskIdsMatch(actual: string[], expected: string[]) {
     actualIds.length === expectedIds.length &&
     actualIds.every((taskId, index) => taskId === expectedIds[index])
   );
+}
+
+export function callerTaskCycleToken(taskIds: string[]) {
+  const canonical = [...taskIds].sort();
+  const digest = createHash("md5")
+    .update(canonical.map((taskId) => `${taskId.length}:${taskId}`).join(""))
+    .digest("hex");
+  return `v1:${canonical.length}:${digest}`;
+}
+
+function taskExpectationMatches(actual: string[], input: CanonicalCallerInput) {
+  return input.expectedCycleToken
+    ? callerTaskCycleToken(actual) === input.expectedCycleToken
+    : taskIdsMatch(actual, input.expectedTaskIds);
 }
 
 class PrismaOperatorFollowUpTransaction implements OperatorFollowUpTransaction {
@@ -187,9 +202,9 @@ class PrismaOperatorFollowUpTransaction implements OperatorFollowUpTransaction {
       }
     }
     if (
-      !taskIdsMatch(
+      !taskExpectationMatches(
         tasks.map(({ id }) => id),
-        input.expectedTaskIds,
+        input,
       )
     ) {
       throw new OperatorFollowUpError("One or more follow-up tasks changed", 409);
@@ -206,9 +221,9 @@ class PrismaOperatorFollowUpTransaction implements OperatorFollowUpTransaction {
       where,
     });
     if (
-      !taskIdsMatch(
+      !taskExpectationMatches(
         current.map(({ id }) => id),
-        input.expectedTaskIds,
+        input,
       )
     ) {
       throw new OperatorFollowUpError("One or more follow-up tasks changed", 409);
@@ -332,7 +347,7 @@ class PrismaOperatorFollowUpTransaction implements OperatorFollowUpTransaction {
 
     const closing = CLOSING_DISPOSITIONS.has(input.disposition);
     const authorizedQueueIds = new Set(call.queueId ? [call.queueId] : []);
-    await this.resolveTasks(
+    const resolvedTaskCount = await this.resolveTasks(
       actor,
       input,
       input.disposition,
@@ -388,7 +403,7 @@ class PrismaOperatorFollowUpTransaction implements OperatorFollowUpTransaction {
         disposition: input.disposition,
         idempotencyKey: input.idempotencyKey,
         note: input.note,
-        resolvedTaskCount: closing ? input.expectedTaskIds.length : 0,
+        resolvedTaskCount: closing ? resolvedTaskCount : 0,
       },
       now,
     );
@@ -397,7 +412,7 @@ class PrismaOperatorFollowUpTransaction implements OperatorFollowUpTransaction {
       data: {
         callId: call.id,
         operationType: "OPERATOR_NOTE",
-        resolvedTaskCount: closing ? input.expectedTaskIds.length : 0,
+        resolvedTaskCount: closing ? resolvedTaskCount : 0,
         stateVersion,
         status: "CONFIRMED",
         taskId,

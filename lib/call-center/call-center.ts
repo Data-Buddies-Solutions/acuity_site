@@ -55,6 +55,9 @@ import { prismaStartOutboundCallStore } from "@/lib/call-center/infrastructure/p
 import { prismaSetCallHoldMusicStore } from "@/lib/call-center/infrastructure/prisma-set-call-hold-music-store";
 import { prismaTransferAgentCallStore } from "@/lib/call-center/infrastructure/prisma-transfer-agent-call-store";
 import type { TelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
+import { createLogger } from "@/lib/logger";
+
+const outboundLogger = createLogger("call-center-outbound-initiation");
 
 type AgentIdentity = {
   clientInstanceId: string;
@@ -97,11 +100,19 @@ type OutboundDependencies<Outbound extends { commandId: string }> = {
     now?: Date,
   ): Promise<Outbound>;
   dispatch(commandId: string): ReturnType<typeof dispatchProviderCommand>;
+  monotonicNow?: () => number;
   prepare(
     actor: QueueAccessActor,
     input: StartOutboundCallInput,
     now?: Date,
   ): Promise<string[]>;
+  reportTiming?: (timing: OutboundInitiationTiming) => void;
+};
+
+export type OutboundInitiationTiming = {
+  durationMs: number;
+  phase: "cleanup-dispatch" | "create" | "prepare" | "provider-dispatch" | "total";
+  resultClass: "error" | "success";
 };
 
 export async function startCanonicalOutbound<Outbound extends { commandId: string }>(
@@ -110,36 +121,104 @@ export async function startCanonicalOutbound<Outbound extends { commandId: strin
   input: StartOutboundCallInput,
   now?: Date,
 ) {
-  const commandIds = await dependencies.prepare(actor, input, now);
-  const cleanup = await dispatchProviderCommandGraph({
-    commandIds,
-    dispatch: dependencies.dispatch,
-  });
-  if (cleanup.failures.length) {
-    throw new StartOutboundCallError(
-      "Inbound call offers could not be ended before outbound calling",
-      503,
+  const monotonicNow = dependencies.monotonicNow ?? performance.now.bind(performance);
+  const reportTiming = dependencies.reportTiming ?? (() => undefined);
+  const emitTiming = (timing: OutboundInitiationTiming) => {
+    try {
+      reportTiming(timing);
+    } catch {
+      // Observability must never alter the telephony state transition.
+    }
+  };
+  const totalStartedAt = monotonicNow();
+  const measure = async <Result>(
+    phase: Exclude<OutboundInitiationTiming["phase"], "total">,
+    action: () => Promise<Result>,
+    classify: (result: Result) => OutboundInitiationTiming["resultClass"] = () =>
+      "success",
+  ) => {
+    const startedAt = monotonicNow();
+    try {
+      const result = await action();
+      emitTiming({
+        durationMs: monotonicNow() - startedAt,
+        phase,
+        resultClass: classify(result),
+      });
+      return result;
+    } catch (error) {
+      emitTiming({
+        durationMs: monotonicNow() - startedAt,
+        phase,
+        resultClass: "error",
+      });
+      throw error;
+    }
+  };
+
+  try {
+    const commandIds = await measure("prepare", () =>
+      dependencies.prepare(actor, input, now),
     );
-  }
-  if (cleanup.deferred.length) {
-    throw new StartOutboundCallError("Inbound call offer cleanup is still pending", 503);
-  }
-  const outbound = await dependencies.create(actor, input, now);
-  const start = await dispatchProviderCommandGraph({
-    commandIds: [outbound.commandId],
-    dispatch: dependencies.dispatch,
-  });
-  if (start.failures.length) {
-    throw new StartOutboundCallError(
-      "Outbound call was rejected by phone service",
-      502,
-      false,
+    const cleanup = await measure(
+      "cleanup-dispatch",
+      () =>
+        dispatchProviderCommandGraph({
+          commandIds,
+          dispatch: dependencies.dispatch,
+        }),
+      (result) =>
+        result.failures.length || result.deferred.length ? "error" : "success",
     );
+    if (cleanup.failures.length) {
+      throw new StartOutboundCallError(
+        "Inbound call offers could not be ended before outbound calling",
+        503,
+      );
+    }
+    if (cleanup.deferred.length) {
+      throw new StartOutboundCallError(
+        "Inbound call offer cleanup is still pending",
+        503,
+      );
+    }
+    const outbound = await measure("create", () =>
+      dependencies.create(actor, input, now),
+    );
+    const start = await measure(
+      "provider-dispatch",
+      () =>
+        dispatchProviderCommandGraph({
+          commandIds: [outbound.commandId],
+          dispatch: dependencies.dispatch,
+        }),
+      (result) =>
+        result.failures.length || result.deferred.length ? "error" : "success",
+    );
+    if (start.failures.length) {
+      throw new StartOutboundCallError(
+        "Outbound call was rejected by phone service",
+        502,
+        false,
+      );
+    }
+    if (start.deferred.length) {
+      throw new StartOutboundCallError("Outbound call could not be started", 503);
+    }
+    emitTiming({
+      durationMs: monotonicNow() - totalStartedAt,
+      phase: "total",
+      resultClass: "success",
+    });
+    return outbound;
+  } catch (error) {
+    emitTiming({
+      durationMs: monotonicNow() - totalStartedAt,
+      phase: "total",
+      resultClass: "error",
+    });
+    throw error;
   }
-  if (start.deferred.length) {
-    throw new StartOutboundCallError("Outbound call could not be started", 503);
-  }
-  return outbound;
 }
 
 export async function startCanonicalTransfer(
@@ -381,12 +460,15 @@ export const callCenter = createCallCenter({
             currentNow,
           ),
         dispatch: dispatchProviderCommand,
+        monotonicNow: performance.now.bind(performance),
         prepare: (currentActor, currentInput, currentNow) =>
           prismaStartOutboundCallStore.prepareOutboundCleanup(
             currentActor,
             currentInput,
             currentNow,
           ),
+        reportTiming: (timing) =>
+          outboundLogger.info("outbound-initiation-phase", timing),
       },
       actor,
       input,

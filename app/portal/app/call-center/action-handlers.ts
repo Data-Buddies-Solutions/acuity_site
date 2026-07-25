@@ -86,6 +86,7 @@ export function createCallCenterActionHandlers({
     if (!context) throw new Error(CALL_CENTER_MUTATION_ERROR);
     const phone = field(formData, "phone");
     await followUp.resolveCallerThread(actorFrom(context), {
+      expectedCycleToken: optionalField(formData, "cycleToken"),
       expectedTaskIds: taskIds(formData),
       idempotencyKey: field(formData, "idempotencyKey"),
       locationId: optionalField(formData, "office"),
@@ -106,6 +107,7 @@ export function createCallCenterActionHandlers({
         callId: field(formData, "callId"),
         disposition: dispositionFrom(formData),
         expectedStateVersion: expectedStateVersion(formData),
+        expectedCycleToken: optionalField(formData, "cycleToken"),
         expectedTaskIds: taskIds(formData),
         idempotencyKey: field(formData, "idempotencyKey"),
         locationId: optionalField(formData, "office"),

@@ -295,6 +295,14 @@ describe("Prisma ACTIVE inbound lifecycle", () => {
       },
       now,
     );
+    await fake.store.reconcile(
+      {
+        callId: "call-1",
+        practiceId: "practice-1",
+        processedBridgeLegId: null,
+      },
+      new Date(now.getTime() + 60_000),
+    );
 
     expect(fake.call.status).toBe("ABANDONED");
     expect([...fake.commands.values()]).toEqual([

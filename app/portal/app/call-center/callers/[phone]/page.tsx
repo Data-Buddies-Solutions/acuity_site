@@ -187,11 +187,11 @@ export default async function PortalCallCenterCallerPage({
                   </Link>
                 </Button>
                 <ResolveActionForm
+                  cycleToken={timeline.openCycleToken}
                   iconOnly
-                  idempotencyKey={`resolve:${timeline.phone}:${latestNeedsActionItem.occurredAt.getTime()}:${timeline.openTaskIds.length}`}
+                  idempotencyKey={`resolve:${timeline.phone}:${timeline.openCycleToken}`}
                   office={office}
                   phone={timeline.phone}
-                  taskIds={timeline.openTaskIds}
                 />
               </div>
             </div>
@@ -202,9 +202,9 @@ export default async function PortalCallCenterCallerPage({
       {timeline.latestCall ? (
         <OutcomePanel
           call={timeline.latestCall}
+          cycleToken={timeline.openCycleToken}
           office={office}
           phone={timeline.phone}
-          taskIds={timeline.openTaskIds}
         />
       ) : null}
 
@@ -505,26 +505,24 @@ function TimelineRowContent({
 }
 
 function ResolveActionForm({
+  cycleToken,
   iconOnly = false,
   idempotencyKey,
   office,
   phone,
-  taskIds,
 }: {
+  cycleToken: string;
   iconOnly?: boolean;
   idempotencyKey: string;
   office?: string;
   phone: string;
-  taskIds: string[];
 }) {
   return (
     <form action={resolveNeedsActionGroupAction}>
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+      <input type="hidden" name="cycleToken" value={cycleToken} />
       {office ? <input type="hidden" name="office" value={office} /> : null}
       <input type="hidden" name="phone" value={phone} />
-      {taskIds.map((taskId) => (
-        <input key={taskId} type="hidden" name="taskId" value={taskId} />
-      ))}
       <Button
         aria-label={iconOnly ? "Mark resolved" : undefined}
         className={
@@ -546,14 +544,14 @@ function ResolveActionForm({
 
 function OutcomePanel({
   call,
+  cycleToken,
   office,
   phone,
-  taskIds,
 }: {
   call: { id: string; stateVersion: number };
+  cycleToken: string;
   office?: string;
   phone: string;
-  taskIds: string[];
 }) {
   return (
     <Panel className="border-[var(--portal-border)] bg-white p-4 shadow-sm">
@@ -563,13 +561,11 @@ function OutcomePanel({
           className="grid w-full gap-2 sm:grid-cols-[minmax(180px,220px)_1fr_auto]"
         >
           <input type="hidden" name="callId" value={call.id} />
+          <input type="hidden" name="cycleToken" value={cycleToken} />
           <input type="hidden" name="expectedStateVersion" value={call.stateVersion} />
           <input type="hidden" name="idempotencyKey" value={`note:${randomUUID()}`} />
           {office ? <input type="hidden" name="office" value={office} /> : null}
           <input type="hidden" name="phone" value={phone} />
-          {taskIds.map((taskId) => (
-            <input key={taskId} type="hidden" name="taskId" value={taskId} />
-          ))}
           <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--portal-muted)]">
             Status
             <select

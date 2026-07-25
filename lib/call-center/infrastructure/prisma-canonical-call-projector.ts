@@ -57,6 +57,31 @@ type CanonicalProjectionResult = {
   practiceId: string;
 };
 
+export function outboundAgentLifecycleTiming(input: {
+  direction: "INBOUND" | "OUTBOUND";
+  eventType: string;
+  legKind: "AGENT" | "CUSTOMER";
+  occurredAt: Date;
+  startedAt: Date;
+}) {
+  if (
+    input.direction !== "OUTBOUND" ||
+    input.legKind !== "AGENT" ||
+    !["call.ringing", "call.answered"].includes(input.eventType)
+  ) {
+    return null;
+  }
+  return {
+    durationMs: Math.max(0, input.occurredAt.getTime() - input.startedAt.getTime()),
+    occurredAt: input.occurredAt.toISOString(),
+    phase:
+      input.eventType === "call.ringing"
+        ? ("agent-ringing" as const)
+        : ("agent-answer" as const),
+    startedAt: input.startedAt.toISOString(),
+  };
+}
+
 function directHandoffLifecycleProjection(callStatus: string, projectedAt: Date) {
   if (callStatus === "CONNECTED" || callStatus === "COMPLETED") {
     return {
@@ -1831,6 +1856,13 @@ function createProjectAndComplete(
         .toUpperCase()
         .replace(/[^A-Z0-9]+/g, "_");
       const projectionIdempotencyKey = `telnyx:${event.providerEventId}`;
+      const outboundTiming = outboundAgentLifecycleTiming({
+        direction: call.direction,
+        eventType: resolvedFact.eventType,
+        legKind: leg.kind,
+        occurredAt: resolvedFact.occurredAt,
+        startedAt: leg.startedAt,
+      });
       const projectionEvent = await tx.callCenterEvent.upsert({
         create: {
           aggregateId: call.id,
@@ -1839,6 +1871,7 @@ function createProjectAndComplete(
             callStatus: call.status,
             legId: leg.id,
             legStatus: leg.status,
+            ...(outboundTiming ? { outboundTiming } : {}),
             providerEventId: event.providerEventId,
           },
           idempotencyKey: projectionIdempotencyKey,

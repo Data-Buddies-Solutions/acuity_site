@@ -9,6 +9,9 @@ import {
 } from "@/lib/call-center/application/start-outbound-call";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
 import { withCallCenterApiHandler } from "@/lib/call-center/operator-error-response";
+import { createLogger, type LogContext } from "@/lib/logger";
+
+const logger = createLogger("portal-call-center-outbound");
 
 const bodySchema = z
   .object({
@@ -24,6 +27,8 @@ const IDEMPOTENCY_KEY_MAX_LENGTH = 200;
 
 type Dependencies = {
   getActor: () => Promise<QueueAccessActor>;
+  now?: () => number;
+  reportTiming?: (context: LogContext) => void;
   start?: (
     actor: QueueAccessActor,
     input: StartOutboundCallInput,
@@ -41,21 +46,47 @@ function idempotencyKey(request: Request) {
 
 export function createStartOutboundCallHandler({
   getActor,
+  now = performance.now.bind(performance),
+  reportTiming = (context) => logger.info("outbound-initiation-request", context),
   start = callCenter.startOutbound,
 }: Dependencies) {
   return withCallCenterApiHandler(
     async (request: Request) => {
-      const actor = await getActor();
-      const body = await parseJsonBody(request, bodySchema);
-      const input: StartOutboundCallInput = {
-        clientInstanceId: body.clientInstanceId,
-        destination: body.destination,
-        idempotencyKey: idempotencyKey(request),
-        numberId: body.numberId,
-        queueId: body.queueId,
+      const startedAt = now();
+      const emitTiming = (context: LogContext) => {
+        try {
+          reportTiming(context);
+        } catch {
+          // Logging cannot change a successful or failed outbound result.
+        }
       };
-      const receipt = await start(actor, input);
-      return NextResponse.json(receipt, { status: receipt.replayed ? 200 : 201 });
+      try {
+        const actor = await getActor();
+        const body = await parseJsonBody(request, bodySchema);
+        const input: StartOutboundCallInput = {
+          clientInstanceId: body.clientInstanceId,
+          destination: body.destination,
+          idempotencyKey: idempotencyKey(request),
+          numberId: body.numberId,
+          queueId: body.queueId,
+        };
+        const receipt = await start(actor, input);
+        const durationMs = now() - startedAt;
+        emitTiming({ durationMs, phase: "request", resultClass: "success" });
+        return NextResponse.json(receipt, {
+          headers: {
+            "Server-Timing": `outbound-initiation;dur=${durationMs.toFixed(1)}`,
+          },
+          status: receipt.replayed ? 200 : 201,
+        });
+      } catch (error) {
+        emitTiming({
+          durationMs: now() - startedAt,
+          phase: "request",
+          resultClass: "error",
+        });
+        throw error;
+      }
     },
     {
       errorCode: "OUTBOUND_CALL_FAILED",

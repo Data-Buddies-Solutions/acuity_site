@@ -1,8 +1,15 @@
+import { drainActiveCalls } from "@/lib/call-center/application/active-call-runtime";
 import { createProviderWebhookDrainer } from "@/lib/call-center/application/drain-provider-webhooks";
 import { processTelnyxVoiceEvent } from "@/lib/call-center/application/process-telnyx-voice-event";
 import { providerWebhookInbox } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 
-export const drainProviderWebhooks = createProviderWebhookDrainer({
+const drainProviderWebhookInbox = createProviderWebhookDrainer({
   backlog: providerWebhookInbox,
   processRecord: processTelnyxVoiceEvent.processRecord,
 });
+
+export async function drainProviderWebhooks() {
+  const webhooks = await drainProviderWebhookInbox();
+  const activeCalls = await drainActiveCalls();
+  return { ...webhooks, activeCalls };
+}

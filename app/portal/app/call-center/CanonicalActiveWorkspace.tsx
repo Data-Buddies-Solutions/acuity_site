@@ -72,6 +72,39 @@ function errorMessage(error: unknown, action: CallCenterAction) {
   return operatorErrorCopy(error, action).message;
 }
 
+function measureOutboundBrowserRequest(
+  startedAt: number,
+  resultClass: "error" | "success",
+  operationKey: string,
+  callId?: string,
+) {
+  const durationMs = performance.now() - startedAt;
+  try {
+    performance.measure("call-center-outbound-request", {
+      detail: { resultClass },
+      end: startedAt + durationMs,
+      start: startedAt,
+    });
+  } catch {
+    // Browser performance collection must never alter the call action.
+  }
+  try {
+    void fetch("/api/portal/call-center/outbound/browser-timing", {
+      body: JSON.stringify({
+        ...(callId ? { callId } : {}),
+        durationMs,
+        operationKey,
+        resultClass,
+      }),
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      method: "POST",
+    }).catch(() => {});
+  } catch {
+    // Retained telemetry must never alter the call action.
+  }
+}
+
 function holdMusicMayHaveStarted(error: unknown) {
   return (
     !(error instanceof CallCenterRequestError) ||
@@ -468,23 +501,33 @@ function ConnectedCanonicalActiveWorkspace({
     );
     try {
       const requestOutbound = async () => {
-        const response = await fetch("/api/portal/call-center/outbound", {
-          body: JSON.stringify({
-            clientInstanceId,
-            destination,
-            numberId: selectedNumberId,
-            queueId,
-          }),
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": operationKey,
-          },
-          method: "POST",
-        });
-        return callCenterResponse<{
-          callId?: unknown;
-          legId?: unknown;
-        }>(response);
+        const startedAt = performance.now();
+        let callId: string | undefined;
+        let resultClass: "error" | "success" = "error";
+        try {
+          const response = await fetch("/api/portal/call-center/outbound", {
+            body: JSON.stringify({
+              clientInstanceId,
+              destination,
+              numberId: selectedNumberId,
+              queueId,
+            }),
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": operationKey,
+            },
+            method: "POST",
+          });
+          const result = await callCenterResponse<{
+            callId?: unknown;
+            legId?: unknown;
+          }>(response);
+          callId = typeof result?.callId === "string" ? result.callId : undefined;
+          resultClass = "success";
+          return result;
+        } finally {
+          measureOutboundBrowserRequest(startedAt, resultClass, operationKey, callId);
+        }
       };
       const body = await requestOutbound();
       if (typeof body?.callId !== "string" || typeof body.legId !== "string") {

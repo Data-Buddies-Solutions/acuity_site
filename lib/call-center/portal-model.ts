@@ -16,13 +16,11 @@ export type PortalCallActivityItem = {
   durationSec: number | null;
   fromPhone: string | null;
   kind: PortalCallActivityKind;
+  locationId: string | null;
   locationName: string | null;
+  queueId: string | null;
   recordingId: string | null;
   taskId: string;
-};
-
-export type PortalNeedsActionPreviewItem = PortalCallActivityItem & {
-  id: string;
 };
 
 export type PortalNeedsActionGroup = {
@@ -36,11 +34,17 @@ export type PortalNeedsActionGroup = {
   latestKind: PortalCallActivityKind;
   latestVoicemailDurationSec: number | null;
   latestVoicemailRecordingId: string | null;
+  locationId: string | null;
   locationNames: string[];
   missedCount: number;
   noteCount: number;
+  queueId: string | null;
   taskIds: string[];
   voicemailCount: number;
+};
+
+export type PortalNeedsActionPreviewItem = PortalNeedsActionGroup & {
+  activities: PortalCallActivityItem[];
 };
 
 export type PortalCallCenterLocation = {
@@ -101,7 +105,8 @@ export type PortalCallerTimeline = {
   latestCall: { id: string; stateVersion: number } | null;
   latestItem: PortalCallerTimelineItem | null;
   latestNeedsActionItem: PortalCallerTimelineItem | null;
-  openTaskIds: string[];
+  openCycleToken: string;
+  openTaskCount: number;
   page: number;
   pageSize: number;
   phone: string;
@@ -120,8 +125,12 @@ function phoneKey(phone: string | null | undefined) {
   return normalizePhone(phone) || phone?.trim() || "Unknown";
 }
 
-export function portalNeedsActionGroupId(phone: string | null | undefined) {
-  return `needs-action:${phoneKey(phone)}`;
+export function portalNeedsActionGroupId(
+  phone: string | null | undefined,
+  queueId?: string | null,
+  locationId?: string | null,
+) {
+  return `needs-action:${queueId ?? "no-queue"}:${locationId ?? "no-location"}:${phoneKey(phone)}`;
 }
 
 export function buildPortalNeedsActionGroups(events: PortalCallActivityItem[]) {
@@ -130,7 +139,7 @@ export function buildPortalNeedsActionGroups(events: PortalCallActivityItem[]) {
   };
   const groups = new Map<string, NeedsActionAccumulator>();
   for (const event of events) {
-    const key = phoneKey(event.fromPhone);
+    const key = `${event.queueId ?? "no-queue"}:${event.locationId ?? "no-location"}:${phoneKey(event.fromPhone)}`;
     const current =
       groups.get(key) ??
       ({
@@ -139,15 +148,17 @@ export function buildPortalNeedsActionGroups(events: PortalCallActivityItem[]) {
         eventCount: 0,
         followUpRequiredCount: 0,
         fromPhone: event.fromPhone,
-        id: portalNeedsActionGroupId(key),
+        id: portalNeedsActionGroupId(event.fromPhone, event.queueId, event.locationId),
         lastActivityAt: event.createdAt,
         latestKind: event.kind,
         latestVoicemailAt: null,
         latestVoicemailDurationSec: null,
         latestVoicemailRecordingId: null,
+        locationId: event.locationId,
         locationNames: [],
         missedCount: 0,
         noteCount: 0,
+        queueId: event.queueId,
         taskIds: [],
         voicemailCount: 0,
       } satisfies NeedsActionAccumulator);

@@ -8,7 +8,12 @@ describe("provider webhook drain", () => {
     const handler = createProviderWebhookDrainHandler({
       drain: async () => {
         drains += 1;
-        return { attempted: 0, failed: 0, processed: 0 };
+        return {
+          activeCalls: { attempted: 0, failed: 0, recovered: 0 },
+          attempted: 0,
+          failed: 0,
+          processed: 0,
+        };
       },
       secret: "cron-secret",
     });
@@ -23,7 +28,12 @@ describe("provider webhook drain", () => {
 
   it("drains one bounded batch for an authenticated cron request", async () => {
     const handler = createProviderWebhookDrainHandler({
-      drain: async () => ({ attempted: 2, failed: 1, processed: 1 }),
+      drain: async () => ({
+        activeCalls: { attempted: 1, failed: 0, recovered: 1 },
+        attempted: 2,
+        failed: 1,
+        processed: 1,
+      }),
       secret: "cron-secret",
     });
 
@@ -35,6 +45,7 @@ describe("provider webhook drain", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
+      activeCalls: { attempted: 1, failed: 0, recovered: 1 },
       attempted: 2,
       failed: 1,
       ok: true,
