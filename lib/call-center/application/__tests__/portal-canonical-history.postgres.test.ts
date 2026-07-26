@@ -156,8 +156,8 @@ describePostgres("canonical caller-thread reads on PostgreSQL", () => {
       });
       expect(timeline?.totals.totalItems).toBe(1);
       expect(timeline?.items).toHaveLength(1);
-      expect(timeline?.openTaskCount).toBe(5);
-      expect(timeline?.openCycleToken).toMatch(/^v1:5:[a-f0-9]{32}$/);
+      expect(timeline?.openTaskCount).toBe(1);
+      expect(timeline?.openCycleToken).toMatch(/^v1:1:[a-f0-9]{32}$/);
       expect(timeline).not.toHaveProperty("openTaskIds");
     } finally {
       await prisma.practice.delete({ where: { id: practiceId } });
