@@ -63,8 +63,44 @@ describe("server Call Center module", () => {
     });
   });
 
+  it("reports outbound initiation timing by phase without caller data", async () => {
+    let elapsed = 0;
+    const timings: Record<string, unknown>[] = [];
+
+    await startCanonicalOutbound(
+      {
+        create: async () => {
+          elapsed += 5;
+          return { commandId: "dial-customer-1" };
+        },
+        dispatch: async (commandId) => {
+          elapsed += commandId === "hangup-1" ? 3 : 7;
+          return { commandId, markSent: "MARKED", status: "DISPATCHED" };
+        },
+        monotonicNow: () => elapsed,
+        prepare: async () => {
+          elapsed += 2;
+          return ["hangup-1"];
+        },
+        reportTiming: (timing) => timings.push(timing),
+      },
+      actor,
+      outboundInput,
+    );
+
+    expect(timings).toEqual([
+      { durationMs: 2, phase: "prepare", resultClass: "success" },
+      { durationMs: 3, phase: "cleanup-dispatch", resultClass: "success" },
+      { durationMs: 5, phase: "create", resultClass: "success" },
+      { durationMs: 7, phase: "provider-dispatch", resultClass: "success" },
+      { durationMs: 17, phase: "total", resultClass: "success" },
+    ]);
+    expect(JSON.stringify(timings)).not.toContain(outboundInput.destination);
+  });
+
   it("does not create outbound intent while offer cleanup is unresolved", async () => {
     let created = false;
+    const timings: Record<string, unknown>[] = [];
     await expect(
       startCanonicalOutbound(
         {
@@ -77,13 +113,20 @@ describe("server Call Center module", () => {
             errorCode: "SENDING_OUTCOME_AMBIGUOUS",
             status: "DEFERRED",
           }),
+          monotonicNow: () => 0,
           prepare: async () => ["hangup-1"],
+          reportTiming: (timing) => timings.push(timing),
         },
         actor,
         outboundInput,
       ),
     ).rejects.toMatchObject({ status: 503 });
     expect(created).toBe(false);
+    expect(timings).toEqual([
+      { durationMs: 0, phase: "prepare", resultClass: "success" },
+      { durationMs: 0, phase: "cleanup-dispatch", resultClass: "error" },
+      { durationMs: 0, phase: "total", resultClass: "error" },
+    ]);
   });
 
   it("distinguishes a definitive customer dial rejection from an ambiguous result", async () => {

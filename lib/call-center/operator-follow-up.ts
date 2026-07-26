@@ -28,7 +28,8 @@ export type DispositionCallInput = {
 };
 
 export type ResolveCallerThreadInput = {
-  expectedTaskIds: string[];
+  expectedCycleToken?: string;
+  expectedTaskIds?: string[];
   idempotencyKey: string;
   locationId?: string;
   phone: string;
@@ -39,7 +40,8 @@ export type SaveOperatorNoteInput = {
   callId: string;
   disposition: CallDisposition;
   expectedStateVersion: number;
-  expectedTaskIds: string[];
+  expectedCycleToken?: string;
+  expectedTaskIds?: string[];
   idempotencyKey: string;
   locationId?: string;
   note: string | null;
@@ -48,6 +50,7 @@ export type SaveOperatorNoteInput = {
 };
 
 type CanonicalCallerInput = {
+  expectedCycleToken?: string;
   expectedTaskIds: string[];
   idempotencyKey: string;
   locationId?: string;
@@ -132,13 +135,18 @@ function canonicalCallerInput(
   const idempotencyKey = input.idempotencyKey.trim();
   const locationId = input.locationId?.trim() || undefined;
   const queueId = input.queueId?.trim() || undefined;
-  const expectedTaskIds = canonicalTaskIds(input.expectedTaskIds);
+  const expectedCycleToken = input.expectedCycleToken?.trim() || undefined;
+  const expectedTaskIds = canonicalTaskIds(input.expectedTaskIds ?? []);
+  const hasCycleToken = Boolean(expectedCycleToken);
+  const hasTaskIds = Boolean(expectedTaskIds.length);
   if (
     !phone ||
     !phoneVariants.length ||
     !idempotencyKey ||
     idempotencyKey.length > 200 ||
-    (requireTasks && !expectedTaskIds.length)
+    (expectedCycleToken?.length ?? 0) > 200 ||
+    (hasCycleToken && hasTaskIds) ||
+    (requireTasks && !hasCycleToken && !hasTaskIds)
   ) {
     throw new OperatorFollowUpError("Valid caller follow-up input required", 400);
   }
@@ -150,6 +158,7 @@ function canonicalCallerInput(
     throw new OperatorFollowUpError("Caller follow-up not found", 404);
   }
   return {
+    expectedCycleToken,
     expectedTaskIds,
     idempotencyKey,
     locationId,
@@ -206,6 +215,7 @@ export function createOperatorFollowUp(store: OperatorFollowUpStore) {
             idempotencyKey: canonical.idempotencyKey,
             practiceId: actor.practiceId,
             targetFingerprint: JSON.stringify({
+              expectedCycleToken: canonical.expectedCycleToken ?? null,
               expectedTaskIds: canonical.expectedTaskIds,
               locationId: canonical.locationId ?? null,
               phone: canonical.phone,
@@ -230,7 +240,7 @@ export function createOperatorFollowUp(store: OperatorFollowUpStore) {
         expectedStateVersion: input.expectedStateVersion,
         idempotencyKey: input.idempotencyKey,
         note: input.note,
-        taskIds: input.expectedTaskIds,
+        taskIds: input.expectedTaskIds ?? [],
       });
       const canonical = {
         ...canonicalCallerInput(actor, input, false),
@@ -252,6 +262,7 @@ export function createOperatorFollowUp(store: OperatorFollowUpStore) {
               disposition: canonical.disposition,
               expectedStateVersion: canonical.expectedStateVersion,
               expectedTaskIds: canonical.expectedTaskIds,
+              expectedCycleToken: canonical.expectedCycleToken ?? null,
               locationId: canonical.locationId ?? null,
               note: canonical.note,
               phone: canonical.phone,

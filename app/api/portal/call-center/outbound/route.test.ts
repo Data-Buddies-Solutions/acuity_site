@@ -14,8 +14,16 @@ const actor = {
 describe("POST /api/portal/call-center/outbound", () => {
   it("passes only authenticated scope and bounded canonical dial input", async () => {
     let received: unknown;
+    const timings: Record<string, unknown>[] = [];
+    let clock = 100;
     const handler = createStartOutboundCallHandler({
       getActor: async () => actor,
+      now: () => {
+        const current = clock;
+        clock = 112;
+        return current;
+      },
+      reportTiming: (timing) => timings.push(timing),
       start: async (currentActor, input) => {
         received = { actor: currentActor, input };
         return {
@@ -50,6 +58,14 @@ describe("POST /api/portal/call-center/outbound", () => {
     );
 
     expect(response.status).toBe(201);
+    expect(response.headers.get("server-timing")).toBe("outbound-initiation;dur=12.0");
+    expect(timings).toEqual([
+      {
+        durationMs: 12,
+        phase: "request",
+        resultClass: "success",
+      },
+    ]);
     expect(received).toEqual({
       actor,
       input: {
@@ -127,5 +143,45 @@ describe("POST /api/portal/call-center/outbound", () => {
     expect(await response.json()).toMatchObject({
       error: { code: "OUTBOUND_CALL_FAILED", retryable: false },
     });
+  });
+
+  it("does not let a timing reporter change a successful outbound result", async () => {
+    const handler = createStartOutboundCallHandler({
+      getActor: async () => actor,
+      reportTiming: () => {
+        throw new Error("log transport unavailable");
+      },
+      start: async () => ({
+        agentSessionId: "session-1",
+        callId: "call-1",
+        commandId: "command-1",
+        customerLegId: "customer-leg-1",
+        endpointId: "endpoint-1",
+        legId: "leg-1",
+        occurredAt: "2026-07-25T12:00:00.000Z",
+        operationType: "OUTBOUND",
+        replayed: false,
+        revision: "1",
+        stateVersion: 0,
+      }),
+    });
+
+    const response = await handler(
+      new Request("http://localhost/api/portal/call-center/outbound", {
+        body: JSON.stringify({
+          clientInstanceId: "browser-1",
+          destination: "+15555550123",
+          numberId: "number-1",
+          queueId: "queue-1",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "operation-1",
+        },
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(201);
   });
 });

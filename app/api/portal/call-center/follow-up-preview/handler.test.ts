@@ -23,18 +23,45 @@ describe("call center follow-up preview route", () => {
         received.push({ actor: receivedActor, options });
         return Array.from(
           { length: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT + 1 },
-          (_, index) => ({
-            callerName: null,
-            createdAt: new Date("2026-07-19T10:00:00.000Z"),
-            disposition: null,
-            durationSec: null,
-            fromPhone: `+15555550${index.toString().padStart(3, "0")}`,
-            id: `task-${index}`,
-            kind: "missed" as const,
-            locationName: "Optical",
-            recordingId: null,
-            taskId: `task-${index}`,
-          }),
+          (_, index) => {
+            const fromPhone = `+15555550${index.toString().padStart(3, "0")}`;
+            const taskId = `task-${index}`;
+            return {
+              activities: [
+                {
+                  callerName: null,
+                  createdAt: new Date("2026-07-19T10:00:00.000Z"),
+                  disposition: null,
+                  durationSec: null,
+                  fromPhone,
+                  id: taskId,
+                  kind: "missed" as const,
+                  locationId: "location-1",
+                  locationName: "Optical",
+                  queueId: "queue-1",
+                  recordingId: null,
+                  taskId,
+                },
+              ],
+              callbackNeededCount: 0,
+              callerName: null,
+              eventCount: 1,
+              followUpRequiredCount: 0,
+              fromPhone,
+              id: `queue-1:location-1:${fromPhone}`,
+              lastActivityAt: new Date("2026-07-19T10:00:00.000Z"),
+              latestKind: "missed" as const,
+              latestVoicemailDurationSec: null,
+              latestVoicemailRecordingId: null,
+              locationId: "location-1",
+              locationNames: ["Optical"],
+              missedCount: 1,
+              noteCount: 0,
+              queueId: "queue-1",
+              taskIds: [taskId],
+              voicemailCount: 0,
+            };
+          },
         );
       },
     });

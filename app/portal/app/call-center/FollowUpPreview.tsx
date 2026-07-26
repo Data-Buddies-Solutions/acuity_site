@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   MessageSquareText,
   Phone,
   PhoneMissed,
@@ -15,9 +17,11 @@ import {
 import { PortalBadge } from "@/app/portal/app/PortalBadge";
 import { Button } from "@/components/ui/button";
 import { CallCenterRequestError } from "@/lib/call-center/operator-error";
-import type { PortalNeedsActionPreviewItem } from "@/lib/call-center/portal-model";
+import type {
+  PortalCallActivityItem,
+  PortalNeedsActionPreviewItem,
+} from "@/lib/call-center/portal-model";
 import { formatPhone } from "@/lib/format";
-import { normalizePhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 
 import { callCenterResponse } from "./call-center-errors";
@@ -30,8 +34,12 @@ const PREVIEW_ACCESS_ERROR_CODES = new Set([
   "QUEUE_UNAVAILABLE",
 ]);
 
-type PreviewItem = Omit<PortalNeedsActionPreviewItem, "createdAt"> & {
+type PreviewActivity = Omit<PortalCallActivityItem, "createdAt"> & {
   createdAt: string;
+};
+type PreviewItem = Omit<PortalNeedsActionPreviewItem, "activities" | "lastActivityAt"> & {
+  activities: PreviewActivity[];
+  lastActivityAt: string;
 };
 
 type PreviewResponse = {
@@ -62,14 +70,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isPreviewItem(value: unknown): value is PreviewItem {
+function isPreviewActivity(value: unknown): value is PreviewActivity {
   return (
     isRecord(value) &&
-    typeof value.id === "string" &&
     typeof value.taskId === "string" &&
     typeof value.createdAt === "string" &&
     Number.isFinite(Date.parse(value.createdAt)) &&
     ["missed", "note", "voicemail"].includes(String(value.kind))
+  );
+}
+
+function isPreviewItem(value: unknown): value is PreviewItem {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.eventCount === "number" &&
+    typeof value.lastActivityAt === "string" &&
+    Number.isFinite(Date.parse(value.lastActivityAt)) &&
+    Array.isArray(value.taskIds) &&
+    value.taskIds.length > 0 &&
+    value.taskIds.every((taskId) => typeof taskId === "string") &&
+    Array.isArray(value.activities) &&
+    value.activities.length === value.eventCount &&
+    value.activities.every(isPreviewActivity)
   );
 }
 
@@ -109,26 +132,27 @@ export default function FollowUpPreview({
 }) {
   const scopeKey = `${locationId ?? "all"}:${queueId}`;
   const [model, setModel] = useState(initialState);
-  const [expandedAudioId, setExpandedAudioId] = useState<string | null>(null);
-  const [resolveError, setResolveError] = useState(false);
-  const [resolvingPhone, setResolvingPhone] = useState<string | null>(null);
+  const [expandedAudioTaskId, setExpandedAudioTaskId] = useState<string | null>(null);
+  const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolvingThreadId, setResolvingThreadId] = useState<string | null>(null);
   const mutationVersionRef = useRef(0);
   const readNowRef = useRef<() => void>(() => {});
   const retry = useCallback(() => readNowRef.current(), []);
 
   const resolvePhone = useCallback(
-    async (phone: string, taskIds: string[]) => {
-      const phoneKey = normalizePhone(phone) || phone;
-      setResolveError(false);
-      setResolvingPhone(phoneKey);
+    async (item: PreviewItem) => {
+      if (!item.fromPhone) return;
+      setResolveError(null);
+      setResolvingThreadId(item.id);
       try {
         const response = await fetch("/api/portal/call-center/follow-up-preview", {
           body: JSON.stringify({
-            idempotencyKey: `resolve-preview:${taskIds[0]}`,
-            ...(locationId ? { locationId } : {}),
-            phone,
-            queueId,
-            taskIds,
+            idempotencyKey: `resolve-preview:${item.taskIds[0]}`,
+            ...(item.locationId ? { locationId: item.locationId } : {}),
+            phone: item.fromPhone,
+            queueId: item.queueId ?? queueId,
+            taskIds: item.taskIds,
           }),
           headers: { "Content-Type": "application/json" },
           method: "POST",
@@ -141,28 +165,34 @@ export default function FollowUpPreview({
           current.scopeKey === scopeKey
             ? {
                 ...current,
-                items: current.items.filter(
-                  (item) =>
-                    (normalizePhone(item.fromPhone) || item.fromPhone) !== phoneKey,
-                ),
+                items: current.items.filter((currentItem) => currentItem.id !== item.id),
               }
             : current,
         );
-        setExpandedAudioId(null);
+        setExpandedAudioTaskId(null);
+        setExpandedThreadId(null);
         mutationVersionRef.current += 1;
         readNowRef.current();
       } catch (error) {
+        const staleThread =
+          error instanceof CallCenterRequestError &&
+          error.operatorError.code === "SESSION_STALE";
         if (isPreviewAccessError(error)) {
           setModel((current) =>
             current.scopeKey === scopeKey ? { ...current, items: [] } : current,
           );
         }
-        setResolveError(true);
+        setResolveError(
+          staleThread
+            ? "New activity arrived for this caller. Review the refreshed thread before resolving."
+            : "Couldn't mark this caller resolved. Try again.",
+        );
+        if (staleThread) readNowRef.current();
       } finally {
-        setResolvingPhone((current) => (current === phoneKey ? null : current));
+        setResolvingThreadId((current) => (current === item.id ? null : current));
       }
     },
-    [locationId, queueId, scopeKey],
+    [queueId, scopeKey],
   );
 
   useEffect(() => {
@@ -269,7 +299,7 @@ export default function FollowUpPreview({
             ) : null}
           </div>
           <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
-            The 15 most recent missed calls, voicemails, and follow-ups.
+            The 15 most recent caller threads that need attention.
           </p>
         </div>
         <Link
@@ -299,7 +329,7 @@ export default function FollowUpPreview({
           className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950"
           role="status"
         >
-          Couldn&apos;t mark this caller resolved. Try again.
+          {resolveError}
         </div>
       ) : null}
 
@@ -310,14 +340,14 @@ export default function FollowUpPreview({
       ) : state.items.length ? (
         <ul className="max-h-[17.25rem] divide-y divide-[var(--portal-border)] overflow-y-auto">
           {state.items.map((item) => {
-            const presentation = previewPresentation(item);
+            const presentation = threadPresentation(item);
             const title =
               item.callerName ||
               (item.fromPhone ? formatPhone(item.fromPhone) : "Unknown caller");
             const phoneLabel = item.callerName ? formatPhone(item.fromPhone || "") : null;
-            const audioOpen = expandedAudioId === item.id;
-            const phoneKey = normalizePhone(item.fromPhone) || item.fromPhone;
-            const resolving = Boolean(phoneKey && resolvingPhone === phoneKey);
+            const expanded = expandedThreadId === item.id;
+            const resolving = resolvingThreadId === item.id;
+            const summary = formatThreadSummary(item);
 
             return (
               <li className="px-4 py-2" key={item.id}>
@@ -327,32 +357,42 @@ export default function FollowUpPreview({
                     className={cn("mt-0.5 h-4 w-4 shrink-0", presentation.iconClassName)}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[var(--portal-ink)]">
-                      {title}
-                    </p>
-                    <p className="mt-0.5 text-xs text-[var(--portal-muted)]">
-                      {phoneLabel ? `${phoneLabel} · ` : ""}
-                      <span className="font-medium text-[var(--portal-ink-soft)]">
-                        {presentation.label}
+                    <button
+                      aria-label={`${expanded ? "Hide" : "Show"} details for ${title}`}
+                      aria-expanded={expanded}
+                      className="block w-full rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--portal-accent)]"
+                      onClick={() => {
+                        setExpandedAudioTaskId(null);
+                        setExpandedThreadId(expanded ? null : item.id);
+                      }}
+                      type="button"
+                    >
+                      <span className="flex items-center gap-1">
+                        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--portal-ink)]">
+                          {title}
+                        </span>
+                        {expanded ? (
+                          <ChevronUp
+                            aria-hidden="true"
+                            className="h-3.5 w-3.5 text-[var(--portal-muted)]"
+                          />
+                        ) : (
+                          <ChevronDown
+                            aria-hidden="true"
+                            className="h-3.5 w-3.5 text-[var(--portal-muted)]"
+                          />
+                        )}
                       </span>
-                      {item.durationSec ? ` · ${formatDuration(item.durationSec)}` : ""}
-                      {` · ${formatRelative(item.createdAt)}`}
-                    </p>
+                      <span className="mt-0.5 block text-xs text-[var(--portal-muted)]">
+                        {phoneLabel ? `${phoneLabel} · ` : ""}
+                        <span className="font-medium text-[var(--portal-ink-soft)]">
+                          {summary}
+                        </span>
+                        {` · ${formatRelative(item.lastActivityAt)}`}
+                      </span>
+                    </button>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {item.recordingId ? (
-                      <Button
-                        aria-label={`Play voicemail from ${title}`}
-                        aria-pressed={audioOpen}
-                        className="h-7 w-7 p-0"
-                        onClick={() => setExpandedAudioId(audioOpen ? null : item.id)}
-                        size="sm"
-                        title="Play voicemail"
-                        variant="ghost"
-                      >
-                        <Play className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                    ) : null}
                     <Button
                       aria-label={`Call back ${title}`}
                       className="h-7 w-7 p-0"
@@ -369,17 +409,9 @@ export default function FollowUpPreview({
                     <Button
                       aria-label={`Mark ${title} resolved`}
                       className="h-7 w-7 p-0 text-[var(--portal-muted)] hover:text-[var(--portal-accent)]"
-                      disabled={!item.fromPhone || resolvingPhone !== null}
+                      disabled={!item.fromPhone || resolvingThreadId !== null}
                       onClick={() => {
-                        if (!item.fromPhone) return;
-                        const taskIds = state.items
-                          .filter(
-                            (current) =>
-                              (normalizePhone(current.fromPhone) || current.fromPhone) ===
-                              phoneKey,
-                          )
-                          .map((current) => current.taskId);
-                        void resolvePhone(item.fromPhone, taskIds);
+                        void resolvePhone(item);
                       }}
                       size="sm"
                       title="Mark resolved"
@@ -393,14 +425,53 @@ export default function FollowUpPreview({
                     </Button>
                   </div>
                 </div>
-                {item.recordingId && audioOpen ? (
-                  <audio
-                    autoPlay
-                    className="mt-2 h-8 w-full"
-                    controls
-                    preload="none"
-                    src={`/api/portal/call-center/voicemails/${item.recordingId}`}
-                  />
+                {expanded ? (
+                  <ul className="ml-6 mt-2 space-y-1.5 border-l border-[var(--portal-border)] pl-3">
+                    {item.activities.map((activity) => {
+                      const activityPresentation = previewPresentation(activity);
+                      return (
+                        <li
+                          className="text-xs text-[var(--portal-muted)]"
+                          key={activity.taskId}
+                        >
+                          <span className="font-medium text-[var(--portal-ink-soft)]">
+                            {activityPresentation.label}
+                          </span>
+                          {activity.durationSec
+                            ? ` · ${formatDuration(activity.durationSec)}`
+                            : ""}
+                          {` · ${formatRelative(activity.createdAt)}`}
+                          {activity.recordingId ? (
+                            <Button
+                              aria-label={`Play voicemail from ${title}`}
+                              aria-pressed={expandedAudioTaskId === activity.taskId}
+                              className="ml-1 h-6 w-6 p-0"
+                              onClick={() =>
+                                setExpandedAudioTaskId((current) =>
+                                  current === activity.taskId ? null : activity.taskId,
+                                )
+                              }
+                              size="sm"
+                              title="Play voicemail"
+                              variant="ghost"
+                            >
+                              <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                            </Button>
+                          ) : null}
+                          {activity.recordingId &&
+                          expandedAudioTaskId === activity.taskId ? (
+                            <audio
+                              autoPlay
+                              className="mt-1 h-8 w-full"
+                              controls
+                              preload="none"
+                              src={`/api/portal/call-center/voicemails/${activity.recordingId}`}
+                            />
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
                 ) : null}
               </li>
             );
@@ -415,7 +486,26 @@ export default function FollowUpPreview({
   );
 }
 
-function previewPresentation(item: PreviewItem) {
+function threadPresentation(item: PreviewItem) {
+  if (item.voicemailCount > 0) {
+    return {
+      Icon: VoicemailIcon,
+      iconClassName: "text-[var(--portal-warning)]",
+    };
+  }
+  if (item.noteCount > 0) {
+    return {
+      Icon: MessageSquareText,
+      iconClassName: "text-[var(--portal-accent)]",
+    };
+  }
+  return {
+    Icon: PhoneMissed,
+    iconClassName: "text-[var(--portal-danger)]",
+  };
+}
+
+function previewPresentation(item: PreviewActivity) {
   if (item.kind === "voicemail") {
     return {
       Icon: VoicemailIcon,
@@ -440,6 +530,31 @@ function previewPresentation(item: PreviewItem) {
           ? "Follow-up required"
           : "Note",
   };
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function formatThreadSummary(item: PreviewItem) {
+  const parts: string[] = [];
+  if (item.voicemailCount) {
+    parts.push(pluralize(item.voicemailCount, "voicemail"));
+  }
+  if (item.missedCount) {
+    parts.push(pluralize(item.missedCount, "missed call"));
+  }
+  if (item.callbackNeededCount) {
+    parts.push(
+      pluralize(item.callbackNeededCount, "callback needed", "callbacks needed"),
+    );
+  }
+  if (item.followUpRequiredCount) {
+    parts.push(
+      pluralize(item.followUpRequiredCount, "follow-up required", "follow-ups required"),
+    );
+  }
+  return parts.join(" · ") || "Needs action";
 }
 
 function formatDuration(seconds: number) {

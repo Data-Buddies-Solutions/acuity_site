@@ -116,6 +116,9 @@ jobs:
           bun test
           prisma/migrations/20260719190000_retire_dual_webhook_lifecycle/migration.test.ts
           lib/call-center/__tests__/call-center-provider-event.postgres.test.ts
+          lib/call-center/application/__tests__/portal-canonical-history.postgres.test.ts
           lib/call-center/infrastructure/__tests__/prisma-canonical-call-projector.postgres.test.ts
           lib/call-center/infrastructure/__tests__/prisma-call-center-practice-lock.postgres.test.ts
+          lib/call-center/infrastructure/__tests__/prisma-inbound-answer-claim-store.postgres.test.ts
           lib/call-center/infrastructure/__tests__/prisma-transfer-agent-call-store.postgres.test.ts
+          scripts/resolve-stale-abita-call-center-tasks.postgres.test.ts

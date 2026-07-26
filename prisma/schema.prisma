@@ -1114,6 +1114,8 @@ model CallCenterCall {
 
   @@index([practiceId, status, receivedAt])
   @@index([practiceId, queueId, status, receivedAt])
+  @@index([practiceId, fromPhone, receivedAt])
+  @@index([practiceId, toPhone, receivedAt])
   @@index([direction, status, deadlineAt])
   @@index([numberId])
   @@map("call_center_call")

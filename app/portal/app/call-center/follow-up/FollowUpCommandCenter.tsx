@@ -110,9 +110,11 @@ function FollowUpQueueRow({
   const phoneLabel = group.callerName ? formatPhone(group.fromPhone) : null;
   const summary = formatGroupSummary(group) || "Needs action";
   const duration = formatDuration(group.latestVoicemailDurationSec);
-  const numberHref = callerHistoryHref(group.fromPhone, office);
+  const threadOffice = group.locationId ?? office;
+  const threadQueue = group.queueId ?? queue;
+  const numberHref = callerHistoryHref(group.fromPhone, threadOffice);
   const callHref = group.fromPhone
-    ? commandCenterCallHref(group.fromPhone, office, queue)
+    ? commandCenterCallHref(group.fromPhone, threadOffice, threadQueue)
     : null;
 
   return (
@@ -217,10 +219,12 @@ function FollowUpWorkPanel({
   const title = thread.callerName || formatPhone(thread.fromPhone);
   const phoneLabel = thread.callerName ? formatPhone(thread.fromPhone) : null;
   const summary = formatGroupSummary(thread) || "Needs action";
+  const threadOffice = thread.locationId ?? office;
+  const threadQueue = thread.queueId ?? queue;
   const callHref = thread.fromPhone
-    ? commandCenterCallHref(thread.fromPhone, office, queue)
+    ? commandCenterCallHref(thread.fromPhone, threadOffice, threadQueue)
     : null;
-  const numberHref = callerHistoryHref(thread.fromPhone, office);
+  const numberHref = callerHistoryHref(thread.fromPhone, threadOffice);
 
   return (
     <aside className="bg-[var(--portal-panel-soft)]">
@@ -318,9 +322,13 @@ function ResolveButton({
   return (
     <form action={resolveNeedsActionGroupAction}>
       <input type="hidden" name="idempotencyKey" value={resolutionKey(thread)} />
-      {office ? <input type="hidden" name="office" value={office} /> : null}
+      {(thread.locationId ?? office) ? (
+        <input type="hidden" name="office" value={thread.locationId ?? office} />
+      ) : null}
       <input type="hidden" name="phone" value={thread.fromPhone ?? ""} />
-      {queue ? <input type="hidden" name="queue" value={queue} /> : null}
+      {(thread.queueId ?? queue) ? (
+        <input type="hidden" name="queue" value={thread.queueId ?? queue} />
+      ) : null}
       {thread.taskIds.map((taskId) => (
         <input key={taskId} type="hidden" name="taskId" value={taskId} />
       ))}

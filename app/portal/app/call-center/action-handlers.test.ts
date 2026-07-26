@@ -64,6 +64,42 @@ describe("Call Center server-action translation", () => {
     expect(revalidated).toContain("/portal/app/call-center/follow-up");
   });
 
+  it("passes a bounded caller-cycle token instead of task IDs from History", async () => {
+    let captured: unknown;
+    const actions = createCallCenterActionHandlers({
+      followUp: {
+        resolveCallerThread: async (_actor, input) => {
+          captured = input;
+          return {
+            canonicalTasksResolved: 5,
+            occurredAt: "2026-07-20T12:00:00.000Z",
+            operationType: "CALLER_THREAD_RESOLUTION",
+            replayed: false,
+            revision: "42",
+            status: "CONFIRMED",
+          };
+        },
+        saveNote: async () => {
+          throw new Error("unused");
+        },
+      },
+      getContext: async () => context,
+      revalidate: () => {},
+    });
+    const formData = new FormData();
+    formData.set("cycleToken", "v1:5:abc123");
+    formData.set("idempotencyKey", "resolve-cycle");
+    formData.set("phone", "+15555550123");
+
+    await actions.resolveNeedsActionGroup(formData);
+
+    expect(captured).toMatchObject({
+      expectedCycleToken: "v1:5:abc123",
+      expectedTaskIds: [],
+      phone: "+15555550123",
+    });
+  });
+
   it("passes one versioned note command using the shared disposition vocabulary", async () => {
     let captured: unknown;
     const actions = createCallCenterActionHandlers({

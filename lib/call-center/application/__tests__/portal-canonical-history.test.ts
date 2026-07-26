@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT,
   canonicalCallAccessWhere,
+  readCanonicalCallerTimelineCounts,
   readCanonicalCallCenterHistory,
   readCanonicalNeedsAction,
   readCanonicalNeedsActionPreview,
@@ -29,8 +30,11 @@ const call = {
   endedAt: new Date("2026-07-12T19:01:05.000Z"),
   fromPhone: "+15555550123",
   id: "call-1",
-  number: { practicePhoneNumber: { location: { name: "Optical" } } },
+  number: {
+    practicePhoneNumber: { location: { id: "location-1", name: "Optical" } },
+  },
   providerCallSessionId: "provider-1",
+  queueId: "queue-1",
   receivedAt: new Date("2026-07-12T19:00:00.000Z"),
   status: "VOICEMAIL",
   toPhone: "+15555550000",
@@ -103,11 +107,43 @@ describe("canonical portal history", () => {
     };
     const result = await readCanonicalNeedsAction(
       { locationIds: ["location-1"], page: 1, pageSize: 25, queueId: "queue-1" },
-      { database: database as never, getContext: async () => context as never },
+      {
+        database: database as never,
+        getContext: async () => context as never,
+        listNeedsActionThreadPage: async () => ({
+          threads: [
+            {
+              locationId: "location-1",
+              phone: "+15555550123",
+              queueId: "queue-1",
+            },
+          ],
+          total: 1,
+        }),
+      },
     );
 
     expect(query).toMatchObject({
-      where: { call: { practiceId: "practice-1", queueId: "queue-1" } },
+      where: {
+        call: {
+          AND: [
+            {
+              practiceId: "practice-1",
+              queueId: "queue-1",
+            },
+            {
+              OR: [
+                {
+                  OR: expect.any(Array),
+                  queueId: "queue-1",
+                },
+              ],
+            },
+          ],
+        },
+        practiceId: "practice-1",
+        status: "OPEN",
+      },
     });
     expect(result).toMatchObject({
       groups: [
@@ -123,21 +159,27 @@ describe("canonical portal history", () => {
     });
   });
 
-  it("loads at most 15 records for the independent needs-action preview", async () => {
-    let query: Record<string, unknown> | null = null;
-    const previewTasks = Array.from(
-      { length: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT + 5 },
-      (_, index) => ({
+  it("selects 15 caller threads before loading repeated preview actions", async () => {
+    const queries: Record<string, unknown>[] = [];
+    const previewTasks = [
+      ...Array.from({ length: 5 }, (_, index) => ({
+        call: { ...call, fromPhone: "+15555550000" },
+        createdAt: new Date(call.endedAt.getTime() - index * 1_000),
+        id: `repeat-task-${index}`,
+        kind: "MISSED_CALL",
+        note: null,
+      })),
+      ...Array.from({ length: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT - 1 }, (_, index) => ({
         call: {
           ...call,
-          fromPhone: `+15555550${index.toString().padStart(3, "0")}`,
+          fromPhone: `+15555551${index.toString().padStart(3, "0")}`,
         },
-        createdAt: new Date(call.endedAt.getTime() - index * 1_000),
+        createdAt: new Date(call.endedAt.getTime() - (index + 5) * 1_000),
         id: `task-${index}`,
         kind: "MISSED_CALL",
         note: null,
-      }),
-    );
+      })),
+    ];
     const database = {
       callCenterQueue: {
         findFirst: async () => ({
@@ -148,7 +190,7 @@ describe("canonical portal history", () => {
       },
       callCenterTask: {
         findMany: async (input: Record<string, unknown>) => {
-          query = input;
+          queries.push(input);
           return previewTasks;
         },
       },
@@ -163,17 +205,77 @@ describe("canonical portal history", () => {
       },
       { locationIds: ["location-1"], queueId: "queue-1" },
       database as never,
+      async () => ({
+        threads: [
+          {
+            locationId: "location-1",
+            phone: "+15555550000",
+            queueId: "queue-1",
+          },
+          ...Array.from(
+            { length: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT - 1 },
+            (_, index) => ({
+              locationId: "location-1",
+              phone: `+15555551${index.toString().padStart(3, "0")}`,
+              queueId: "queue-1",
+            }),
+          ),
+        ],
+        total: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT,
+      }),
     );
 
-    expect(query).toMatchObject({
-      take: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT,
+    expect(queries[0]).toMatchObject({
       where: {
-        call: { practiceId: "practice-1", queueId: "queue-1" },
+        call: expect.any(Object),
         practiceId: "practice-1",
         status: "OPEN",
       },
     });
     expect(result).toHaveLength(CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT);
-    expect(result[0]).toMatchObject({ id: "task-0", kind: "missed" });
+    expect(result[0]).toMatchObject({
+      eventCount: 5,
+      missedCount: 5,
+      taskIds: [
+        "repeat-task-0",
+        "repeat-task-1",
+        "repeat-task-2",
+        "repeat-task-3",
+        "repeat-task-4",
+      ],
+    });
+  });
+
+  it("loads caller timeline totals with one consolidated database query", async () => {
+    let queries = 0;
+    const totals = await readCanonicalCallerTimelineCounts(
+      context,
+      {
+        cutoff: new Date("2026-07-18T12:00:00.000Z"),
+        locationIds: ["location-1"],
+        phoneVariants: ["+15555550123", "15555550123"],
+      },
+      {
+        $queryRaw: async () => {
+          queries += 1;
+          return [
+            {
+              inboundItems: 7,
+              outboundConnectedCalls: 2,
+              outboundDialedCalls: 3,
+              totalItems: 12,
+            },
+          ];
+        },
+      } as never,
+    );
+
+    expect(queries).toBe(1);
+    expect(totals).toEqual({
+      inboundItems: 7,
+      outboundConnectedCalls: 2,
+      outboundDialedCalls: 3,
+      totalItems: 12,
+    });
   });
 });
