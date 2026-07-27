@@ -1419,29 +1419,53 @@ function createProjectAndComplete(
     client.$transaction(async (tx) => {
       let leg = await existingLeg(tx, fact);
       const peerAgent = !leg ? await resolveCanonicalPeerAgentLeg(tx, fact) : null;
+      let projectionFact = fact;
       if (peerAgent) {
-        await completeProjectionCheckpoint(tx, event, projectedAt);
-        return {
-          callId: peerAgent.call.id,
-          callStatus: peerAgent.call.status,
-          commandIds: [],
-          legId: peerAgent.leg.id,
-          legStatus: peerAgent.leg.status,
-          practiceId: peerAgent.call.practiceId,
+        const terminalWinningPeer =
+          fact.eventType === "call.hangup" &&
+          peerAgent.call.status === "CONNECTED" &&
+          peerAgent.call.winningLegId === peerAgent.leg.id &&
+          peerAgent.leg.status === "BRIDGED";
+        if (!terminalWinningPeer) {
+          await completeProjectionCheckpoint(tx, event, projectedAt);
+          return {
+            callId: peerAgent.call.id,
+            callStatus: peerAgent.call.status,
+            commandIds: [],
+            legId: peerAgent.leg.id,
+            legStatus: peerAgent.leg.status,
+            practiceId: peerAgent.call.practiceId,
+          };
+        }
+        leg = { ...peerAgent.leg, call: peerAgent.call };
+        projectionFact = {
+          ...fact,
+          canonicalCallId: peerAgent.call.id,
+          canonicalLegId: peerAgent.leg.id,
+          endpointId: peerAgent.leg.endpointId,
+          providerCallControlId: peerAgent.leg.providerCallControlId,
+          providerCallLegId: peerAgent.leg.providerCallLegId,
+          providerCallSessionId:
+            peerAgent.leg.providerCallSessionId ?? fact.providerCallSessionId,
+          providerCommandId: null,
+          providerCommandIdSource: null,
         };
       }
 
-      const legKind = resolveCanonicalTelnyxLegKind(leg?.kind ?? null, fact.legKind);
+      const legKind = resolveCanonicalTelnyxLegKind(
+        leg?.kind ?? null,
+        projectionFact.legKind,
+      );
       const observations = resolveCanonicalTelnyxCallObservations(
-        fact.eventType,
+        projectionFact.eventType,
         legKind,
-        fact.direction,
+        projectionFact.direction,
       );
       if (!observations) {
         throw new CanonicalProjectionError("CANONICAL_EVENT_UNSUPPORTED");
       }
       const resolvedFact: ResolvedCanonicalTelnyxCallFact = {
-        ...fact,
+        ...projectionFact,
         ...observations,
         legKind,
       };

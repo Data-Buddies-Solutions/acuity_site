@@ -823,6 +823,186 @@ describePostgres("canonical call projector on PostgreSQL", () => {
     }
   });
 
+  it("ends a connected call when an unlinked SIP agent peer hangs up", async () => {
+    const fixture = await createFixture(prisma);
+    const callId = fixture.id("peer-hangup-call");
+    const legId = fixture.id("peer-hangup-agent-leg");
+    const customerLegId = fixture.id("peer-hangup-customer-leg");
+    const hangupAt = new Date("2026-07-27T18:45:22.090Z");
+    const event = await fixture.processingEvent("call.hangup", "peer-hangup");
+
+    try {
+      await prisma.callCenterCall.create({
+        data: {
+          answeredAt: occurredAt,
+          direction: "INBOUND",
+          fromPhone: fixture.callerPhone,
+          id: callId,
+          numberId: fixture.numberId,
+          practiceId: fixture.practiceId,
+          providerCallSessionId: fixture.id("session"),
+          queueId: fixture.queueId,
+          receivedAt: occurredAt,
+          status: "CONNECTED",
+          toPhone: fixture.practicePhone,
+        },
+      });
+      await prisma.callCenterCallLeg.createMany({
+        data: [
+          {
+            answeredAt: occurredAt,
+            bridgedAt: occurredAt,
+            callId,
+            id: customerLegId,
+            kind: "CUSTOMER",
+            providerCallControlId: fixture.id("peer-hangup-customer-control"),
+            providerCallLegId: fixture.id("peer-hangup-customer-provider-leg"),
+            startedAt: occurredAt,
+            status: "BRIDGED",
+          },
+          {
+            answeredAt: occurredAt,
+            bridgedAt: occurredAt,
+            callId,
+            endpointId: fixture.endpointId,
+            id: legId,
+            kind: "AGENT",
+            startedAt: occurredAt,
+            status: "BRIDGED",
+          },
+        ],
+      });
+      await prisma.callCenterCall.update({
+        data: { winningLegId: legId },
+        where: { id: callId },
+      });
+
+      await expect(
+        projector.projectAndComplete(
+          event,
+          fixture.fact({
+            eventType: "call.hangup",
+            hangupCauseCode: "normal_clearing",
+            legKind: null,
+            occurredAt: hangupAt,
+            providerCallControlId: fixture.id("peer-hangup-control"),
+            providerCallLegId: fixture.id("peer-hangup-provider-leg"),
+            providerEventId: event.providerEventId,
+            toAddress: `sip:${fixture.id("sip")}@sip.telnyx.com`,
+          }),
+          hangupAt,
+        ),
+      ).resolves.toMatchObject({
+        callId,
+        callStatus: "COMPLETED",
+        legId,
+        legStatus: "ENDED",
+      });
+      expect(
+        await prisma.callCenterCall.findUniqueOrThrow({
+          include: { legs: { orderBy: { id: "asc" } } },
+          where: { id: callId },
+        }),
+      ).toMatchObject({
+        endedAt: hangupAt,
+        legs: expect.arrayContaining([
+          expect.objectContaining({
+            endedAt: hangupAt,
+            hangupCauseCode: "normal_clearing",
+            id: legId,
+            providerCallControlId: null,
+            providerCallLegId: null,
+            status: "ENDED",
+          }),
+          expect.objectContaining({
+            endedAt: hangupAt,
+            id: customerLegId,
+            status: "ENDED",
+          }),
+        ]),
+        status: "COMPLETED",
+      });
+      expect(
+        await prisma.callCenterEvent.count({
+          where: {
+            aggregateId: callId,
+            idempotencyKey: `telnyx:${event.providerEventId}`,
+          },
+        }),
+      ).toBe(1);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("ignores an unlinked peer hangup for a non-winning agent leg", async () => {
+    const fixture = await createFixture(prisma);
+    const { callId, legId } = await fixture.createOutboundCall("non-winning-peer-hangup");
+    const losingEndpointId = await fixture.createEndpoint("non-winning-peer-hangup");
+    const losingLegId = fixture.id("non-winning-peer-hangup-losing-leg");
+    const event = await fixture.processingEvent("call.hangup", "non-winning-peer-hangup");
+
+    try {
+      await prisma.callCenterCallLeg.update({
+        data: {
+          answeredAt: occurredAt,
+          bridgedAt: occurredAt,
+          status: "BRIDGED",
+        },
+        where: { id: legId },
+      });
+      await prisma.callCenterCallLeg.create({
+        data: {
+          callId,
+          endpointId: losingEndpointId,
+          id: losingLegId,
+          kind: "AGENT",
+          startedAt: occurredAt,
+          status: "RINGING",
+        },
+      });
+      await prisma.callCenterCall.update({
+        data: {
+          answeredAt: occurredAt,
+          providerCallSessionId: fixture.id("session"),
+          status: "CONNECTED",
+          winningLegId: legId,
+        },
+        where: { id: callId },
+      });
+
+      await expect(
+        projector.projectAndComplete(
+          event,
+          fixture.fact({
+            eventType: "call.hangup",
+            legKind: null,
+            providerCallControlId: fixture.id("non-winning-peer-hangup-control"),
+            providerCallLegId: fixture.id("non-winning-peer-hangup-provider-leg"),
+            providerEventId: event.providerEventId,
+            toAddress: `sip:${fixture.id("sip-non-winning-peer-hangup")}@sip.telnyx.com`,
+          }),
+          projectedAt,
+        ),
+      ).resolves.toMatchObject({
+        callId,
+        callStatus: "CONNECTED",
+        legId: losingLegId,
+        legStatus: "RINGING",
+      });
+      expect(
+        await prisma.callCenterEvent.count({
+          where: {
+            aggregateId: callId,
+            idempotencyKey: `telnyx:${event.providerEventId}`,
+          },
+        }),
+      ).toBe(0);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it("keeps one bridge winner and advances its direct handoff only after connection", async () => {
     const fixture = await createFixture(prisma);
     const callId = fixture.id("call");
