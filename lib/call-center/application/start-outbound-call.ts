@@ -30,6 +30,7 @@ export type StartOutboundCallReceipt = OperationReceipt & {
 export type StartOutboundCallResponse = StartOutboundCallReceipt;
 
 export interface StartOutboundCallTransaction extends OperationReceiptTransaction {
+  lockPractice(practiceId: string): Promise<void>;
   createOutboundCall(
     actor: QueueAccessActor,
     input: StartOutboundCallInput,
@@ -70,8 +71,9 @@ export function startOutboundCall(
   input: StartOutboundCallInput,
   now = new Date(),
 ): Promise<StartOutboundCallReceipt> {
-  return store.transaction((transaction) =>
-    executeIdempotentCreation(
+  return store.transaction(async (transaction) => {
+    await transaction.lockPractice(actor.practiceId);
+    return executeIdempotentCreation(
       transaction,
       {
         actorUserId: actor.userId,
@@ -83,6 +85,6 @@ export function startOutboundCall(
       },
       (current) => current.createOutboundCall(actor, input, now),
       now,
-    ),
-  ) as Promise<StartOutboundCallReceipt>;
+    );
+  }) as Promise<StartOutboundCallReceipt>;
 }

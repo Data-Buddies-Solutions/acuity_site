@@ -6,6 +6,7 @@ import type { AgentSessionView, CallView } from "@/lib/call-center/realtime-cont
 import {
   CanonicalActiveCall,
   CanonicalOfferAnswerButton,
+  CallCenterRecoveryMessage,
   OperatorStateWarning,
 } from "./CanonicalActiveWorkspace";
 import { CallConnectionStatus } from "./CallConnectionStatus";
@@ -118,10 +119,47 @@ describe("call readiness", () => {
     );
 
     expect(screen.getByRole("alert").textContent).toContain(
+      "Call updates delayed — recovering.",
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
       "Last updated 1m ago. Retained calls may be stale.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("distinguishes delayed backend state from a provider disconnect", () => {
+    const view = render(
+      <p role="alert">
+        <CallCenterRecoveryMessage
+          backendError="agent-session heartbeat failed"
+          connection="READY"
+          error="agent-session heartbeat failed"
+          mediaError={null}
+          microphoneError={null}
+        />
+      </p>,
+    );
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Call updates delayed — recovering.",
+    );
+
+    view.rerender(
+      <p role="alert">
+        <CallCenterRecoveryMessage
+          backendError="agent-session heartbeat failed"
+          connection="FAILED"
+          error="agent-session heartbeat failed"
+          mediaError="The phone service is temporarily unavailable."
+          microphoneError={null}
+        />
+      </p>,
+    );
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Phone disconnected — reconnecting",
+    );
   });
 });
 

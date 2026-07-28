@@ -180,6 +180,7 @@ export function updateOutboundOperationFromMedia(
 }
 
 type SoftphoneRuntimeValue = {
+  backendError: string | null;
   clientInstanceId: string | null;
   error: string | null;
   media: Omit<ReturnType<typeof useSoftphoneMedia>, "setRemoteAudioElement">;
@@ -460,6 +461,7 @@ export function SoftphoneRuntime({ children }: { children: ReactNode }) {
     () => ({
       answer,
       answeringMediaLegId: calls.answeringMediaLegId,
+      backendError: agentSession.error,
       clientInstanceId,
       error:
         identityError ??

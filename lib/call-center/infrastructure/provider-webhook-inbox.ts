@@ -32,6 +32,8 @@ export type ProviderWebhookInboxStore = {
     eventId: string;
     maxAttempts: number;
     now: Date;
+    providerCallSessionId: string | null;
+    receivedAt: Date;
     staleBefore: Date;
   }): Promise<ProviderWebhookRecord | null>;
   completeIgnored(input: {
@@ -149,6 +151,8 @@ export function createProviderWebhookInbox(
         eventId: event.id,
         maxAttempts,
         now,
+        providerCallSessionId: event.providerCallSessionId,
+        receivedAt: event.receivedAt,
         staleBefore: new Date(now.getTime() - processingLeaseMs),
       });
 
@@ -218,39 +222,74 @@ function providerCallSessionId(body: unknown) {
 }
 
 const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore = {
-  async claim({ eventId, maxAttempts, now, staleBefore }) {
-    const claimed = await prisma.providerWebhookEvent.updateMany({
-      data: {
-        attemptCount: { increment: 1 },
-        errorCode: null,
-        nextAttemptAt: null,
-        processedAt: null,
-        processingStatus: "PROCESSING",
-      },
-      where: {
-        attemptCount: { lt: maxAttempts },
-        id: eventId,
-        OR: [
-          { processingStatus: "RECEIVED" },
-          {
-            processingStatus: "FAILED",
-            OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
-          },
-          {
+  claim({ eventId, maxAttempts, now, providerCallSessionId, receivedAt, staleBefore }) {
+    return prisma.$transaction(async (transaction) => {
+      if (providerCallSessionId) {
+        const lockKey = `CALL_CENTER:PROVIDER_SESSION:${providerCallSessionId}`;
+        const [lane] = await transaction.$queryRaw<Array<{ acquired: boolean }>>(
+          Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtextextended(${lockKey}, 0)) AS "acquired"`,
+        );
+        if (!lane?.acquired) return null;
+
+        const active = await transaction.providerWebhookEvent.findFirst({
+          select: { id: true },
+          where: {
+            id: { not: eventId },
             processingStatus: "PROCESSING",
-            updatedAt: { lte: staleBefore },
+            provider: "TELNYX",
+            providerCallSessionId,
+            updatedAt: { gt: staleBefore },
           },
-        ],
-      },
-    });
+        });
+        if (active) return null;
 
-    if (claimed.count === 0) {
-      return null;
-    }
+        const earlier = await transaction.providerWebhookEvent.findFirst({
+          select: { id: true },
+          where: {
+            attemptCount: { lt: maxAttempts },
+            id: { not: eventId },
+            OR: [{ receivedAt: { lt: receivedAt } }, { id: { lt: eventId }, receivedAt }],
+            processingStatus: { in: ["FAILED", "PROCESSING", "RECEIVED"] },
+            provider: "TELNYX",
+            providerCallSessionId,
+          },
+        });
+        if (earlier) return null;
+      }
 
-    return prisma.providerWebhookEvent.findUnique({
-      select: selectedFields,
-      where: { id: eventId },
+      const claimed = await transaction.providerWebhookEvent.updateMany({
+        data: {
+          attemptCount: { increment: 1 },
+          errorCode: null,
+          nextAttemptAt: null,
+          processedAt: null,
+          processingStatus: "PROCESSING",
+        },
+        where: {
+          attemptCount: { lt: maxAttempts },
+          id: eventId,
+          OR: [
+            { processingStatus: "RECEIVED" },
+            {
+              processingStatus: "FAILED",
+              OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+            },
+            {
+              processingStatus: "PROCESSING",
+              updatedAt: { lte: staleBefore },
+            },
+          ],
+        },
+      });
+
+      if (claimed.count === 0) {
+        return null;
+      }
+
+      return transaction.providerWebhookEvent.findUnique({
+        select: selectedFields,
+        where: { id: eventId },
+      });
     });
   },
   async completeIgnored({ attemptCount, errorCode, eventId, now }) {

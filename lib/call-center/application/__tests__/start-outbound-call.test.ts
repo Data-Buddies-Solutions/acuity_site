@@ -29,6 +29,7 @@ const input: StartOutboundCallInput = {
 function fakeTransaction() {
   let receipt: OperationReceiptEvent | null = null;
   let creates = 0;
+  const operations: string[] = [];
   const transaction: StartOutboundCallTransaction = {
     async appendReceipt(operation: OperationReceiptInput, data, now) {
       receipt = {
@@ -60,10 +61,16 @@ function fakeTransaction() {
     async findReceipt() {
       return receipt;
     },
-    async lockReceiptKey() {},
+    async lockReceiptKey() {
+      operations.push("receipt.lock");
+    },
+    async lockPractice() {
+      operations.push("practice.lock");
+    },
   };
   return {
     creates: () => creates,
+    operations,
     store: {
       transaction: <T>(
         operation: (current: StartOutboundCallTransaction) => Promise<T>,
@@ -73,6 +80,14 @@ function fakeTransaction() {
 }
 
 describe("canonical outbound call", () => {
+  it("locks the practice before the outbound receipt key", async () => {
+    const fake = fakeTransaction();
+
+    await startOutboundCall(fake.store, actor, input);
+
+    expect(fake.operations.slice(0, 2)).toEqual(["practice.lock", "receipt.lock"]);
+  });
+
   it("creates one durable intent and replays its exact provider command", async () => {
     const fake = fakeTransaction();
 

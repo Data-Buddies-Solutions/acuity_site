@@ -82,11 +82,14 @@ not a browser endpoint.
 The provider-event module owns durable receipt, deduplication, admission,
 projection, categorical failure, and committed-command dispatch. Its HTTP
 adapter verifies the signature, stores the callback, and acknowledges only
-after that receipt is durable. Projection wakes immediately after the response;
-the scheduled recovery loop processes at most four provider sessions at once
-and keeps one session serial. A receipt failure remains an HTTP failure so
-Telnyx retries it. Out-of-scope callbacks end as one auditable `IGNORED`
-outcome; provider-command delivery remains a separate durable lifecycle.
+after that receipt is durable. Projection wakes immediately after the response.
+Live ingress and scheduled recovery claim the same non-blocking durable lane
+for a provider call session; one event remains `PROCESSING` while later events
+stay pending in receipt order. The claim transaction never waits for the active
+projector, and the scheduled recovery loop processes at most four different
+provider sessions at once. A receipt failure remains an HTTP failure so Telnyx
+retries it. Out-of-scope callbacks end as one auditable `IGNORED` outcome;
+provider-command delivery remains a separate durable lifecycle.
 
 ## Invariants
 
@@ -115,10 +118,13 @@ outcome; provider-command delivery remains a separate durable lifecycle.
     interrupted sends; terminal failures remain visible for operator diagnosis.
 13. Provider callbacks are idempotent and monotonic under duplicate,
     simultaneous, and out-of-order delivery. One recovery batch keeps events
-    for the same provider session serial. Configuration writes, admission,
-    outbound creation, and provider-command transitions acquire the shared
-    transaction-scoped practice lock before row locks. Existing-call projection
-    locks the endpoint first and then call rows in deterministic ID order.
+    for the same provider session serial. Cross-call writes use the global lock
+    order `practice -> operation receipt -> mutable call/leg rows`.
+    Configuration writes, admission, inbound Answer, outbound creation, and
+    provider-command transitions acquire the shared transaction-scoped practice
+    lock before their narrower locks. Existing-call projection does not take a
+    blanket practice lock; it locks the endpoint first and then call rows in
+    deterministic ID order so unrelated calls may proceed concurrently.
     Provider I/O occurs only after the database transaction releases its locks.
 14. A provider event has one claim lease, attempt count, retry time, categorical
     error, processed time, and status from receipt through terminal outcome.

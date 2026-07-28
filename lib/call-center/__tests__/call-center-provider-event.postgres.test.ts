@@ -4,7 +4,16 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
 import { PrismaClient } from "@/generated/prisma/client";
+import { createProviderWebhookDrainer } from "@/lib/call-center/application/drain-provider-webhooks";
+import { createTelnyxVoiceEventProcessor } from "@/lib/call-center/application/process-telnyx-voice-event";
 import { callCenter } from "@/lib/call-center/call-center";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
+import { createPrismaCanonicalCallProjector } from "@/lib/call-center/infrastructure/prisma-canonical-call-projector";
+import { admitTelnyxEvent } from "@/lib/call-center/infrastructure/prisma-telnyx-event-admission";
+import {
+  providerWebhookInbox,
+  type ProviderWebhookRecord,
+} from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import type { TelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
 
 const postgresUrl = process.env.CALL_CENTER_POSTGRES_TEST_URL ?? "";
@@ -355,6 +364,379 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
       );
     } finally {
       await current.cleanup();
+    }
+  });
+
+  it("leaves a same-session callback pending while live projection owns the lane", async () => {
+    const current = await fixture();
+    const providerSessionId = `session-${current.key}`;
+    const releasePracticeLock = Promise.withResolvers<void>();
+    const practiceLockAcquired = Promise.withResolvers<void>();
+    const lock = adminPrisma.$transaction(async (transaction) => {
+      await lockCallCenterPractice(transaction, current.practiceId);
+      practiceLockAcquired.resolve();
+      await releasePracticeLock.promise;
+    });
+    await practiceLockAcquired.promise;
+
+    const first = envelope({
+      eventType: "call.initiated",
+      key: current.key,
+      providerEventId: `provider-${current.key}-lane-first`,
+      providerSessionId,
+    });
+    const second = envelope({
+      eventType: "call.answered",
+      key: current.key,
+      providerEventId: `provider-${current.key}-lane-second`,
+      providerSessionId,
+    });
+
+    try {
+      const firstProjection = callCenter.applyProviderEvent(first);
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const claimed = await adminPrisma.providerWebhookEvent.findUnique({
+          select: { processingStatus: true },
+          where: {
+            provider_providerEventId: {
+              provider: "TELNYX",
+              providerEventId: first.providerEventId,
+            },
+          },
+        });
+        if (claimed?.processingStatus === "PROCESSING") break;
+        await Bun.sleep(10);
+      }
+
+      await expect(
+        Promise.race([
+          callCenter.applyProviderEvent(second),
+          Bun.sleep(1_000).then(() => {
+            throw new Error("same-session claim waited behind active projection");
+          }),
+        ]),
+      ).rejects.toMatchObject({ status: 503 });
+      await expect(
+        adminPrisma.providerWebhookEvent.findUniqueOrThrow({
+          where: {
+            provider_providerEventId: {
+              provider: "TELNYX",
+              providerEventId: second.providerEventId,
+            },
+          },
+        }),
+      ).resolves.toMatchObject({
+        attemptCount: 0,
+        processingStatus: "RECEIVED",
+      });
+
+      releasePracticeLock.resolve();
+      await expect(firstProjection).resolves.toMatchObject({ outcome: "PROCESSED" });
+      await expect(callCenter.applyProviderEvent(second)).resolves.toMatchObject({
+        outcome: "PROCESSED",
+      });
+    } finally {
+      releasePracticeLock.resolve();
+      await lock;
+      await current.cleanup();
+    }
+  });
+
+  it("keeps snapshots, heartbeat, and Answer available during a 20-callback session burst", async () => {
+    const current = await fixture();
+    const id = (prefix: string) => `${prefix}-${current.key}`;
+    const providerSessionId = id("burst-session");
+    const userIds = Array.from({ length: 4 }, (_, index) => id(`burst-user-${index}`));
+    const endpointIds = Array.from({ length: 4 }, (_, index) =>
+      id(`burst-endpoint-${index}`),
+    );
+    const sessionIds = Array.from({ length: 4 }, (_, index) =>
+      id(`burst-agent-session-${index}`),
+    );
+    const agentLegIds = Array.from({ length: 4 }, (_, index) =>
+      id(`burst-agent-leg-${index}`),
+    );
+    const callId = id("burst-call");
+    const now = new Date();
+    const actors = userIds.map((userId) => ({
+      allowedLocationIds: [current.locationId],
+      hasAllLocationAccess: false,
+      practiceId: current.practiceId,
+      userId,
+    }));
+    const releaseProjection = Promise.withResolvers<void>();
+    const firstProjectionStarted = Promise.withResolvers<void>();
+    let activeProjectors = 0;
+    let maxActiveProjectors = 0;
+    const admitted: string[] = [];
+    const bridgedLegIds = new Set<string>();
+    const projectedStatuses: string[] = [];
+    let firstProcessing: Promise<unknown> | null = null;
+    const projector = createPrismaCanonicalCallProjector(adminPrisma);
+
+    try {
+      await adminPrisma.user.createMany({
+        data: userIds.map((userId, index) => ({
+          email: `${userId}@example.test`,
+          id: userId,
+          name: `Burst agent ${index}`,
+        })),
+      });
+      await adminPrisma.practiceMembership.createMany({
+        data: userIds.map((userId) => ({ practiceId: current.practiceId, userId })),
+      });
+      await adminPrisma.callCenterQueueMember.createMany({
+        data: userIds.map((userId) => ({ queueId: current.queueId, userId })),
+      });
+      await adminPrisma.callCenterEndpoint.createMany({
+        data: endpointIds.map((endpointId, index) => ({
+          id: endpointId,
+          label: `Burst endpoint ${index}`,
+          locationId: current.locationId,
+          practiceId: current.practiceId,
+          providerCredentialId: id(`burst-credential-${index}`),
+          sipUsername: id(`burst-sip-${index}`),
+          userId: userIds[index]!,
+        })),
+      });
+      await adminPrisma.callCenterAgentSession.createMany({
+        data: sessionIds.map((sessionId, index) => ({
+          audioReady: true,
+          browserSessionId: id(`burst-browser-${index}`),
+          connectionState: "READY",
+          endpointId: endpointIds[index]!,
+          id: sessionId,
+          lastHeartbeatAt: now,
+          leaseExpiresAt: new Date(now.getTime() + 60_000),
+          microphoneReady: true,
+          practiceId: current.practiceId,
+          presence: "AVAILABLE",
+          readyAt: now,
+          userId: userIds[index]!,
+        })),
+      });
+      await adminPrisma.callCenterCall.create({
+        data: {
+          direction: "INBOUND",
+          fromPhone: "+17865550100",
+          id: callId,
+          numberId: current.numberId,
+          practiceId: current.practiceId,
+          queueId: current.queueId,
+          receivedAt: now,
+          status: "RINGING",
+          toPhone: phoneNumbers(current.key).practicePhone,
+        },
+      });
+      await adminPrisma.callCenterCallLeg.createMany({
+        data: [
+          {
+            answeredAt: now,
+            callId,
+            id: id("burst-customer-leg"),
+            kind: "CUSTOMER",
+            status: "ANSWERED",
+          },
+          ...agentLegIds.map(
+            (agentLegId, index) =>
+              ({
+                agentSessionId: sessionIds[index]!,
+                callId,
+                endpointId: endpointIds[index]!,
+                id: agentLegId,
+                kind: "AGENT",
+                status: "RINGING",
+              }) as const,
+          ),
+        ],
+      });
+
+      const eventTypes = [
+        ...Array(4).fill("call.initiated"),
+        ...Array(4).fill("call.answered"),
+        ...Array(4).fill("call.bridged"),
+        ...Array(4).fill("call.hangup"),
+        ...Array(4).fill("call.initiated"),
+      ] as const;
+      const records: ProviderWebhookRecord[] = [];
+      for (const [index, eventType] of eventTypes.entries()) {
+        const agentIndex = index % agentLegIds.length;
+        const receivedAt = new Date(now.getTime() + index);
+        const clientState = Buffer.from(
+          JSON.stringify({
+            callId,
+            endpointId: endpointIds[agentIndex],
+            internalAgentLeg: true,
+            legId: agentLegIds[agentIndex],
+          }),
+        ).toString("base64");
+        const received = await providerWebhookInbox.receive(
+          envelope({
+            eventType,
+            key: current.key,
+            occurredAt: receivedAt,
+            payload: {
+              call_control_id: id(`burst-control-${agentIndex}`),
+              call_leg_id: id(`burst-provider-leg-${agentIndex}`),
+              client_state: clientState,
+              direction: "outgoing",
+            },
+            providerEventId: `provider-${current.key}-burst-${index}`,
+            providerSessionId,
+          }),
+        );
+        await adminPrisma.providerWebhookEvent.update({
+          data: { receivedAt },
+          where: { id: received.id },
+        });
+        records.push({ ...received, receivedAt });
+      }
+
+      const processor = createTelnyxVoiceEventProcessor({
+        admit: async (event) => {
+          admitted.push(event.id);
+          await admitTelnyxEvent(event, adminPrisma);
+        },
+        dispatchCommand: async (commandId) => ({ commandId, status: "SETTLED" }),
+        inbox: providerWebhookInbox,
+        projector: {
+          projectAndComplete: async (...args) => {
+            const [event] = args;
+            activeProjectors += 1;
+            maxActiveProjectors = Math.max(maxActiveProjectors, activeProjectors);
+            try {
+              if (event.id === records[0]!.id) {
+                firstProjectionStarted.resolve();
+                await releaseProjection.promise;
+              }
+              const projection = await projector.projectAndComplete(...args);
+              if (projection.legStatus === "BRIDGED" && projection.legId) {
+                bridgedLegIds.add(projection.legId);
+              }
+              projectedStatuses.push(projection.callStatus);
+              return projection;
+            } finally {
+              activeProjectors -= 1;
+            }
+          },
+        },
+      });
+
+      const first = processor.processRecord(records[0]!);
+      firstProcessing = first;
+      await firstProjectionStarted.promise;
+      const competing = await Promise.allSettled(
+        records.slice(1).map((record) => processor.processRecord(record)),
+      );
+      expect(
+        competing.every(
+          (result) =>
+            result.status === "rejected" &&
+            typeof result.reason === "object" &&
+            result.reason !== null &&
+            "status" in result.reason &&
+            result.reason.status === 503,
+        ),
+      ).toBe(true);
+
+      const [snapshots, heartbeats, answer] = await Promise.all([
+        Promise.all(
+          actors.map((actor) => callCenter.readOperatorState(actor, current.queueId)),
+        ),
+        Promise.all(
+          actors.map((actor, index) =>
+            callCenter.updateAgent({
+              actor,
+              input: {
+                audioReady: true,
+                clientInstanceId: id(`burst-browser-${index}`),
+                connectionState: "READY",
+                expectedStateVersion: 0,
+                microphoneReady: true,
+                presence: "AVAILABLE",
+                sessionId: sessionIds[index]!,
+              },
+              kind: "HEARTBEAT",
+              now: new Date(now.getTime() + 1_000),
+            }),
+          ),
+        ),
+        callCenter.claimInboundAnswer(
+          actors[0]!,
+          {
+            callId,
+            idempotencyKey: id("burst-answer"),
+            legId: agentLegIds[0]!,
+            sessionId: sessionIds[0]!,
+          },
+          new Date(now.getTime() + 1_000),
+        ),
+      ]);
+      expect(
+        snapshots.every((snapshot, index) =>
+          snapshot.calls.some(
+            (call) =>
+              call.id === callId &&
+              call.legs.some(
+                (leg) => leg.id === agentLegIds[index] && leg.status === "RINGING",
+              ),
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        heartbeats.every(
+          ({ session }) => session.leaseExpiresAt.getTime() > now.getTime(),
+        ),
+      ).toBe(true);
+      expect(answer.status).toBe("ACCEPTED");
+
+      releaseProjection.resolve();
+      await expect(first).resolves.toMatchObject({ outcome: "PROCESSED" });
+      const drain = createProviderWebhookDrainer({
+        backlog: { listDue: async () => records.slice(1) },
+        concurrency: 4,
+        processRecord: processor.processRecord,
+      });
+      await expect(drain()).resolves.toEqual({
+        attempted: 19,
+        failed: 0,
+        processed: 19,
+      });
+      expect(maxActiveProjectors).toBe(1);
+      expect(admitted).toEqual(records.map(({ id: eventId }) => eventId));
+      expect(
+        await adminPrisma.providerWebhookEvent.count({
+          where: {
+            providerCallSessionId: providerSessionId,
+            processingStatus: "FAILED",
+          },
+        }),
+      ).toBe(0);
+      const call = await adminPrisma.callCenterCall.findUniqueOrThrow({
+        include: { legs: { where: { kind: "AGENT" } } },
+        where: { id: callId },
+      });
+      expect(call).toMatchObject({
+        status: "COMPLETED",
+        winningLegId: agentLegIds[0],
+      });
+      expect([...bridgedLegIds]).toEqual([agentLegIds[0]]);
+      expect(call.legs.filter(({ status }) => status === "BRIDGED")).toHaveLength(0);
+      expect(call.legs.filter(({ status }) => status === "ENDED")).toHaveLength(4);
+      const terminalIndex = projectedStatuses.findIndex((status) =>
+        ["ABANDONED", "COMPLETED", "FAILED", "VOICEMAIL"].includes(status),
+      );
+      expect(terminalIndex).toBeGreaterThanOrEqual(0);
+      expect(
+        projectedStatuses
+          .slice(terminalIndex)
+          .every((status) => status === projectedStatuses[terminalIndex]),
+      ).toBe(true);
+    } finally {
+      releaseProjection.resolve();
+      await firstProcessing?.catch(() => undefined);
+      await current.cleanup();
+      await adminPrisma.user.deleteMany({ where: { id: { in: userIds } } });
     }
   });
 

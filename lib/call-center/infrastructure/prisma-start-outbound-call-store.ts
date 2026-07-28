@@ -100,6 +100,10 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     return this.receipts.lockReceiptKey(practiceId, type, idempotencyKey);
   }
 
+  lockPractice(practiceId: string) {
+    return lockCallCenterPractice(this.transaction, practiceId);
+  }
+
   private async loadOutboundContext(
     actor: QueueAccessActor,
     input: StartOutboundCallInput,
@@ -323,7 +327,6 @@ class PrismaStartOutboundCallTransaction implements StartOutboundCallTransaction
     input: StartOutboundCallInput,
     now: Date,
   ) {
-    await lockCallCenterPractice(this.transaction, actor.practiceId);
     const { from, number, session, to } = await this.loadOutboundContext(
       actor,
       input,

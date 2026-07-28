@@ -72,6 +72,28 @@ function errorMessage(error: unknown, action: CallCenterAction) {
   return operatorErrorCopy(error, action).message;
 }
 
+export function CallCenterRecoveryMessage({
+  backendError,
+  connection,
+  error,
+  mediaError,
+  microphoneError,
+}: {
+  backendError: string | null;
+  connection: MediaConnectionState;
+  error: string | null;
+  mediaError: string | null;
+  microphoneError: string | null;
+}) {
+  if (connection === "FAILED" || connection === "OFFLINE") {
+    return "Phone disconnected — reconnecting";
+  }
+  if (microphoneError) return microphoneError;
+  if (mediaError) return mediaError;
+  if (backendError) return "Call updates delayed — recovering.";
+  return error ?? "Call updates delayed — recovering.";
+}
+
 function measureOutboundBrowserRequest(
   startedAt: number,
   resultClass: "error" | "success",
@@ -621,9 +643,13 @@ function ConnectedCanonicalActiveWorkspace({
           role="alert"
         >
           <p>
-            {runtime.media.microphoneError ??
-              runtime.media.error ??
-              (session ? "Phone disconnected — reconnecting" : runtime.error)}
+            <CallCenterRecoveryMessage
+              backendError={runtime.backendError}
+              connection={runtime.media.connection}
+              error={runtime.error}
+              mediaError={runtime.media.error}
+              microphoneError={runtime.media.microphoneError}
+            />
           </p>
           {!session ? (
             <Button
@@ -1516,7 +1542,7 @@ export function OperatorStateWarning({
       role="alert"
     >
       <div>
-        <p className="font-medium">Call activity delayed — retrying</p>
+        <p className="font-medium">Call updates delayed — recovering.</p>
         <p className="mt-1 text-xs">Last updated {age}. Retained calls may be stale.</p>
       </div>
       <Button onClick={retry} size="sm" variant="secondary">
