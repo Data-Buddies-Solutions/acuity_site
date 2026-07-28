@@ -5,17 +5,20 @@ const clients: FakeTelnyxClient[] = [];
 
 class FakeTelnyxClient {
   handlers = new Map<string, (...args: unknown[]) => void>();
+  options: Record<string, unknown>;
   remoteElement: HTMLAudioElement | null = null;
   connectCount = 0;
   disconnectCount = 0;
 
-  constructor(_credentials: unknown) {
+  constructor(options: Record<string, unknown>) {
+    this.options = options;
     clients.push(this);
   }
 
   connect() {
     this.connectCount += 1;
     this.handlers.get("telnyx.ready")?.();
+    return Promise.resolve();
   }
 
   disconnect() {
@@ -133,7 +136,7 @@ describe("useSoftphoneMedia canonical credentials", () => {
     expect(clients).toHaveLength(1);
   });
 
-  it("creates a fresh Telnyx client after fatal registration failure", async () => {
+  it("creates a fresh Telnyx client after automatic reconnection is exhausted", async () => {
     globalThis.fetch = mock(async () =>
       Response.json({ token: "canonical-token" }),
     ) as unknown as typeof fetch;
@@ -150,7 +153,12 @@ describe("useSoftphoneMedia canonical credentials", () => {
 
     act(() =>
       clients[0]?.emit("telnyx.error", {
-        error: { fatal: true, message: "Registration failed" },
+        error: {
+          code: 45_003,
+          fatal: true,
+          message: "Unable to reconnect",
+          name: "RECONNECTION_EXHAUSTED",
+        },
       }),
     );
 
@@ -198,6 +206,27 @@ describe("useSoftphoneMedia canonical credentials", () => {
     expect(result.current.error).toBe(
       "The phone service is temporarily unavailable. Try again in a moment.",
     );
+  });
+
+  it("configures bounded Telnyx reconnection with active-call media preservation", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json({ token: "canonical-token" }),
+    ) as unknown as typeof fetch;
+
+    renderHook(() =>
+      useSoftphoneMedia({
+        agentSessionId: "session-1",
+        browserSessionId: "browser-1",
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(clients).toHaveLength(1));
+
+    expect(clients[0]?.options).toMatchObject({
+      keepConnectionAliveOnSocketClose: true,
+      login_token: "canonical-token",
+      maxReconnectAttempts: 5,
+    });
   });
 
   it("waits for provider state and rejects a late Telnyx answer failure", async () => {

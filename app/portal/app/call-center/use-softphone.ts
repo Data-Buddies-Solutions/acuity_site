@@ -48,6 +48,7 @@ const TELNYX_CLIENT_EVENTS = [
   "telnyx.warning",
 ] as const;
 const ANSWER_CONFIRMATION_TIMEOUT_MS = 20_000;
+const TELNYX_MAX_RECONNECT_ATTEMPTS = 5;
 
 function isRetryableConnectError(error: unknown) {
   return !(error instanceof CallCenterRequestError) || error.operatorError.retryable;
@@ -367,10 +368,21 @@ function useSoftphoneMediaEngine({
         if (cancelled) return;
 
         const auth = data as TelnyxTokenResponse;
+        const recoveryOptions = {
+          keepConnectionAliveOnSocketClose: true,
+          maxReconnectAttempts: TELNYX_MAX_RECONNECT_ATTEMPTS,
+        };
         const client =
           "login" in auth && auth.login && auth.password
-            ? new TelnyxRTC({ login: auth.login, password: auth.password })
-            : new TelnyxRTC({ login_token: (auth as { token: string }).token });
+            ? new TelnyxRTC({
+                ...recoveryOptions,
+                login: auth.login,
+                password: auth.password,
+              })
+            : new TelnyxRTC({
+                ...recoveryOptions,
+                login_token: (auth as { token: string }).token,
+              });
         if (remoteAudioElementRef.current) {
           client.remoteElement = remoteAudioElementRef.current;
         }
