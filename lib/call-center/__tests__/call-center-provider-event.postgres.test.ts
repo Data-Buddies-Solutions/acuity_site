@@ -408,8 +408,8 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
 
       secondProcessing = processor(second);
       await expect(secondProcessing).rejects.toMatchObject({ status: 503 });
-      await expect(
-        adminPrisma.providerWebhookEvent.findUniqueOrThrow({
+      expect(
+        await adminPrisma.providerWebhookEvent.findUniqueOrThrow({
           where: {
             provider_providerEventId: {
               provider: "TELNYX",
@@ -417,7 +417,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
             },
           },
         }),
-      ).resolves.toMatchObject({
+      ).toMatchObject({
         attemptCount: 0,
         processingStatus: "RECEIVED",
       });

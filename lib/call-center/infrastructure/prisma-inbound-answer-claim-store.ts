@@ -423,6 +423,9 @@ export class PrismaInboundAnswerClaimStore implements InboundAnswerClaimStore {
   ) {
     return this.runTransaction(async (transaction) => {
       await lockCallCenterPractice(transaction, actor.practiceId);
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "user" WHERE "id" = ${actor.userId} FOR UPDATE`,
+      );
       const target = await transaction.callCenterCallLeg.findFirst({
         select: { endpointId: true },
         where: {

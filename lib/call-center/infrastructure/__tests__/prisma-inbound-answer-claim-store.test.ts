@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { PrismaInboundAnswerClaimStore } from "../prisma-inbound-answer-claim-store";
 
 describe("inbound Answer database locks", () => {
-  it("locks the practice before the endpoint and call rows", async () => {
+  it("locks the practice and actor before the endpoint and call rows", async () => {
     const operations: string[] = [];
     const transaction = {
       $queryRaw: async (query: {
@@ -14,9 +14,11 @@ describe("inbound Answer database locks", () => {
         operations.push(
           query.values?.includes("CALL_CENTER:practice-1")
             ? "practice.lock"
-            : sql.includes("call_center_endpoint")
-              ? "endpoint.lock"
-              : "call.lock",
+            : sql.includes('FROM "user"')
+              ? "actor.lock"
+              : sql.includes("call_center_endpoint")
+                ? "endpoint.lock"
+                : "call.lock",
         );
         return [];
       },
@@ -44,6 +46,7 @@ describe("inbound Answer database locks", () => {
 
     expect(operations).toEqual([
       "practice.lock",
+      "actor.lock",
       "endpoint.resolve",
       "endpoint.lock",
       "call.lock",

@@ -122,9 +122,11 @@ provider-command delivery remains a separate durable lifecycle.
     order `practice -> operation receipt -> mutable call/leg rows`.
     Configuration writes, admission, inbound Answer, outbound creation, and
     provider-command transitions acquire the shared transaction-scoped practice
-    lock before their narrower locks. Existing-call projection does not take a
-    blanket practice lock; it locks the endpoint first and then call rows in
-    deterministic ID order so unrelated calls may proceed concurrently.
+    lock before their narrower locks. Inbound Answer then locks the actor before
+    endpoint, call, and agent-session rows, matching heartbeat's actor-before-session
+    order. Existing-call projection does not take a blanket practice lock; it locks
+    the endpoint first and then call rows in deterministic ID order so unrelated calls
+    may proceed concurrently.
     Provider I/O occurs only after the database transaction releases its locks.
 14. A provider event has one claim lease, attempt count, retry time, categorical
     error, processed time, and status from receipt through terminal outcome.
