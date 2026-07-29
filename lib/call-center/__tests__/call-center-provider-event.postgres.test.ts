@@ -7,7 +7,6 @@ import { PrismaClient } from "@/generated/prisma/client";
 import { createProviderWebhookDrainer } from "@/lib/call-center/application/drain-provider-webhooks";
 import { createTelnyxVoiceEventProcessor } from "@/lib/call-center/application/process-telnyx-voice-event";
 import { callCenter } from "@/lib/call-center/call-center";
-import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { createPrismaCanonicalCallProjector } from "@/lib/call-center/infrastructure/prisma-canonical-call-projector";
 import { admitTelnyxEvent } from "@/lib/call-center/infrastructure/prisma-telnyx-event-admission";
 import {
@@ -370,14 +369,11 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
   it("leaves a same-session callback pending while live projection owns the lane", async () => {
     const current = await fixture();
     const providerSessionId = `session-${current.key}`;
-    const releasePracticeLock = Promise.withResolvers<void>();
-    const practiceLockAcquired = Promise.withResolvers<void>();
-    const lock = adminPrisma.$transaction(async (transaction) => {
-      await lockCallCenterPractice(transaction, current.practiceId);
-      practiceLockAcquired.resolve();
-      await releasePracticeLock.promise;
-    });
-    await practiceLockAcquired.promise;
+    const releaseProjection = Promise.withResolvers<void>();
+    const firstProjectionStarted = Promise.withResolvers<void>();
+    const projector = createPrismaCanonicalCallProjector(adminPrisma);
+    let firstProcessing: Promise<unknown> | null = null;
+    let secondProcessing: Promise<unknown> | null = null;
 
     const first = envelope({
       eventType: "call.initiated",
@@ -391,31 +387,27 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
       providerEventId: `provider-${current.key}-lane-second`,
       providerSessionId,
     });
+    const processor = createTelnyxVoiceEventProcessor({
+      admit: (event) => admitTelnyxEvent(event, adminPrisma),
+      dispatchCommand: async (commandId) => ({ commandId, status: "SETTLED" }),
+      inbox: providerWebhookInbox,
+      projector: {
+        projectAndComplete: async (...args) => {
+          if (args[0].providerEventId === first.providerEventId) {
+            firstProjectionStarted.resolve();
+            await releaseProjection.promise;
+          }
+          return projector.projectAndComplete(...args);
+        },
+      },
+    });
 
     try {
-      const firstProjection = callCenter.applyProviderEvent(first);
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        const claimed = await adminPrisma.providerWebhookEvent.findUnique({
-          select: { processingStatus: true },
-          where: {
-            provider_providerEventId: {
-              provider: "TELNYX",
-              providerEventId: first.providerEventId,
-            },
-          },
-        });
-        if (claimed?.processingStatus === "PROCESSING") break;
-        await Bun.sleep(10);
-      }
+      firstProcessing = processor(first);
+      await firstProjectionStarted.promise;
 
-      await expect(
-        Promise.race([
-          callCenter.applyProviderEvent(second),
-          Bun.sleep(1_000).then(() => {
-            throw new Error("same-session claim waited behind active projection");
-          }),
-        ]),
-      ).rejects.toMatchObject({ status: 503 });
+      secondProcessing = processor(second);
+      await expect(secondProcessing).rejects.toMatchObject({ status: 503 });
       await expect(
         adminPrisma.providerWebhookEvent.findUniqueOrThrow({
           where: {
@@ -430,14 +422,19 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
         processingStatus: "RECEIVED",
       });
 
-      releasePracticeLock.resolve();
-      await expect(firstProjection).resolves.toMatchObject({ outcome: "PROCESSED" });
-      await expect(callCenter.applyProviderEvent(second)).resolves.toMatchObject({
+      releaseProjection.resolve();
+      await expect(firstProcessing).resolves.toMatchObject({ outcome: "PROCESSED" });
+      secondProcessing = processor(second);
+      await expect(secondProcessing).resolves.toMatchObject({
         outcome: "PROCESSED",
       });
     } finally {
-      releasePracticeLock.resolve();
-      await lock;
+      releaseProjection.resolve();
+      await Promise.allSettled(
+        [firstProcessing, secondProcessing].filter(
+          (processing): processing is Promise<unknown> => processing !== null,
+        ),
+      );
       await current.cleanup();
     }
   });
