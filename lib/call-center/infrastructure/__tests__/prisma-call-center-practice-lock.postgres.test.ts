@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Pool } from "pg";
 
 import { Prisma, PrismaClient } from "@/generated/prisma/client";
+import { startOutboundCall } from "@/lib/call-center/application/start-outbound-call";
 import type { ProviderWebhookRecord } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import {
   collectCallCenterConfigurationReferences,
@@ -19,6 +20,7 @@ import {
   admitTelnyxEvent,
   TelnyxEventAdmissionError,
 } from "@/lib/call-center/infrastructure/prisma-telnyx-event-admission";
+import { PrismaStartOutboundCallStore } from "@/lib/call-center/infrastructure/prisma-start-outbound-call-store";
 const postgresUrl = process.env.CALL_CENTER_POSTGRES_TEST_URL ?? "";
 const describePostgres = postgresUrl ? describe : describe.skip;
 
@@ -303,6 +305,181 @@ describePostgres("call-center practice lock on PostgreSQL", () => {
       releaseConfiguration();
       await Promise.allSettled([configurationWrite, admission]);
       await adminPrisma.providerWebhookEvent.deleteMany({ where: { id: inboxId } });
+      await adminPrisma.practice.deleteMany({ where: { id: practiceId } });
+      await adminPrisma.user.deleteMany({ where: { id: userId } });
+    }
+  });
+
+  it("starts one outbound call for concurrent same-key requests during an inbound offer", async () => {
+    const key = randomUUID().replaceAll("-", "");
+    const id = (prefix: string) => `${prefix}-${key}`;
+    const userId = id("user");
+    const practiceId = id("practice");
+    const locationId = id("location");
+    const phoneId = id("phone");
+    const numberId = id("number");
+    const queueId = id("queue");
+    const endpointId = id("endpoint");
+    const sessionId = id("session");
+    const inboundCallId = id("inbound-call");
+    const inboundLegId = id("inbound-agent-leg");
+    const now = new Date("2026-07-28T12:00:00.000Z");
+    const digits = [...key]
+      .map((value) => value.charCodeAt(0) % 10)
+      .slice(0, 10)
+      .join("");
+    const practicePhone = `+1${digits}`;
+    const actor = {
+      allowedLocationIds: [locationId],
+      hasAllLocationAccess: false,
+      practiceId,
+      userId,
+    };
+    const input = {
+      clientInstanceId: id("browser"),
+      destination: "+17865550123",
+      idempotencyKey: id("outbound-key"),
+      numberId,
+      queueId,
+    };
+
+    await adminPrisma.user.create({
+      data: { email: `${userId}@example.test`, id: userId, name: "Outbound agent" },
+    });
+    await adminPrisma.practice.create({
+      data: { id: practiceId, name: "Issue 237 outbound race" },
+    });
+    await adminPrisma.practiceMembership.create({
+      data: { practiceId, userId },
+    });
+    await adminPrisma.practiceLocation.create({
+      data: { id: locationId, name: "Outbound location", practiceId },
+    });
+    await adminPrisma.practicePhoneNumber.create({
+      data: { id: phoneId, locationId, phoneNumber: practicePhone, practiceId },
+    });
+    await adminPrisma.callCenterQueue.create({
+      data: { id: queueId, name: "Outbound queue", practiceId },
+    });
+    await adminPrisma.callCenterQueueLocation.create({
+      data: { locationId, queueId },
+    });
+    await adminPrisma.callCenterQueueMember.create({
+      data: { queueId, userId },
+    });
+    await adminPrisma.callCenterNumber.create({
+      data: {
+        id: numberId,
+        inboundEnabled: true,
+        inboundQueueId: queueId,
+        outboundEnabled: true,
+        practiceId,
+        practicePhoneNumberId: phoneId,
+      },
+    });
+    await adminPrisma.callCenterEndpoint.create({
+      data: {
+        id: endpointId,
+        label: "Outbound endpoint",
+        locationId,
+        practiceId,
+        providerCredentialId: id("credential"),
+        sipUsername: id("sip"),
+        userId,
+      },
+    });
+    await adminPrisma.callCenterAgentSession.create({
+      data: {
+        audioReady: true,
+        browserSessionId: input.clientInstanceId,
+        connectionState: "READY",
+        endpointId,
+        id: sessionId,
+        lastHeartbeatAt: now,
+        leaseExpiresAt: new Date(now.getTime() + 60_000),
+        microphoneReady: true,
+        practiceId,
+        presence: "AVAILABLE",
+        readyAt: now,
+        userId,
+      },
+    });
+    await adminPrisma.callCenterCall.create({
+      data: {
+        direction: "INBOUND",
+        fromPhone: "+17865550101",
+        id: inboundCallId,
+        numberId,
+        practiceId,
+        queueId,
+        receivedAt: now,
+        status: "RINGING",
+        toPhone: practicePhone,
+      },
+    });
+    await adminPrisma.callCenterCallLeg.create({
+      data: {
+        agentSessionId: sessionId,
+        callId: inboundCallId,
+        endpointId,
+        id: inboundLegId,
+        kind: "AGENT",
+        status: "RINGING",
+      },
+    });
+
+    const firstStore = new PrismaStartOutboundCallStore((work) =>
+      admissionPrisma.$transaction(work),
+    );
+    const secondStore = new PrismaStartOutboundCallStore((work) =>
+      configurationPrisma.$transaction(work),
+    );
+    const start = async (store: PrismaStartOutboundCallStore) => {
+      await store.prepareOutboundCleanup(actor, input, now);
+      return startOutboundCall(store, actor, input, now);
+    };
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const receipts = await Promise.race([
+        Promise.all([start(firstStore), start(secondStore)]),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("concurrent outbound start did not converge")),
+            5_000,
+          );
+        }),
+      ]);
+
+      expect(receipts.filter(({ replayed }) => !replayed)).toHaveLength(1);
+      expect(receipts.filter(({ replayed }) => replayed)).toHaveLength(1);
+      expect(new Set(receipts.map(({ callId }) => callId)).size).toBe(1);
+      expect(
+        await adminPrisma.callCenterCall.count({
+          where: { direction: "OUTBOUND", practiceId },
+        }),
+      ).toBe(1);
+      const commandGroups = await adminPrisma.callCenterCommand.groupBy({
+        by: ["idempotencyKey"],
+        _count: true,
+        where: { call: { direction: "OUTBOUND" }, practiceId },
+      });
+      expect(
+        commandGroups
+          .map(({ _count, idempotencyKey }) => ({ _count, idempotencyKey }))
+          .sort((left, right) => left.idempotencyKey.localeCompare(right.idempotencyKey)),
+      ).toEqual([
+        {
+          _count: 1,
+          idempotencyKey: `outbound:${input.idempotencyKey}:agent`,
+        },
+        {
+          _count: 1,
+          idempotencyKey: `outbound:${input.idempotencyKey}:customer`,
+        },
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
       await adminPrisma.practice.deleteMany({ where: { id: practiceId } });
       await adminPrisma.user.deleteMany({ where: { id: userId } });
     }

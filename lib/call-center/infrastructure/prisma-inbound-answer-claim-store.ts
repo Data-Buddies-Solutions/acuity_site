@@ -8,6 +8,7 @@ import type {
   InboundAnswerReservation,
 } from "@/lib/call-center/application/claim-inbound-answer";
 import type { QueueAccessActor } from "@/lib/call-center/auth/queue-access";
+import { lockCallCenterPractice } from "@/lib/call-center/infrastructure/prisma-call-center-practice-lock";
 import { createLogger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
@@ -421,6 +422,10 @@ export class PrismaInboundAnswerClaimStore implements InboundAnswerClaimStore {
     work: (transaction: InboundAnswerClaimTransaction) => Promise<T>,
   ) {
     return this.runTransaction(async (transaction) => {
+      await lockCallCenterPractice(transaction, actor.practiceId);
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "user" WHERE "id" = ${actor.userId} FOR UPDATE`,
+      );
       const target = await transaction.callCenterCallLeg.findFirst({
         select: { endpointId: true },
         where: {

@@ -135,4 +135,27 @@ describe("provider webhook claim decisions", () => {
     expect(claims.filter((claim) => claim.decision === "CLAIM")).toHaveLength(1);
     expect(claims.filter((claim) => claim.decision === "PROCESSING")).toHaveLength(1);
   });
+
+  it("claims a provider event through its durable session lane", async () => {
+    let claimedSessionId: string | null | undefined;
+    const store: ProviderWebhookInboxStore = {
+      claim: async (input) => {
+        claimedSessionId = input.providerCallSessionId;
+        return event({
+          attemptCount: 1,
+          processingStatus: "PROCESSING",
+          providerCallSessionId: "provider-session-1",
+        });
+      },
+      completeIgnored: async () => true,
+      fail: async () => true,
+      listDue: async () => [],
+      receive: async () => event(),
+    };
+    const inbox = createProviderWebhookInbox(store, { clock: () => now });
+
+    await inbox.claim(event({ providerCallSessionId: "provider-session-1" }));
+
+    expect(claimedSessionId).toBe("provider-session-1");
+  });
 });
