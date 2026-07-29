@@ -158,4 +158,26 @@ describe("provider webhook claim decisions", () => {
 
     expect(claimedSessionId).toBe("provider-session-1");
   });
+
+  it("scopes a live handoff batch to one provider session", async () => {
+    let listedSessionId: string | undefined;
+    let listedLimit = 0;
+    const store: ProviderWebhookInboxStore = {
+      claim: async () => null,
+      completeIgnored: async () => true,
+      fail: async () => true,
+      listDue: async (input) => {
+        listedSessionId = input.providerCallSessionId;
+        listedLimit = input.limit;
+        return [];
+      },
+      receive: async () => event(),
+    };
+    const inbox = createProviderWebhookInbox(store, { clock: () => now });
+
+    await inbox.listSessionDue("provider-session-1", 20);
+
+    expect(listedSessionId).toBe("provider-session-1");
+    expect(listedLimit).toBe(20);
+  });
 });

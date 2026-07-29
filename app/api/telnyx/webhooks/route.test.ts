@@ -12,7 +12,7 @@ describe("Telnyx webhook", () => {
       defer: (work) => {
         deferred = work as () => Promise<void>;
       },
-      drainProviderEvents: async () => ({
+      drainProviderSession: async () => ({
         attempted: 0,
         failed: 0,
         processed: 0,
@@ -76,10 +76,28 @@ describe("Telnyx webhook", () => {
     expect(projections).toBe(1);
   });
 
-  it("hands a queued same-call callback off immediately without waiting for cron", async () => {
+  it("hands a queued same-call callback off despite a full unrelated backlog", async () => {
     const deferred: Array<() => Promise<void>> = [];
     const projected: string[] = [];
     const pending = new Map<string, ProviderWebhookRecord>();
+    for (let index = 0; index < 20; index += 1) {
+      const id = `unrelated-${index}`;
+      pending.set(id, {
+        attemptCount: 0,
+        directHandoffTokenHash: null,
+        errorCode: null,
+        eventType: "call.answered",
+        id,
+        nextAttemptAt: null,
+        payload: {},
+        processedAt: null,
+        processingStatus: "RECEIVED",
+        providerCallSessionId: `unrelated-session-${index}`,
+        providerEventId: `provider-${id}`,
+        receivedAt: new Date("2026-07-29T10:47:00.000Z"),
+        updatedAt: new Date("2026-07-29T10:47:00.000Z"),
+      });
+    }
     let active = false;
     let releaseFirst!: () => void;
     const firstProjectionBlocked = new Promise<void>((resolve) => {
@@ -91,6 +109,11 @@ describe("Telnyx webhook", () => {
     });
 
     const processProviderRecord = async (record: ProviderWebhookRecord) => {
+      if (record.providerCallSessionId !== "same-provider-session") {
+        throw Object.assign(new Error("unrelated provider session is busy"), {
+          status: 503,
+        });
+      }
       if (active) {
         throw Object.assign(new Error("same-call callback is already processing"), {
           status: 503,
@@ -126,13 +149,13 @@ describe("Telnyx webhook", () => {
       defer: (work) => {
         deferred.push(work as () => Promise<void>);
       },
-      drainProviderEvents: async () => {
+      drainProviderSession: async (providerCallSessionId: string) => {
         for (const record of pending.values()) {
+          if (record.providerCallSessionId !== providerCallSessionId) continue;
           try {
             await processProviderRecord(record);
           } catch {
-            // Another callback still owns this session. Its completion performs
-            // the immediate handoff.
+            // The current session owner performs the next handoff.
           }
         }
         return { attempted: 0, failed: 0, processed: 0 };
