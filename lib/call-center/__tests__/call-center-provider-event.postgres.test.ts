@@ -382,7 +382,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
       providerSessionId,
     });
     const second = envelope({
-      eventType: "call.answered",
+      eventType: "call.hangup",
       key: current.key,
       providerEventId: `provider-${current.key}-lane-second`,
       providerSessionId,
