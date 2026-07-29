@@ -52,6 +52,7 @@ export type ProviderWebhookInboxStore = {
     limit: number;
     maxAttempts: number;
     now: Date;
+    providerCallSessionId?: string;
     staleBefore: Date;
   }): Promise<ProviderWebhookRecord[]>;
   receive(envelope: TelnyxVoiceWebhookEnvelope): Promise<ProviderWebhookRecord>;
@@ -132,6 +133,16 @@ export function createProviderWebhookInbox(
         limit,
         maxAttempts,
         now,
+        staleBefore: new Date(now.getTime() - processingLeaseMs),
+      });
+    },
+    listSessionDue: (providerCallSessionId: string, limit: number) => {
+      const now = clock();
+      return store.listDue({
+        limit,
+        maxAttempts,
+        now,
+        providerCallSessionId,
         staleBefore: new Date(now.getTime() - processingLeaseMs),
       });
     },
@@ -326,13 +337,16 @@ const prismaProviderWebhookInboxStore: ProviderWebhookInboxStore = {
 
     return failed.count === 1;
   },
-  async listDue({ limit, maxAttempts, now, staleBefore }) {
+  async listDue({ limit, maxAttempts, now, providerCallSessionId, staleBefore }) {
     return prisma.providerWebhookEvent.findMany({
       orderBy: [{ nextAttemptAt: "asc" }, { receivedAt: "asc" }, { id: "asc" }],
       select: selectedFields,
       take: limit,
       where: {
         attemptCount: { lt: maxAttempts },
+        ...(providerCallSessionId
+          ? { provider: "TELNYX" as const, providerCallSessionId }
+          : {}),
         OR: [
           { processingStatus: "RECEIVED" },
           {

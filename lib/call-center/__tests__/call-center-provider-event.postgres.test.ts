@@ -366,7 +366,7 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
     }
   });
 
-  it("leaves a same-session callback pending while live projection owns the lane", async () => {
+  it("hands a pending session callback off ahead of unrelated backlog", async () => {
     const current = await fixture();
     const providerSessionId = `session-${current.key}`;
     const releaseProjection = Promise.withResolvers<void>();
@@ -403,6 +403,18 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
     });
 
     try {
+      await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          providerWebhookInbox.receive(
+            envelope({
+              eventType: "call.initiated",
+              key: current.key,
+              providerEventId: `provider-${current.key}-unrelated-${index}`,
+              providerSessionId: `session-${current.key}-unrelated-${index}`,
+            }),
+          ),
+        ),
+      );
       firstProcessing = processor(first);
       await firstProjectionStarted.promise;
 
@@ -424,10 +436,29 @@ describePostgres("server Call Center provider-event lifecycle on PostgreSQL", ()
 
       releaseProjection.resolve();
       await expect(firstProcessing).resolves.toMatchObject({ outcome: "PROCESSED" });
-      secondProcessing = processor(second);
-      await expect(secondProcessing).resolves.toMatchObject({
-        outcome: "PROCESSED",
+      const handoff = createProviderWebhookDrainer({
+        backlog: {
+          listDue: (limit) =>
+            providerWebhookInbox.listSessionDue(providerSessionId, limit),
+        },
+        concurrency: 1,
+        processRecord: processor.processRecord,
       });
+      await expect(handoff()).resolves.toEqual({
+        attempted: 1,
+        failed: 0,
+        processed: 1,
+      });
+      expect(
+        await adminPrisma.providerWebhookEvent.findUniqueOrThrow({
+          where: {
+            provider_providerEventId: {
+              provider: "TELNYX",
+              providerEventId: second.providerEventId,
+            },
+          },
+        }),
+      ).toMatchObject({ attemptCount: 1, processingStatus: "PROCESSED" });
     } finally {
       releaseProjection.resolve();
       await Promise.allSettled(

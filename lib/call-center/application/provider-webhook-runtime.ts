@@ -8,6 +8,17 @@ const drainProviderWebhookInbox = createProviderWebhookDrainer({
   processRecord: processTelnyxVoiceEvent.processRecord,
 });
 
+export function drainProviderWebhookSession(providerCallSessionId: string) {
+  return createProviderWebhookDrainer({
+    backlog: {
+      listDue: (limit) =>
+        providerWebhookInbox.listSessionDue(providerCallSessionId, limit),
+    },
+    concurrency: 1,
+    processRecord: processTelnyxVoiceEvent.processRecord,
+  })();
+}
+
 export async function drainProviderWebhooks() {
   const webhooks = await drainProviderWebhookInbox();
   const activeCalls = await drainActiveCalls();
