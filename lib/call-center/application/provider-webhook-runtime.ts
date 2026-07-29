@@ -3,7 +3,7 @@ import { createProviderWebhookDrainer } from "@/lib/call-center/application/drai
 import { processTelnyxVoiceEvent } from "@/lib/call-center/application/process-telnyx-voice-event";
 import { providerWebhookInbox } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 
-const drainProviderWebhookInbox = createProviderWebhookDrainer({
+export const drainProviderWebhookInbox = createProviderWebhookDrainer({
   backlog: providerWebhookInbox,
   processRecord: processTelnyxVoiceEvent.processRecord,
 });

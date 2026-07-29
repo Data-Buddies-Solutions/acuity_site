@@ -5,6 +5,7 @@ import {
   processTelnyxVoiceEvent,
   providerEventErrorCode,
 } from "@/lib/call-center/application/process-telnyx-voice-event";
+import { drainProviderWebhookInbox } from "@/lib/call-center/application/provider-webhook-runtime";
 import { providerWebhookInbox } from "@/lib/call-center/infrastructure/provider-webhook-inbox";
 import { parseTelnyxVoiceWebhookEnvelope } from "@/lib/call-center/infrastructure/telnyx-voice-envelope";
 import { createLogger } from "@/lib/logger";
@@ -15,6 +16,7 @@ const logger = createLogger("telnyx-webhook");
 
 export function createTelnyxWebhookHandler({
   defer = after,
+  drainProviderEvents = drainProviderWebhookInbox,
   handleSms = handleTelnyxSmsWebhookEvent,
   isSms = isTelnyxSmsEvent,
   parseVoiceEnvelope = parseTelnyxVoiceWebhookEnvelope,
@@ -23,6 +25,7 @@ export function createTelnyxWebhookHandler({
   verifySignature = verifyTelnyxWebhookSignature,
 }: {
   defer?: typeof after;
+  drainProviderEvents?: typeof drainProviderWebhookInbox;
   handleSms?: typeof handleTelnyxSmsWebhookEvent;
   isSms?: typeof isTelnyxSmsEvent;
   parseVoiceEnvelope?: typeof parseTelnyxVoiceWebhookEnvelope;
@@ -65,6 +68,15 @@ export function createTelnyxWebhookHandler({
               errorCode: providerEventErrorCode(error),
               providerEventId: received.providerEventId,
             });
+          } finally {
+            try {
+              await drainProviderEvents();
+            } catch (error) {
+              logger.error("immediate provider event handoff failed", {
+                errorCode: providerEventErrorCode(error),
+                providerEventId: received.providerEventId,
+              });
+            }
           }
         });
         result = {

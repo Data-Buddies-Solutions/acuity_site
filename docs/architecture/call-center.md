@@ -86,10 +86,13 @@ after that receipt is durable. Projection wakes immediately after the response.
 Live ingress and scheduled recovery claim the same non-blocking durable lane
 for a provider call session; one event remains `PROCESSING` while later events
 stay pending in receipt order. The claim transaction never waits for the active
-projector, and the scheduled recovery loop processes at most four different
-provider sessions at once. A receipt failure remains an HTTP failure so Telnyx
-retries it. Out-of-scope callbacks end as one auditable `IGNORED` outcome;
-provider-command delivery remains a separate durable lifecycle.
+projector. Each completed live worker immediately drains one bounded batch so
+the lane hands off to pending callbacks without waiting for scheduled recovery;
+the scheduled recovery loop remains the interruption backstop and processes at
+most four different provider sessions at once. A receipt failure remains an
+HTTP failure so Telnyx retries it. Out-of-scope callbacks end as one auditable
+`IGNORED` outcome; provider-command delivery remains a separate durable
+lifecycle.
 
 ## Invariants
 
