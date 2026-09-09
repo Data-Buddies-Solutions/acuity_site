@@ -127,11 +127,11 @@ describePostgres("canonical caller-thread reads on PostgreSQL", () => {
       };
       const page = await listCanonicalNeedsActionThreadPage(
         context,
-        { locationIds: [locationId], page: 1, pageSize: 15, queueId },
+        { locationIds: [locationId], now: baseTime, page: 1, pageSize: 15, queueId },
         prisma,
       );
       const result = await readCanonicalNeedsAction(
-        { locationIds: [locationId], page: 1, pageSize: 15, queueId },
+        { locationIds: [locationId], now: baseTime, page: 1, pageSize: 15, queueId },
         {
           database: prisma,
           getContext: async () => context as never,
@@ -159,6 +159,55 @@ describePostgres("canonical caller-thread reads on PostgreSQL", () => {
       expect(timeline?.openTaskCount).toBe(1);
       expect(timeline?.openCycleToken).toMatch(/^v1:1:[a-f0-9]{32}$/);
       expect(timeline).not.toHaveProperty("openTaskIds");
+
+      const cutoff = new Date(baseTime.getTime() - 14 * 24 * 60 * 60 * 1_000);
+      const fixtures = [
+        { phone: callers[0]!, kind: "MISSED_CALL", age: 1 },
+        { phone: "+15555558881", kind: "VOICEMAIL", age: 1 },
+        { phone: "+15555558882", kind: "MISSED_CALL", age: 0 },
+        { phone: "+15555558883", kind: "VOICEMAIL", age: 0 },
+        { phone: "+15555558884", kind: "NOTE", age: 1 },
+      ] as const;
+      for (const [index, fixture] of fixtures.entries()) {
+        await prisma.callCenterCall.create({
+          data: {
+            id: `aged-call-${key}-${index}`,
+            direction: "INBOUND",
+            fromPhone: fixture.phone,
+            numberId,
+            practiceId,
+            queueId,
+            receivedAt: new Date(cutoff.getTime() - fixture.age),
+            status: "ABANDONED",
+            toPhone: "+15555559999",
+            tasks: {
+              create: {
+                // A delayed task must not bring an old call back into the list.
+                createdAt: baseTime,
+                dedupeKey: `aged-task-${key}-${index}`,
+                kind: fixture.kind,
+                practiceId,
+                sourceEventRevision: event.revision,
+              },
+            },
+          },
+        });
+      }
+      const recent = await readCanonicalNeedsAction(
+        { locationIds: [locationId], now: baseTime, page: 1, pageSize: 100, queueId },
+        { database: prisma, getContext: async () => context as never },
+      );
+      expect(recent?.total).toBe(19);
+      expect(recent?.groups).toHaveLength(19);
+      expect(
+        recent?.groups.find((group) => group.fromPhone === callers[0])?.missedCount,
+      ).toBe(5);
+      expect(recent?.groups.map((group) => group.fromPhone)).not.toContain(
+        fixtures[1].phone,
+      );
+      for (const fixture of fixtures.slice(2)) {
+        expect(recent?.groups.map((group) => group.fromPhone)).toContain(fixture.phone);
+      }
     } finally {
       await prisma.practice.delete({ where: { id: practiceId } });
     }

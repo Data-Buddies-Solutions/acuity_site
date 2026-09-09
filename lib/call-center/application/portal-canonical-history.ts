@@ -315,16 +315,31 @@ function taskActivity(task: NeedsActionTask): PortalCallActivityItem {
 
 export const CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT = 15;
 
+function unansweredCallCutoff(now: Date) {
+  return new Date(now.getTime() - 14 * 24 * 60 * 60 * 1_000);
+}
+
+function recentUnansweredTasks(cutoff: Date): Prisma.CallCenterTaskWhereInput {
+  return {
+    OR: [
+      { kind: { notIn: ["MISSED_CALL", "VOICEMAIL"] } },
+      { call: { receivedAt: { gte: cutoff } } },
+    ],
+  };
+}
+
 export async function readCanonicalNeedsActionPreview(
   actor: QueueAccessActor,
   options: {
     locationIds?: string[];
+    now?: Date;
     queueId: string;
   },
   database: CanonicalNeedsActionPreviewDatabase = prisma,
   listNeedsActionThreadPage: typeof listCanonicalNeedsActionThreadPage = listCanonicalNeedsActionThreadPage,
 ): Promise<PortalNeedsActionPreviewItem[]> {
   await resolveQueueAccess(actor, options.queueId, database);
+  const now = options.now ?? new Date();
   const context = {
     allowedLocationIds: actor.allowedLocationIds,
     hasAllLocationAccess: actor.hasAllLocationAccess,
@@ -340,6 +355,7 @@ export async function readCanonicalNeedsActionPreview(
       locationIds: options.locationIds ?? [],
       page: 1,
       pageSize: CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT,
+      now,
       queueId: options.queueId,
     },
     database,
@@ -349,6 +365,7 @@ export async function readCanonicalNeedsActionPreview(
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
     select: needsActionTaskSelect,
     where: {
+      ...recentUnansweredTasks(unansweredCallCutoff(now)),
       call: needsActionThreadCallWhere(callAccess, threadPage.threads),
       practiceId: actor.practiceId,
       status: "OPEN",
@@ -374,6 +391,7 @@ export async function readCanonicalNeedsActionPreview(
 export async function readCanonicalNeedsAction(
   options: {
     locationIds?: string[];
+    now?: Date;
     page?: number;
     pageSize?: number;
     queueId?: string;
@@ -391,11 +409,13 @@ export async function readCanonicalNeedsAction(
   if (!context) return null;
   const page = Math.max(1, Math.round(options.page ?? 1));
   const pageSize = Math.min(100, Math.max(1, Math.round(options.pageSize ?? 25)));
+  const now = options.now ?? new Date();
   const callAccess = {
     ...canonicalCallAccessWhere(context, options.locationIds ?? []),
     ...(options.queueId ? { queueId: options.queueId } : {}),
   };
   const taskWhere: Prisma.CallCenterTaskWhereInput = {
+    ...recentUnansweredTasks(unansweredCallCutoff(now)),
     call: callAccess,
     practiceId: context.practice.id,
     status: "OPEN",
@@ -404,6 +424,7 @@ export async function readCanonicalNeedsAction(
     context,
     {
       locationIds: options.locationIds ?? [],
+      now,
       page,
       pageSize,
       queueId: options.queueId,
@@ -496,6 +517,7 @@ export async function listCanonicalNeedsActionThreadPage(
   context: CallAccessContext,
   options: {
     locationIds: string[];
+    now?: Date;
     page: number;
     pageSize: number;
     queueId?: string;
@@ -513,6 +535,7 @@ export async function listCanonicalNeedsActionThreadPage(
     locationIds === null
       ? Prisma.empty
       : Prisma.sql`AND pn."locationId" IN (${Prisma.join(locationIds)})`;
+  const cutoff = unansweredCallCutoff(options.now ?? new Date());
   const offset = (options.page - 1) * options.pageSize;
   const rows = await database.$queryRaw<
     Array<{ threads: NeedsActionThreadKey[]; total: number }>
@@ -534,6 +557,10 @@ export async function listCanonicalNeedsActionThreadPage(
         WHERE t."practiceId" = ${context.practice.id}
           AND c."practiceId" = ${context.practice.id}
           AND t."status" = 'OPEN'
+          AND (
+            t."kind" NOT IN ('MISSED_CALL', 'VOICEMAIL')
+            OR c."receivedAt" >= ${cutoff}
+          )
           ${queueFilter}
           ${locationFilter}
       ),

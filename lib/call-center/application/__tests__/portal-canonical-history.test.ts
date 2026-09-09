@@ -106,7 +106,13 @@ describe("canonical portal history", () => {
       },
     };
     const result = await readCanonicalNeedsAction(
-      { locationIds: ["location-1"], page: 1, pageSize: 25, queueId: "queue-1" },
+      {
+        locationIds: ["location-1"],
+        now: call.receivedAt,
+        page: 1,
+        pageSize: 25,
+        queueId: "queue-1",
+      },
       {
         database: database as never,
         getContext: async () => context as never,
@@ -143,6 +149,10 @@ describe("canonical portal history", () => {
         },
         practiceId: "practice-1",
         status: "OPEN",
+        OR: [
+          { kind: { notIn: ["MISSED_CALL", "VOICEMAIL"] } },
+          { call: { receivedAt: { gte: new Date("2026-06-28T19:00:00.000Z") } } },
+        ],
       },
     });
     expect(result).toMatchObject({
@@ -203,7 +213,7 @@ describe("canonical portal history", () => {
         practiceId: "practice-1",
         userId: "user-1",
       },
-      { locationIds: ["location-1"], queueId: "queue-1" },
+      { locationIds: ["location-1"], now: call.receivedAt, queueId: "queue-1" },
       database as never,
       async () => ({
         threads: [
@@ -230,6 +240,10 @@ describe("canonical portal history", () => {
         call: expect.any(Object),
         practiceId: "practice-1",
         status: "OPEN",
+        OR: [
+          { kind: { notIn: ["MISSED_CALL", "VOICEMAIL"] } },
+          { call: { receivedAt: { gte: new Date("2026-06-28T19:00:00.000Z") } } },
+        ],
       },
     });
     expect(result).toHaveLength(CANONICAL_NEEDS_ACTION_PREVIEW_LIMIT);
